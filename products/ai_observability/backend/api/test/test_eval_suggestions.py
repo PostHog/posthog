@@ -19,7 +19,7 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.backfill_candidates import BackfillScope
-from products.ai_observability.backend.eval_suggestions.client import TemporalUnreachable
+from products.ai_observability.backend.logic.eval_suggestions.eligibility import TemporalUnreachable
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
     EvalSuggestionKind,
@@ -33,8 +33,8 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
-ACCEPT_MODULE = "products.ai_observability.backend.eval_suggestions.accept"
-API_MODULE = "products.ai_observability.backend.api.eval_suggestions"
+ACCEPT_MODULE = "products.ai_observability.backend.logic.eval_suggestions.accept"
+SUGGESTIONS_MODULE = "products.ai_observability.backend.logic.eval_suggestions.suggestions"
 BACKFILLS_MODULE = "products.ai_observability.backend.api.evaluation_backfills"
 
 CHECK_DRAFT = {
@@ -241,7 +241,7 @@ class TestEvalSuggestionsApi(APIBaseTest):
             ("evaluation_edited_after_the_run", EvalSuggestionStatus.PROPOSED, True, False),
         ]
     )
-    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_list_shows_only_fixes_that_still_apply(
         self, _name: str, suggestion_status: str, edited: bool, listed: bool, _flag: MagicMock
     ) -> None:
@@ -260,7 +260,7 @@ class TestEvalSuggestionsApi(APIBaseTest):
         assert [row["id"] for row in results] == ([str(fix.id)] if listed else [])
 
     @parameterized.expand([("with_reason", {"reason": "too_noisy"}, "too_noisy"), ("without_reason", {}, None)])
-    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_dismiss_hides_the_suggestion(self, _name: str, body: dict, reason: str | None, _flag: MagicMock) -> None:
         suggestion = self._suggestion()
         kept = self._suggestion(dedupe_key="check:other")
@@ -356,13 +356,13 @@ class TestEvalSuggestionsApi(APIBaseTest):
             ("start_outcome_unknown", RuntimeError("deadline exceeded"), True, True),
         ]
     )
-    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_first_visit_starts_one_run_a_day(
         self, _name: str, start_error: Exception | None, first_pending: bool, later_pending: bool, _flag: MagicMock
     ) -> None:
         self.suggestion_run.delete()
         with patch(
-            "products.ai_observability.backend.eval_suggestions.eligibility.start_first_visit_run",
+            "products.ai_observability.backend.facade.eval_suggestions.start_first_visit_run",
             new=AsyncMock(side_effect=start_error),
         ) as start:
             first = self.client.get(f"{self.url}/").json()
@@ -371,7 +371,7 @@ class TestEvalSuggestionsApi(APIBaseTest):
         assert (first["pending"], second["pending"]) == (first_pending, later_pending)
         assert start.await_count == 1
 
-    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_dismissing_a_card_also_dismisses_its_replacement(self, _flag: MagicMock) -> None:
         # A run published the replacement while the dismissal of the older card waited on its lock.
         older = self._suggestion(status=EvalSuggestionStatus.EXPIRED)
@@ -394,7 +394,7 @@ class TestEvalSuggestionsApi(APIBaseTest):
             ("write_with_query", "post", "dismiss/", ["evaluation:write", "query:read"], status.HTTP_200_OK),
         ]
     )
-    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_api_key_needs_query_read_for_trace_evidence(
         self, _name: str, method: str, path: str, scopes: list[str], expected: int, _flag: MagicMock
     ) -> None:
@@ -466,7 +466,7 @@ class TestEvalSuggestionsAccessControl(APIBaseTest):
         assert target.conditions[0]["properties"][0]["value"] == ["signals"]
 
     @parameterized.expand([("target_evaluation",), ("similar_evaluation",)])
-    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_member_sees_no_suggestion_naming_an_evaluation_hidden_from_them(
         self, field: str, _flag: MagicMock
     ) -> None:
@@ -489,7 +489,7 @@ class TestEvalSuggestionsAccessControl(APIBaseTest):
         assert self.client.get(f"{url}/").json()["results"] == []
         assert self.client.get(f"{url}/{suggestion.id}/").status_code == status.HTTP_404_NOT_FOUND
 
-    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_dismissal_leaves_a_replacement_that_names_a_hidden_evaluation(self, _flag: MagicMock) -> None:
         hidden = _evaluation(self.team, name="Hidden evaluation")
         self._grant("editor")
@@ -520,7 +520,7 @@ class TestEvalSuggestionsAccessControl(APIBaseTest):
         cards[1].refresh_from_db()
         assert cards[1].status == EvalSuggestionStatus.PROPOSED
 
-    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_member_with_a_hidden_event_property_sees_no_suggestions(self, _flag: MagicMock) -> None:
         self.organization.available_product_features = [
             *(self.organization.available_product_features or []),

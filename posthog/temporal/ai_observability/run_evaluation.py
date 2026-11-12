@@ -16,11 +16,7 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from posthog.temporal.ai_observability.evaluation_event_io import (
-    GENERATION_NOT_FOUND_RETRY_WINDOW,
-    extract_event_io,
-    extract_event_tools,
-)
+from posthog.temporal.ai_observability.evaluation_event_io import GENERATION_NOT_FOUND_RETRY_WINDOW, extract_event_tools
 from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_activity, run_hog_eval
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     DEFAULT_JUDGE_MODEL,
@@ -88,7 +84,6 @@ __all__ = [
     "execute_hog_eval_activity",
     "execute_llm_judge_activity",
     "execute_sentiment_eval_activity",
-    "extract_event_io",
     "extract_event_tools",
     "fetch_evaluation_activity",
     "get_output_type_config",
