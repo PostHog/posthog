@@ -159,6 +159,17 @@ export function deleteBlock(editor: Editor, block: EmailBlockAt): void {
     editor.view.focus()
 }
 
+function blocksInColumnsFrom(columns: ProseMirrorNode, first: number): ProseMirrorNode[] {
+    const blocks: ProseMirrorNode[] = []
+    for (let index = first; index < columns.childCount; index++) {
+        const column = columns.child(index)
+        if (!(column.childCount === 1 && column.firstChild?.content.size === 0)) {
+            column.forEach((block) => blocks.push(block))
+        }
+    }
+    return blocks
+}
+
 /** Changes a columns block to a number of columns, keeping everything: blocks from removed columns join the last one. */
 export function setColumnCount(editor: Editor, pos: number, count: number): void {
     const node = editor.state.doc.nodeAt(pos)
@@ -179,13 +190,7 @@ export function setColumnCount(editor: Editor, pos: number, count: number): void
     for (let index = 0; index < count; index++) {
         removedFrom += node.child(index).nodeSize
     }
-    const moved: ProseMirrorNode[] = []
-    for (let index = count; index < node.childCount; index++) {
-        const removed = node.child(index)
-        if (!(removed.childCount === 1 && removed.firstChild?.content.size === 0)) {
-            removed.forEach((block) => moved.push(block))
-        }
-    }
+    const moved = blocksInColumnsFrom(node, count)
     tr.delete(removedFrom, columnsEnd)
     if (moved.length) {
         tr.insert(removedFrom - 1, Fragment.fromArray(moved))

@@ -11,6 +11,19 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { EmailBlockStyle, emailFontUrls, resolvePageStyle } from '../emailDocument'
 import { isFullHtmlDocument, oldEditorCss } from '../renderEmailHtml'
 
+// The email gives a fragment the page's font and no margin. A full document keeps whatever it sets.
+function previewDocument(html: string, editor: NodeViewProps['editor']): string {
+    if (isFullHtmlDocument(html)) {
+        return html
+    }
+    const page = resolvePageStyle(editor.state.doc.attrs.page)
+    const fonts = emailFontUrls(editor.state.doc.toJSON())
+        .map((url) => `<link rel="stylesheet" href="${url.replace(/"/g, '&quot;')}" />`)
+        .join('')
+    const oldStyles = page.oldEditorStyles ? oldEditorCss(page) : ''
+    return `${fonts}<style>body{margin:0;font-family:${page.fontFamily};font-size:${page.fontSize}px;line-height:${page.lineHeight}%;color:${page.textColor}}${oldStyles}</style>${html}`
+}
+
 export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }: NodeViewProps): JSX.Element {
     const [editing, setEditing] = useState(false)
     const [draft, setDraft] = useState<string>(node.attrs.html)
@@ -33,15 +46,7 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
         }
     }, [editing, node.attrs.html])
 
-    const page = resolvePageStyle(editor.state.doc.attrs.page)
-    // The email gives a fragment the page's font and no margin. A full document keeps whatever it sets.
-    const srcDoc = isFullHtmlDocument(node.attrs.html)
-        ? node.attrs.html
-        : `${emailFontUrls(editor.state.doc.toJSON())
-              .map((url) => `<link rel="stylesheet" href="${url.replace(/"/g, '&quot;')}" />`)
-              .join(
-                  ''
-              )}<style>body{margin:0;font-family:${page.fontFamily};font-size:${page.fontSize}px;line-height:${page.lineHeight}%;color:${page.textColor}}${page.oldEditorStyles ? oldEditorCss(page) : ''}</style>${node.attrs.html}`
+    const srcDoc = previewDocument(node.attrs.html, editor)
 
     const measure = (): void => {
         const body = iframeRef.current?.contentDocument?.documentElement
