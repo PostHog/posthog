@@ -95,3 +95,32 @@ export async function putSecret(
 export async function deleteSecret(db: Queryable, integrationId: string): Promise<void> {
     await query(db, 'DELETE FROM integration_secrets WHERE integration_id = $1', [integrationId])
 }
+
+/** Removes the blobs of many rows. Same transaction rule as `putSecret`. */
+export async function deleteSecrets(db: Queryable, integrationIds: readonly string[]): Promise<void> {
+    if (integrationIds.length === 0) {
+        return
+    }
+    await query(db, 'DELETE FROM integration_secrets WHERE integration_id = ANY($1::uuid[])', [integrationIds])
+}
+
+/**
+ * The current secrets of the given rows, whatever their owner. A row without a secret is absent.
+ * Only the change feed may call it: it does not bind an owner.
+ */
+export async function getSecretsOf(
+    db: Queryable,
+    integrationIds: readonly string[]
+): Promise<Map<string, StoredSecret>> {
+    if (integrationIds.length === 0) {
+        return new Map()
+    }
+    const result = await query<DbSecretRow>(
+        db,
+        `SELECT integration_id, key_id, wrapped_dek, ciphertext, nonce, enc_version, legacy_unreadable_keys
+         FROM integration_secrets
+         WHERE integration_id = ANY($1::uuid[])`,
+        [integrationIds]
+    )
+    return new Map(result.rows.map((row) => [row.integration_id, toStoredSecret(row)]))
+}

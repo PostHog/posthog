@@ -405,9 +405,10 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                 {url ? (
                     <div className="space-y-1">
                         <div className="flex flex-col sm:flex-row items-start gap-2">
-                            {/* The URL's path carries its secret, and autocapture records copied text. */}
+                            {/* The URL's path carries its secret. Autocapture records copied text, and session
+                                replay records what is typed, so the input is kept out of both. */}
                             <LemonInput
-                                className="ph-no-capture"
+                                className="ph-no-capture ph-replay-block"
                                 placeholder={url.input.placeholder}
                                 value={url.value}
                                 onChange={url.onChange}
