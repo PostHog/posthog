@@ -14197,9 +14197,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_patch_with_stored_credential_turns_off_a_tunnel_the_user_did_not_enter(
-        self, mock_validate: MagicMock
-    ) -> None:
+    def test_patch_with_stored_credential_drops_a_tunnel_the_user_did_not_enter(self, mock_validate: MagicMock) -> None:
         connection = {
             "host": "db.example.com",
             "port": "5432",
@@ -14241,7 +14239,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert validated_config.ssh_tunnel is None or validated_config.ssh_tunnel.enabled is False
         stored = SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
         assert stored["password"] == "new_password"
-        assert str(stored["ssh_tunnel"]["enabled"]) == "False"
+        assert str((stored.get("ssh_tunnel") or {}).get("enabled", False)) == "False"
         assert not PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=credential.pk).exists()
 
     @patch(

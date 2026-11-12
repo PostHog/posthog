@@ -614,23 +614,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         discovered_schemas: list[SourceSchema] | None = None
         connection_warning: str | None = None
 
-        # The connect page checked the stored values without the source's current routing. A tunnel the user did
-        # not enter there is turned off, so the new secrets never go through a tunnel the user did not see.
-        if (
-            stored_credential is not None
-            and existing_job_inputs.get("ssh_tunnel")
-            and "ssh_tunnel" not in incoming_job_inputs
-        ):
-            incoming_job_inputs["ssh_tunnel"] = {"enabled": False}
-
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
-        # For the same reason, a stored connection target or TLS setting replaces the source's own, and one the
-        # user did not enter is dropped rather than inherited.
+        # The connect page checked the stored values on their own, without the source's current routing. So a
+        # connection target, TLS setting or SSH tunnel that the user did not enter there is dropped rather than
+        # inherited, and the new secrets never go to a host or through a tunnel the user did not see.
         if stored_credential is not None:
-            for field in (*_CONNECTION_ROUTING_KEYS, *source.connection_host_fields):
-                if field not in incoming_job_inputs:
-                    new_job_inputs.pop(field, None)
+            routing_keys = {*_CONNECTION_ROUTING_KEYS, *source.connection_host_fields}
+            for field in list(new_job_inputs):
+                if field in incoming_job_inputs:
+                    continue
+                if field in routing_keys or field.startswith(_SSH_TUNNEL_KEY_PREFIX):
+                    del new_job_inputs[field]
 
         # The secrets of a stored credential are complete: the connect page checked them on their own. So a
         # reconnect carries over no stored secret the user left blank there, such as an old key passphrase.
