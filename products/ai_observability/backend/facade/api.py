@@ -1,8 +1,9 @@
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
-from typing import IO
+from typing import IO, Final
 
 from django.utils.timezone import now
 
@@ -10,6 +11,7 @@ from posthog.schema import HogQLPropertyFilter
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
@@ -32,6 +34,10 @@ from products.surveys.backend.facade.api import (
 )
 
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
+from ..logic.evaluations.judge_preview import (
+    MAX_JUDGE_TEST_UNITS as MAX_JUDGE_TEST_UNITS,
+    run_judge_test,
+)
 from ..logic.evaluations.overview import evaluation_result, group_by_evaluation, overview_totals, pass_rate_overview
 from ..logic.evaluations.overview_queries import load_bucket_counts, load_category_counts
 from ..logic.evaluations.pass_filters import build_evaluation_pass_filters, build_pass_rules
@@ -40,12 +46,18 @@ from ..logic.evaluations.period import (
     PeriodBounds,
     overview_period,
 )
+from ..logic.evaluations.preview_units import (
+    DEFAULT_PREVIEW_UNITS as DEFAULT_PREVIEW_UNITS,
+    MAX_PREVIEW_UNITS as MAX_PREVIEW_UNITS,
+    sample_traffic,
+)
 from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
 from ..logic.message_normalizer.errors import RecipeCompileError as RecipeCompileError
-from ..logic.message_normalizer.normalizer import check_stored_recipe_source
+from ..logic.message_normalizer.normalizer import RecipeNormalizer, check_stored_recipe_source, compile_candidate_recipe
 from ..logic.traces.cluster_queries import ClusterRunWindow, can_read_clusters, load_cluster_runs
 from ..logic.traces.clusters import ClusterMemberships, TraceCluster
+from ..logic.traces.dataset_item import StepDatasetItem
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
@@ -54,9 +66,10 @@ from ..logic.traces.feedback import FeedbackText, Score, StepFeedback, TraceFeed
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.node_contents_queries import load_trace_nodes
+from ..logic.traces.parser_verdict import parser_test_result
 from ..logic.traces.review import HumanReview, QueueAssignment
 from ..logic.traces.review_queries import load_trace_review_state
-from ..logic.traces.step_content import step_content
+from ..logic.traces.step_content import StepReading, read_step, step_content
 from ..logic.traces.summary import (
     AIDataProcessingNotApprovedError as AIDataProcessingNotApprovedError,
     FailedSummary,
@@ -70,7 +83,7 @@ from ..logic.traces.summary import (
 from ..logic.traces.summary_generation import generate_summary
 from ..logic.traces.summary_store import fail_abandoned_summary, request_summary, viewer_summary
 from ..logic.traces.survey_feedback import THUMBS_UP, answer_kind, count_thumbs, survey_window
-from ..logic.traces.team_recipes import team_normalizer
+from ..logic.traces.team_recipes import save_team_recipe, team_normalizer, team_normalizer_with
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
 from ..logic.traces.trace_export import (
@@ -158,6 +171,54 @@ def load_trace_node_raw(
 ) -> Callable[[], contracts.TraceNodeRaw]:
     event = _load_node_event(team, user, trace_id, node_id, timestamp_hint)
     return lambda: _to_node_raw(node_id, event)
+
+
+def load_trace_node_dataset_item(
+    team: Team, user: User | None, trace_id: str, node_id: str, timestamp_hint: datetime
+) -> Callable[[], contracts.TraceNodeDatasetItem]:
+    event = _load_node_event(team, user, trace_id, node_id, timestamp_hint)
+    return lambda: _to_node_dataset_item(
+        StepDatasetItem(trace_id=trace_id, trace_timestamp=timestamp_hint, event=event)
+    )
+
+
+def run_trace_node_parser_test(
+    team: Team, user: User | None, trace_id: str, node_id: str, timestamp_hint: datetime | None, source: str
+) -> Callable[[], contracts.TraceNodeParserTest]:
+    """Loads one node's event and returns the step that tests a parser not saved yet against it. Saves nothing.
+
+    Raises `RecipeCompileError` before any read when the parser does not compile. The step reads the team's saved
+    recipes and normalizes the node twice, without and with the parser, but runs no ClickHouse query.
+    """
+    candidate = compile_candidate_recipe(source)
+    event = _load_node_event(team, user, trace_id, node_id, timestamp_hint)
+    return lambda: _to_parser_test(team.pk, node_id, event, partial(team_normalizer_with, team.pk, candidate))
+
+
+def _to_parser_test(
+    team_id: int, node_id: str, event: NodeEvent | None, candidate_normalizer: Callable[[], RecipeNormalizer]
+) -> contracts.TraceNodeParserTest:
+    if event is None:
+        return _NOTHING_TO_TEST
+
+    def read(build_normalizer: Callable[[], RecipeNormalizer]) -> StepReading:
+        return read_step(
+            event.kind, node_id, event.input, event.output, build_normalizer=build_normalizer, team_id=team_id
+        )
+
+    return parser_test_result(read(partial(team_normalizer, team_id)), read(candidate_normalizer))
+
+
+_NOTHING_TO_FIX: Final = contracts.TraceParserTestSide(needed_fixing=False, fixed=False, broken=False, error=None)
+_NOTHING_TO_TEST: Final = contracts.TraceNodeParserTest(
+    content=contracts.TraceNodeContent(
+        input=contracts.TraceJsonSide(kind="json", value=None),
+        output=contracts.TraceJsonSide(kind="json", value=None),
+    ),
+    input=_NOTHING_TO_FIX,
+    output=_NOTHING_TO_FIX,
+    passed=False,
+)
 
 
 def _load_node_event(
@@ -274,6 +335,18 @@ def _to_node_raw(node_id: str, event: NodeEvent | None) -> contracts.TraceNodeRa
     if event is None:
         return contracts.TraceNodeRaw(id=node_id, kind="trace", event=None)
     return contracts.TraceNodeRaw(id=node_id, kind=event.kind, event=_to_node_event(event))
+
+
+def _to_node_dataset_item(item: StepDatasetItem) -> contracts.TraceNodeDatasetItem:
+    return contracts.TraceNodeDatasetItem(
+        client_item_id=item.source_event_id,
+        source_trace_id=item.trace_id,
+        source_event_id=item.source_event_id,
+        source_timestamp=item.trace_timestamp,
+        input=item.input,
+        source_output=item.source_output,
+        metadata=item.metadata,
+    )
 
 
 def _to_node_detail(team_id: int, node_id: str, event: NodeEvent | None) -> contracts.TraceNodeDetail:
@@ -650,6 +723,33 @@ def get_evaluation_score_distribution(
     return load_score_distribution(team, user, evaluation_id, period, meta.scale, buckets)
 
 
+def sample_evaluation_traffic(
+    team: Team, user: User, scope: contracts.EvaluationPreviewScope, count: int | None
+) -> list[contracts.EvaluationTrafficSample]:
+    """The latest units an unsaved evaluation would run on, newest first. `count` defaults to
+    `DEFAULT_PREVIEW_UNITS` and is capped at what one test of the target covers."""
+    try:
+        return sample_traffic(team, user, scope, count)
+    except AIEventsUnavailableError:
+        return []
+
+
+def run_unsaved_judge(
+    team: Team,
+    user: User,
+    judge: contracts.UnsavedJudge,
+    scope: contracts.EvaluationPreviewScope,
+    sample_ids: Sequence[str] | None,
+    *,
+    reading: Callable[[], AbstractContextManager[None]] = nullcontext,
+) -> list[contracts.EvaluationTestResult]:
+    """Judge up to `MAX_JUDGE_TEST_UNITS` units with an unsaved LLM judge, on the team's own provider key.
+    Saves nothing and emits no results. `reading` wraps each ClickHouse read, and no model call.
+
+    Raises `contracts.JudgeModelError` and `contracts.JudgeTestAlreadyRunningError`."""
+    return run_judge_test(team, user, judge, scope, sample_ids, reading=reading)
+
+
 def get_trace_summary(team: Team, user: User, trace_id: str) -> contracts.TraceSummary:
     """Raises `AIDataProcessingNotApprovedError`, or `TraceSummaryNotFoundError` when this viewer has no summary."""
     return _to_trace_summary(viewer_summary(team, user, trace_id))
@@ -692,7 +792,9 @@ def _to_trace_summary(entry: SummaryEntry) -> contracts.TraceSummary:
             )
             return contracts.TraceSummary(status="ready", content=content, failure=None)
         case FailedSummary():
-            failure = contracts.TraceSummaryFailure(reason=entry.reason, message=entry.message)
+            failure = contracts.TraceSummaryFailure(
+                reason=entry.reason, message=entry.message, retryable=entry.retryable
+            )
             return contracts.TraceSummary(status="failed", content=None, failure=failure)
 
 
@@ -810,3 +912,9 @@ def _to_trace_export(asset: ExportedAsset) -> contracts.TraceExport:
 def validate_parser_recipe_source(source: str) -> None:
     """Raises `RecipeCompileError` with a message for the author when trace reads would skip this recipe."""
     check_stored_recipe_source(source)
+
+
+def create_parser_recipe(team: Team, user: User, name: str, source: str) -> str:
+    """Saves a parser recipe for the team and returns its id. Raises `RecipeCompileError` when it does not compile."""
+    validate_parser_recipe_source(source)
+    return save_team_recipe(team.pk, user, name=name, source=source)

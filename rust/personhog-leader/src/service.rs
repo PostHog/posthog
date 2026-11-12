@@ -2147,6 +2147,7 @@ mod tests {
                     pod_name: "test".to_string(),
                     recv_timeout: Duration::from_millis(10),
                     pool_size: 1,
+                    cluster: None,
                 })
                 .expect("build recovery pool"),
             ),

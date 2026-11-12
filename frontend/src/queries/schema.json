@@ -28248,6 +28248,10 @@
         "ExperimentExposureQuery": {
             "additionalProperties": false,
             "properties": {
+                "as_of": {
+                    "description": "The instant the window is evaluated at, when it ends before `end_date`. Unset means now.",
+                    "type": ["string", "null"]
+                },
                 "end_date": {
                     "type": ["string", "null"]
                 },
@@ -30294,6 +30298,13 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "requiredFlags": {
+                    "description": "Flags that must all be on to show the tab.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "searchKeywords": {
                     "items": {
@@ -33693,6 +33704,7 @@
                 "stripe",
                 "intercom",
                 "email",
+                "email_sandbox",
                 "twilio",
                 "linear",
                 "github",
@@ -39053,7 +39065,7 @@
             "additionalProperties": false,
             "properties": {
                 "benchmark": {
-                    "description": "CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for context. Null when the account has no non-brand conversions.",
+                    "description": "CPA benchmark the rule compares the subject with. Only rules that judge a CPA carry `cpa`: review, Search scale, budget, spend without conversions and content gap.",
                     "type": ["number", "null"]
                 },
                 "benchmarkSource": {
@@ -39072,7 +39084,7 @@
                     "type": ["number", "null"]
                 },
                 "value": {
-                    "description": "Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no conversions or is not bought yet.",
+                    "description": "Cost per conversion of the subject. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA. Null when it has no conversions.",
                     "type": ["number", "null"]
                 },
                 "worstCampaign": {
@@ -57927,6 +57939,16 @@
             "required": ["type", "session_id", "timestamp_ms"],
             "type": "object"
         },
+        "SessionReplayListConfiguration": {
+            "additionalProperties": false,
+            "properties": {
+                "filter_test_accounts": {
+                    "description": "Whether a new recordings list opens with internal and test users filtered out. An absent value falls back to the legacy browser preference.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "SessionsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -61907,6 +61929,9 @@
             "properties": {
                 "analytics_list": {
                     "$ref": "#/definitions/AnalyticsListDisplayConfiguration"
+                },
+                "session_replay": {
+                    "$ref": "#/definitions/SessionReplayListConfiguration"
                 },
                 "sql_editor": {
                     "$ref": "#/definitions/SQLEditorConfiguration"

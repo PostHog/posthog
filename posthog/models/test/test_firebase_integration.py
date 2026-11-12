@@ -50,13 +50,14 @@ class TestFirebaseIntegration(BaseTest):
         key_info = overrides.pop("key_info", FAKE_KEY_INFO)
         team_id = overrides.pop("team_id", self.team.id)
         created_by = overrides.pop("created_by", None)
-        return FirebaseIntegration.integration_from_key(
+        record = FirebaseIntegration.integration_from_key(
             key_info,
             team_id,
             created_by,
             push_identity_verification=overrides.pop("push_identity_verification", None),
             push_identity_public_keys=overrides.pop("push_identity_public_keys", None),
         )
+        return Integration.objects.get(pk=record.id)
 
     def test_creates_integration(self):
         integration = self._create_firebase_integration()

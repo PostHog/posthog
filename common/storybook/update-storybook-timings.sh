@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Regenerate storybook-timings.json from JUnit artifacts of a CI run.
+# Regenerate storybook-timings.json from JUnit artifacts of one or more CI runs.
 #
 # Usage:
-#   ./update-storybook-timings.sh              # uses latest successful master run
-#   ./update-storybook-timings.sh <run-id>     # uses a specific run
+#   ./update-storybook-timings.sh                        # uses latest successful master run
+#   ./update-storybook-timings.sh <run-id> [<run-id>...]  # uses specific runs
+#
+# Master pushes run chromium and the nightly scheduled run runs webkit and firefox,
+# so a full refresh passes one run of each. A browser that none of the runs covers keeps the
+# timings already in the manifest.
 #
 # Requires: gh CLI (authenticated), python3
 
@@ -14,9 +18,9 @@ OUTPUT="$SCRIPT_DIR/storybook-timings.json"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-if [ -n "${1:-}" ]; then
-    RUN_ID="$1"
-    echo "Using run $RUN_ID..."
+if [ "$#" -gt 0 ]; then
+    RUN_IDS=("$@")
+    echo "Using runs ${RUN_IDS[*]}..."
 else
     echo "Finding latest successful storybook CI run on master..."
     RUN_ID=$(gh run list \
@@ -31,21 +35,24 @@ else
         exit 1
     fi
     echo "Found run $RUN_ID"
+    RUN_IDS=("$RUN_ID")
 fi
 
 echo "Downloading JUnit artifacts..."
-ARTIFACT_NAMES=$(gh api "repos/{owner}/{repo}/actions/runs/$RUN_ID/artifacts" \
-    --jq '.artifacts[] | select(.name | startswith("junit-results-storybook-")) | .name')
+for RUN_ID in "${RUN_IDS[@]}"; do
+    ARTIFACT_NAMES=$(gh api "repos/{owner}/{repo}/actions/runs/$RUN_ID/artifacts" \
+        --jq '.artifacts[] | select(.name | startswith("junit-results-storybook-")) | .name')
 
-if [ -z "$ARTIFACT_NAMES" ]; then
-    echo "ERROR: No JUnit artifacts found for run $RUN_ID" >&2
-    echo "Make sure the run used --junit and has JEST_JUNIT_SUITE_NAME='{filepath}'" >&2
-    exit 1
-fi
+    if [ -z "$ARTIFACT_NAMES" ]; then
+        echo "ERROR: No JUnit artifacts found for run $RUN_ID" >&2
+        echo "Make sure the run used --junit and has JEST_JUNIT_SUITE_NAME='{filepath}'" >&2
+        exit 1
+    fi
 
-while IFS= read -r name; do
-    gh run download "$RUN_ID" -n "$name" -D "$TMPDIR/$name"
-done <<< "$ARTIFACT_NAMES"
+    while IFS= read -r name; do
+        gh run download "$RUN_ID" -n "$name" -D "$TMPDIR/$RUN_ID/$name"
+    done <<< "$ARTIFACT_NAMES"
+done
 
 echo "Extracting timings from JUnit XML..."
 python3 -c "
@@ -79,11 +86,23 @@ if not timings:
     print('Check that JEST_JUNIT_SUITE_NAME is set to \"{filepath}\"', file=sys.stderr)
     sys.exit(1)
 
+measured_browsers = {browser for per_browser in timings.values() for browser in per_browser}
+output = Path('$OUTPUT')
+previous = json.loads(output.read_text()) if output.exists() else {}
+for filepath, per_browser in previous.items():
+    if filepath not in timings:
+        continue
+    for browser, seconds in per_browser.items():
+        if browser not in measured_browsers:
+            timings[filepath][browser] = seconds
+
 with open('$OUTPUT', 'w') as f:
     json.dump(timings, f, sort_keys=True, indent=2)
     f.write('\n')
 
-chromium = sum(1 for v in timings.values() if 'chromium' in v)
-webkit = sum(1 for v in timings.values() if 'webkit' in v)
-print(f'Wrote {len(timings)} test files ({chromium} chromium, {webkit} webkit) to storybook-timings.json')
+counts = ', '.join(
+    f'{sum(1 for v in timings.values() if browser in v)} {browser}'
+    for browser in sorted({b for v in timings.values() for b in v})
+)
+print(f'Wrote {len(timings)} test files ({counts}) to storybook-timings.json')
 "

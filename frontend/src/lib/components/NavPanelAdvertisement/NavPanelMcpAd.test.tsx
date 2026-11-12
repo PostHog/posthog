@@ -9,6 +9,7 @@ import type { ConnectedAppApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { NAV_PANEL_PLACEMENT } from './navPanelAdShared'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 import { NavPanelMcpAd } from './NavPanelMcpAd'
 import { MCP_AD_LOGIC_PROPS } from './NavPanelMcpCard'
@@ -54,7 +55,7 @@ describe('NavPanelMcpAd', () => {
 
         render(
             <Provider>
-                <NavPanelMcpAd />
+                <NavPanelMcpAd placement={NAV_PANEL_PLACEMENT.SIDEBAR} />
             </Provider>
         )
 

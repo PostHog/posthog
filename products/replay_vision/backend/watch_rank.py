@@ -11,7 +11,7 @@ import math
 import asyncio
 from collections import Counter
 from collections.abc import Collection, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from django.core.cache import cache
@@ -92,6 +92,8 @@ CATEGORY_WEIGHT: dict[str, float] = {"failure": 1.0, "revenue": 1.0, "struggle":
 HIGHLIGHT_PICK_MIN_PERCENTILE = 0.8
 HIGHLIGHT_PICK_MIN_SCANNER_ROWS = 10
 HIGHLIGHT_PICK_SEEN_PENALTY = 0.3
+# Views this recent do not dock a pick yet, so a card the reader just opened is still there when they go back.
+HIGHLIGHT_PICK_SEEN_GRACE = timedelta(hours=1)
 # Each earlier impression keeps this share of a pick's score, so a pick shown three times without a
 # click sinks below a fresh one.
 HIGHLIGHT_PICK_IMPRESSION_DECAY = 0.8
@@ -443,8 +445,9 @@ def select_embedding_picks(
     window_values = {observation_id: entry for observation_id, entry in window_values.items() if observation_id in live}
     if not window_values:
         return []
+    # Only the pick penalty waits out the grace; filler still labels a just-opened row as viewed.
     viewed = set(
-        views_by(viewer_id, window.as_of)
+        views_by(viewer_id, window.as_of - HIGHLIGHT_PICK_SEEN_GRACE)
         .filter(observation_id__in=list(window_values))
         .values_list("observation_id", flat=True)
     )

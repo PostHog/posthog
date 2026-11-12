@@ -46,6 +46,7 @@ def translate_text(text: str, target_language: str, user_distinct_id: str | None
     try:
         response = client.chat.completions.create(
             model=TRANSLATION_MODEL,
+            reasoning_effort="low",
             messages=[
                 {
                     "role": "system",

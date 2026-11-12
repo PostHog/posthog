@@ -17,7 +17,6 @@ const GRAPH_WIDTH = TILE_WIDTH - 34
 const GRAPH_HEIGHT = 28
 const GRAPH_MAX_SCALE = 0.45
 
-/** A workflow run: a name, a duration bar, and its job graph drawn small enough to fit inside. */
 export function CIExplorerTile({
     workflow,
     layout,

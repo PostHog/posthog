@@ -1,5 +1,5 @@
-from collections.abc import Iterator
-from datetime import UTC, datetime
+from collections.abc import Iterable, Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import requests
@@ -19,6 +19,10 @@ EASYPOST_BASE_URL = "https://api.easypost.com/v2"
 # EasyPost caps page_size at 100 across cursor-paginated list endpoints.
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
+# Lower bound for runs with no watermark. It is earlier than any EasyPost account.
+EARLIEST_START_DATETIME = datetime(2010, 1, 1, tzinfo=UTC)
+# EasyPost list requests span at most 31 days (https://support.easypost.com/hc/en-us/articles/360043967372).
+DATE_WINDOW = timedelta(days=30)
 
 
 class EasypostRetryableError(Exception):
@@ -34,6 +38,8 @@ class EasypostResumeConfig:
     after_id: str | None = None
     # Path value (e.g. report type) the cursor belongs to, for endpoints walked once per value.
     path_value: str | None = None
+    # Window the cursor belongs to. A resumed run cannot recompute it from a new `now`.
+    window_end: str | None = None
 
 
 def _ensure_utc(value: datetime) -> datetime:
@@ -108,6 +114,37 @@ def _redact(items: list[dict[str, Any]], redacted_fields: tuple[str, ...]) -> li
     return _strip_fields(items, redacted_fields)
 
 
+@frozen
+class _DateWindow:
+    # Rows in (start, end] belong to the window, so a boundary record lands in exactly one window.
+    # A side set to None has no bound.
+    start: datetime | None
+    end: datetime | None
+
+    def request_params(self) -> dict[str, str]:
+        if self.start is None or self.end is None:
+            return {}
+        return {
+            "start_datetime": _format_datetime(self.start),
+            # Padded so a record at `end` comes back whether EasyPost treats the bound as inclusive or not.
+            "end_datetime": _format_datetime(self.end + timedelta(seconds=1)),
+        }
+
+    def is_after_end(self, created: datetime | None) -> bool:
+        return created is not None and self.end is not None and created > self.end
+
+    def is_at_or_before_start(self, created: datetime | None) -> bool:
+        return created is not None and self.start is not None and created <= self.start
+
+
+def _date_windows(upper: datetime, lower: datetime) -> Iterator[_DateWindow]:
+    window_end = upper
+    while window_end > lower:
+        window_start = max(window_end - DATE_WINDOW, lower)
+        yield _DateWindow(start=window_start, end=window_end)
+        window_end = window_start
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -134,72 +171,83 @@ def get_rows(
             yield _redact(collection, config.redacted_fields)
         return
 
-    # Incremental cursor: EasyPost returns newest-first, so we walk backwards (via `before_id`) and
-    # stop once a page reaches the watermark. `start_datetime` filters server-side on `created_at`
-    # as an optimization; the client-side stop guarantees correct, bounded behaviour even if the
-    # endpoint ignores the filter when combined with cursor pagination.
     last_value_dt: datetime | None = None
-    start_datetime: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         last_value_dt = _parse_datetime(db_incremental_field_last_value)
-        if last_value_dt is not None and config.supports_start_datetime:
-            start_datetime = _format_datetime(last_value_dt)
 
     path_values: tuple[str | None, ...] = config.path_values or (None,)
     cursor_param = "after_id" if config.ascending else "before_id"
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_index = 0
     cursor_id: str | None = None
+    resume_window_end: datetime | None = None
     if resume and resume.path_value in path_values:
         start_index = path_values.index(resume.path_value)
         cursor_id = resume.after_id if config.ascending else resume.before_id
+        resume_window_end = _parse_datetime(resume.window_end)
     if cursor_id:
         logger.debug(f"EasyPost: resuming {endpoint} from {cursor_param}={cursor_id}")
+
+    run_end = datetime.now(UTC).replace(microsecond=0)
 
     for path_value in path_values[start_index:]:
         url = f"{EASYPOST_BASE_URL}{config.path.format(path_value) if path_value else config.path}"
 
-        while True:
-            params: dict[str, Any] = {"page_size": PAGE_SIZE}
-            if cursor_id:
-                params[cursor_param] = cursor_id
-            if start_datetime:
-                params["start_datetime"] = start_datetime
+        windows: Iterable[_DateWindow]
+        if config.supports_start_datetime:
+            windows = _date_windows(resume_window_end or run_end, last_value_dt or EARLIEST_START_DATETIME)
+        else:
+            windows = [_DateWindow(start=last_value_dt, end=None)]
+        resume_window_end = None
 
-            data = _fetch_page(session, url, params, logger)
-            items = data.get(collection_key, [])
-            if not items:
-                break
+        for window in windows:
+            while True:
+                params: dict[str, Any] = {"page_size": PAGE_SIZE, **window.request_params()}
+                if cursor_id:
+                    params[cursor_param] = cursor_id
 
-            has_more = bool(data.get("has_more", False))
+                data = _fetch_page(session, url, params, logger)
+                items = data.get(collection_key, [])
+                if not items:
+                    break
 
-            reached_watermark = False
-            rows: list[dict[str, Any]] = []
-            for item in items:
-                if last_value_dt is not None:
+                has_more = bool(data.get("has_more", False))
+
+                reached_window_start = False
+                rows: list[dict[str, Any]] = []
+                for item in items:
                     created = _parse_datetime(item.get(incremental_field_name))
-                    if created is not None and created <= last_value_dt:
-                        reached_watermark = True
+                    if window.is_at_or_before_start(created):
+                        reached_window_start = True
                         break
-                rows.append(item)
+                    if not window.is_after_end(created):
+                        rows.append(item)
 
-            if rows:
-                yield _redact(rows, config.redacted_fields)
-                # Save the cursor for the page we just yielded (not the next one) so a crash re-fetches
-                # and re-yields this page — merge dedupes on the `id` primary key — rather than skipping it.
-                if config.ascending:
-                    resumable_source_manager.save_state(EasypostResumeConfig(after_id=cursor_id, path_value=path_value))
-                else:
+                if rows:
+                    yield _redact(rows, config.redacted_fields)
+                    # Save the cursor for the page we just yielded (not the next one) so a crash re-fetches
+                    # and re-yields this page — merge dedupes on the `id` primary key — rather than skipping it.
+                    cursor_fields = {"after_id": cursor_id} if config.ascending else {"before_id": cursor_id}
                     resumable_source_manager.save_state(
-                        EasypostResumeConfig(before_id=cursor_id, path_value=path_value)
+                        EasypostResumeConfig(
+                            **cursor_fields,
+                            path_value=path_value,
+                            window_end=_format_datetime(window.end) if window.end is not None else None,
+                        )
                     )
 
-            if reached_watermark or not has_more:
-                break
+                if reached_window_start or not has_more:
+                    break
 
-            cursor_id = items[-1]["id"]
+                cursor_id = items[-1]["id"]
 
-        cursor_id = None
+            cursor_id = None
+            if window.start is not None and window.end is not None:
+                # Most old windows are empty, so mark each finished window as a point the run can stop at.
+                resumable_source_manager.save_state(
+                    EasypostResumeConfig(path_value=path_value, window_end=_format_datetime(window.start))
+                )
+                resumable_source_manager.safe_point()
 
 
 def easypost_source(

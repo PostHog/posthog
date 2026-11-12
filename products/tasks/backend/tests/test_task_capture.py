@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -9,6 +10,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.analytics import slack_session_id
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.models import Channel, Task, TaskRun
 
@@ -91,17 +93,17 @@ class TestTaskCaptureEvent(TestCase):
 
     @parameterized.expand(
         [
-            ("slack_task_reports_its_thread", Task.OriginProduct.SLACK, "T1:C1:1700000000.000100"),
-            ("other_origin_reports_none", Task.OriginProduct.USER_CREATED, None),
+            ("slack_task_reports_its_thread", Task.OriginProduct.SLACK, "T1:C1:1700000000.000100", False),
+            ("other_origin_reports_none", Task.OriginProduct.USER_CREATED, None, False),
+            ("failed_lookup_reports_none_without_failing_the_run", Task.OriginProduct.SLACK, None, True),
         ]
     )
     def test_run_events_carry_the_slack_thread_they_answer(
-        self, _name: str, origin_product: str, expected: str | None
+        self, _name: str, origin_product: str, expected: str | None, lookup_fails: bool
     ) -> None:
         task = self._task()
         task.origin_product = origin_product
         task.save(update_fields=["origin_product"])
-        run = TaskRun.objects.create(task=task, team=self.team)
         integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T1", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -110,11 +112,23 @@ class TestTaskCaptureEvent(TestCase):
             channel="C1",
             thread_ts="1700000000.000100",
             task=task,
-            task_run=run,
+            task_run=TaskRun.objects.create(task=task, team=self.team),
             mentioning_slack_user_id="U1",
         )
 
-        with patch("products.tasks.backend.models.posthoganalytics.capture") as capture:
+        with (
+            patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
+            patch(
+                "products.slack_app.backend.analytics.slack_session_id",
+                side_effect=OperationalError("connection lost") if lookup_fails else slack_session_id,
+            ),
+        ):
+            run = task.create_run(environment=TaskRun.Environment.LOCAL, extra_state={"use_dedicated_stream": False})
             run.capture_event("task_run_completed")
 
-        self.assertEqual(capture.call_args.kwargs["properties"]["slack_session_id"], expected)
+        session_ids = {
+            call.kwargs["event"]: call.kwargs["properties"]["slack_session_id"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] in {"task_run_created", "task_run_completed"}
+        }
+        self.assertEqual(session_ids, {"task_run_created": expected, "task_run_completed": expected})

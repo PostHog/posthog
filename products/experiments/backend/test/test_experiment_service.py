@@ -732,11 +732,12 @@ class TestExperimentService(APIBaseTest):
         assert "baseline variant cannot be excluded" in str(ctx.exception)
 
     def test_existing_flag_in_another_config_format_raises(self):
+        # A config version 2 flag is linked by one of its rules, so this is a format that nothing reads.
         FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
             key="other-format",
-            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+            filters={"version": 3, "rules": []},
         )
 
         with self.assertRaises(ValidationError) as ctx:
@@ -835,13 +836,6 @@ class TestExperimentService(APIBaseTest):
                 {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": []}},
                 {"type": "primary"},
                 "Legacy shared metrics can't be added to an experiment: Unlinkable Metric",
-            ),
-            (
-                "quantile_with_breakdown_override",
-                False,
-                {**_QUANTILE_METRIC, "uuid": "quantile-uuid"},
-                {"type": "primary", "breakdowns": [{"property": "$browser"}]},
-                "Invalid saved metric at index 0: breakdowns are not supported for percentile metrics",
             ),
         ]
     )
@@ -1147,6 +1141,10 @@ class TestExperimentService(APIBaseTest):
             ),
             ("valid_quantile", _QUANTILE_METRIC),
             (
+                "valid_quantile_with_breakdown",
+                {**_QUANTILE_METRIC, "breakdownFilter": {"breakdowns": [{"property": "$browser"}]}},
+            ),
+            (
                 "valid_quantile_numerical_event_property",
                 {
                     **_QUANTILE_METRIC,
@@ -1229,16 +1227,6 @@ class TestExperimentService(APIBaseTest):
                     }
                 ],
                 "percentile metrics need a numeric event property",
-            ),
-            (
-                "quantile_with_breakdown",
-                [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdowns": [{"property": "$browser"}]}}],
-                "breakdowns are not supported for percentile metrics",
-            ),
-            (
-                "quantile_with_single_field_breakdown",
-                [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdown": "$browser"}}],
-                "breakdowns are not supported for percentile metrics",
             ),
             (
                 "quantile_with_data_warehouse_source",
@@ -6203,6 +6191,22 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
+
+    def test_filter_experiments_queryset_by_feature_flag_ids(self) -> None:
+        service = self._service()
+        for name in ("First", "Second", "Unlisted"):
+            service.create_experiment(name=name, feature_flag_key=f"flag-ids-{name.lower()}")
+        flag_ids = Experiment.objects.filter(team=self.team, name__in=["First", "Second"]).values_list(
+            "feature_flag_id", flat=True
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"feature_flag_ids": ",".join(str(flag_id) for flag_id in flag_ids)},
+        )
+
+        assert sorted(queryset.values_list("name", flat=True)) == ["First", "Second"]
 
     def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
         with self.assertRaises(ValidationError) as ctx:

@@ -1,12 +1,14 @@
 import json
 from datetime import timedelta
 from decimal import Decimal
+from io import StringIO
 from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.management import call_command
 from django.test import override_settings
 from django.utils import timezone
 
@@ -18,6 +20,7 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import hash_key_value
 
 from products.tasks.backend.logic.services.compute_settlement import (
+    ComputeReconciliation,
     ComputeSettlementDeploymentError,
     SettlementOutcome,
     TeamComputeDelta,
@@ -386,6 +389,25 @@ class TestComputeSettlement(BaseTest):
         registry = push.call_args.args[1]
         assert registry.get_sample_value("posthog_tasks_sandbox_sessions_unsettled_over_hour") == 0
 
+    def test_settle_since_bounds_run_end_settlement(self) -> None:
+        before = self._session(user_attributed_at=self.now - timedelta(hours=4), ended_at=self.now - timedelta(hours=3))
+        after = self._session(
+            task_run=before.task_run,
+            user_attributed_at=self.now - timedelta(hours=4),
+            ended_at=self.now - timedelta(minutes=30),
+        )
+
+        with (
+            override_settings(GATEWAY_COMPUTE_SETTLE_SINCE=(self.now - timedelta(hours=1)).isoformat()),
+            patch(HTTPX_POST, return_value=_ok()) as post,
+        ):
+            assert settle_task_run_compute(before.task_run_id, self.team.id) == [SettlementOutcome.SETTLED]
+
+        assert post.call_count == 1
+        assert post.call_args.kwargs["json"]["detail"]["attributed_seconds"] == 12600.0
+        assert self._reload(before).compute_settled_at is None
+        assert self._reload(after).compute_settled_at is not None
+
     @parameterized.expand(
         [
             ("malformed_settle_since", "GATEWAY_COMPUTE_SETTLE_SINCE", "not-a-date"),
@@ -596,3 +618,41 @@ class TestComputeSettlement(BaseTest):
         assert billing.team_id == str(self.team.id)
         assert billing.local_rows == 2
         assert abs(billing.delta_usd) <= CENT_ROUNDING_TOLERANCE_USD
+
+    def test_sections_list_real_drift_only(self) -> None:
+        report = ComputeReconciliation(
+            writer_parity=(
+                TeamComputeDelta(
+                    team_id="11", local_usd=Decimal("5.000000"), gateway_usd=Decimal("5.000000"), local_rows=3
+                ),
+            ),
+            pricing_parity=(
+                TeamComputeDelta(
+                    team_id="12", local_usd=Decimal("10.000000"), gateway_usd=Decimal("10.000112"), local_rows=25175
+                ),
+                TeamComputeDelta(
+                    team_id="13", local_usd=Decimal("20.000000"), gateway_usd=Decimal("17.510000"), local_rows=40
+                ),
+            ),
+            billing_parity=(),
+        )
+        out = StringIO()
+
+        with patch(
+            "products.tasks.backend.management.commands.reconcile_sandbox_compute_settlement."
+            "reconcile_compute_settlement",
+            return_value=report,
+        ):
+            call_command("reconcile_sandbox_compute_settlement", wallet_team_id=self.team.id, stdout=out)
+
+        output = out.getvalue()
+        totals = [line.split() for line in output.splitlines() if line.strip().startswith("TOTAL")]
+        assert totals == [
+            ["TOTAL", "5.000000", "5.000000", "0.000000", "3"],
+            ["TOTAL", "30.000000", "27.510112", "2.489888", "25215"],
+        ]
+        assert "10.000112" not in output
+        assert "17.510000" in output
+        assert "0 of 1 teams listed, 1 within tolerance" in output
+        assert "1 of 2 teams listed, 1 within tolerance" in output
+        assert "No teams in this window." in output

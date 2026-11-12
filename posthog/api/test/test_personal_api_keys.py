@@ -68,6 +68,9 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "value": data["value"],
             "mask_value": data["mask_value"],
             "local_dev_value": None,
+            "user_distinct_id": self.user.distinct_id,
+            "current_organization_id": str(self.user.current_organization_id),
+            "current_team_id": self.user.current_team_id,
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
 
@@ -211,6 +214,27 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         key.refresh_from_db()
         assert key.scoped_teams == [self.team.id]
 
+    @parameterized.expand(
+        [
+            ("drops a retired scope the key already holds", ["insight:read", "retired_product:read"], 200),
+            ("rejects an unknown scope the key does not hold", ["insight:read", "never_existed:read"], 400),
+        ]
+    )
+    def test_update_with_a_scope_that_no_longer_exists(self, _name, sent_scopes, expected_status):
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["insight:read", "retired_product:read"],
+        )
+
+        response = self.client.patch(f"/api/personal_api_keys/{key.id}", {"label": "renamed", "scopes": sent_scopes})
+
+        assert response.status_code == expected_status
+        key.refresh_from_db()
+        if expected_status == 200:
+            assert key.scopes == ["insight:read"]
+
     def test_allows_all_scope(self):
         response = self.client.post(
             "/api/personal_api_keys/",
@@ -322,6 +346,9 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "value": None,
             "mask_value": my_key.mask_value,
             "local_dev_value": None,
+            "user_distinct_id": self.user.distinct_id,
+            "current_organization_id": str(self.user.current_organization_id),
+            "current_team_id": self.user.current_team_id,
         }
 
     def test_get_own_personal_api_key(self):
@@ -1390,6 +1417,9 @@ class TestPersonalAPIKeyAPIAccess(APIBaseTest):
         response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers(self.api_key_value))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["label"], "Test key")
+        self.assertEqual(response.json()["user_distinct_id"], self.user.distinct_id)
+        self.assertEqual(response.json()["current_organization_id"], str(self.user.current_organization_id))
+        self.assertEqual(response.json()["current_team_id"], self.user.current_team_id)
 
         # Should not be allowed to get by ID
         response = self.client.get(

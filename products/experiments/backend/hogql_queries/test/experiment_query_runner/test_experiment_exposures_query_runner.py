@@ -134,6 +134,95 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertIn("not found", str(ctx.exception))
 
+    @parameterized.expand(
+        [
+            ("window_in_range", "UTC", "2024-01-01T00:00:00+00:00", "2024-01-10T00:00:00+00:00", None),
+            ("end_tomorrow", "UTC", "2024-01-01T00:00:00+00:00", "2024-01-16T00:00:00+00:00", None),
+            (
+                "end_just_past_tomorrow",
+                "UTC",
+                "2024-01-01T00:00:00+00:00",
+                "2024-01-16T12:00:01+00:00",
+                "in the future",
+            ),
+            ("start_before_2015", "UTC", "2014-12-31T00:00:00+00:00", "2024-01-10T00:00:00+00:00", "before 2015"),
+            ("start_in_year_one_west_of_utc", "America/New_York", "0001-01-01T00:00:00+00:00", None, "before 2015"),
+            (
+                "end_in_year_9999_east_of_utc",
+                "Asia/Tokyo",
+                "2024-01-01T00:00:00+00:00",
+                "9999-12-31T23:00:00+00:00",
+                "in the future",
+            ),
+            ("naive_start_in_year_one", "UTC", "0001-01-01T00:00:00", "2024-01-10T00:00:00", "before 2015"),
+            ("start_in_year_9999_east_of_utc", "Asia/Tokyo", "9999-12-31T23:00:00+00:00", None, "in the future"),
+            (
+                "end_in_year_one_west_of_utc",
+                "America/New_York",
+                "2020-01-01T00:00:00+00:00",
+                "0001-01-01T00:00:00+00:00",
+                "before 2015",
+            ),
+            ("twenty_variants_since_2015", "UTC", "2015-01-01T00:00:00+00:00", None, None, 20),
+            ("hundred_variants_since_2015", "UTC", "2015-01-01T00:00:00+00:00", None, "too many variants", 100),
+            (
+                "end_before_start",
+                "UTC",
+                "2024-01-01T12:00:00+00:00",
+                "2024-01-01T00:00:00+00:00",
+                "before its start date",
+            ),
+            (
+                "many_variants_across_mixed_offsets",
+                "UTC",
+                "2024-01-03T00:00:00+14:00",
+                "2024-01-01T23:00:00-12:00",
+                "too many variants",
+                130_000,
+            ),
+            (
+                "many_variants_within_one_day",
+                "UTC",
+                "2024-01-01T00:00:00+00:00",
+                "2024-01-01T12:00:00+00:00",
+                "too many variants",
+                130_000,
+            ),
+        ]
+    )
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_out_of_range_window_is_a_validation_error(
+        self,
+        _name: str,
+        timezone: str,
+        start_date: str,
+        end_date: str | None,
+        error: str | None,
+        variant_count: int | None = None,
+    ) -> None:
+        self.team.timezone = timezone
+        self.team.save()
+        feature_flag = model_to_dict(self.feature_flag)
+        if variant_count is not None:
+            feature_flag["filters"]["multivariate"]["variants"] = [
+                {"key": f"variant-{i}", "rollout_percentage": 0} for i in range(variant_count)
+            ]
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=feature_flag,
+            start_date=start_date,
+            end_date=end_date,
+            exposure_criteria=None,
+        )
+
+        if error is None:
+            ExperimentExposuresQueryRunner(team=self.team, query=query)
+        else:
+            with self.assertRaisesMessage(ValidationError, error):
+                ExperimentExposuresQueryRunner(team=self.team, query=query)
+
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_exposure_query_resolves_soft_deleted_feature_flag_key(self):
         # Exposure events are captured under the flag's original key.
@@ -1126,7 +1215,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
     def test_exposure_query_using_group_aggregation(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
         self.experiment.start_date = datetime(2024, 1, 1).replace(tzinfo=ZoneInfo("UTC"))
-        self.experiment.end_date = datetime(2024, 1, 28).replace(tzinfo=ZoneInfo("UTC"))
+        self.experiment.end_date = datetime(2024, 1, 8).replace(tzinfo=ZoneInfo("UTC"))
         if use_precomputation:
             self._enable_precomputation()
         self.experiment.save()
@@ -2694,7 +2783,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         total_exposures = {"control": 800, "test": 200, MULTIPLE_VARIANT_KEY: 20}
 
-        def _runner(end_date: str | None) -> ExperimentExposuresQueryRunner:
+        def _runner(end_date: str | None, as_of: str | None = None) -> ExperimentExposuresQueryRunner:
             query = ExperimentExposureQuery(
                 kind="ExperimentExposureQuery",
                 experiment_id=experiment.id,
@@ -2702,6 +2791,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 feature_flag=model_to_dict(feature_flag),
                 start_date=experiment.start_date.isoformat(),
                 end_date=end_date,
+                as_of=as_of,
                 exposure_criteria=experiment.exposure_criteria,
             )
             return ExperimentExposuresQueryRunner(team=self.team, query=query)
@@ -2715,11 +2805,29 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         # Query end_date cleared -> reads as running, warning evaluated.
-        risk = _runner(None)._evaluate_bias_risk(total_exposures, MultipleVariantHandling.EXCLUDE)
-        assert risk is not None
-        self.assertGreater(risk.multiple_variant_percentage, 0)
+        for as_of in (None, "2024-01-05T00:00:00+00:00"):
+            risk = _runner(None, as_of)._evaluate_bias_risk(total_exposures, MultipleVariantHandling.EXCLUDE)
+            assert risk is not None
+            self.assertGreater(risk.multiple_variant_percentage, 0)
 
-    def test_date_range_follows_query_not_model(self):
+    @parameterized.expand(
+        [
+            ("end_date_only", datetime(2024, 1, 10), None, datetime(2024, 1, 10)),
+            ("as_of_on_running_experiment", None, datetime(2024, 1, 12), datetime(2024, 1, 12)),
+            ("as_of_before_end_date", datetime(2024, 1, 14), datetime(2024, 1, 12), datetime(2024, 1, 12)),
+            ("as_of_after_end_date", datetime(2024, 1, 10), datetime(2024, 1, 12), datetime(2024, 1, 10)),
+            ("as_of_after_now_clamps_to_now", None, datetime(9999, 12, 31), datetime(2024, 1, 15)),
+            ("as_of_before_start_date_is_ignored", None, datetime(2023, 12, 20), datetime(2024, 1, 15)),
+        ]
+    )
+    @time_machine.travel("2024-01-15T00:00:00Z", tick=False)
+    def test_date_range_follows_query_not_model(
+        self,
+        _name: str,
+        query_end: datetime | None,
+        query_as_of: datetime | None,
+        expected_date_to: datetime,
+    ) -> None:
         # The result is cached under a key hashed from the query (see get_cache_payload), so the window
         # must come from the query — not live model state. A query whose end_date differs from the
         # model's must yield the query's window, or the cache key would describe a window the result
@@ -2730,17 +2838,45 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 31),
         )
-        query_end = datetime(2024, 1, 10).replace(tzinfo=ZoneInfo("UTC"))
+        utc = ZoneInfo("UTC")
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=experiment.id,
             experiment_name=experiment.name,
             feature_flag=model_to_dict(feature_flag),
             start_date=experiment.start_date.isoformat(),
-            end_date=query_end.isoformat(),
+            end_date=query_end.replace(tzinfo=utc).isoformat() if query_end else None,
+            as_of=query_as_of.replace(tzinfo=utc).isoformat() if query_as_of else None,
             exposure_criteria=experiment.exposure_criteria,
         )
         runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
         date_to = runner._get_date_range().date_to
         assert date_to is not None
-        assert datetime.fromisoformat(date_to) == query_end
+        assert datetime.fromisoformat(date_to) == expected_date_to.replace(tzinfo=utc)
+
+    @parameterized.expand(
+        [
+            ("naive", "2024-01-10T00:00:00", "2024-01-31T00:00:00+00:00"),
+            ("malformed", "not-a-date", "2024-01-31T00:00:00+00:00"),
+            ("naive_end_date", "2024-01-10T00:00:00+00:00", "2024-01-31T00:00:00"),
+        ]
+    )
+    def test_invalid_as_of_is_a_validation_error(self, _name: str, as_of: str, end_date: str) -> None:
+        feature_flag = self.create_feature_flag(key="invalid-as-of")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 31),
+        )
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(feature_flag),
+            start_date=experiment.start_date.isoformat(),
+            end_date=end_date,
+            as_of=as_of,
+            exposure_criteria=experiment.exposure_criteria,
+        )
+        with self.assertRaises(ValidationError):
+            ExperimentExposuresQueryRunner(team=self.team, query=query)
