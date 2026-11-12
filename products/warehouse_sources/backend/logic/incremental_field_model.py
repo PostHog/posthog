@@ -150,8 +150,8 @@ def _apply_stored_suggestion(
     # The wizard or an earlier task may have asked about these columns already.
     answer_key = _cache_key(team.pk, schema)
     cached = _cache_get_many([answer_key]).get(answer_key)
-    if cached == "":
-        # The model was unsure, so there is nothing to store.
+    if cached in ("", candidates[0]["field"]):
+        # The model was unsure or agreed with the rules, so there is nothing to store.
         return
     if cached:
         _apply_pick(schema, cached)
