@@ -161,6 +161,17 @@ class CreateWebhookResponseSerializer(serializers.Serializer):
     )
 
 
+class UpdateWebhookInputsRequestSerializer(serializers.Serializer):
+    inputs = serializers.DictField(
+        child=serializers.CharField(),
+        help_text=(
+            "Webhook input values keyed by the source's declared webhook field names, for example "
+            '`{"signing_secret": "..."}`. Only keys the source type declares as webhook fields are accepted, '
+            "and a required field cannot be blank."
+        ),
+    )
+
+
 class UpdateWebhookInputsResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField(help_text="Whether the inputs were saved and pushed to the external service.")
 
@@ -429,7 +440,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
             ).data,
         )
 
-    @extend_schema(responses=CreateWebhookResponseSerializer)
+    @extend_schema(request=None, responses=CreateWebhookResponseSerializer)
     @action(methods=["POST"], detail=True)
     def create_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
@@ -525,7 +536,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
             ).data,
         )
 
-    @extend_schema(responses=UpdateWebhookInputsResponseSerializer)
+    @extend_schema(request=UpdateWebhookInputsRequestSerializer, responses=UpdateWebhookInputsResponseSerializer)
     @action(methods=["POST"], detail=True)
     def update_webhook_inputs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
@@ -621,7 +632,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
 
         return Response(status=status.HTTP_200_OK, data=UpdateWebhookInputsResponseSerializer({"success": True}).data)
 
-    @extend_schema(responses=DeleteWebhookResponseSerializer)
+    @extend_schema(request=None, responses=DeleteWebhookResponseSerializer)
     @action(methods=["POST"], detail=True)
     def delete_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()

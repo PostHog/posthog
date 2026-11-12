@@ -148,8 +148,9 @@ describe('HogInvocationResultsService', () => {
             content: { subject: 'Your login code', html: '<p>Your code is 482913</p>' },
             tracking: { captureEngagement: false },
         }
-        const messageData = { variables: { code: '482913' }, send }
-        const noMessageData = { variables: undefined, send: undefined }
+        const idempotencyKey = { hash: 'key-hash', fingerprint: 'request-fingerprint' }
+        const messageData = { variables: { code: '482913' }, send, idempotencyKey }
+        const noMessageData = { variables: undefined, send: undefined, idempotencyKey: undefined }
 
         it.each([
             ['an ordinary email', false, {}, messageData],
@@ -189,7 +190,11 @@ describe('HogInvocationResultsService', () => {
                                   edges: [],
                               })
                               .build()
-                const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' }, send })
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    variables: { code: '482913' },
+                    send,
+                    idempotencyKey,
+                })
                 // A step paused for a provider retry keeps the rendered message on its VM stack.
                 const vmState = { stack: [{ title: 'Your code is 482913' }] }
                 const person = { id: 'person-1', properties: { code: '482913' } }
@@ -206,7 +211,11 @@ describe('HogInvocationResultsService', () => {
                 const globals = (await decodeInvocationGlobals(
                     parseProducedRows(outputs)[0].invocation_globals
                 )) as Record<string, any>
-                expect({ variables: globals.variables, send: globals.send }).toEqual(expected)
+                expect({
+                    variables: globals.variables,
+                    send: globals.send,
+                    idempotencyKey: globals.idempotencyKey,
+                }).toEqual(expected)
                 expect(globals.currentAction.hogFunctionState.vmState).toEqual(expected.variables && vmState)
                 expect(globals.currentAction.hogFunctionState.globals.person).toEqual(expected.variables && person)
             }
