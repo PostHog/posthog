@@ -242,7 +242,7 @@ export function ReleaseRolloutChart({
                                     <span className="font-semibold">
                                         {step.label === 'Everyone'
                                             ? 'Everyone'
-                                            : `${step.label}${step.label.endsWith('%') ? ' of users' : ''}`}
+                                            : `${step.label}${step.label.endsWith('%') ? ' rollout' : ''}`}
                                     </span>
                                     <span className="opacity-70">{range(step, start, today)}</span>
                                 </span>
