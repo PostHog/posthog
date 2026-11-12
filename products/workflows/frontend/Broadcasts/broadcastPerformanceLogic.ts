@@ -216,7 +216,11 @@ export interface broadcastPerformanceLogicMeta {
             arg: BroadcastChannel | undefined
         ) => BroadcastSendCounts | null
         sendError: (latestErrorLog: string | null, arg: BroadcastChannel | undefined) => BroadcastSendError | null
-        audience: (totals: Record<string, number> | null, lastActivityAt: any, arg: string) => RunAudience | null
+        audience: (
+            totals: Record<string, number> | null,
+            lastActivityAt: string | null | undefined,
+            arg: string
+        ) => RunAudience | null
         capHoldHours: (currentTeam: TeamPublicType | TeamType | null) => number | null
         trackingOff: (stats: BroadcastPerformanceStats | null) => boolean
     }
