@@ -108,19 +108,10 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                 requiredScopes: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                 auth: zod
-                    .object({
-                        scheme: zod
-                            .enum(['bearer', 'header', 'basic', 'query', 'body'])
-                            .describe(
-                                '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                            )
-                            .describe(
-                                "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
-                            ),
-                    })
+                    .boolean()
                     .optional()
                     .describe(
-                        "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                        "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                     ),
             })
         )
@@ -237,19 +228,10 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                             requiredScopes: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                             auth: zod
-                                .object({
-                                    scheme: zod
-                                        .enum(['bearer', 'header', 'basic', 'query', 'body'])
-                                        .describe(
-                                            '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                                        )
-                                        .describe(
-                                            "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
-                                        ),
-                                })
+                                .boolean()
                                 .optional()
                                 .describe(
-                                    "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                    "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                                 ),
                         })
                     )
@@ -420,19 +402,10 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                 requiredScopes: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                 auth: zod
-                    .object({
-                        scheme: zod
-                            .enum(['bearer', 'header', 'basic', 'query', 'body'])
-                            .describe(
-                                '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                            )
-                            .describe(
-                                "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
-                            ),
-                    })
+                    .boolean()
                     .optional()
                     .describe(
-                        "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                        "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                     ),
             })
         )
@@ -549,19 +522,10 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                             requiredScopes: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                             auth: zod
-                                .object({
-                                    scheme: zod
-                                        .enum(['bearer', 'header', 'basic', 'query', 'body'])
-                                        .describe(
-                                            '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                                        )
-                                        .describe(
-                                            "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
-                                        ),
-                                })
+                                .boolean()
                                 .optional()
                                 .describe(
-                                    "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                    "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                                 ),
                         })
                     )
@@ -732,19 +696,10 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 requiredScopes: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                 auth: zod
-                    .object({
-                        scheme: zod
-                            .enum(['bearer', 'header', 'basic', 'query', 'body'])
-                            .describe(
-                                '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                            )
-                            .describe(
-                                "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
-                            ),
-                    })
+                    .boolean()
                     .optional()
                     .describe(
-                        "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                        "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                     ),
             })
         )
@@ -861,19 +816,10 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             requiredScopes: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                             auth: zod
-                                .object({
-                                    scheme: zod
-                                        .enum(['bearer', 'header', 'basic', 'query', 'body'])
-                                        .describe(
-                                            '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                                        )
-                                        .describe(
-                                            "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
-                                        ),
-                                })
+                                .boolean()
                                 .optional()
                                 .describe(
-                                    "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                    "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                                 ),
                         })
                     )
@@ -1048,19 +994,10 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                 requiredScopes: zod.string().optional(),
                 templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                 auth: zod
-                    .object({
-                        scheme: zod
-                            .enum(['bearer', 'header', 'basic', 'query', 'body'])
-                            .describe(
-                                '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                            )
-                            .describe(
-                                "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
-                            ),
-                    })
+                    .boolean()
                     .optional()
                     .describe(
-                        "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                        "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                     ),
             })
         )
@@ -1183,19 +1120,10 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                             requiredScopes: zod.string().optional(),
                             templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                             auth: zod
-                                .object({
-                                    scheme: zod
-                                        .enum(['bearer', 'header', 'basic', 'query', 'body'])
-                                        .describe(
-                                            '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                                        )
-                                        .describe(
-                                            "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
-                                        ),
-                                })
+                                .boolean()
                                 .optional()
                                 .describe(
-                                    "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                    "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                                 ),
                         })
                     )
@@ -1442,19 +1370,10 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         requiredScopes: zod.string().optional(),
                         templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                         auth: zod
-                            .object({
-                                scheme: zod
-                                    .enum(['bearer', 'header', 'basic', 'query', 'body'])
-                                    .describe(
-                                        '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                                    )
-                                    .describe(
-                                        "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
-                                    ),
-                            })
+                            .boolean()
                             .optional()
                             .describe(
-                                "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                             ),
                     })
                 )
@@ -1586,19 +1505,10 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     requiredScopes: zod.string().optional(),
                                     templating: zod.union([zod.boolean(), zod.enum(['hog', 'liquid'])]).optional(),
                                     auth: zod
-                                        .object({
-                                            scheme: zod
-                                                .enum(['bearer', 'header', 'basic', 'query', 'body'])
-                                                .describe(
-                                                    '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                                                )
-                                                .describe(
-                                                    "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
-                                                ),
-                                        })
+                                        .boolean()
                                         .optional()
                                         .describe(
-                                            "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
+                                            "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                                         ),
                                 })
                             )
