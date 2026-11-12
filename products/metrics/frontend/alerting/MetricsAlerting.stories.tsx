@@ -14,6 +14,11 @@ const FIRING_ALERT: PlatformAlertConfigurationApi = {
     enabled: true,
     labels: { team: 'checkout', severity: 'critical' },
     annotations: {},
+    created_by: null,
+    last_checked_at: null,
+    last_error_message: null,
+    state_timeline: [],
+    destination_types: [],
     source_kind: 'metrics',
     source_config: {
         query: 'sum by (service_name) (rate(http_requests_errors_total{service_name="checkout"}[5m]))',
