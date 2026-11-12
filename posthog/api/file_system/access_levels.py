@@ -348,7 +348,9 @@ def bulk_file_system_access_levels(
         creator_by_pk: dict[str, Optional[int]] = {}
         refs_by_pk: dict[str, list[str]] = {}
         for ref, provided_creator in creator_by_provided_ref.items():
-            lookup_ref = _canonical_ref(registration, ref) if registration else ref
+            lookup_ref = (
+                _canonical_ref(registration, ref) if registration else canonical_file_system_ref(entry_type, ref)
+            )
             row = translated.get((entry_type, lookup_ref, team_id))
             # Unresolved refs keep the ref as a pk stand-in: it matches no AccessControl rows,
             # so they resolve at resource level exactly like an existing object without object
