@@ -77,8 +77,7 @@ class SparklineQueryRunner(LogsQueryRunner):
                 "count": result[2],
             }
             if not self._use_rollup:
-                # The rollup has no byte column. A missing key tells the caller that the bytes are
-                # unknown. A zero would tell the caller that the logs have no bytes.
+                # The rollup has no byte column, and a zero would say that the logs have no bytes.
                 row["bytes_uncompressed"] = result[3]
             results.append(row)
 
@@ -86,20 +85,16 @@ class SparklineQueryRunner(LogsQueryRunner):
 
     @cached_property
     def _use_rollup(self) -> bool:
-        # logs_volume_buckets holds a log count for each 5-minute bucket, service and severity, and
-        # nothing else from a log row. It can replace the logs table only when the sparkline interval
-        # is a whole number of rollup buckets, the caller does not rank by bytes, and each active
-        # filter is on a column that the rollup has.
+        # logs_volume_buckets holds only a log count for each 5-minute bucket, service and severity.
         date_range = self.query_date_range
         if date_range.interval_name != "minute" or (date_range.interval_count * 60) % ROLLUP_BUCKET_SECONDS != 0:
             return False
         if date_range.date_from() < dt.datetime.now(dt.UTC) - ROLLUP_RETENTION:
             return False
-        if (self.query.sparklineRankBy or DEFAULT_RANK_BY) == LogsSparklineRankBy.BYTES:
-            return False
         query = self.query
         if (
-            query.searchTerm
+            (query.sparklineRankBy or DEFAULT_RANK_BY) == LogsSparklineRankBy.BYTES
+            or query.searchTerm
             or query.resourceFingerprint
             or query.personId is not None
             or query.sessionId is not None
@@ -146,8 +141,7 @@ class SparklineQueryRunner(LogsQueryRunner):
 
     def _rollup_series_query(self) -> ast.SelectQuery:
         exprs: list[ast.Expr] = [
-            # These limits select the same sparkline buckets as the logs table query. That query keeps
-            # each bucket that starts in the range, with all the logs of that bucket.
+            # The logs table query keeps each whole sparkline bucket that starts in the range.
             parse_expr(
                 "time_bucket >= {date_from_start_of_interval}"
                 " AND time_bucket < {date_to_start_of_interval} + {one_interval_period}",
