@@ -2417,12 +2417,18 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
         f"(team_id={next_request.team_id}, type={next_request.request_type})"
     )
 
+    # Dagster drops a RunRequest whose run_key it has seen before, even when that run failed.
+    # attempt_count alone does not make the key unique, because only the load_* op increments it.
+    # A run can end without reaching that op: it is cancelled while queued, its worker crashes, or
+    # its load op finds the request was moved out of APPROVED and later approved again. The request
+    # is then APPROVED with an unchanged attempt_count, and it stays first in the queue, so every
+    # request behind it would wait forever. The count of earlier runs for this request makes each
+    # launch's key new. All of those runs are finished, because the check above returns while any
+    # deletion run is active.
+    prior_runs = context.instance.get_runs_count(dagster.RunsFilter(tags={"deletion_request_id": str(next_request.pk)}))
+
     return dagster.RunRequest(
-        # Include attempt_count so retries / re-approvals of the same request get a
-        # distinct run_key. Dagster dedupes by run_key, so a bare pk would make every
-        # relaunch after the first a silent no-op. attempt_count is bumped exactly once
-        # per APPROVED → IN_PROGRESS transition (see _mark_in_progress).
-        run_key=f"{next_request.pk}:{next_request.attempt_count}",
+        run_key=f"{next_request.pk}:{next_request.attempt_count}:{prior_runs}",
         job_name=job.name,
         run_config={
             "ops": {
