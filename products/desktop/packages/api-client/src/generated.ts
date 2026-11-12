@@ -11776,6 +11776,10 @@ export namespace Schemas {
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         live_query_enabled?: boolean | undefined;
+        /**
+         * Why this table can't be made queryable live without syncing it, or null when it can.
+         */
+        live_query_unavailable_reason: string | null;
         last_synced_at: string | null;
         /**
          * The latest error that occurred when syncing this schema.
