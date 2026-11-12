@@ -3,6 +3,7 @@ import React from 'react'
 
 import 'lib/components/Cards/CardMeta.scss'
 import type { Resizeable } from 'lib/components/Cards/CardMeta'
+import { DashboardTileShell } from 'lib/components/Cards/DashboardTileShell'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 
 type WidgetCardProps = React.HTMLAttributes<HTMLDivElement> &
@@ -17,12 +18,9 @@ export const WidgetCard = React.forwardRef<HTMLDivElement, WidgetCardProps>(func
     ref
 ): JSX.Element {
     return (
-        <div
+        <DashboardTileShell
             data-slot="widget-card"
-            className={clsx(
-                'DashboardTileCard WidgetCard dashboard-widget-card min-h-0 rounded flex flex-col bg-surface-primary border',
-                className
-            )}
+            className={clsx('DashboardTileCard WidgetCard dashboard-widget-card min-h-0 flex flex-col', className)}
             {...divProps}
             style={style}
             ref={ref}
@@ -30,6 +28,6 @@ export const WidgetCard = React.forwardRef<HTMLDivElement, WidgetCardProps>(func
             {children}
             {showResizeHandles && <DashboardResizeHandles />}
             {gridChildren}
-        </div>
+        </DashboardTileShell>
     )
 })

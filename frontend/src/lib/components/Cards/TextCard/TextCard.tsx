@@ -5,6 +5,7 @@ import React from 'react'
 
 import 'lib/components/Cards/CardMeta.scss'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { DashboardTileShell } from 'lib/components/Cards/DashboardTileShell'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { QuillCardMoreMenu } from 'lib/components/Cards/QuillCardMoreMenu'
 import { LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
@@ -47,13 +48,10 @@ function TextCardInternal(
 
     const isTransparent = textTile.transparent_background
     return (
-        <div
-            className={clsx(
-                'DashboardTileCard TextCard rounded flex flex-col',
-                !isTransparent && 'bg-surface-primary border',
-                isTransparent && showResizeHandles && 'border border-dashed border-border',
-                className
-            )}
+        <DashboardTileShell
+            transparent={isTransparent}
+            showResizeHandles={showResizeHandles}
+            className={clsx('DashboardTileCard TextCard flex flex-col', className)}
             data-attr="text-card"
             {...divProps}
             ref={ref}
@@ -68,13 +66,13 @@ function TextCardInternal(
                 </div>
             )}
 
-            <div className="DashboardTileCard__body TextCard__body w-full">
+            <div className="DashboardTileCard__body TextCard__body w-full" data-not-quill>
                 <LazyTextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
             </div>
 
             {showResizeHandles && <DashboardResizeHandles />}
             {children /* Extras, such as resize handles */}
-        </div>
+        </DashboardTileShell>
     )
 }
 

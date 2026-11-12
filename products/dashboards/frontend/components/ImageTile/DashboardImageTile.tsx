@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import React from 'react'
 
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { DashboardTileShell } from 'lib/components/Cards/DashboardTileShell'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { QuillCardMoreMenu } from 'lib/components/Cards/QuillCardMoreMenu'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
@@ -55,13 +56,10 @@ function DashboardImageTileInternal(
 
     return (
         <>
-            <div
-                className={clsx(
-                    'DashboardTileCard DashboardImageTile rounded flex flex-col',
-                    !isTransparent && 'bg-surface-primary border',
-                    isTransparent && showResizeHandles && 'border border-dashed border-border',
-                    className
-                )}
+            <DashboardTileShell
+                transparent={isTransparent}
+                showResizeHandles={showResizeHandles}
+                className={clsx('DashboardTileCard DashboardImageTile flex flex-col', className)}
                 data-attr="image-tile"
                 {...divProps}
                 ref={ref}
@@ -109,7 +107,7 @@ function DashboardImageTileInternal(
                 </div>
                 {showResizeHandles && <DashboardResizeHandles />}
                 {children}
-            </div>
+            </DashboardTileShell>
             <LemonModal
                 isOpen={isImagePreviewOpen}
                 onClose={() => setIsImagePreviewOpen(false)}

@@ -13,6 +13,15 @@
     background: var(--color-bg-surface-primary);
     border-radius: var(--radius);
 
+    // Inside a quill Card the card paints the surface.
+    &.CardMeta--quill {
+        background: none;
+
+        &.CardMeta--compact .CardMeta__controls {
+            background: var(--card);
+        }
+    }
+
     h5 {
         margin-bottom: 0;
         overflow: hidden;

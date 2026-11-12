@@ -39,7 +39,7 @@ export function QuillCardMeta({
     return (
         <div
             className={clsx(
-                'CardMeta CardMeta--compact',
+                'CardMeta CardMeta--compact CardMeta--quill',
                 headerStatus && 'CardMeta--header-status',
                 onMouseDown && 'cursor-grab'
             )}

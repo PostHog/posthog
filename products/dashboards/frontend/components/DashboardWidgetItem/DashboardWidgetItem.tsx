@@ -325,17 +325,19 @@ function DashboardWidgetItemContent({
                 />
             )}
             {!showSharedPlaceholder && hasProductAccess && showTileFilters && TileFilters ? (
-                <Suspense fallback={null}>
-                    <TileFilters
-                        tileId={tile.id}
-                        config={widget.config}
-                        onUpdateConfig={componentProps.onUpdateConfig}
-                        canMutateErrorTrackingIssues={componentProps.canMutateErrorTrackingIssues}
-                        disabledReason={
-                            canUpdateWidgetTileConfig ? undefined : DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON
-                        }
-                    />
-                </Suspense>
+                <div data-not-quill className="contents">
+                    <Suspense fallback={null}>
+                        <TileFilters
+                            tileId={tile.id}
+                            config={widget.config}
+                            onUpdateConfig={componentProps.onUpdateConfig}
+                            canMutateErrorTrackingIssues={componentProps.canMutateErrorTrackingIssues}
+                            disabledReason={
+                                canUpdateWidgetTileConfig ? undefined : DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON
+                            }
+                        />
+                    </Suspense>
+                </div>
             ) : null}
             <QuillSurfaceContext.Provider value={todayRailNav}>
                 {showSharedPlaceholder ? (
