@@ -2,7 +2,6 @@ export interface Version {
     major: number
     minor: number
     patch: number
-    // The dot-separated parts after the hyphen, as in ['alpha', '3'] for 1.0.0-alpha.3. Empty for a release.
     prerelease: string[]
 }
 
@@ -66,8 +65,7 @@ export function isNewer(latest: string, current: string): boolean {
 const DAY_MS = 24 * 60 * 60 * 1000
 export const STALE_AFTER_MS = 30 * DAY_MS
 
-// Worth telling a person about: a new minor or major, or a release that came out more than 30 days
-// after this build. A few patches within a month say nothing, because every merge ships one.
+// A few patch releases within a month aren't worth a notice.
 export function isMeaningfullyBehind(
     current: { version: string; buildDate: string },
     latest: { version: string; publishedAt: string }

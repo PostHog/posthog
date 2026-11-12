@@ -12,10 +12,8 @@ import { detectInstallMethod, upgradeAdvice, upgradeCommand, type InstallMethod 
 import { fetchManifest, type Manifest } from './manifest'
 import { isMeaningfullyBehind, isNewer } from './version'
 
-// The latest release as hog last read it, kept in hog's folder so most runs need no request.
 const CACHE_FILE = 'update-check.json'
 const DAY_MS = 24 * 60 * 60 * 1000
-// Setup wants the latest version, so it accepts only a recent answer.
 const SETUP_MAX_AGE_MS = 10 * 60 * 1000
 // The daily check runs alongside the command, so a slow answer costs at most this much at the end.
 const BACKGROUND_TIMEOUT_MS = 1500
@@ -34,8 +32,7 @@ const CacheSchema = z.object({ checkedAt: z.number(), latest: LatestSchema })
 type Latest = z.infer<typeof LatestSchema>
 type Cache = z.infer<typeof CacheSchema>
 
-// Only a release build knows when it was built. A run from source and a local `pnpm compile` have no
-// build date, so they never check.
+// A run from source and a local `pnpm compile` have no build date, so they never check.
 export function checksUpdates(runtime: Pick<Runtime, 'isDevelopment' | 'build'>): boolean {
     return !runtime.isDevelopment && runtime.build.date !== undefined
 }
@@ -61,8 +58,7 @@ async function writeCache(runtime: Runtime, manifest: Manifest): Promise<Cache> 
     return cache
 }
 
-// The cached answer when it is younger than `maxAgeMs`, or a fresh one. A failed request falls back
-// to the cache, however old, and to undefined without one: an unreachable release never fails a command.
+// A failed request falls back to the cache, however old: an unreachable release never fails a command.
 export async function latestRelease(
     runtime: Runtime,
     maxAgeMs: number,
@@ -83,7 +79,6 @@ export async function rememberRelease(runtime: Runtime, manifest: Manifest): Pro
     await writeCache(runtime, manifest)
 }
 
-// What `hog auth status` and `hog setup` tell agents about the running hog.
 export interface HogVersionInfo {
     version: string
     latest: string | null
@@ -106,8 +101,7 @@ async function versionInfo(
     }
 }
 
-// HOG_NO_UPDATE_CHECK and `cli.updateCheck: false` stop every update request, the minimumVersion
-// check included. Only the setup gate still checks, because setup needs the latest version.
+// Off stops every update request, minimumVersion included. Only the setup gate still checks.
 export function updateChecksOff(
     runtime: Pick<Runtime, 'env'>,
     config: { cli?: { updateCheck?: boolean } } | undefined
@@ -115,7 +109,6 @@ export function updateChecksOff(
     return optOutFlag(runtime.env, NO_UPDATE_CHECK_ENV) === true || config?.cli?.updateCheck === false
 }
 
-// With update checks off it reads only what an earlier check cached, and sends no request.
 export async function currentVersionInfo(runtime: Runtime, off: boolean): Promise<HogVersionInfo> {
     if (!checksUpdates(runtime)) {
         return versionInfo(runtime, undefined)
@@ -126,8 +119,7 @@ export async function currentVersionInfo(runtime: Runtime, off: boolean): Promis
     return versionInfo(runtime, latest)
 }
 
-// Setup has the best chance with the latest hog, so it stops on any newer release, even one patch.
-// It doesn't stop when the release can't be read, or for a dev build.
+// Any newer release stops setup, even one patch. An unreachable manifest or a dev build doesn't.
 export async function requireLatestForSetup(runtime: Runtime, rerun: string): Promise<HogVersionInfo> {
     if (!checksUpdates(runtime)) {
         return versionInfo(runtime, undefined)
@@ -148,11 +140,9 @@ export async function requireLatestForSetup(runtime: Runtime, rerun: string): Pr
     return info
 }
 
-// Started when a command starts and finished when it ends, so the request overlaps the command.
 export class UpdateCheck {
     private readonly pending: Promise<Latest | undefined>
 
-    // `off` is updateChecksOff: then hog sends no request and prints nothing.
     constructor(
         private readonly runtime: Runtime,
         off: boolean
@@ -163,9 +153,7 @@ export class UpdateCheck {
                 : Promise.resolve(undefined)
     }
 
-    // Lines for stderr once the command printed its output. A release below the manifest's minimum
-    // warns everyone, agents and CI included. The notice is only for a person at a terminal who is
-    // meaningfully behind.
+    // A release below minimumVersion warns everyone. The notice is only for a person at a terminal.
     async finish(options: { mode: Mode; command: string | undefined }): Promise<void> {
         const latest = await this.pending
         if (!latest || options.command === 'upgrade') {

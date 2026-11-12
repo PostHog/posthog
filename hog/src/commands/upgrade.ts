@@ -19,9 +19,6 @@ const VersionOption = z
     .transform((text) => text.replace(/^v/, ''))
     .refine((text) => parseVersion(text) !== undefined, { error: 'Pass a version like 0.1.0-alpha.4.' })
 
-// upgraded: hog replaced its own binary. ran: a person approved the package manager's command and it
-// ran. declined: they didn't. run_command: the caller, such as an agent, runs the command. explain: no
-// command updates this copy. up_to_date and available: nothing changed.
 type Action = 'upgraded' | 'ran' | 'declined' | 'run_command' | 'explain' | 'up_to_date' | 'available'
 
 interface UpgradeResult {
@@ -52,9 +49,7 @@ async function download(runtime: Runtime, urls: string[]): Promise<Uint8Array> {
             if (response.ok) {
                 return new Uint8Array(await response.arrayBuffer())
             }
-        } catch {
-            // The next origin may work. The error below covers both failing.
-        }
+        } catch {}
     }
     throw new HogError(
         'download_failed',

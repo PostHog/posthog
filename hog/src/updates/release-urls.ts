@@ -1,9 +1,7 @@
 import type { Runtime } from '@/core/runtime'
 
-// Each release uploads its files under hog/v<version>/, which never change, then rewrites
-// hog/stable/manifest.json, which points at the latest release. HOG_RELEASES_URL moves both, for tests
-// and mirrors. install.sh and install.ps1 read the same files. This module imports nothing, so the
-// release scripts can use it without installing hog's dependencies.
+// No imports, so the release scripts can use it without installing hog's dependencies. HOG_RELEASES_URL
+// points it at another bucket, for tests and mirrors.
 export const RELEASES_URL = 'https://releases.posthog.com/hog'
 export const GITHUB_REPOSITORY = 'PostHog/posthog'
 

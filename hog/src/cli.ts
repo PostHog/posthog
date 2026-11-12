@@ -548,8 +548,7 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
     }
     const started = runtime.now()
     const commandIndex = tokens.find((token) => token.kind === 'positional')?.index
-    // Handled here rather than by commander, whose program-level --version would also catch
-    // `hog upgrade --version <version>`.
+    // Not commander's --version, which would also catch `hog upgrade --version <version>`.
     if (
         commandIndex === undefined &&
         tokens.some((token) => token.kind === 'option' && ['version', 'V'].includes(token.name))

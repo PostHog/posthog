@@ -7,5 +7,4 @@ declare const HOG_BUILD_DATE: string | undefined
 
 export const VERSION: string = typeof HOG_RELEASE_VERSION === 'string' ? HOG_RELEASE_VERSION : pkg.version
 
-// An ISO 8601 timestamp. Undefined for a dev build, which skips update checks.
 export const BUILD_DATE: string | undefined = typeof HOG_BUILD_DATE === 'string' ? HOG_BUILD_DATE : undefined

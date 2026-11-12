@@ -3,9 +3,7 @@ import { gunzipSync, inflateRawSync } from 'node:zlib'
 
 import { HogError } from '@/core/errors'
 
-// Reads one file out of a release archive: a .tar.gz on macOS and Linux, a .zip on Windows. Release
-// archives hold the binary alone, so only the parts of each format that release/package.ts writes
-// are read, without a dependency for either.
+// Reads only the parts of tar and zip that release/package.ts writes, so it needs no dependency.
 
 function brokenArchive(reason: string): HogError {
     return new HogError(

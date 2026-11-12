@@ -13,7 +13,6 @@ const AGENT = { CLAUDECODE: '1' }
 const BUILT = '2025-12-20T00:00:00.000Z'
 const RUNNING = { version: '0.1.0-alpha.5', date: BUILT }
 
-// A real archive, made by tar, holding a stand-in binary.
 const BINARY = new TextEncoder().encode('#!/bin/sh\necho new hog\n')
 const ARCHIVE = (() => {
     const folder = mkdtempSync(join(tmpdir(), 'hog-upgrade-'))
@@ -40,7 +39,6 @@ function manifest(version: string, publishedAt: string, extra: Partial<Manifest>
     }
 }
 
-// Answers the manifest at its URL and the archive at the bucket, and fails everything else.
 function release(latest: Manifest | null, archive: Uint8Array = ARCHIVE): FakeRuntimeOptions['respond'] {
     return (url) => {
         if (latest && (url === STABLE || url.endsWith(`/v${latest.version}/manifest.json`))) {

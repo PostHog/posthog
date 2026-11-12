@@ -39,17 +39,12 @@ export interface Runtime {
     // True for `bun src/index.ts`, false for a compiled hog. A run from source keeps its credentials
     // and settings apart, so it never reads or replaces those of an installed hog.
     isDevelopment: boolean
-    // The version and build date the release workflow compiled in. A local build has no date, and
-    // never checks for updates.
+    // A local build has no date, and never checks for updates.
     build: { version: string; date: string | undefined }
-    // The running executable: hog itself when compiled, bun for a run from source.
     execPath: string
-    // Whether this Linux machine runs musl, as Alpine does, which needs hog's musl build.
     isMusl: () => Promise<boolean>
-    // Runs a program with hog's stdin, stdout and stderr, and resolves to its exit code.
     runCommand: (argv: string[]) => Promise<number>
-    // Replaces the executable at `path` in one rename, so it is never half written. Windows can't
-    // replace a running exe, so the old one is renamed to hog.old.exe, which the next run deletes.
+    // Windows can't replace a running exe, so it renames the old one to hog.old.exe, which the next run deletes.
     replaceExecutable: (path: string, contents: Uint8Array) => Promise<void>
     stdinIsTTY: boolean
     stdoutIsTTY: boolean
@@ -224,7 +219,6 @@ async function realPath(path: string): Promise<string> {
     }
 }
 
-// Writes the new binary next to the old one, so the rename stays on one file system.
 async function replaceExecutable(path: string, contents: Uint8Array): Promise<void> {
     const temporary = join(dirname(path), `.hog.${randomUUID()}.tmp`)
     try {

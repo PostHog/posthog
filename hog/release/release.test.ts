@@ -63,7 +63,6 @@ async function sh(command: string[], cwd: string): Promise<void> {
     expect(await child.exited).toBe(0)
 }
 
-// A release laid out as the workflow publishes it, with a stand-in hog that prints its version.
 async function fakeRelease(
     version: string,
     where: 'bucket' | 'mirror',
@@ -106,7 +105,6 @@ async function fakeRelease(
     return release
 }
 
-// `uname` stands in for the system's, so a test can pretend to run in Git Bash or WSL.
 async function install(
     release: FakeRelease,
     args: string[] = [],
@@ -208,8 +206,7 @@ describe.skipIf(process.platform === 'win32' || !here)('install.sh', () => {
     })
 })
 
-// PowerShell reads install.sh as one block comment up to the closing marker, then runs what follows.
-// A second marker anywhere above would hand sh code to PowerShell, and `irm | iex` would print parse errors.
+// A second closing marker would hand sh code to PowerShell, and `irm install.sh | iex` would print parse errors.
 test('install.sh closes its PowerShell comment exactly once, after the sh code', async () => {
     const lines = (await Bun.file(INSTALL_SH).text()).split('\n')
 
@@ -220,8 +217,7 @@ test('install.sh closes its PowerShell comment exactly once, after the sh code',
     expect(lines.slice(0, markers[0]).some((line) => line === 'exit')).toBe(true)
 })
 
-// npm, pnpm and bun name the global command after the `bin` key, and npx and bunx run the package's
-// only bin, so `hog` has to be the one bin in the tarball npm builds, and it has to start with a shebang.
+// Package managers name the command after the `bin` key, and npx and bunx run a package's only bin.
 test.skipIf(!Bun.which('npm'))('the npm launcher package installs the hog command', async () => {
     const folder = await mkdtemp(join(tmpdir(), 'hog-npm-'))
     await mkdir(join(folder, 'bin'))

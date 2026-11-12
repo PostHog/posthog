@@ -1,9 +1,5 @@
-// Whether a release may move the rolling keys: hog/stable/manifest.json, the install scripts, npm's
-// latest tag and the Homebrew formula. A rerun of an older release must not move them back.
-//
-//   bun release/is-latest.ts --version 0.1.0-alpha.4 [--manifest-url <url>]
-//
-// Prints true when no stable manifest exists yet, or when it names this version or an older one.
+// Prints whether this version may move stable, npm's latest tag and the formula, so a rerun of an
+// older release never moves them back.
 
 import { parseArgs } from 'node:util'
 

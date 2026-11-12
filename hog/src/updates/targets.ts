@@ -1,5 +1,4 @@
-// Every platform hog ships a binary for. The id is the name people see in archive and npm package
-// names, and install.sh, install.ps1 and the npm launcher compute the same id on the machine they run on.
+// install.sh, install.ps1 and the npm launcher compute the same ids on the machine they run on.
 export interface Target {
     id: string
     bunTarget: string
@@ -39,8 +38,6 @@ export function npmPackageName(target: Target): string {
     return `@posthog/hog-${target.id}`
 }
 
-// The target of the machine hog runs on, or undefined when hog has no build for it. install.sh and the
-// npm launcher make the same choice.
 export function targetFor(platform: string, arch: string, musl: boolean): Target | undefined {
     return TARGETS.find(
         (target) =>

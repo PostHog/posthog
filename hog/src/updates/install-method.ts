@@ -5,13 +5,7 @@ import { parseJsonOrUndefined } from '@/core/json'
 import { hogFile, isInside } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 
-// How the running hog got onto this machine, which decides how it updates.
-//   script       install.sh or install.ps1, whose receipt names the folder it installed to
-//   standalone   a binary someone downloaded or copied by hand
-//   homebrew, npm-global, pnpm-global, bun-global   a package manager owns the file
-//   npx          a package runner's cache, which npx, pnpm dlx or bunx refreshes itself
-//   project      a dependency in a project's node_modules
-//   source       `bun src/index.ts` in a checkout
+// A `script` install carries the receipt install.sh writes. A `standalone` one is a binary placed by hand.
 export type InstallKind =
     | 'script'
     | 'standalone'
@@ -25,9 +19,7 @@ export type InstallKind =
 
 export interface InstallMethod {
     kind: InstallKind
-    // The executable with every link resolved, so a Homebrew symlink shows where the file is.
     path: string
-    // The project folder whose node_modules holds this hog, for `project`.
     project?: string
 }
 
@@ -37,8 +29,7 @@ const Receipt = z.looseObject({ method: z.literal('script'), install_dir: z.stri
 
 const PACKAGE = '@posthog/hog'
 
-// Matched against the path with forward slashes. The first match wins, so the package runner caches
-// and the global folders come before the catch-all for a project's node_modules.
+// The first match wins, so the runner caches and global folders come before a project's node_modules.
 const NODE_LAYOUTS: readonly [kind: InstallKind, pattern: RegExp][] = [
     ['npx', /\/_npx\/|\/dlx\/|\/bunx-[^/]*\//],
     ['bun-global', /\/\.bun\/install\/global\//],
@@ -90,8 +81,7 @@ export async function detectInstallMethod(runtime: Runtime): Promise<InstallMeth
     return { kind: (await receiptOwns(runtime, path)) ? 'script' : 'standalone', path }
 }
 
-// The command that updates this install, or undefined when no one command does: a project
-// dependency changes in its package.json, and a checkout updates with git.
+// Undefined for a project dependency and a checkout, which no single command updates.
 export function upgradeCommand(method: InstallMethod, version?: string): string | undefined {
     const spec = `${PACKAGE}@${version ?? 'latest'}`
     switch (method.kind) {
@@ -114,7 +104,6 @@ export function upgradeCommand(method: InstallMethod, version?: string): string 
     }
 }
 
-// What to do instead when hog can't update itself, in a sentence for the hint of an error or a note.
 export function upgradeAdvice(method: InstallMethod, rerun: string): string {
     switch (method.kind) {
         case 'npx':

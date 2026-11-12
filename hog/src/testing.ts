@@ -17,14 +17,11 @@ export interface FakeRuntimeOptions {
     env?: Env
     platform?: NodeJS.Platform
     arch?: string
-    // A run from source, as `bun src/index.ts` is.
     isDevelopment?: boolean
-    // The compiled-in version and build date. Without a date the build is a dev build, which never
-    // checks for updates, so tests that don't pass one send no update requests.
+    // Without a date the build never checks for updates, so tests that don't pass one send no update requests.
     build?: { version: string; date?: string }
     execPath?: string
     musl?: boolean
-    // The exit code of every program hog runs with runCommand.
     commandExitCode?: number
     stdoutIsTTY?: boolean
     columns?: number
@@ -59,7 +56,6 @@ export interface FakeRuntime extends Runtime {
     stdout: () => string
     stderr: () => string
     requests: { method: string; url: string; body: unknown }[]
-    // Programs hog ran, and executables it replaced, by path.
     commands: string[][]
     executables: Record<string, Uint8Array>
     files: Record<string, string>

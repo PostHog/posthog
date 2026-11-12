@@ -1,20 +1,6 @@
-// Packages the binaries compile.ts built into everything a release publishes:
-//
-//   <out>/assets/    the archives, SHA256SUMS, manifest.json and both install scripts. The release
-//                    workflow uploads this folder to releases.posthog.com/hog/v<version>/ and to the
-//                    GitHub release, then copies manifest.json to hog/stable/manifest.json.
-//   <out>/npm/       one folder per npm package, ready for `npm publish <folder>`
-//   <out>/hog.rb     the Homebrew formula for PostHog/homebrew-tap
-//
-//   bun release/package.ts --version 0.1.0-alpha.4 --build-date <iso> [--in dist/release] [--out dist/release/out]
-//   bun release/package.ts --reuse <assets folder> [--out dist/release/out]
-//
-// Pass the same --version and --build-date as compile.ts. release/minimum-version.json sets the
-// manifest's minimumVersion: every hog below it warns on each command, so it retires a broken release.
-//
-// --reuse takes the assets of a version the bucket already has, as on a rerun, and builds the npm
-// packages and the formula from those archives. Files under a version never change, and a new
-// signature would give the same version different bytes.
+// Turns compile.ts's binaries into the release: archives, SHA256SUMS, manifest.json and the install
+// scripts in <out>/assets, the npm packages in <out>/npm, and <out>/hog.rb. --reuse rebuilds the npm
+// packages and formula from a version the bucket already has, because files under a version never change.
 
 import { chmod, copyFile, cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
@@ -114,7 +100,6 @@ async function npmPackage(folder: string, packageJson: PackageJson, files: [stri
     }
 }
 
-// The published assets as they are, with each binary unpacked for its npm package.
 async function reuse(from: string, manifest: Manifest): Promise<Record<string, Artifact>> {
     await cp(from, assets, { recursive: true })
     for (const target of TARGETS) {

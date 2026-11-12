@@ -40,7 +40,6 @@ export function buildManifest(
     }
 }
 
-// The format `sha256sum -c` reads: the hash, two spaces, the file name. install.sh greps its archive's line.
 export function sha256Sums(artifacts: Record<string, Artifact>): string {
     return (
         Object.values(artifacts)
@@ -63,8 +62,7 @@ const NPM_COMMON = {
     bugs: { url: 'https://github.com/PostHog/posthog/issues' },
 }
 
-// One package per platform holds the binary. npm, pnpm and bun read `os`, `cpu` and `libc`, so each
-// machine downloads only its own package from the wrapper's optionalDependencies.
+// npm, pnpm and bun read `os`, `cpu` and `libc`, so each machine downloads only its own package.
 export function platformPackageJson(target: Target, version: string): PackageJson {
     return {
         name: npmPackageName(target),

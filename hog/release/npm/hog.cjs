@@ -1,23 +1,19 @@
 #!/usr/bin/env node
-// The `hog` command the @posthog/hog npm package installs. It finds the binary in the platform package
-// npm, pnpm or bun picked from optionalDependencies, and runs it with the same arguments and stdio.
+// Runs the binary from the platform package the package manager picked from optionalDependencies.
 'use strict'
 
 const { spawnSync } = require('node:child_process')
 const { readdirSync } = require('node:fs')
 const path = require('node:path')
 
-// musl systems such as Alpine have a dynamic loader named ld-musl-<arch>.so.1, and glibc systems don't.
-// install.sh checks the same thing, so both pick the same build.
+// Only musl systems, such as Alpine, have an ld-musl-<arch>.so.1 loader. install.sh checks the same.
 function isMusl(readdir) {
     for (const folder of ['/lib', '/usr/lib']) {
         try {
             if (readdir(folder).some((name) => name.startsWith('ld-musl-'))) {
                 return true
             }
-        } catch {
-            // A folder that doesn't exist says nothing either way.
-        }
+        } catch {}
     }
     return false
 }

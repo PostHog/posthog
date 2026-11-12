@@ -1,11 +1,5 @@
-// Compiles hog for every release target, or for the ones named with --target, into
-// dist/release/bin/<target>/. Bun cross-compiles, so one machine builds all of them.
-//
-//   bun release/compile.ts --version 1.0.0-alpha.4 [--build-date <iso>] [--target darwin-arm64 ...]
-//
-// --version and --build-date go into the binary, which reports them and compares them with the latest
-// release. Without --version the build is a dev build, which never checks for updates.
-// Run `pnpm run build:mcp` first: the binary embeds the MCP tool catalog and skills library.
+// Bun cross-compiles, so one machine builds every target. Without --version the build is a dev build,
+// which never checks for updates. Run `pnpm run build:mcp` first: the binary embeds the MCP library.
 
 import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
@@ -59,8 +53,7 @@ for (const target of targets) {
     const outfile = join(folder, binaryName(target))
 
     console.info(`Compiling ${target.id} -> ${outfile}`)
-    // The same flags as `pnpm run compile`, so a release behaves like a local build: a compiled hog
-    // never loads a .env or bunfig.toml from the folder it runs in.
+    // The flags of `pnpm run compile`: a compiled hog never loads a .env or bunfig.toml from its folder.
     const build = Bun.spawn(
         [
             'bun',
