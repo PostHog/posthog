@@ -22,7 +22,6 @@ def logs_copy_expectations(team_id: int | None, after: UUID | None, limit: int) 
         try:
             upsert = platform_upsert_of(alert)
         except TypeError:
-            # Filters that are not an object have no platform form.
             upsert = None
         expectations.append(
             LegacyCopyExpectation(

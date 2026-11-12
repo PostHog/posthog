@@ -50,7 +50,6 @@ def report_drift(
 ) -> DriftReport:
     """Reads every platform-owned row of the named sources, and its copy, and writes nothing."""
     counts: dict[tuple[int, SourceKind, str], int] = {}
-    # Rows arrive in id order, so the first ids kept are the lowest.
     samples: dict[tuple[int, SourceKind, str], list[UUID]] = {}
     compared = drifted = 0
     for source_kind in source_kinds:
@@ -117,7 +116,6 @@ def _leaves(value: Any, path: str, depth: int) -> dict[str, Any]:
 
 
 def _copies_of(batch: Collection[LegacyCopyExpectation]) -> dict[UUID, dict[str, Any]]:
-    # Every column, because a source's `extra_columns` may name any of them.
     rows = (
         PlatformAlertConfiguration.objects.unscoped()
         .filter(
