@@ -416,7 +416,7 @@ class GoogleAdsSource(
 
         oauth = OauthIntegration(integration)
         if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
-            oauth.refresh_access_token()
+            integration = oauth.refresh_access_token()
         if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
             raise IntegrationAccountListingError(
                 "Could not refresh the Google Ads credentials. Please reconnect your Google Ads integration."
@@ -522,7 +522,7 @@ class GoogleAdsSource(
             if "CUSTOMER_NOT_FOUND" in error_message or "USER_PERMISSION_DENIED" in error_message:
                 return (
                     False,
-                    f"Customer ID {config.customer_id} isn't accessible through the connected manager "
+                    "This customer ID isn't accessible through the connected manager "
                     "(MCC) account. Check that the customer ID is correct, that the manager customer ID "
                     "you entered is right, and that this account is linked under that manager, then try again.",
                 )
@@ -536,6 +536,7 @@ class GoogleAdsSource(
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         from products.warehouse_sources.sources.google_ads.google_ads import (  # noqa: PLC0415
+            _find_manager_customer_id,
             _is_transient_grpc_error,
             google_ads_client,
         )
@@ -561,20 +562,20 @@ class GoogleAdsSource(
             customer_service = client.get_service("CustomerService", version=resolved_version)
             accessible_customers = customer_service.list_accessible_customers()
 
-            customer_resource_name = f"customers/{clean_customer_id(config.customer_id)}"
-            is_valid = customer_resource_name in accessible_customers.resource_names
-            if not is_valid:
-                # `list_accessible_customers` returns only accounts the login can reach directly,
-                # never client accounts nested under a manager. A valid client-account id therefore
-                # lands here when the MCC toggle is off, so point at that toggle rather than telling
-                # the user their (correct) id is wrong. Mirrors the PERMISSION_DENIED message below.
-                return (
-                    False,
-                    f"Customer ID {config.customer_id} isn't accessible with the connected Google login. "
-                    "Check the ID is correct, and if it's a client account under a manager (MCC) account, "
-                    'enable "Using MCC account?" and enter your manager\'s customer ID, then try again.',
-                )
-            return True, None
+            cleaned_customer_id = clean_customer_id(config.customer_id) or ""
+            if f"customers/{cleaned_customer_id}" in accessible_customers.resource_names:
+                return True, None
+            # `list_accessible_customers` returns only accounts the login can reach directly, never
+            # client accounts nested under a manager, though the account picker offers those. The sync
+            # recovers by authenticating as the manager (see `GoogleAdsSearchService`), so accept the
+            # account here too when an accessible manager reaches it.
+            if _find_manager_customer_id(client, cleaned_customer_id, resolved_version) is not None:
+                return True, None
+            return (
+                False,
+                "Your connected Google login can't access this customer ID. Check the ID, or reconnect "
+                "with a Google login that can access this account or its manager (MCC) account.",
+            )
         except IntegrationNotFound:
             return (
                 False,

@@ -1,6 +1,6 @@
 """Facade for warehouse_suggestions."""
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import asdict
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -11,8 +11,8 @@ from posthog.queryset_paging import select_page
 from products.warehouse_sources.backend.facade.api import source_locations_for_tables
 from products.warehouse_sources.backend.facade.contracts import TableSourceLocation
 
-from ..logic import accept, assignment, suggestions
-from ..logic.access import CATALOG_KINDS, SubjectAccess, readable_table_ids, visible_suggestions
+from ..logic import accept, assignment, job, query_notes, suggestions
+from ..logic.access import CATALOG_KINDS, SubjectAccess, actionable_waiting, readable_table_ids, visible_suggestions
 from ..logic.analytics import SuggestionOutcome, report_outcomes
 from ..logic.flags import is_warehouse_suggestions_enabled
 from ..logic.payloads import payload_from_json, payload_view, source_table_ids
@@ -29,6 +29,8 @@ from .contracts import (
     SuggestionPayloadView,
     SuggestionReviewer,
     SuggestionStatus,
+    SurfaceMoreResult,
+    WarehouseSuggestionNote,
 )
 from .enums import (
     WarehouseSuggestionAssetOutcome,
@@ -36,6 +38,7 @@ from .enums import (
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
+    WarehouseSuggestionSurface,
 )
 
 if TYPE_CHECKING:
@@ -52,8 +55,18 @@ __all__ = [
     "list_suggestions",
     "resume_suggestion",
     "suggestion_status",
+    "suggestions_for_read_views",
+    "surface_more",
     "upsert_suggestions",
 ]
+
+
+def suggestions_for_read_views(
+    team: "Team", user: "User", saved_query_ids: Collection[str], *, is_mcp_run: bool, can_write: bool
+) -> list[WarehouseSuggestionNote] | None:
+    return query_notes.suggestions_for_read_views(
+        team, user, saved_query_ids, is_mcp_run=is_mcp_run, can_write=can_write
+    )
 
 
 def upsert_suggestions(team_id: int, drafts: Sequence[SuggestionDraft]) -> None:
@@ -68,6 +81,7 @@ def list_suggestions(
     status: WarehouseSuggestionStatus | None,
     subject_id: UUID | None,
     assignee_id: int | None = None,
+    surface: WarehouseSuggestionSurface | None = None,
     subject_kinds: SubjectKinds,
     page: PageRequest,
 ) -> Page[Suggestion]:
@@ -78,14 +92,26 @@ def list_suggestions(
         status=status,
         subject_id=subject_id,
         assignee_id=assignee_id,
+        surface=surface,
         subject_kinds=subject_kinds,
     )
     rows = select_page(visible, page)
     return Page(results=_to_contracts(team_id, user_access_control, rows.results, access), count=rows.count)
 
 
-def suggestion_status(team_id: int) -> SuggestionStatus:
+def suggestion_status(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    *,
+    subject_kinds: SubjectKinds,
+    surface: WarehouseSuggestionSurface | None = None,
+) -> SuggestionStatus:
     config = WarehouseSuggestionTeamConfig.objects.filter(team_id=team_id).first() or WarehouseSuggestionTeamConfig()
+    waiting = (
+        job.waiting_suggestions(team_id, actionable_waiting(team_id, user_access_control, surface, subject_kinds))
+        if surface is not None
+        else job.NOTHING_WAITING
+    )
     return SuggestionStatus(
         enabled=config.enabled,
         eligible=config.eligible,
@@ -93,7 +119,20 @@ def suggestion_status(team_id: int) -> SuggestionStatus:
         window_days=RULES.window_days,
         paused_reason=config.paused_reason,
         refreshed_at=config.last_run_at,
+        waiting=waiting.count,
+        can_show_more=waiting.can_show_more,
     )
+
+
+def surface_more(
+    team: "Team",
+    user_access_control: "UserAccessControl",
+    *,
+    surface: WarehouseSuggestionSurface,
+    subject_kinds: SubjectKinds,
+) -> SurfaceMoreResult:
+    surfaced = job.surface_more(team, actionable_waiting(team.pk, user_access_control, surface, subject_kinds))
+    return SurfaceMoreResult(surfaced=len(surfaced))
 
 
 def get_suggestion(
@@ -116,6 +155,7 @@ def dismiss_suggestion(
     reason: WarehouseSuggestionDismissalReason,
     note: str | None,
     subject_kinds: SubjectKinds,
+    surface: WarehouseSuggestionSurface | None = None,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
     dismissed = suggestions.transition_to(
@@ -127,7 +167,7 @@ def dismiss_suggestion(
         note=note,
         transitions=suggestions.HUMAN_TRANSITIONS,
     )
-    report_outcomes(SuggestionOutcome.DISMISSED, [dismissed], team=team, user=user)
+    report_outcomes(SuggestionOutcome.DISMISSED, [dismissed], team=team, user=user, properties={"surface": surface})
     return _single_contract(team.pk, user_access_control, dismissed, access)
 
 
@@ -178,9 +218,11 @@ def accept_suggestion(
     options: AcceptOptions,
     was_impersonated: bool,
     subject_kinds: SubjectKinds,
+    surface: WarehouseSuggestionSurface | None = None,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
-    _require_catalog_edit_access(row, user_access_control)
+    if not options.delete_view:
+        _require_catalog_edit_access(row, user_access_control)
     outcome = accept.accept(
         team.pk,
         row.id,
@@ -192,7 +234,7 @@ def accept_suggestion(
             [outcome.suggestion],
             team=team,
             user=user,
-            properties={"changed_fields": list(outcome.changed_fields), **asdict(outcome.savings)},
+            properties={"changed_fields": list(outcome.changed_fields), "surface": surface, **asdict(outcome.savings)},
         )
     return _single_contract(team.pk, user_access_control, outcome.suggestion, access)
 

@@ -16,7 +16,7 @@
     },
     "devDependencies": {
         "@types/js-yaml": "^4.0.9",
-        "@types/node": "^24.0.0",
+        "@types/node": "^26.6.6",
         "typescript": "^6.0.3",
         "vitest": "^4.1.0"
     }

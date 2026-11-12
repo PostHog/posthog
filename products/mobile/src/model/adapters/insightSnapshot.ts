@@ -22,6 +22,7 @@ import {
     hasSqlChartSeries,
     sqlCellNumber,
     sqlChartKind,
+    sqlChartReason,
     sqlInterval,
     sqlQueryDisplay,
     sqlRankingView,
@@ -135,6 +136,7 @@ const TRENDS_DISPLAY_LABELS: Record<string, string> = {
 const SQL_DISPLAY_LABELS: Record<string, string> = {
     BoldNumber: 'Big number',
     ActionsTable: 'Table',
+    Metric: 'Metric',
     ActionsLineGraph: 'Line',
     ActionsLineGraphCumulative: 'Line',
     ActionsAreaGraph: 'Line',
@@ -220,7 +222,12 @@ export function capabilitiesOf(
     if (kind === 'HogQLQuery') {
         const display = sqlTable ? sqlResultDisplay(query, sqlTable) : sqlQueryDisplay(query)
         const chart = display === 'chart' && (!sqlTable || hasSqlChartSeries(query, sqlTable))
-        return { number: display === 'number', chart, people: false }
+        return {
+            number: display === 'number',
+            chart,
+            people: false,
+            ...(!chart ? { chartReason: sqlChartReason(query, sqlTable) } : {}),
+        }
     }
     const display = displayOf(query)
     const chart = kind === 'TrendsQuery' && timeSeriesChartKind(asTrendsInsight(query)) !== undefined

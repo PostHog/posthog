@@ -21,6 +21,7 @@ import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
+import { LearnLookupError } from '@/skills/skill-catalog'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { readParamAliases } from './cast-helpers'
@@ -172,6 +173,11 @@ export interface ExecInnerCallProperties {
     output_tokens?: number
     input?: Record<string, unknown>
     /**
+     * The handler's result before formatting. Analytics redacts it by key, which the
+     * formatted text below would hide credential fields from.
+     */
+    result?: unknown
+    /**
      * The payload returned to the client, exactly as serialized. Consumed by the
      * `$ai_span` capture for data-catalog-relevant calls, which needs the tool's
      * result (e.g. which metrics a catalog lookup returned), not just its size.
@@ -292,12 +298,16 @@ export interface ExecToolOptions {
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
 
 /**
- * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
- * line ranges, empty queries — so type them to keep them out of the `internal`
+ * Lookup misses and plain errors out of the learn catalog are agent mistakes, such as unknown
+ * names, bad line ranges and empty queries. Typing them keeps them out of the `internal`
  * bucket ops alerts on. Anything that already carries its own class (an API
  * failure, a source outage, an exec error) propagates untouched.
  */
 function classifyLearnError(error: unknown): unknown {
+    if (error instanceof LearnLookupError) {
+        return new ExecCommandError(error.message, 'unknown_learn_topic')
+    }
+
     if (!(error instanceof Error) || error.constructor !== Error) {
         return error
     }
@@ -688,6 +698,9 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     ),
     'loops-run-create': () =>
         'Tool "loops-run-create" was removed. Loops run on workflows. "workflows-test-run" tests the graph one node at a time and mocks outbound calls by default; it does not start a real task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog Desktop, or wait for its trigger.',
+    // Self-managed tables (reading a bucket in place) can no longer be created.
+    'warehouse-tables-create': () =>
+        'Tool "warehouse-tables-create" was removed. PostHog no longer links tables that read your bucket directly. To import bucket files, add an Amazon S3, Google Cloud Storage, Azure Blob, or Cloudflare R2 source with "data-warehouse-source-setup". Run "external-data-sources-wizard" for the required fields. To import a local file, upload it in the PostHog app at /data-warehouse/new-source?kind=FileUpload. The upload creates a FileUpload source.',
     'loops-runs-retrieve': () =>
         'Tool "loops-runs-retrieve" was removed. Loops run on workflows. For run history, call "tasks-list" with the hog_flow_id of the loop and archived set to all, then "tasks-runs-retrieve" on a run for its branch and output.',
 }
@@ -1124,13 +1137,13 @@ function namedKeys(keys: readonly string[]): string {
         .join(', ')
 }
 
-/** Bound on the parameter description echoed back with a missing or wrong-type
- *  parameter rejection, so a tool with a long field description cannot inflate
+/** Bound on the parameter description echoed back with a missing, wrong-type or
+ *  too-long parameter rejection, so a tool with a long field description cannot inflate
  *  the analytics error message. */
 const MAX_PARAM_HINT = 200
 
 /**
- * The parameter's own description, appended to a missing or wrong-type rejection.
+ * The parameter's own description, appended to a missing, wrong-type or too-long rejection.
  *
  * A bare `missing required parameter: short_id` names the field to fill but not
  * what to fill it with, so a caller that never held the identifier retries the
@@ -1429,7 +1442,7 @@ export function formatInputValidationError(
         // is only present under `reportInput: true`; without it, or for
         // non-string origins, fall through to zod's limit-naming default.
         if (issue.code === 'too_big' && issue.origin === 'string' && typeof issue.input === 'string') {
-            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})`
+            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})${parameterHint(issue.path, schema)}`
         }
         return path ? `parameter "${path}": ${issue.message}` : issue.message
     })
@@ -2285,6 +2298,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateTokens(outputText),
                             input,
+                            result,
                             output: outputText,
                             ...resultShape,
                         })
@@ -2336,6 +2350,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
                             input,
+                            result,
                             output: payload,
                             ...resultShape,
                         })
@@ -2362,6 +2377,7 @@ export function createExecTool(
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
                         input,
+                        result,
                         output: outputText,
                         ...resultShape,
                     })

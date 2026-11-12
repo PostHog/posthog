@@ -168,7 +168,7 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
                     actions.setNotificationsTruncated(notificationsTruncated)
                     if (notificationsTruncated) {
                         lemonToast.warning(
-                            `Showing the first ${MCP_NOTIFICATION_LIST_LIMIT} notifications — manage the rest from the data pipelines page.`
+                            `Showing the first ${MCP_NOTIFICATION_LIST_LIMIT} notifications. Manage the rest from the data pipelines page.`
                         )
                     }
 

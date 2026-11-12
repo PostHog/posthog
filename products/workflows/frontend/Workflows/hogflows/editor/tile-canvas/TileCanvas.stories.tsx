@@ -4,9 +4,6 @@ import { useEffect } from 'react'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { workflowLogic } from '../../../workflowLogic'
 import { HogFlowEditor } from '../../HogFlowEditor'
 import type { HogFlowEditorActionMetrics } from '../../hogFlowEditorLogic'
@@ -25,7 +22,6 @@ const meta: Meta = {
     title: 'Products/Workflows/Editor/Tile canvas',
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_TILE_CANVAS],
         mockDate: '2026-10-10 12:00:00',
         testOptions: {
             waitForLoadersToDisappear: true,
@@ -65,12 +61,11 @@ function StoryEditor({
     openAllPaths?: boolean
 }): JSX.Element {
     const { originalWorkflow } = useValues(workflowLogic)
-    const tileCanvasEnabled = useFeatureFlag('WORKFLOWS_TILE_CANVAS')
     return (
         <div className="flex h-full flex-col">
             {originalWorkflow ? (
                 <>
-                    <HogFlowEditor key={originalWorkflow.id} isTileCanvas={!!tileCanvasEnabled} />
+                    <HogFlowEditor key={originalWorkflow.id} />
                     <StoryState metrics={metrics} openAllPaths={openAllPaths} />
                 </>
             ) : (

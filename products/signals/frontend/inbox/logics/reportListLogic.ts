@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { derivePrState } from 'lib/signals/prState'
@@ -21,15 +22,17 @@ import {
     signalsReportsSourceMetadataCreate,
 } from 'products/signals/frontend/generated/api'
 import type {
+    PaginatedSignalReportListListApi,
     ReviewerRemovalReasonEnumApi,
     SignalReportMetricSnapshotsApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
-import { createdAfterForWindow } from '../filterOptions'
+import { createdAfterForWindow, isMergeKeySortField } from '../filterOptions'
 import { captureInboxReportAction, type InboxReportActionSurface, setInboxServedRanker } from '../inboxAnalytics'
 import {
     INBOX_PRIMARY_REPORT_SECTION_KEY,
+    INBOX_REPORT_SECTION_KEYS,
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_CLAIMED_BY_YOU,
     INBOX_SCOPE_FOR_YOU,
@@ -50,8 +53,13 @@ import type { InboxCreatedWindow, InboxFilterState, InboxSortDirection, InboxSor
 import { prCiStatusLogic } from './prCiStatusLogic'
 
 const PAGE_SIZE = 50
+const REPORT_LIST_RETRY_DELAY_MS = 300
 // The refresh endpoint's own id cap per call.
 const METRIC_REFRESH_PAGE_SIZE = 20
+
+function isRetryableReportListError(error: unknown): boolean {
+    return error instanceof ApiError && (error.status === undefined || error.status === 408 || error.status >= 500)
+}
 
 /** The row fields the list leaves empty (`include_source_metadata=false`) and `source_metadata` fills in. */
 export type ReportSourceMeta = Pick<SignalReport, 'source_products' | 'scout_name'>
@@ -69,14 +77,15 @@ export interface ReportListRequestContext {
 }
 
 /** A list response stamped with the query params and display context that produced it (see the loader). */
-export type ReportListResponse = CountedPaginatedResponse<SignalReport> & {
-    /** The ranker the server used for `sort=recommended`. Null for every other sort. */
-    ranker?: string | null
-    /** Whether the client shows a ranking score pill on each card, for `sort=recommended`. Null for every other sort. */
-    ranking_pill?: boolean | null
-    requestParams?: Record<string, unknown>
-    requestContext?: ReportListRequestContext
-}
+export type ReportListResponse = CountedPaginatedResponse<SignalReport> &
+    Pick<PaginatedSignalReportListListApi, 'count_is_capped' | 'ranking_id'> & {
+        /** The ranker the server used for `sort=recommended` or `sort=personal`. Null for every other sort. */
+        ranker?: string | null
+        /** Whether the client shows a ranking score pill on each card, for `sort=recommended` or `sort=personal`. Null for every other sort. */
+        ranking_pill?: boolean | null
+        requestParams?: Record<string, unknown>
+        requestContext?: ReportListRequestContext
+    }
 
 /**
  * The list request for the API. `created_window` stays a preset key in `listApiParams`, so the
@@ -115,6 +124,34 @@ export const INBOX_REPORT_SECTION_LIST_PARAMS: Record<InboxReportSectionKey, Rep
 /** Logic props for one report state's keyed instance, shared by the flat Reports list consumers. */
 export function sectionListLogicProps(sectionKey: InboxReportSectionKey): ReportListLogicProps {
     return { sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] }
+}
+
+/** Whose personal ranking a list reads: the teammate of a Personalized list with a teammate scope, else the user. */
+function personalRankingOwner(sortField: InboxSortField, teammateUuid: unknown): unknown {
+    return sortField === 'personal' ? teammateUuid : undefined
+}
+
+/**
+ * The personal ranking a state already loaded with. The flat list merges the states by
+ * `inbox_merge_key`, and keys from two rankings do not compare. A state that loads later, such as one
+ * the user selects after a rebuild, must request the same ranking as the states already on screen.
+ * Only a ranking of the same owner counts: after a switch to or from a teammate scope, the states
+ * still on screen hold another person's ranking.
+ */
+function loadedPersonalRankingId(sortField: InboxSortField, teammateUuid: string | undefined): string | undefined {
+    const owner = personalRankingOwner(sortField, teammateUuid)
+    for (const sectionKey of INBOX_REPORT_SECTION_KEYS) {
+        const response = reportListLogic.findMounted(sectionListLogicProps(sectionKey))?.values.reportsResponse
+        if (
+            response?.ranker === 'personal' &&
+            response.ranking_id &&
+            response.requestContext &&
+            personalRankingOwner(response.requestContext.sortField, response.requestParams?.teammate_uuid) === owner
+        ) {
+            return response.ranking_id
+        }
+    }
+    return undefined
 }
 
 function teammateUuidFromScope(scope: string): string | undefined {
@@ -215,7 +252,6 @@ export interface reportListLogicValues {
     activeSourceProductFilter: string[] // inboxFiltersLogic
     hasUserChosenScope: boolean // inboxFiltersLogic
     isScopedToMe: boolean // inboxFiltersLogic
-    monitoringAvailable: boolean // inboxFiltersLogic
     priorityFilter: SignalReportPriority[] // inboxFiltersLogic
     scope: InboxScope // inboxFiltersLogic
     searchQuery: string // inboxFiltersLogic
@@ -223,15 +259,18 @@ export interface reportListLogicValues {
     user: UserType | null // userLogic
     claimSavingReportIds: string[]
     count: number | null
+    countIsCapped: boolean
     countLoading: boolean
     countSettled: boolean
     hasMore: boolean
-    hasProjectClosedReports: boolean | null
-    hasProjectClosedReportsLoading: boolean
+    hasProjectReports: boolean | null
+    hasProjectReportsLoading: boolean
     isLoaded: boolean
     listApiParams: any
     livePrReportIds: string[]
     loadedContext: ReportListRequestContext | null
+    loadedPersonalFallback: boolean
+    loadedPersonalOrder: boolean
     loadedQueryKey: string | null
     loadedRanker: string | null
     loadedRankingPill: boolean
@@ -337,19 +376,19 @@ export interface reportListLogicActions {
         count: number | null
         payload?: void
     }
-    loadHasProjectClosedReports: (_: void) => void
-    loadHasProjectClosedReportsFailure: (
+    loadHasProjectReports: (_: void) => void
+    loadHasProjectReportsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadHasProjectClosedReportsSuccess: (
-        hasProjectClosedReports: boolean,
+    loadHasProjectReportsSuccess: (
+        hasProjectReports: boolean,
         payload?: void
     ) => {
-        hasProjectClosedReports: boolean
+        hasProjectReports: boolean
         payload?: void
     }
     loadMore: () => {
@@ -423,11 +462,13 @@ export interface reportListLogicActions {
     setReportClaimed: (
         report: SignalReport,
         claimed: boolean,
-        surface: InboxReportActionSurface
+        surface: InboxReportActionSurface,
+        takeover?: boolean
     ) => {
         claimed: boolean
         report: SignalReport
         surface: InboxReportActionSurface
+        takeover: boolean
     }
     setReportClaimedFinished: (reportId: string) => {
         reportId: string
@@ -475,6 +516,7 @@ export interface reportListLogicMeta {
             activeScoutFilter: string[],
             priorityFilter: SignalReportPriority[],
             scopeReviewerUuid: string | undefined,
+            scope: InboxScope,
             scopeAssignee: 'mine' | undefined,
             activeCreatedWindow: InboxCreatedWindow | null,
             arg: any
@@ -488,6 +530,7 @@ export interface reportListLogicMeta {
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
         livePrReportIds: (reports: SignalReport[]) => string[]
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
+        countIsCapped: (reportsResponse: ReportListResponse | null) => boolean
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
         countSettled: (
             countLoading: boolean,
@@ -500,6 +543,8 @@ export interface reportListLogicMeta {
         loadedContext: (reportsResponse: ReportListResponse | null) => ReportListRequestContext | null
         loadedRanker: (reportsResponse: ReportListResponse | null) => string | null
         loadedRankingPill: (reportsResponse: ReportListResponse | null) => boolean
+        loadedPersonalOrder: (reportsResponse: ReportListResponse | null) => boolean
+        loadedPersonalFallback: (reportsResponse: ReportListResponse | null) => boolean
     }
 }
 
@@ -540,7 +585,6 @@ export const reportListLogic = kea<reportListLogicType>([
                 'activeScoutFilter',
                 'priorityFilter',
                 'activeCreatedWindow',
-                'monitoringAvailable',
             ],
             userLogic,
             ['user'],
@@ -585,10 +629,16 @@ export const reportListLogic = kea<reportListLogicType>([
             reason,
         }),
         unassignMeFinished: (reportId: string) => ({ reportId }),
-        setReportClaimed: (report: SignalReport, claimed: boolean, surface: InboxReportActionSurface) => ({
+        setReportClaimed: (
+            report: SignalReport,
+            claimed: boolean,
+            surface: InboxReportActionSurface,
+            takeover: boolean = false
+        ) => ({
             report,
             claimed,
             surface,
+            takeover,
         }),
         setReportClaimedFinished: (reportId: string) => ({ reportId }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
@@ -606,12 +656,12 @@ export const reportListLogic = kea<reportListLogicType>([
     }),
 
     loaders(({ values, cache, props }) => ({
-        hasProjectClosedReports: [
+        hasProjectReports: [
             null as boolean | null,
             {
-                loadHasProjectClosedReports: async (_: void, breakpoint) => {
+                loadHasProjectReports: async (_: void, breakpoint) => {
                     const response = await signalsReportsList(String(values.currentTeamId), {
-                        view: 'closed',
+                        ...props.listParams,
                         count_only: true,
                         limit: 1,
                     })
@@ -627,9 +677,6 @@ export const reportListLogic = kea<reportListLogicType>([
             null as number | null,
             {
                 loadCount: async (_: void, breakpoint) => {
-                    if (props.sectionKey === 'outcome-monitoring' && !values.monitoringAvailable) {
-                        return 0
-                    }
                     const params = values.listApiParams
                     const pageAtRequest = values.reportsResponse
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
@@ -663,23 +710,27 @@ export const reportListLogic = kea<reportListLogicType>([
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
                     cache.firstPageRequestId = (cache.firstPageRequestId ?? 0) + 1
-                    if (props.sectionKey === 'outcome-monitoring' && !values.monitoringAvailable) {
-                        return {
-                            count: 0,
-                            results: [],
-                            next: null,
-                            previous: null,
-                            requestParams: params,
-                            requestContext,
-                        }
-                    }
                     const rowsBefore = values.reportsResponse?.results
-                    // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
-                    const response = await api.signalReports.list({
-                        ...listRequestParams(params),
-                        offset: 0,
-                        limit: PAGE_SIZE,
-                    })
+                    const request = (): Promise<CountedPaginatedResponse<SignalReport>> =>
+                        // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
+                        api.signalReports.list({
+                            ...listRequestParams(params),
+                            offset: 0,
+                            limit: PAGE_SIZE,
+                            ranking_id: isMergeKeySortField(requestContext.sortField)
+                                ? loadedPersonalRankingId(requestContext.sortField, params.teammate_uuid)
+                                : undefined,
+                        })
+                    let response: CountedPaginatedResponse<SignalReport>
+                    try {
+                        response = await request()
+                    } catch (error) {
+                        if (!isRetryableReportListError(error)) {
+                            throw error
+                        }
+                        await breakpoint(REPORT_LIST_RETRY_DELAY_MS)
+                        response = await request()
+                    }
                     // A newer first-page request for a changed query supersedes this one.
                     breakpoint()
                     return {
@@ -696,36 +747,25 @@ export const reportListLogic = kea<reportListLogicType>([
                 loadMoreReports: async (): Promise<ReportListResponse> => {
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
-                    if (props.sectionKey === 'outcome-monitoring' && !values.monitoringAvailable) {
-                        return {
-                            count: 0,
-                            results: [],
-                            next: null,
-                            previous: null,
-                            requestParams: params,
-                            requestContext,
-                        }
-                    }
                     const firstPageRequestId = cache.firstPageRequestId
                     const current = values.reportsResponse?.results ?? []
-                    // `removeReport` records ids here while the request is in flight. `current` predates
-                    // those removals, so filter them out or a removed report comes back when the page lands.
-                    const removedWhilePending = new Set<string>()
-                    cache.removedWhilePageLoads = removedWhilePending
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
                         ...listRequestParams(params),
                         offset: current.length,
                         limit: PAGE_SIZE,
+                        // A personal ranking rebuilt between pages would reorder the pages already on screen.
+                        ranking_id: values.reportsResponse?.ranking_id ?? undefined,
                     })
                     // A first-page load for a changed query started meanwhile. Its rows win, so this
                     // page of the old query must not land on top of them.
                     if (cache.firstPageRequestId !== firstPageRequestId && values.reportsResponse) {
                         return values.reportsResponse
                     }
+                    const latest = values.reportsResponse?.results ?? []
                     return {
                         ...response,
-                        results: [...current.filter((r) => !removedWhilePending.has(r.id)), ...response.results],
+                        results: [...latest, ...keepRowFieldsWrittenDuringFetch(response.results, current, latest)],
                         requestParams: params,
                         requestContext,
                     }
@@ -844,6 +884,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.activeScoutFilter,
                 s.priorityFilter,
                 s.scopeReviewerUuid,
+                s.scope,
                 s.scopeAssignee,
                 s.activeCreatedWindow,
                 (_, p) => p.listParams,
@@ -856,10 +897,12 @@ export const reportListLogic = kea<reportListLogicType>([
                 scoutFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
                 suggestedReviewer: string | undefined,
+                scope: InboxScope,
                 assignee: 'mine' | undefined,
                 activeCreatedWindow: InboxCreatedWindow | null,
                 listParams
             ) => {
+                const teammateUuid = teammateUuidFromScope(scope)
                 return {
                     ...listParams,
                     search: appliedInboxSearch(searchQuery),
@@ -868,6 +911,9 @@ export const reportListLogic = kea<reportListLogicType>([
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
                     suggested_reviewers: suggestedReviewer,
+                    // `suggested_reviewers` only filters. These make `sort=personal` read the teammate's ranking.
+                    scope: teammateUuid ? 'teammate' : undefined,
+                    teammate_uuid: teammateUuid,
                     assignee,
                     created_window: activeCreatedWindow ?? undefined,
                     // Rows render from Postgres alone; `loadReportSourceMeta` fills the source line after.
@@ -927,6 +973,11 @@ export const reportListLogic = kea<reportListLogicType>([
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): number | null => reportsResponse?.count ?? null,
         ],
+        // A search stops counting past a cap, so `count` is a lower bound when this is true.
+        countIsCapped: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): boolean => reportsResponse?.count_is_capped === true,
+        ],
         // Stable key for the query that produced the loaded response. Unlike `listApiParams`, this
         // only changes when a response fetched with the new params actually lands, so consumers
         // never associate the new query with rows from the previous one.
@@ -967,22 +1018,38 @@ export const reportListLogic = kea<reportListLogicType>([
             (reportsResponse: ReportListResponse | null): ReportListRequestContext | null =>
                 reportsResponse?.requestContext ?? null,
         ],
-        // The ranker the server used for a Recommended list: `priority` or a model head. Null for other sorts.
+        // The ranker the server used for a Recommended or Personalized list: `priority`, a model head or
+        // `personal`. Null for other sorts.
         loadedRanker: [
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): string | null => reportsResponse?.ranker ?? null,
         ],
-        // Whether the server put this user in a Recommended arm that shows score pills on the cards.
+        // Whether the cards show score pills: the server put this user in a Recommended arm that shows
+        // them, or the list is Personalized, which shows them to everyone.
         loadedRankingPill: [
             (s) => [s.reportsResponse],
-            (reportsResponse: ReportListResponse | null): boolean => reportsResponse?.ranking_pill === true,
+            (reportsResponse: ReportListResponse | null): boolean =>
+                reportsResponse?.ranking_pill === true || reportsResponse?.requestContext?.sortField === 'personal',
+        ],
+        // A stored personal ranking ordered the list: the Personalized sort, or the Recommended sort in the
+        // arm that serves the personal order.
+        loadedPersonalOrder: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): boolean => reportsResponse?.ranker === 'personal',
+        ],
+        // The user asked for the Personalized sort, but they have no stored personal ranking, so the
+        // server answered with the Recommended order.
+        loadedPersonalFallback: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): boolean =>
+                reportsResponse?.requestContext?.sortField === 'personal' && reportsResponse.ranker !== 'personal',
         ],
     }),
 
     listeners(({ actions, values, props, cache }) => ({
         loadCount: () => {
-            if (props.sectionKey === 'closed') {
-                actions.loadHasProjectClosedReports()
+            if (props.sectionKey === 'closed' || props.sectionKey === 'outcome-monitoring') {
+                actions.loadHasProjectReports()
             }
         },
         // Announce this section's open pull requests so their CI state is resolved in one batch. Both
@@ -1031,9 +1098,6 @@ export const reportListLogic = kea<reportListLogicType>([
                 requested.forEach((id) => inFlight.delete(id))
             }
         },
-        removeReport: ({ reportId }) => {
-            cache.removedWhilePageLoads?.add(reportId)
-        },
         // One page of ids per request, sent one after the other so a page open never fans out into
         // parallel query bursts. A newer page load supersedes an in-flight refresh at the breakpoint.
         refreshReportMetrics: async ({ reportIds }, breakpoint) => {
@@ -1076,11 +1140,10 @@ export const reportListLogic = kea<reportListLogicType>([
             // response carries the total, so a separate count would run the same COUNT(*) twice.
             if (values.isLoaded || values.reportsResponseLoading) {
                 actions.loadReports()
-                // Whether the project holds any closed report is a project-wide question that this
-                // section's page does not answer, and the `loadCount` listener that asks it does not
-                // run on this path. The Closed tab stays hidden until this check runs again.
-                if (props.sectionKey === 'closed') {
-                    actions.loadHasProjectClosedReports()
+                // Status option availability is project-wide, so a scoped page cannot answer it.
+                // The `loadCount` listener does not run on this path.
+                if (props.sectionKey === 'closed' || props.sectionKey === 'outcome-monitoring') {
+                    actions.loadHasProjectReports()
                 }
             } else {
                 actions.loadCount()
@@ -1105,12 +1168,6 @@ export const reportListLogic = kea<reportListLogicType>([
         applyDefaultScope: () => actions.refresh(),
         setFilters: () => actions.refresh(),
         clearFilters: () => actions.refresh(),
-        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
-            if (props.sectionKey === 'outcome-monitoring' && cache.monitoringAvailable !== values.monitoringAvailable) {
-                cache.monitoringAvailable = values.monitoringAvailable
-                actions.refresh()
-            }
-        },
         // For-you scope needs the current user's uuid; reload once it resolves.
         [userLogic.actionTypes.loadUserSuccess]: () => {
             if (values.scope === INBOX_SCOPE_FOR_YOU) {
@@ -1246,9 +1303,17 @@ export const reportListLogic = kea<reportListLogicType>([
             // The list that started the request can unmount while it runs, for example when triage closes.
             inboxBulkActionsLogic.findMounted()?.actions.unassignedMe([reportId])
         },
-        setReportClaimed: async ({ report, claimed, surface }) => {
-            captureInboxReportAction({ report, actionType: claimed ? 'claim' : 'unclaim', surface })
-            const outcome = await requestReportClaim(String(values.currentTeamId), report, claimed)
+        setReportClaimed: async ({ report, claimed, surface, takeover }) => {
+            captureInboxReportAction({
+                report,
+                actionType: claimed ? 'claim' : 'unclaim',
+                surface,
+                extra: takeover ? { takeover: true } : undefined,
+            })
+            const outcome = await requestReportClaim(String(values.currentTeamId), report, claimed, {
+                currentUserUuid: values.user?.uuid ?? null,
+                takeover,
+            })
             actions.setReportClaimedFinished(report.id)
             if (!outcome.ok) {
                 lemonToast.error(outcome.message)
@@ -1267,9 +1332,8 @@ export const reportListLogic = kea<reportListLogicType>([
         },
     })),
 
-    events(({ actions, values, cache }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
-            cache.monitoringAvailable = values.monitoringAvailable
             actions.loadCount()
         },
     })),

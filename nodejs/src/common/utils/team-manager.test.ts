@@ -117,6 +117,25 @@ describe('TeamManager()', () => {
             expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
         })
 
+        it('does not resolve a numeric token as a team id', async () => {
+            expect(await teamManager.getTeamByToken(String(teamId))).toBeNull()
+
+            // Also once the team is cached by its id
+            expect((await teamManager.getTeam(teamId))?.id).toEqual(teamId)
+            expect(await teamManager.getTeamByToken(String(teamId))).toBeNull()
+
+            // A real token made only of digits still resolves by token
+            const numericToken = String(9_000_000_000 + teamId)
+            const numericTeamId = await createTeam(hub.postgres, organizationId, numericToken)
+            expect((await teamManager.getTeamByToken(numericToken))?.id).toEqual(numericTeamId)
+        })
+
+        it('getTeamsByTokens only matches real tokens', async () => {
+            const result = await teamManager.getTeamsByTokens([String(teamId), teamToken])
+            expect(result[String(teamId)]).toBeNull()
+            expect(result[teamToken]?.id).toEqual(teamId)
+        })
+
         it('efficiently loads multiple teams', async () => {
             const promises = [
                 teamManager.getTeam(teamId),
@@ -331,7 +350,7 @@ describe('TeamManager()', () => {
             expect(mockCaptureTeamEvent).toHaveBeenCalledWith(
                 newTeam,
                 'first team event ingested',
-                expect.objectContaining({ sdk: 'web' }),
+                expect.objectContaining({ sdk: 'web', $update_person_last_seen_at: false }),
                 expect.any(String)
             )
         })

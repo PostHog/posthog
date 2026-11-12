@@ -448,6 +448,35 @@ export interface WarehouseSuggestionStatusApi {
      * @nullable
      */
     refreshed_at: string | null
+    /** Suggestions waiting to be shown on the requested surface that you can read and act on. 0 without a surface, or while new suggestions are paused or off. */
+    waiting: number
+    /** Whether a surface_more call would show at least one waiting suggestion now. False while the open limits are full. */
+    can_show_more: boolean
+}
+
+/**
+ * * `models` - Models
+ * * `catalog` - Data catalog
+ */
+export type WarehouseSuggestionSurfaceEnumApi =
+    (typeof WarehouseSuggestionSurfaceEnumApi)[keyof typeof WarehouseSuggestionSurfaceEnumApi]
+
+export const WarehouseSuggestionSurfaceEnumApi = {
+    Models: 'models',
+    Catalog: 'catalog',
+} as const
+
+export interface SurfaceMoreWarehouseSuggestionsApi {
+    /** Page to show more suggestions on. Only the kinds that page shows are picked.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog */
+    surface: WarehouseSuggestionSurfaceEnumApi
+}
+
+export interface WarehouseSuggestionSurfaceMoreResultApi {
+    /** How many waiting suggestions this call showed. 0 when none could be shown. */
+    surfaced: number
 }
 
 export type WarehouseSuggestionsListParams = {
@@ -489,6 +518,14 @@ export type WarehouseSuggestionsListParams = {
      * Only return suggestions about the view or table with this ID.
      */
     subject_id?: string
+    /**
+     * Only return the kinds of suggestions this page shows. models: materialize, stop materializing and view deprecations. catalog: certify and deprecate.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsListSurface
 }
 
 export type WarehouseSuggestionsListKind =
@@ -510,4 +547,69 @@ export const WarehouseSuggestionsListStatus = {
     Dismissed: 'dismissed',
     Expired: 'expired',
     AutoResolved: 'auto_resolved',
+} as const
+
+export type WarehouseSuggestionsListSurface =
+    (typeof WarehouseSuggestionsListSurface)[keyof typeof WarehouseSuggestionsListSurface]
+
+export const WarehouseSuggestionsListSurface = {
+    Models: 'models',
+    Catalog: 'catalog',
+} as const
+
+export type WarehouseSuggestionsAcceptCreateParams = {
+    /**
+     * Page the decision was made on. Only recorded on the analytics event.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsAcceptCreateSurface
+}
+
+export type WarehouseSuggestionsAcceptCreateSurface =
+    (typeof WarehouseSuggestionsAcceptCreateSurface)[keyof typeof WarehouseSuggestionsAcceptCreateSurface]
+
+export const WarehouseSuggestionsAcceptCreateSurface = {
+    Models: 'models',
+    Catalog: 'catalog',
+} as const
+
+export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Page the decision was made on. Only recorded on the analytics event.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsDismissCreateSurface
+}
+
+export type WarehouseSuggestionsDismissCreateSurface =
+    (typeof WarehouseSuggestionsDismissCreateSurface)[keyof typeof WarehouseSuggestionsDismissCreateSurface]
+
+export const WarehouseSuggestionsDismissCreateSurface = {
+    Models: 'models',
+    Catalog: 'catalog',
+} as const
+
+export type WarehouseSuggestionsStatusRetrieveParams = {
+    /**
+     * Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsStatusRetrieveSurface
+}
+
+export type WarehouseSuggestionsStatusRetrieveSurface =
+    (typeof WarehouseSuggestionsStatusRetrieveSurface)[keyof typeof WarehouseSuggestionsStatusRetrieveSurface]
+
+export const WarehouseSuggestionsStatusRetrieveSurface = {
+    Models: 'models',
+    Catalog: 'catalog',
 } as const

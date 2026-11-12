@@ -178,7 +178,7 @@ export function AiFirstMaxInstance({ tabId, taskId, chatId }: AiFirstMaxInstance
                     </div>
                 )}
                 <div className="flex flex-col flex-1 min-h-0">
-                    <BindLogic logic={phaiAiComposerSeedLogic} props={{}}>
+                    <BindLogic logic={phaiAiComposerSeedLogic} props={{ tabId }}>
                         {/* The quill task header carries the debug logs switch in its own overflow menu. */}
                         <EmbeddedRunner
                             taskId={taskId}

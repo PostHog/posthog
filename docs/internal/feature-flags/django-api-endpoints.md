@@ -4,6 +4,8 @@ Django serves the admin/management API for feature flags: CRUD operations, analy
 
 The `/api/feature_flag/local_evaluation` endpoint was historically served by a dedicated Django deployment (`posthog-local-evaluation`). All local evaluation traffic is now served by the Rust definitions fleet at `/flags/definitions` (see [Rust service overview](rust-service-overview.md)). The Django endpoint and deployment have been removed.
 
+Organization IP restrictions protect the management API. Runtime evaluation, local definitions, and the SDK `remote_config` action remain available outside the allowlist, including when Django serves remote config. The remote config exemption applies to SDK project credentials. Session and personal-key previews remain subject to IP restrictions. Existing credential, scope, and project-access checks still apply.
+
 ## Architecture overview
 
 ```text

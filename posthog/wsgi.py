@@ -26,7 +26,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 os.environ.setdefault("SERVER_GATEWAY_INTERFACE", "WSGI")
 
 start_continuous_profiling()
-initialize_otel()
+initialize_otel(instrument_outbound_calls=True)
 
 # Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
 # pauses (~300ms). Disable it for the boot, then freeze the survivors so later full

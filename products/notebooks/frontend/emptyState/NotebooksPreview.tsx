@@ -4,7 +4,7 @@ import { IconGraph, IconRewindPlay, IconToggle } from '@posthog/icons'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored weekly sign-up series: a dip in the middle, then a recovery.
 const LINE = 'M 0 14 L 14 12 L 28 15 L 42 27 L 56 25 L 70 18 L 84 12 L 100 8'
@@ -23,7 +23,7 @@ function areaPath(line: string): string {
  * crossfade, so the page never reflows.
  */
 export function NotebooksPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('NotebookPreview', isStatic && 'NotebookPreview--static')}>

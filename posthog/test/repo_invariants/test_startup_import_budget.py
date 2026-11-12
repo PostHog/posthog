@@ -5,6 +5,8 @@ import weakref
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from django.db.models.signals import post_save
 
 # Heavy subsystems that must NOT be imported by a bare ``django.setup()``. Each one was
@@ -503,3 +505,36 @@ print("WSGI_PREBUILD_OK")
     )
     assert result.returncode == 0, f"posthog.wsgi import failed:\n{result.stderr[-2000:]}"
     assert "WSGI_PREBUILD_OK" in result.stdout, result.stdout[-500:]
+
+
+# A web worker finalizes Celery on its first `.delay()`. A first-party import during that finalize can
+# deadlock with a thread lazily importing a task module, which hangs that worker for good.
+_WEB_FINALIZE_IMPORTS_PROBE = """
+import importlib
+import os
+import sys
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+importlib.import_module(sys.argv[1])
+from posthog.celery import app
+before = set(sys.modules)
+app.finalize()
+new = sorted(m for m in set(sys.modules) - before if m.split(".")[0] in {"posthog", "ee", "products"})
+print("FINALIZE_IMPORTS=" + ",".join(new))
+"""
+
+
+@pytest.mark.parametrize("entrypoint", ["posthog.wsgi", "posthog.asgi"])
+def test_celery_finalize_in_a_web_worker_imports_no_first_party_module(entrypoint: str) -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _WEB_FINALIZE_IMPORTS_PROBE, entrypoint],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, f"{entrypoint} failed to import:\n{result.stderr[-2000:]}"
+    imported = next(line for line in result.stdout.splitlines() if line.startswith("FINALIZE_IMPORTS="))
+    assert imported == "FINALIZE_IMPORTS=", (
+        f"Celery finalize in {entrypoint} imported {imported.removeprefix('FINALIZE_IMPORTS=')}. A web worker "
+        "finalizes on its first `.delay()`, and an import there can deadlock with a lazy task import. Keep "
+        "imports out of `on_after_finalize` receivers: periodic tasks register on `import_modules` in posthog/celery.py."
+    )

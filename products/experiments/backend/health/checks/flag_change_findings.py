@@ -141,7 +141,11 @@ def change_finding(
     kind_evidence: Mapping[str, EvidenceValue],
     diagnostic_ref: str,
     reason: str | None = None,
+    suggested_start_date: datetime | None = None,
+    end_experiment: bool = False,
 ) -> ExperimentHealthFinding:
+    """`suggested_start_date` is the start date that the sentences name, from `suggested_start_at`. The page's button
+    moves the start date to this value, so the two must agree."""
     return ExperimentHealthFinding(
         code=code,
         subcode=subcode,
@@ -155,8 +159,18 @@ def change_finding(
             ),
             # pinned: capped at MIN_EXPOSED_UNITS_TO_WARN, so the cap means "at least". None when unknown.
             "units_exposed_before_last_change": history.exposed_units_before_last.get(kind),
+            # pinned: the start date that MOVE_START_DATE sets, in UTC.
+            **(
+                {"suggested_start_date": suggested_start_date.astimezone(UTC).isoformat()}
+                if suggested_start_date is not None
+                else {}
+            ),
         },
-        actions=(ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,),
+        actions=(
+            *((ExperimentHealthFindingActionKind.MOVE_START_DATE,) if suggested_start_date is not None else ()),
+            *((ExperimentHealthFindingActionKind.END_EXPERIMENT,) if end_experiment else ()),
+            ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,
+        ),
         diagnostic_ref=diagnostic_ref,
     )
 
@@ -169,17 +183,21 @@ def few_exposed_units(history: FlagHistory, kind: ExperimentHealthFlagChangeKind
 
 
 def exposed_when(history: FlagHistory, effect: ChangeEffect, count: int) -> str:
-    after_launch = duration((effect.last.changed_at - history.launched_at).total_seconds())
+    after_start = duration((effect.last.changed_at - history.start_date).total_seconds())
     change = "The change" if effect.change_count == 1 else "The last change"
-    return f"{change} came {after_launch} after launch, when {_units(count, history.counts_groups)} had been exposed."
+    return f"{change} came {after_start} after the start date, when {_units(count, history.counts_groups)} had been exposed."
+
+
+def count_only_after(changed_at: datetime, team_timezone: str) -> str:
+    start_at = suggested_start(changed_at, team_timezone)
+    return f"Move the start date to {start_at} so the results count only exposures after it."
 
 
 def leave_out(history: FlagHistory, effect: ChangeEffect, count: int) -> list[str]:
     """The next step for the few persons or groups exposed before the last change. Empty when there were none."""
     if count == 0:
         return []
-    start_at = suggested_start(effect.last.changed_at, history.team_timezone)
-    return [f"Move the start date to {start_at} so the results count only exposures after it."]
+    return [count_only_after(effect.last.changed_at, history.team_timezone)]
 
 
 def _units(count: int, counts_groups: bool) -> str:
@@ -234,13 +252,13 @@ def change_evidence(
         "last_changed_at": effect.last.changed_at.astimezone(UTC).isoformat(),
         **kind_evidence,
         "exposed_before_change": exposed_before_change,
-        "seconds_after_launch": int((effect.first.changed_at - history.launched_at).total_seconds()),
+        "seconds_after_start": int((effect.first.changed_at - history.start_date).total_seconds()),
     }
 
 
 def delay_after_launch(history: FlagHistory, effect: ChangeEffect) -> list[str]:
     return delay(
-        launched_at=history.launched_at,
+        start_date=history.start_date,
         first_changed_at=effect.first.changed_at,
         exposed_before_first=history.exposed_before_first,
         change_count=effect.change_count,

@@ -1,83 +1,27 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { z } from 'zod'
 
 import type { AccessKey } from '@/posthog/access-key'
 import { posthogFile, type Credentials } from '@/posthog/credentials'
+import { INGESTION_HOSTS } from '@/posthog/host'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
-import type { Env, Runtime } from './runtime'
+import { detectCi, isRunningInCI } from './ci'
+import { parseJsonOrUndefined } from './json'
+import type { Runtime } from './runtime'
+import type { Schema } from './schema'
 
 // PostHog's own project, where posthog-cli release builds send their events too.
 export const DEFAULT_TELEMETRY_TOKEN = 'sTMFPsFhdP1Ssg'
 
-const TELEMETRY_HOST = 'https://us.i.posthog.com'
+const TELEMETRY_HOST = INGESTION_HOSTS.us
 // posthog-cli's timeout. A CLI must not hang on its own analytics.
 const SEND_TIMEOUT_MS = 5000
 const ID_FILE = 'hog-telemetry-id'
 const IDENTITY_FILE = 'hog-telemetry-identity.json'
 const LOOKUP_TIMEOUT_MS = 2000
 const DAY_MS = 24 * 60 * 60 * 1000
-
-type EnvCheck = (env: Env) => boolean
-const has =
-    (name: string): EnvCheck =>
-    (env) =>
-        Boolean(env[name])
-
-// First match wins. Platforms that also set the variables of another one come first: Depot CI
-// before GitHub Actions, Harness and Woodpecker before Drone. Vercel sets VERCEL outside builds too.
-const CI_PROVIDERS: ReadonlyArray<readonly [provider: string, check: EnvCheck]> = [
-    ['depot-ci', has('DEPOT_JOB_URL')],
-    ['harness', has('HARNESS_BUILD_ID')],
-    ['woodpecker', (env) => env.CI === 'woodpecker'],
-    ['github-actions', has('GITHUB_ACTIONS')],
-    ['gitlab', has('GITLAB_CI')],
-    ['circleci', has('CIRCLECI')],
-    ['buildkite', has('BUILDKITE')],
-    ['jenkins', has('JENKINS_URL')],
-    ['travis', has('TRAVIS')],
-    ['bitbucket', has('BITBUCKET_COMMIT')],
-    ['azure-pipelines', has('TF_BUILD')],
-    ['aws-codebuild', has('CODEBUILD_BUILD_ARN')],
-    ['google-cloud-build', has('BUILDER_OUTPUT')],
-    ['vercel', (env) => Boolean(env.VERCEL && env.CI)],
-    ['netlify', has('NETLIFY')],
-    ['cloudflare-pages', has('CF_PAGES')],
-    ['cloudflare-workers', has('WORKERS_CI')],
-    ['render', has('RENDER')],
-    ['railway', has('RAILWAY_SERVICE_ID')],
-    ['heroku-ci', has('HEROKU_TEST_RUN_ID')],
-    ['expo-eas', has('EAS_BUILD')],
-    ['bitrise', has('BITRISE_IO')],
-    ['xcode-cloud', has('CI_XCODE_CLOUD')],
-    ['codemagic', has('CM_BUILD_ID')],
-    ['semaphore', has('SEMAPHORE')],
-    ['drone', has('DRONE')],
-    ['teamcity', has('TEAMCITY_VERSION')],
-    ['appveyor', has('APPVEYOR')],
-]
-
-// Vendors that run GitHub Actions jobs on their own machines. Some of these variables hold tokens,
-// so hog only checks that they are set.
-const runnerName =
-    (prefix: string): EnvCheck =>
-    (env) =>
-        env.RUNNER_NAME?.startsWith(prefix) === true
-const CI_RUNNERS: ReadonlyArray<readonly [runner: string, check: EnvCheck]> = [
-    ['depot', (env) => has('DEPOT_ORG_ID')(env) || runnerName('depot-')(env)],
-    ['blacksmith', has('BLACKSMITH_VM_ID')],
-    ['namespace', (env) => has('NSC_CACHE_PATH')(env) || runnerName('nsc-runner-')(env)],
-    ['warpbuild', has('WARPBUILD_RUNNER_VERIFICATION_TOKEN')],
-    ['ubicloud', has('UBICLOUD_CACHE_URL')],
-    ['runs-on', has('RUNS_ON_RUNNER_NAME')],
-    ['cirun', runnerName('cirun-')],
-]
-
-export function detectCi(env: Env): { provider: string | null; runner: string | null } {
-    const provider = CI_PROVIDERS.find(([, check]) => check(env))?.[0] ?? null
-    const runner = CI_RUNNERS.find(([, check]) => check(env))?.[0] ?? env.RUNNER_ENVIRONMENT ?? null
-    return { provider, runner }
-}
 
 interface QueuedEvent {
     event: string
@@ -91,9 +35,17 @@ interface Identity {
     project?: string
 }
 
-interface CachedIdentity extends Identity {
-    checkedAt: number
-}
+const CachedIdentitySchema = z.object({
+    checkedAt: z.number(),
+    distinctId: z.string().optional(),
+    organization: z.string().optional(),
+    project: z.string().optional(),
+})
+
+type CachedIdentity = z.output<typeof CachedIdentitySchema>
+
+// hog writes this file itself, so a cache it can't read is broken and hog starts a new one.
+const IdentityCacheSchema = z.record(z.string(), CachedIdentitySchema)
 
 // Only PostHog Cloud users exist in the project telemetry goes to.
 function isCloudHost(host: string): boolean {
@@ -101,7 +53,11 @@ function isCloudHost(host: string): boolean {
     return hostname === 'posthog.com' || hostname.endsWith('.posthog.com')
 }
 
-const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined)
+// A field hog can't read, such as a null organization, reads as missing, so the event loses only
+// that field.
+const Text = z.string().min(1).optional().catch(undefined)
+const IdentityUser = z.object({ distinct_id: Text, organization: z.object({ id: Text }).optional().catch(undefined) })
+const IdentityProject = z.object({ organization: Text, uuid: Text })
 
 // Usage events for the PostHog team. They belong to the PostHog Cloud user whose key hog uses, and
 // to a random install ID otherwise. Events carry no argument or option values and no error messages,
@@ -109,6 +65,7 @@ const text = (value: unknown): string | undefined => (typeof value === 'string' 
 export class Telemetry {
     private readonly queue: QueuedEvent[] = []
     private enabled: boolean
+    private loggedIn: AccessKey | undefined
     readonly invocationId = randomUUID()
     commandName: string | undefined
     credentials: (() => Promise<Credentials>) | undefined
@@ -136,26 +93,47 @@ export class Telemetry {
         }
     }
 
+    // The run logged in as `key`, so its events belong to that user, and so do the install ID's
+    // earlier events, such as the ones a person sent before they had an account.
+    loggedInAs(key: AccessKey): void {
+        this.loggedIn = key
+    }
+
     async flush(debug = false): Promise<void> {
         if (!this.enabled || this.queue.length === 0) {
             return
         }
-        const key = (await this.credentials?.().catch(() => undefined))?.key
+        const key = this.loggedIn ?? (await this.credentials?.().catch(() => undefined))?.key
         const identity = key ? await this.identity(key) : undefined
         const installId = await this.installId()
-        const distinctId = identity?.distinctId ?? installId
+        const workload = key?.workload && isCloudHost(key.host) ? key.workload : undefined
+        // Each CI run is a new machine, and the hash keeps the repository ID out of the event.
+        const workloadId =
+            workload &&
+            `workload_${createHash('sha256').update(`${key?.host}\n${workload.provider}\n${workload.subject}`).digest('hex').slice(0, 32)}`
+        const distinctId = identity?.distinctId ?? workloadId ?? installId
         const groups = Object.fromEntries(
-            Object.entries({ organization: identity?.organization, project: identity?.project }).filter(
-                ([, key]) => key !== undefined
-            )
+            Object.entries({
+                organization: identity?.organization ?? workload?.organization,
+                project: identity?.project,
+            }).filter(([, key]) => key !== undefined)
         )
         const common = {
             ...this.commonProperties(),
             install_id: installId,
             // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
             env_id: key && isCloudHost(key.host) ? key.projectId : null,
+            credential_type: key?.status().kind ?? null,
+            ...(workload ? { workload_provider: workload.provider } : {}),
             ...(identity?.distinctId ? {} : { $process_person_profile: false }),
             ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
+        }
+        if (this.loggedIn && identity?.distinctId) {
+            this.queue.unshift({
+                event: '$identify',
+                properties: { $anon_distinct_id: installId },
+                timestamp: new Date(this.runtime.now()).toISOString(),
+            })
         }
         const batch = this.queue.splice(0).map(({ event, properties, timestamp }) => ({
             event,
@@ -195,7 +173,7 @@ export class Telemetry {
             os: process.platform,
             arch: process.arch,
             runtime_version: process.versions.bun,
-            is_ci: env.CI !== undefined || ci.provider !== null,
+            is_ci: isRunningInCI(env),
             ci_provider: ci.provider,
             ci_runner: ci.runner,
             is_terminal: this.runtime.stdoutIsTTY,
@@ -207,7 +185,7 @@ export class Telemetry {
     // Looks the user up once per key and keeps the answer for 30 days, or a day when PostHog had
     // none, so most runs send no extra request. A key without the scopes stays anonymous.
     private async identity(key: AccessKey): Promise<Identity | undefined> {
-        if (!isCloudHost(key.host)) {
+        if (!isCloudHost(key.host) || !key.identifiesPerson) {
             return undefined
         }
         let path: string
@@ -219,15 +197,7 @@ export class Telemetry {
         const cacheKey = createHash('sha256').update(`${key.host}\n${key.projectId}\n${key.loginKey}`).digest('hex')
         let cache: Record<string, CachedIdentity> = {}
         try {
-            const parsed: unknown = JSON.parse(await this.runtime.readFile(path))
-            // A cache that isn't an object is broken, so hog starts a new one instead of failing the command.
-            if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-                cache = Object.fromEntries(
-                    Object.entries(parsed).filter(
-                        ([, entry]) => typeof (entry as Partial<CachedIdentity> | null)?.checkedAt === 'number'
-                    )
-                ) as Record<string, CachedIdentity>
-            }
+            cache = parseJsonOrUndefined(await this.runtime.readFile(path), IdentityCacheSchema) ?? {}
         } catch {
             // No cache yet.
         }
@@ -249,22 +219,25 @@ export class Telemetry {
     }
 
     private async lookup(key: AccessKey): Promise<Identity> {
-        const get = async (path: string): Promise<Record<string, any> | undefined> => {
+        const get = async <T>(path: string, schema: Schema<T>): Promise<T | undefined> => {
             try {
                 const response = await this.runtime.fetch(new URL(path, key.host), {
                     headers: { Authorization: `Bearer ${key.token}` },
                     signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
                 })
-                return response.ok ? ((await response.json()) as Record<string, any>) : undefined
+                return response.ok ? parseJsonOrUndefined(await response.text(), schema) : undefined
             } catch {
                 return undefined
             }
         }
-        const [user, project] = await Promise.all([get('/api/users/@me/'), get(`/api/projects/${key.projectId}/`)])
+        const [user, project] = await Promise.all([
+            get('/api/users/@me/', IdentityUser),
+            get(`/api/projects/${key.projectId}/`, IdentityProject),
+        ])
         return {
-            distinctId: text(user?.distinct_id),
-            organization: text(project?.organization) ?? text(user?.organization?.id),
-            project: text(project?.uuid),
+            distinctId: user?.distinct_id,
+            organization: project?.organization ?? user?.organization?.id,
+            project: project?.uuid,
         }
     }
 

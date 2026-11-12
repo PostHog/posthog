@@ -1,10 +1,100 @@
 # Dockerfile for the base sandbox image.
 
+FROM ubuntu:24.04 AS assignee-evidence-builder
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+WORKDIR /opt/posthog/scripts
+RUN curl -fsSL --retry 3 -o /tmp/pyyaml.tar.gz \
+      https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/pyyaml-6.0.3.tar.gz && \
+    echo 'd76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f  /tmp/pyyaml.tar.gz' | sha256sum -c - && \
+    tar -xzf /tmp/pyyaml.tar.gz -C /tmp
+COPY packages/owners-yaml/owners_yaml/ ./owners_yaml/
+COPY products/signals/scripts/score_assignees.py ./score_assignees.py
+COPY products/tasks/backend/sandbox/images/build_assignee_evidence.py ./build_assignee_evidence.py
+RUN python3 build_assignee_evidence.py --source-dir /opt/posthog/scripts --yaml-source /tmp/pyyaml-6.0.3 \
+      --output /out/posthog-assignee-evidence && \
+    /out/posthog-assignee-evidence --help
+
 FROM golang:1.27.3 AS agent-shadow-builder
 
 WORKDIR /src
 COPY packages/agent/agent-shadow/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /agent-shadow .
+
+# whisper.cpp and its model, for the transcribing-slack-audio skill. Audio from Slack voice
+# messages is transcribed inside the sandbox and never leaves it. Ubuntu 24.04 ships no
+# whisper.cpp package, so whisper-cli is built from a pinned, checksummed source release.
+FROM ubuntu:24.04 AS whisper-builder
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential cmake curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+ARG WHISPER_CPP_VERSION=1.9.5
+ARG WHISPER_CPP_SHA256=ff1a9053feb509ff9d7729703355541ae9690073a6b1c40eb692c962e0dc1720
+# GGML_NATIVE=OFF keeps the binary portable across sandbox hosts. On amd64 the AVX2 family is
+# turned on explicitly, because a portable build without it transcribes about ten times slower.
+RUN set -eux; \
+    curl -fsSL --retry 3 -o /tmp/whisper.tar.gz \
+      "https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v${WHISPER_CPP_VERSION}.tar.gz"; \
+    echo "${WHISPER_CPP_SHA256}  /tmp/whisper.tar.gz" | sha256sum -c -; \
+    mkdir /src; \
+    tar -xzf /tmp/whisper.tar.gz -C /src --strip-components=1; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) cpu_flags="-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON" ;; \
+      *) cpu_flags="" ;; \
+    esac; \
+    cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+      -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DGGML_NATIVE=OFF $cpu_flags; \
+    cmake --build /src/build -j"$(nproc)" --target whisper-cli; \
+    install -m 0755 /src/build/bin/whisper-cli /whisper-cli; \
+    /whisper-cli --help >/dev/null
+
+# Multilingual small model, 5-bit quantized. It handles a 5 minute recording well inside the
+# skill's processing limit on a 4 CPU sandbox. The revision pins the file, the hash verifies it.
+ARG WHISPER_MODEL_REVISION=5359861c739e955e79d9a303bcbc70fb988958b1
+ARG WHISPER_MODEL_FILE=ggml-small-q5_1.bin
+ARG WHISPER_MODEL_SHA256=ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb
+RUN set -eux; \
+    curl -fsSL --retry 3 -o "/${WHISPER_MODEL_FILE}" \
+      "https://huggingface.co/ggerganov/whisper.cpp/resolve/${WHISPER_MODEL_REVISION}/${WHISPER_MODEL_FILE}"; \
+    echo "${WHISPER_MODEL_SHA256}  /${WHISPER_MODEL_FILE}" | sha256sum -c -
+
+# Trimmed ffmpeg and ffprobe for the transcribing-slack-audio skill. The Ubuntu ffmpeg package
+# adds hundreds of MB of codec and media libraries. This build keeps only the demuxers and
+# decoders for Slack voice messages and attachments (M4A, MP3, OGG/Opus, WAV, WebM) and the
+# WAV output that whisper-cli reads.
+FROM ubuntu:24.04 AS ffmpeg-builder
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential nasm xz-utils curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+ARG FFMPEG_VERSION=7.1.1
+ARG FFMPEG_SHA256=733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1
+RUN set -eux; \
+    curl -fsSL --retry 3 -o /tmp/ffmpeg.tar.xz \
+      "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"; \
+    echo "${FFMPEG_SHA256}  /tmp/ffmpeg.tar.xz" | sha256sum -c -; \
+    mkdir /src; \
+    tar -xf /tmp/ffmpeg.tar.xz -C /src --strip-components=1; \
+    cd /src; \
+    ./configure \
+      --disable-everything --disable-autodetect --disable-doc --disable-debug --disable-network \
+      --disable-ffplay --enable-ffmpeg --enable-ffprobe --enable-small \
+      --enable-protocol=file,pipe \
+      --enable-demuxer=mov,mp3,ogg,wav,matroska,flac,aac \
+      --enable-parser=aac,aac_latm,mpegaudio,opus,vorbis,flac \
+      --enable-decoder=aac,aac_latm,mp3,mp3float,opus,vorbis,flac,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s32le,pcm_f32le,pcm_u8 \
+      --enable-encoder=pcm_s16le --enable-muxer=wav \
+      --enable-filter=aresample,aformat,anull; \
+    make -j"$(nproc)"; \
+    install -m 0755 -s ffmpeg /ffmpeg; \
+    install -m 0755 -s ffprobe /ffprobe; \
+    /ffmpeg -version >/dev/null; \
+    /ffprobe -version >/dev/null
 
 FROM ubuntu:24.04
 
@@ -44,6 +134,8 @@ RUN apt-get update && \
     postgresql-client \
     mysql-client \
     redis-tools \
+    # OpenMP runtime for whisper-cli (transcribing-slack-audio skill)
+    libgomp1 \
     # System libraries often needed by Python packages
     libssl-dev \
     libcurl4-gnutls-dev \
@@ -131,6 +223,12 @@ RUN set -eux; \
 
 ENV AGENTSH_SERVER=http://127.0.0.1:18080
 
+COPY --from=whisper-builder /whisper-cli /usr/local/bin/whisper-cli
+COPY --from=ffmpeg-builder /ffmpeg /ffprobe /usr/local/bin/
+COPY --from=whisper-builder /ggml-small-q5_1.bin /opt/whisper/models/ggml-small-q5_1.bin
+ENV WHISPER_MODEL_PATH=/opt/whisper/models/ggml-small-q5_1.bin
+RUN whisper-cli --help >/dev/null && ffmpeg -version >/dev/null && ffprobe -version >/dev/null
+
 # Install rtk (https://github.com/rtk-ai/rtk), a proxy that compresses the output of
 # common dev commands before it reaches the model. Claude runs auto-detect it on PATH
 # and route eligible Bash commands through it via a PreToolUse rewrite hook; Codex has
@@ -164,8 +262,8 @@ RUN set -eux; \
 # every sandbox image with no PostHog commit or review. Bump this deliberately
 # in a reviewed PR when picking up a new agent release. COMMIT_HASH invalidates
 # the layer for PostHog-side image changes that keep the agent version unchanged.
-ARG AGENT_VERSION=2.4.310
-ARG AGENT_TARBALL_SHA256="107bcf9ef34084edeb82d0aae7adfb388f800765cc72878b04a897d5e303fb96"
+ARG AGENT_VERSION=2.4.319
+ARG AGENT_TARBALL_SHA256="15be3027f95812f4b270ad3bcc7e503d2a867c74e48757bc649fed2b41e582c8"
 ARG AGENT_TARBALL_URL=https://github.com/PostHog/posthog/releases/download/agent-v${AGENT_VERSION}/posthog-agent-${AGENT_VERSION}.tgz
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
@@ -208,7 +306,8 @@ RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
 COPY products/tasks/backend/sandbox/images/memory_watchdog.py /usr/local/bin/posthog-memory-watchdog
 RUN chmod +x /usr/local/bin/posthog-memory-watchdog
 COPY --from=agent-shadow-builder /agent-shadow /usr/local/bin/agent-shadow
-ENV PATH="/opt/posthog/bin:${PATH}"
+COPY --from=assignee-evidence-builder /out/posthog-assignee-evidence /opt/posthog/scripts/posthog-assignee-evidence
+ENV PATH="/opt/posthog/bin:/opt/posthog/scripts:${PATH}"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
 ENV IS_SANDBOX=1

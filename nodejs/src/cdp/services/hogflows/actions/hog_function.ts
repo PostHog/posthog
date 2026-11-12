@@ -263,8 +263,7 @@ export class HogFunctionHandler implements ActionHandler {
 
         // Add billable_invocation metric only if the function actually executed (not skipped)
         if (!functionResult.skipped) {
-            // A step that does not send leaves this undefined and bills as before.
-            if (functionResult.deliveredToRecipient !== false) {
+            if (this.isBillable(functionResult)) {
                 trackHogFlowBillableInvocation(result, {
                     invocation: functionResult.invocation,
                     billingMetricType: this.hogFlowActionBillingType,
@@ -287,7 +286,9 @@ export class HogFunctionHandler implements ActionHandler {
             // published — and the conversion belongs to the version whose message the person
             // received, which is also the version `email_sent` was counted under. Leaving the
             // run-start stamp here would split a rate across two versions.
-            if (this.hogFlowActionBillingType === 'email' || this.hogFlowActionBillingType === 'push') {
+            if (this.hogFlowActionBillingType === 'email') {
+                result.invocation.state.flowVersion = functionResult.invocation.state.renderedWorkflowVersion
+            } else if (this.hogFlowActionBillingType === 'push') {
                 result.invocation.state.flowVersion = invocation.hogFlow.version
             }
         }
@@ -338,6 +339,13 @@ export class HogFunctionHandler implements ActionHandler {
             result: functionResult.error ? undefined : functionResult.execResult,
             error: functionResult.error,
         }
+    }
+
+    private isBillable(functionResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>): boolean {
+        if (this.hogFlowActionBillingType === 'email') {
+            return functionResult.emailSendResult?.status === 'accepted'
+        }
+        return functionResult.deliveredToRecipient !== false
     }
 
     private parkForAwaitedRun(
@@ -633,8 +641,13 @@ type FrequencyCapHold = { until: DateTime; deadlineAt: string; firstHold: boolea
 // Up to a minute of spread, so held sends for one person that wait on the same slot don't all wake at once.
 const FREQUENCY_CAP_HOLD_JITTER_MS = 60_000
 function frequencyCapHoldExpired(invocation: CyclotronJobInvocationHogFlow): boolean {
-    const deadlineAt = invocation.state.currentAction?.frequencyCapHoldDeadlineAt
-    return !!deadlineAt && DateTime.now() >= DateTime.fromISO(deadlineAt)
+    const currentAction = invocation.state.currentAction
+    // A continuation on the email queue already claimed its slot before the deadline, so the email queue
+    // delaying it past the deadline must not drop it.
+    if (!currentAction?.frequencyCapHoldDeadlineAt || currentAction.hogFunctionState) {
+        return false
+    }
+    return DateTime.now() >= DateTime.fromISO(currentAction.frequencyCapHoldDeadlineAt)
 }
 
 /** When the team holds capped messages and the hold has not ended, returns when to check the cap again. */

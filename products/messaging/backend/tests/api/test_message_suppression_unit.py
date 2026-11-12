@@ -18,4 +18,5 @@ class TestMessageSuppressionViewSetScope(SimpleTestCase):
         assert set(MessageSuppressionViewSet.scope_object_write_actions) == {
             "add_suppression",
             "remove_suppression",
+            "bulk_remove_suppressions",
         }

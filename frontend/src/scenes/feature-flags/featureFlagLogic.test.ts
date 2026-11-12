@@ -6004,6 +6004,22 @@ describe('the editor a flag opens in', () => {
 
     it.each([
         ['a string return type', { return_type: 'string', default_value: 'control' }],
+        [
+            'a number return type',
+            {
+                return_type: 'number',
+                default_value: 1,
+                rules: [
+                    {
+                        ...EXPERIMENT_RULE,
+                        variants: [
+                            { key: 'control', weight: 50, value: 1 },
+                            { key: 'test', weight: 50, value: 2 },
+                        ],
+                    },
+                ],
+            },
+        ],
         ['an experiment rule', { rules: [EXPERIMENT_RULE] }],
         [
             'an experiment rule with a holdout',
@@ -6016,7 +6032,7 @@ describe('the editor a flag opens in', () => {
 
     // The editor would drop, or rewrite on save, what it cannot represent.
     it.each([
-        ['a number return type', { return_type: 'number', default_value: 1 }],
+        ['an unknown return type', { return_type: 'date', default_value: null }],
         ['group assignment', { aggregation_group_type_index: 0 }],
     ])('a v2 flag with %s opens no editor, even with the editor on', async (_label, filters) => {
         useMocks({ get: { [V2_FLAG_URL]: () => [200, { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } }] } })

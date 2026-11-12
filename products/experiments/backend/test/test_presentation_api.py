@@ -12,6 +12,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -30,7 +31,7 @@ from posthog.schema import (
 
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -42,8 +43,10 @@ from posthog.test.test_journeys import journeys_for
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.health.context import ConditionSetTraffic
@@ -389,7 +392,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.json()["results"][0]["id"], purchase_experiment.id)
 
     def test_filter_by_event_resolves_actions(self) -> None:
-        action = Action.objects.create(team=self.team, name="Checked out", steps_json=[{"event": "checkout"}])
+        action = create_action(team=self.team, name="Checked out", steps_json=[{"event": "checkout"}])
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
@@ -548,7 +551,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         # Query count must stay flat as rows grow — five experiments must not cost more than one.
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
         # The list serializer stamps no calculation keys, so the saved metrics cost no extra query.
-        self.assertEqual(len(five_rows.captured_queries), 14)
+        self.assertEqual(len(five_rows.captured_queries), 13)
 
     def test_experiment_detail_with_saved_metrics_reads_each_relation_once(self) -> None:
         experiment = self._create_fully_populated_experiment(0)
@@ -565,7 +568,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # The saved-metric fingerprints reuse the prefetched links and add one read of the team's
         # experiment settings, whatever the number of saved metrics.
-        with self.assertNumQueries(16):
+        with self.assertNumQueries(15):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -574,7 +577,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertTrue(all(fingerprints))
 
     def _create_experiment_with_action_metrics(self, index: int) -> tuple[Experiment, Action]:
-        action = Action.objects.create(team=self.team, name=f"Action {index}", steps_json=[{"event": f"event_{index}"}])
+        action = create_action(team=self.team, name=f"Action {index}", steps_json=[{"event": f"event_{index}"}])
         flag = FeatureFlag.objects.create(team=self.team, key=f"action-metric-flag-{index}", created_by=self.user)
         experiment = Experiment.objects.create(
             team=self.team,
@@ -810,6 +813,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 },
             },
         )
+        FeatureFlagEvaluationContext.objects.create(
+            feature_flag=flag, evaluation_context=EvaluationContext.objects.create(team=self.team, name="web-app")
+        )
         experiment = Experiment.objects.create(
             team=self.team,
             name="health-findings",
@@ -848,7 +854,42 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual([(finding["code"], finding["subcode"]) for finding in health["findings"]], expected)
         self.assertEqual(health["findings"][0]["actions"], ["open_feature_flag"])
         self.assertEqual(health["findings"][0]["diagnostic_ref"], "A5")
-        self.assertEqual((health["checks"][0]["key"], health["checks"][0]["status"]), ("flag_state", "finding"))
+        self.assertEqual(health["findings"][0]["check"], "flag_state")
+        self.assertEqual(
+            {key: health["checks"][0][key] for key in ("key", "status", "values", "rule")},
+            {
+                "key": "flag_state",
+                "status": "finding",
+                "values": {
+                    "flag_active": False,
+                    "flag_deleted": False,
+                    "flag_rolled_out": True,
+                    "shipped_variant": None,
+                },
+                "rule": None,
+            },
+        )
+        # The condition set added after launch has no rollout percentage, which the flag service reads as 100.
+        added_condition = (
+            [{"rollout_percentage": 100.0, "property_count": 1, "aggregation_group_type_index": None}]
+            if _name == "condition_added_after_launch"
+            else []
+        )
+        self.assertEqual(
+            health["setup"],
+            {
+                "release_conditions": [
+                    {"rollout_percentage": 100.0, "property_count": 0, "aggregation_group_type_index": None},
+                    *added_condition,
+                ],
+                "early_exit": False,
+                "bucketing_identifier": "distinct_id",
+                "aggregation_group_type_index": None,
+                "evaluation_runtime": "all",
+                "evaluation_contexts": ["web-app"],
+                "ensure_experience_continuity": False,
+            },
+        )
 
     @parameterized.expand(
         [
@@ -1269,8 +1310,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         # Action-name refresh lives on the detail response — the list endpoint no longer
         # returns metrics (see ExperimentBasicSerializer).
         experiment, action = self._create_experiment_with_action_metrics(0)
-        action.name = "Renamed action"
-        action.save()
+        update_action(action, name="Renamed action")
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1837,7 +1877,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         the saved query with the link overrides applied, the same dict the daily workflow files its rows
         under, or the chart reads an empty series for an override-configured saved metric."""
         breakdowns = [{"type": "event", "property": "$os_name"}] if link_has_breakdowns else []
-        action = Action.objects.create(team=self.team, name="Stored name", steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, name="Stored name", steps_json=[{"event": "$pageview"}])
         source = (
             {"kind": "ActionsNode", "id": action.id, "name": action.name}
             if rename_action
@@ -1851,7 +1891,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             },
         )
         if rename_action:
-            Action.objects.filter(pk=action.pk).update(name="Current name")
+            update_action(action, name="Current name")
         metadata = {"type": "primary", "breakdowns": breakdowns, "breakdown_limit": 20}
         experiment_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -3898,7 +3938,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # TODO: Make sure permission bool doesn't cause n + 1
         # +1 query for survey internal flag IDs lookup, +1 for the project's replay gates
-        with self.assertNumQueries(20):
+        with self.assertNumQueries(19):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -4400,7 +4440,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     def test_update_experiment_exposure_config_with_action(self):
         # Create an action
-        action = Action.objects.create(
+        action = create_action(
             name="Test Action",
             team=self.team,
             steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],
@@ -5676,6 +5716,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["timeseries"] == {start.date().isoformat(): {"variant_results": []}}
+        assert response.json()["configuration_by_day"] == {start.date().isoformat(): "current"}
 
     @parameterized.expand([("stale_client_definition", {"fingerprint": "0" * 64}), ("uuid_only", {})])
     def test_recalculate_timeseries_backfills_the_experiment_definition_under_its_key(
@@ -6653,56 +6694,56 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "single_repo",
                 None,
                 None,
-                [{"full_name": "acme/web"}],
+                {"acme/web": "acme/web"},
                 {"repository": "acme/web", "source": "single_repo", "candidates": ["acme/web"]},
             ),
             (
                 "ambiguous",
                 None,
                 None,
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
             ),
             (
                 "explicit",
                 "acme/api",
                 None,
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 {"repository": "acme/api", "source": "explicit", "candidates": ["acme/api", "acme/web"]},
             ),
             (
                 "stale_explicit_needs_a_new_choice",
                 "gone/repo",
                 None,
-                [{"full_name": "acme/web"}],
+                {"acme/web": "acme/web"},
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/web"]},
             ),
             (
                 "stale_explicit_with_empty_cache",
                 "gone/repo",
                 None,
-                [],
+                {},
                 {"repository": None, "source": "no_integration", "candidates": []},
             ),
             (
                 "team_default",
                 None,
                 "acme/api",
-                [{"full_name": "acme/web"}, {"full_name": "Acme/API"}],
+                {"acme/web": "acme/web", "acme/api": "Acme/API"},
                 {"repository": "Acme/API", "source": "team_default", "candidates": ["Acme/API", "acme/web"]},
             ),
             (
                 "stale_team_default_falls_through",
                 None,
                 "gone/repo",
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
             ),
         ]
     )
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_flag_cleanup_target_endpoint(
-        self, _name, stored_repository, team_default, cached_repos, expected_body, mock_resolve_github
+        self, _name, stored_repository, team_default, cached_repos, expected_body, mock_repository_names
     ):
         exp_id = self._create_running_experiment(name="Cleanup Target", flag_key="cleanup-target-flag")["id"]
         if stored_repository:
@@ -6711,12 +6752,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
             config.flag_cleanup_repository = team_default
             config.save()
-        if cached_repos is None:
-            mock_resolve_github.return_value = None
-        else:
-            mock_resolve_github.return_value = SimpleNamespace(
-                list_all_cached_repositories=lambda max_repos: cached_repos
-            )
+        mock_repository_names.return_value = cached_repos
 
         resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_target/")
 
@@ -6747,13 +6783,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
-        self, mock_resolve_github, mock_create_task, _mock_report
+        self, mock_repository_names, mock_create_task, _mock_report
     ):
-        mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
-        )
+        mock_repository_names.return_value = {"acme/web": "Acme/Web", "acme/api": "acme/api"}
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         exp_id = self._create_running_experiment(name="End With Repo Live", flag_key="end-with-repo-live-flag")["id"]
 
@@ -6770,13 +6804,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_set_repository_as_team_default_requires_project_admin(
-        self, mock_resolve_github, mock_create_task, _mock_report
+        self, mock_repository_names, mock_create_task, _mock_report
     ):
-        mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
-        )
+        mock_repository_names.return_value = {"acme/web": "acme/web", "acme/api": "acme/api"}
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         exp_member = self._create_running_experiment(name="Default Deny", flag_key="team-default-deny-flag")["id"]
         exp_admin = self._create_running_experiment(name="Default Allow", flag_key="team-default-allow-flag")["id"]
@@ -7341,6 +7373,8 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             cohort = response.json()
         self.assertFalse(cohort["is_calculating"], f"Cohort {cohort['id']} is still calculating")
 
+    # The test writes its flag calls to events only, and the native JSON events table reads them from flag_evaluations.
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment(self, patch_on_commit: MagicMock):
         # From mode 1 on, the cohorts API rejects new criteria on $feature_flag_called, and the exposure cohort must still save.
@@ -7692,7 +7726,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             name="cohort_X",
         )
 
-        action1 = Action.objects.create(
+        action1 = create_action(
             team=self.team,
             name="action1",
             steps_json=[

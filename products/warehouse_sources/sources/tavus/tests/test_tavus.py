@@ -3,7 +3,7 @@ from typing import Any, Optional
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, route
 from products.warehouse_sources.sources.tavus import tavus
 from products.warehouse_sources.sources.tavus._config import TavusSourceConfig
 from products.warehouse_sources.sources.tavus.settings import ENDPOINTS, TAVUS_ENDPOINTS
@@ -90,6 +90,69 @@ class TestPagination:
         assert "matched nothing" in str(result.raised)
 
 
+class TestCanvasInteractionsFanOut:
+    def test_walks_every_conversation_page_and_keys_rows_by_conversation(self, monkeypatch) -> None:
+        monkeypatch.setattr(tavus, "PAGE_SIZE", 2)
+        result = _driver().run(
+            "canvas_interactions",
+            route(
+                {
+                    "/v2/conversations": [
+                        _response([{"conversation_id": "c1"}, {"conversation_id": "c2"}], total_count=3),
+                        _response([{"conversation_id": "c3"}], total_count=3),
+                    ],
+                    "/conversations/c1/canvas/interactions": [
+                        _response([{"conversation_id": "c1", "interaction_id": "i1", "type": "submit"}])
+                    ],
+                    # A zero data retention conversation records no interactions.
+                    "/conversations/c2/canvas/interactions": [_response([])],
+                    # The parent id is set on every row, also when the vendor row omits it.
+                    "/conversations/c3/canvas/interactions": [_response([{"interaction_id": "i1", "type": "skip"}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(r["conversation_id"], r["interaction_id"]) for r in result.rows] == [("c1", "i1"), ("c3", "i1")]
+        child_requests = [r for r in result.requests if r.path.endswith("/canvas/interactions")]
+        assert [r.path for r in child_requests] == [
+            "/v2/conversations/c1/canvas/interactions",
+            "/v2/conversations/c2/canvas/interactions",
+            "/v2/conversations/c3/canvas/interactions",
+        ]
+        assert all(r.param("page") is None and r.param("limit") is None for r in child_requests)
+        assert result.response is not None
+        assert result.response.primary_keys == ["conversation_id", "interaction_id"]
+
+    def test_resume_skips_completed_conversations(self) -> None:
+        result = _driver().run(
+            "canvas_interactions",
+            route(
+                {
+                    "/v2/conversations": [_response([{"conversation_id": "c1"}, {"conversation_id": "c2"}])],
+                    "/conversations/c2/canvas/interactions": [
+                        _response([{"conversation_id": "c2", "interaction_id": "i9"}])
+                    ],
+                }
+            ),
+            resume_state=TavusResumeConfig(
+                fanout_state={
+                    "completed": ["/conversations/c1/canvas/interactions"],
+                    "current": None,
+                    "child_state": None,
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [r["interaction_id"] for r in result.rows] == ["i9"]
+        assert "/v2/conversations/c1/canvas/interactions" not in result.paths
+        assert result.saved_states[-1].fanout_state["completed"] == [
+            "/conversations/c1/canvas/interactions",
+            "/conversations/c2/canvas/interactions",
+        ]
+
+
 class TestRetryClassification:
     @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
     def test_auth_error_raises_matchable_httperror(self, _name, status, reason) -> None:
@@ -127,5 +190,9 @@ class TestTavusSourceResponse:
             "personas": ["persona_id"],
             "conversations": ["conversation_id"],
             "memory_stores": ["memory_store_id"],
+            "faces": ["face_id"],
+            "pals": ["pal_id"],
+            "transcriptions": ["transcription_id"],
+            "canvas_interactions": ["conversation_id", "interaction_id"],
         }
         assert set(TAVUS_ENDPOINTS) == set(ENDPOINTS)

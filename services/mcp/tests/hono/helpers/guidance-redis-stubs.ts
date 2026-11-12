@@ -60,6 +60,10 @@ export function makeGuidanceRedis(failing = false): GuidanceRedisStub {
                 args.map(String)
             const ttl = Number(ttlArg)
             const keys = [matchedKey, suppressedKey, shownKey]
+            if (mode === 'touch') {
+                refresh(keys, ttl)
+                return guard(Number(store.get(shownKey!) ?? 0))
+            }
             if (mode === 'suppress') {
                 store.set(suppressedKey!, '1')
                 refresh(keys, ttl)

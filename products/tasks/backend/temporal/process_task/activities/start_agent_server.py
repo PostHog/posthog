@@ -618,18 +618,18 @@ def _record_agent_startup_attempt(ctx: TaskProcessingContext, runtime: str) -> N
 
 def _record_agent_startup_success(ctx: TaskProcessingContext) -> None:
     with transaction.atomic():
-        state = TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id).values_list("state", flat=True).first()
-        attempt = (state or {}).get("agent_startup_attempt")
-        TaskRun.update_state_atomic(
-            ctx.run_id,
-            updates={"agent_startup_success": {**attempt, "completed_at": datetime.now(UTC).isoformat()}}
-            if isinstance(attempt, dict)
-            else {},
-            remove_keys=["startup_failure"],
-        )
-        TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id).exclude(
-            status__in=[TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]
-        ).update(error_message=None)
+        run = TaskRun.objects.select_for_update().only("id", "state", "status").get(id=ctx.run_id, team_id=ctx.team_id)
+        state = dict(run.state or {})
+        attempt = state.get("agent_startup_attempt")
+        state.pop("startup_failure", None)
+        if isinstance(attempt, dict):
+            state["agent_startup_success"] = {**attempt, "completed_at": datetime.now(UTC).isoformat()}
+        run.state = state
+        update_fields = ["state", "updated_at"]
+        if not run.is_terminal:
+            run.error_message = None
+            update_fields.append("error_message")
+        run.save(update_fields=update_fields)
 
 
 def _invoke_start_agent_server(

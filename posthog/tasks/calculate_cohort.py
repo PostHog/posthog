@@ -48,6 +48,7 @@ from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, Import
 from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     CohortErrorCode,
+    StaticCohortReadBackIncomplete,
     close_open_population_attempts,
     count_cohort_members,
     get_all_cohort_dependencies,
@@ -99,7 +100,11 @@ COHORT_RECALCULATION_TRANSIENT_ERRORS = (
 # The recalculation set plus the soft time limit, which static population opts into because it can
 # resume: the ClickHouse insert excludes the actors it already wrote and personhog ignores existing
 # membership. Recording the limit as terminal would strand a half-written cohort instead.
-STATIC_POPULATION_TRANSIENT_ERRORS = (*COHORT_RECALCULATION_TRANSIENT_ERRORS, SoftTimeLimitExceeded)
+STATIC_POPULATION_TRANSIENT_ERRORS = (
+    *COHORT_RECALCULATION_TRANSIENT_ERRORS,
+    SoftTimeLimitExceeded,
+    StaticCohortReadBackIncomplete,
+)
 
 COHORT_STATS_LOOKUP_LOAD_ERRORS = (*CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled, ClickHouseQueryTimeOut)
 
@@ -917,7 +922,9 @@ def _populate_static_cohort(
     cohort_id: int,
     team_id: Optional[int],
     ch_insert_done: bool,
-    insert_actors_into_ch: Callable[..., None],
+    rows_written: int,
+    written_since: Optional[str],
+    insert_actors_into_ch: Callable[..., int],
     log_prefix: str,
 ) -> None:
     """Run one static population attempt: claim the cohort, fill ClickHouse, then sync Postgres.
@@ -970,7 +977,8 @@ def _populate_static_cohort(
         # finished this phase skips it, because re-evaluating the source query costs the same hours
         # again and inserts nothing.
         if not ch_insert_done:
-            insert_actors_into_ch(cohort, team=team)
+            written_since = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            rows_written = insert_actors_into_ch(cohort, team=team)
             ch_insert_done = True
             logger.info(
                 f"{log_prefix}_ch_complete",
@@ -979,7 +987,7 @@ def _populate_static_cohort(
             )
 
         # Re-running the sync is safe because InsertCohortMembers ignores existing membership.
-        insert_cohort_people_into_pg(cohort, team_id=team_id)
+        insert_cohort_people_into_pg(cohort, team_id=team_id, min_rows=rows_written, written_since=written_since)
         logger.info(
             f"{log_prefix}_pg_complete",
             cohort_id=cohort_id,
@@ -989,7 +997,11 @@ def _populate_static_cohort(
         processing_error = err
         if not _is_final_attempt(task, _is_transient_population_error(err)):
             retry = _schedule_population_retry(
-                task, cohort_id, err, team_id=team_id, kwargs={"ch_insert_done": ch_insert_done}
+                task,
+                cohort_id,
+                err,
+                team_id=team_id,
+                kwargs={"ch_insert_done": ch_insert_done, "rows_written": rows_written, "written_since": written_since},
             )
             raise retry
         logger.exception(
@@ -1038,7 +1050,12 @@ def _populate_static_cohort(
 )
 @skip_team_scope_audit
 def insert_cohort_from_query(
-    self: Task, cohort_id: int, team_id: Optional[int] = None, ch_insert_done: bool = False
+    self: Task,
+    cohort_id: int,
+    team_id: Optional[int] = None,
+    ch_insert_done: bool = False,
+    rows_written: int = 0,
+    written_since: Optional[str] = None,
 ) -> None:
     """
     One-time population task for static cohorts created from a HogQL query
@@ -1047,7 +1064,7 @@ def insert_cohort_from_query(
     Inserts actors into ClickHouse person_static_cohort, then syncs to Postgres.
 
     team_id is only optional for backwards compatibility with the old celery task signature.
-    All new tasks should pass team_id explicitly. Only a retry sets ch_insert_done.
+    All new tasks should pass team_id explicitly. Only a retry sets ch_insert_done, rows_written and written_since.
     """
     from products.cohorts.backend.models.util import insert_cohort_query_actors_into_ch
 
@@ -1056,6 +1073,8 @@ def insert_cohort_from_query(
         cohort_id=cohort_id,
         team_id=team_id,
         ch_insert_done=ch_insert_done,
+        rows_written=rows_written,
+        written_since=written_since,
         insert_actors_into_ch=insert_cohort_query_actors_into_ch,
         log_prefix="insert_cohort_from_query",
     )
@@ -1070,12 +1089,17 @@ def insert_cohort_from_query(
 )
 @skip_team_scope_audit
 def insert_cohort_from_filters(
-    self: Task, cohort_id: int, team_id: Optional[int] = None, ch_insert_done: bool = False
+    self: Task,
+    cohort_id: int,
+    team_id: Optional[int] = None,
+    ch_insert_done: bool = False,
+    rows_written: int = 0,
+    written_since: Optional[str] = None,
 ) -> None:
     """
     One-time population task for static cohorts created from saved cohort criteria.
 
-    Only a retry sets ch_insert_done.
+    Only a retry sets ch_insert_done, rows_written and written_since.
     """
     from products.cohorts.backend.models.util import insert_cohort_filter_actors_into_ch
 
@@ -1084,6 +1108,8 @@ def insert_cohort_from_filters(
         cohort_id=cohort_id,
         team_id=team_id,
         ch_insert_done=ch_insert_done,
+        rows_written=rows_written,
+        written_since=written_since,
         insert_actors_into_ch=insert_cohort_filter_actors_into_ch,
         log_prefix="insert_cohort_from_filters",
     )

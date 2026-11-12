@@ -29,7 +29,7 @@ export const MessagingSendEmailCreateHeader = () => zod.object({
         ),
 })
 
-export const messagingSendEmailCreateBodyTemplateKeyMax = 400
+export const messagingSendEmailCreateBodyTemplateKeyMax = 256
 
 export const messagingSendEmailCreateBodyTemplateKeyRegExp = new RegExp('^[a-zA-Z0-9_-]+$')
 export const messagingSendEmailCreateBodyDistinctIdMax = 400
@@ -46,7 +46,7 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
         .optional()
         .describe(
-            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
+            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most 256 characters. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
         ),
     distinct_id: zod
         .string()
@@ -473,7 +473,7 @@ export const MessagingTemplatesDesignPartialUpdateBody = () => zod.strictObject(
 })
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing.
+ * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
 export const MessagingTemplatesMakeTransactionalCreateParams = () => zod.object({

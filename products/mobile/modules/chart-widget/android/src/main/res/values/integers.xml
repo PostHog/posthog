@@ -1,0 +1,7 @@
+<resources>
+  <!-- The renderer draws each chart for both themes. The launcher resolves these with its own night mode, so the
+       chart follows a theme change without a redraw. Values are indexes of the android:visibility enum: 0 visible,
+       2 gone (not the View.GONE flag value, which overflows the inflater's table). -->
+  <integer name="chart_widget_light_visibility">0</integer>
+  <integer name="chart_widget_dark_visibility">2</integer>
+</resources>

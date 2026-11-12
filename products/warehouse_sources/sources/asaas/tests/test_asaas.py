@@ -7,8 +7,15 @@ from parameterized import parameterized
 
 from products.warehouse_sources.sources.asaas._config import AsaasSourceConfig
 from products.warehouse_sources.sources.asaas.asaas import (
+    FORBIDDEN_ERROR,
+    INVALID_KEY_ERROR,
+    KEY_FORMAT_ERROR,
+    KEY_IN_PRODUCTION_ERROR,
+    KEY_IN_SANDBOX_ERROR,
     PRODUCTION_BASE_URL,
     SANDBOX_BASE_URL,
+    UNAVAILABLE_ERROR,
+    WRONG_ENVIRONMENT_ERROR,
     AsaasResumeConfig,
     base_url,
     format_date_param,
@@ -145,19 +152,74 @@ class TestAsaasSourceResumeBehavior:
         assert result.requests[0].headers["access_token"] == "test-key"
 
 
+def _asaas_error(code: str) -> dict[str, Any]:
+    return {"errors": [{"code": code, "description": "error description"}]}
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            (200, True),
+            ("accepted", [ScriptedResponse(status=200)], (True, None)),
+            (
+                "wrong_environment",
+                [ScriptedResponse(status=401, json=_asaas_error("invalid_environment"))],
+                (False, WRONG_ENVIRONMENT_ERROR),
+            ),
+            (
+                "malformed_key",
+                [ScriptedResponse(status=401, json=_asaas_error("invalid_access_token_format"))],
+                (False, KEY_FORMAT_ERROR),
+            ),
+            (
+                "revoked_key",
+                [ScriptedResponse(status=401, json=_asaas_error("invalid_access_token"))],
+                (False, INVALID_KEY_ERROR),
+            ),
+            ("unauthorized_without_body", [ScriptedResponse(status=401)], (False, INVALID_KEY_ERROR)),
+            ("unauthorized_non_json_body", [ScriptedResponse(status=401, body=b"<html>")], (False, INVALID_KEY_ERROR)),
+            ("forbidden", [ScriptedResponse(status=403)], (False, FORBIDDEN_ERROR)),
+            ("unexpected_status", [ScriptedResponse(status=404)], (False, UNAVAILABLE_ERROR)),
+            ("transport_failure", [ConnectionResetError()] * 4, (False, UNAVAILABLE_ERROR)),
         ]
     )
-    def test_status_code_maps_to_validity(self, status_code: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status_code)]) as network:
-            assert validate_credentials("test-key", "production") is expected
+    def test_response_maps_to_result(
+        self, _name: str, script: list[ScriptedResponse | BaseException], expected: tuple[bool, str | None]
+    ) -> None:
+        with scripted_network(script) as network:
+            assert validate_credentials("test-key", "production") == expected
 
         assert network.requests_log[0].path == "/v3/customers"
         assert network.requests_log[0].param("limit") == "1"
         assert network.requests_log[0].headers["access_token"] == "test-key"
+
+    @parameterized.expand(
+        [
+            ("sandbox_key_on_production", "$aact_hmlg_example", "production", KEY_IN_SANDBOX_ERROR),
+            ("production_key_on_sandbox", "$aact_prod_example", "sandbox", KEY_IN_PRODUCTION_ERROR),
+        ]
+    )
+    def test_key_for_other_environment_fails_without_a_request(
+        self, _name: str, api_key: str, environment: str, expected_error: str
+    ) -> None:
+        with scripted_network([]) as network:
+            assert validate_credentials(api_key, environment) == (False, expected_error)
+
+        assert network.requests_log == []
+
+    @parameterized.expand(
+        [
+            ("production_key", "$aact_prod_example", "production", PRODUCTION_BASE_URL),
+            ("sandbox_key", "$aact_hmlg_example", "sandbox", SANDBOX_BASE_URL),
+            ("key_without_environment_prefix", "$aact_example", "sandbox", SANDBOX_BASE_URL),
+        ]
+    )
+    def test_key_matching_environment_is_checked_against_that_host(
+        self, _name: str, api_key: str, environment: str, expected_base_url: str
+    ) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials(api_key, environment) == (True, None)
+
+        assert network.requests_log[0].url.startswith(f"{expected_base_url}/v3/customers")
 
 
 class TestAsaasSource:
@@ -171,12 +233,11 @@ class TestAsaasSource:
         assert self.source.default_version == "v3"
         assert self.source.api_docs_url is not None and self.source.api_docs_url.startswith("https://")
 
-    @parameterized.expand([(True, True, None), (False, False, "Invalid credentials")])
-    def test_validate_credentials(self, mock_return: bool, expected_valid: bool, expected_message) -> None:
-        with mock.patch(VALIDATE_PATCH, return_value=mock_return) as mock_validate:
-            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    @parameterized.expand([((True, None),), ((False, INVALID_KEY_ERROR),)])
+    def test_validate_credentials(self, result: tuple[bool, str | None]) -> None:
+        with mock.patch(VALIDATE_PATCH, return_value=result) as mock_validate:
+            assert self.source.validate_credentials(self.config, self.team_id) == result
 
-        assert (is_valid, error_message) == (expected_valid, expected_message)
         mock_validate.assert_called_once_with("test-key", "production")
 
     @parameterized.expand(

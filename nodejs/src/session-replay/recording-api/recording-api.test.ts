@@ -850,7 +850,8 @@ describe('RecordingApi', () => {
             const res = await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())
 
             expect(res.status).toBe(200)
-            expect(res.headers['cache-control']).toBe('private, max-age=86400, immutable')
+            expect(res.headers['cache-control']).toBe('private, max-age=14400, immutable')
+            expect(res.headers['x-content-type-options']).toBe('nosniff')
             expect(res.headers['vary'] ?? '').not.toMatch(/cookie/i)
             expect(Buffer.from(res.body).toString()).toBe('block-bytes')
             expect(mockService.getBlockByRef).toHaveBeenCalledWith(1, 'session-123', 'v1.abc')
@@ -921,7 +922,7 @@ describe('RecordingApi', () => {
             const res = await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())
 
             expect(res.status).toBe(expectedStatus)
-            expect(res.headers['cache-control']).toBe(enforced ? 'no-store' : 'private, max-age=86400, immutable')
+            expect(res.headers['cache-control']).toBe(enforced ? 'no-store' : 'private, max-age=14400, immutable')
             if (enforced) {
                 expect(res.headers['retry-after']).toBe('1')
             }

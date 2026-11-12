@@ -199,6 +199,10 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             # above never match it. Key off the stable error_description returned by Salesforce
             # when the refresh token is expired/revoked — reconnecting is the only fix.
             "expired access/refresh token": "Your Salesforce connection has expired or been revoked. Please reconnect the source.",
+            # Salesforce's identity service answers a 400 with this stable error_description during
+            # token refresh when the org's connected-app grant is no longer valid. Same shape as the
+            # other token-refresh failures above — retrying replays the same rejection.
+            "activation secret invalid": "Your Salesforce connection has expired or been revoked. Please reconnect the source.",
             INSTANCE_HOST_NOT_FOUND_ERROR: (
                 "Your Salesforce org's address no longer exists, so the org may be deleted or its My Domain "
                 "renamed. Reconnect your Salesforce account, then re-enable the sync."

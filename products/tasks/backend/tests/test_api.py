@@ -61,6 +61,7 @@ from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_PREVIEW_PORT,
     FINAL_MESSAGE_MAX_CHARS,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
 )
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade import (
@@ -69,9 +70,11 @@ from products.tasks.backend.facade import (
     contracts as tasks_contracts,
 )
 from products.tasks.backend.facade.profiles import (
+    ContractCheck,
     GithubResolution,
     NetworkAccess,
     NetworkPolicy,
+    SourceKind,
     TaskProfile,
     get_task_profile,
 )
@@ -117,6 +120,7 @@ from products.tasks.backend.models import (
     SandboxSession,
     Task,
     TaskArtifact,
+    TaskClient,
     TaskClientProvenance,
     TaskPin,
     TaskRun,
@@ -137,6 +141,8 @@ from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 from ee.billing.quota_limiting import QuotaResource
+
+SLACK_PROFILE = get_task_profile("slack")
 
 BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
@@ -1672,6 +1678,8 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=response.json()["id"])
         self.assertEqual(task.client_provenance, expected)
         self.assertEqual(response.json()["client_provenance"], expected)
+        self.assertEqual(task.last_client, expected)
+        self.assertEqual(response.json()["last_client"], expected)
 
     @parameterized.expand(
         [
@@ -1827,6 +1835,23 @@ class TestTaskAPI(BaseTaskAPITest):
         row = response.json()["results"][0]
         self.assertNotIn("description", row)
         self.assertEqual(row["description_preview"], "x" * 1000)
+
+    def test_basic_list_reads_only_a_slice_of_the_description(self):
+        self.create_task("Long", description="x" * 1500)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get("/api/projects/@current/tasks/?basic=true")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["description_preview"], "x" * TASK_DESCRIPTION_PREVIEW_LENGTH)
+        task_selects = [
+            query["sql"]
+            for query in ctx.captured_queries
+            if 'FROM "posthog_task"' in query["sql"] and "COUNT(" not in query["sql"]
+        ]
+        self.assertEqual(len(task_selects), 1)
+        self.assertIn("SUBSTRING", task_selects[0])
+        self.assertEqual(task_selects[0].count('"posthog_task"."description"'), 1)
 
     def test_list_tasks_includes_latest_run(self):
         task1 = self.create_task("Task 1")
@@ -2793,6 +2818,7 @@ class TestTaskAPI(BaseTaskAPITest):
             self.team.id,
             self.user.id,
             origin_product=Task.OriginProduct.USER_CREATED,
+            posthog_mcp_scopes="full",
             repository="posthog/posthog",
             repositories=["posthog/posthog", "posthog/code"],
             github_integration_id=integration.id,
@@ -2804,6 +2830,8 @@ class TestTaskAPI(BaseTaskAPITest):
             custom_image_id=None,
             initial_permission_mode=None,
             signal_report_id=None,
+            task_runtime=None,
+            json_schema=None,
         )
 
         update = self.client.patch(
@@ -2934,6 +2962,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+        self.assertEqual((task.profile, task.options, task.idempotency_key), ("user", None, None))
 
     def test_create_task_with_hogdesk_origin_product(self):
         # HogDesk creates Code tasks from a support ticket's Code chat with this
@@ -2989,6 +3018,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.BUSINESS_KNOWLEDGE,),
             (Task.OriginProduct.METRICS_IMPORT,),
             (Task.OriginProduct.CONTEXT_LAYER,),
+            (Task.OriginProduct.FEATURE_FLAGS,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -3054,7 +3084,7 @@ class TestTaskAPI(BaseTaskAPITest):
             team=self.team,
             title="Slack task",
             description="Created from Slack",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             user_id=self.user.id,
             repository="posthog/posthog",
             create_pr=True,
@@ -3662,18 +3692,24 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertIn(expected_detail, response.json()["error"])
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
-    def test_implementation_creation_respects_an_external_claim(self):
+    # A person and their agents count as one owner: their own agent's claim lets them start a task, a teammate's
+    # agent claim does not.
+    @parameterized.expand(
+        [("own_agent", True, status.HTTP_201_CREATED), ("teammate_agent", False, status.HTTP_429_TOO_MANY_REQUESTS)]
+    )
+    def test_implementation_creation_respects_an_external_claim(self, _name, own_agent, expected_status):
         from products.signals.backend.models import SignalReport, SignalReportAssignment
 
+        holder = self.user if own_agent else self.create_organization_user("teammate")
         report = SignalReport.objects.create(team=self.team)
         assignment = SignalReportAssignment.all_teams.create(
-            team=self.team, report=report, actor_kind="agent", actor_user=self.user, actor_agent="test-agent"
+            team=self.team, report=report, actor_kind="agent", actor_user=holder, actor_agent="test-agent"
         )
         response = self._post_signal_report_task(report.id, "implementation")
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.status_code, expected_status)
         assignment.refresh_from_db()
         self.assertEqual(assignment.actor_agent, "test-agent")
-        self.assertFalse(Task.objects.filter(title="Report task").exists())
+        self.assertEqual(Task.objects.filter(title="Report task").exists(), own_agent)
 
     @parameterized.expand(
         [
@@ -3730,6 +3766,33 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.json()["code"], "signal_report_task_cap")
         mock_workflow.assert_not_called()
         self.assertFalse(TaskRun.objects.filter(task=task, status=TaskRun.Status.QUEUED).exists())
+
+    @parameterized.expand(
+        [
+            ("implementation", "implementation", ["acme/web", "acme/assets"]),
+            ("discussion", "discussion", None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_inbox_started_implementation_run_gets_the_extra_repositories(
+        self, _name, relationship, expected_access, _mock_workflow
+    ):
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
+
+        SignalTeamConfig.objects.create(
+            team=self.team, implementation_repositories=["acme/assets", "other-owner/assets"]
+        )
+        report = SignalReport.objects.create(team=self.team)
+        create_response = self._post_signal_report_task(report.id, relationship)
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=create_response.json()["id"])
+
+        run_response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        self.assertEqual(run_response.status_code, status.HTTP_200_OK, run_response.json())
+        run = TaskRun.objects.get(task=task)
+        self.assertEqual(run.state.get("github_access_repositories"), expected_access)
+        self.assertEqual("`acme/assets`" in task.description, expected_access is not None)
 
     def test_discussion_task_cap_per_report_counts_free_form_labels(self):
         from products.signals.backend.models import SignalReport
@@ -4697,6 +4760,28 @@ class TestTaskAPI(BaseTaskAPITest):
             "Read the attached file first",
         )
         mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("with_message", {"pending_user_message": "Keep going"}, TaskClientProvenance.POSTHOG_DESKTOP),
+            ("without_message", {}, TaskClient.SLACK),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_records_last_client_only_for_a_prompt(
+        self, _name: str, body: dict, expected: TaskClient | TaskClientProvenance, _mock_workflow
+    ) -> None:
+        task = self.create_task()
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
+
+        response = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV).post(
+            f"/api/projects/@current/tasks/{task.id}/run/", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.last_client, expected)
+        self.assertEqual(response.json()["last_client"], expected)
 
     @patch("posthog.storage.object_storage.copy")
     @patch("posthog.storage.object_storage.tag")
@@ -7104,6 +7189,526 @@ class TestTaskAPI(BaseTaskAPITest):
 
         returned_ids = [t["id"] for t in data["results"]]
         self.assertIn(str(needle.id), returned_ids)
+
+
+PUBLIC_PROFILE = replace(
+    BUSINESS_KNOWLEDGE,
+    key="test.public",
+    origin_product="user_created",
+    public=True,
+    public_options=frozenset({"runtime", "model", "output_schema", "repositories"}),
+    listed=True,
+    api_visible=True,
+    runtimes=("acp", "pi"),
+)
+PRIVATE_PROFILE = replace(PUBLIC_PROFILE, key="test.private", public=False)
+RESERVED_ORIGIN_PROFILE = replace(PUBLIC_PROFILE, key="test.reserved", origin_product="slack")
+ACP_ONLY_PROFILE = replace(PUBLIC_PROFILE, key="test.acp_only", runtimes=("acp",))
+ACP_ONLY_ENFORCED_PROFILE = replace(
+    ACP_ONLY_PROFILE, key="test.acp_only_enforced", enforced_checks=frozenset({ContractCheck.RUNTIMES})
+)
+REPORT_PROFILE = replace(PUBLIC_PROFILE, key="test.report", source_kind=SourceKind.SIGNAL_REPORT)
+TEST_PUBLIC_PROFILES = {
+    profile.key: profile
+    for profile in (
+        PUBLIC_PROFILE,
+        PRIVATE_PROFILE,
+        RESERVED_ORIGIN_PROFILE,
+        ACP_ONLY_PROFILE,
+        ACP_ONLY_ENFORCED_PROFILE,
+        REPORT_PROFILE,
+    )
+}
+UNKNOWN_SOURCE_ID = str(uuid.uuid4())
+
+
+class TestTaskPublicCreateAPI(BaseTaskAPITest):
+    def setUp(self) -> None:
+        super().setUp()
+        profiles = patch.dict("products.tasks.backend.facade.profiles._profiles", TEST_PUBLIC_PROFILES)
+        profiles.start()
+        self.addCleanup(profiles.stop)
+
+    def _create(self, **payload: Any) -> Any:
+        return self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Public task", "description": "Do the work", **payload},
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            ("profile_only", {"profile": "test.public"}, Task.Runtime.ACP, None),
+            (
+                "options",
+                {"profile": "test.public", "options": {"runtime": "pi", "output_schema": {"type": "object"}}},
+                Task.Runtime.PI,
+                {"type": "object"},
+            ),
+            (
+                "origin_matching_the_profile",
+                {"profile": "test.public", "origin_product": "user_created"},
+                Task.Runtime.ACP,
+                None,
+            ),
+            (
+                "runtime_outside_the_profile_in_log_mode",
+                {"profile": "test.acp_only", "options": {"runtime": "pi"}},
+                Task.Runtime.PI,
+                None,
+            ),
+        ]
+    )
+    def test_create_with_a_public_profile_stores_the_profile_and_options(
+        self, _name: str, payload: dict[str, Any], runtime: Task.Runtime, json_schema: dict | None
+    ) -> None:
+        response = self._create(**payload)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(
+            (task.profile, task.origin_product, task.internal, task.runtime, task.json_schema),
+            (payload["profile"], "user_created", False, runtime, json_schema),
+        )
+        self.assertEqual(task.options is None, "options" not in payload)
+
+    def test_options_repositories_apply_like_the_top_level_field(self) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            repository_cache=[{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+
+        response = self._create(
+            profile="test.public",
+            github_integration=integration.id,
+            options={"repositories": [{"name": "PostHog/PostHog"}]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.repositories, ["posthog/posthog"])
+        self.assertEqual(
+            (task.options or {}).get("repositories"), [{"name": "posthog/posthog", "initial_branch": None}]
+        )
+
+    @parameterized.expand(
+        [
+            ("omitted", {}, ["posthog/posthog"], True),
+            ("empty", {"repositories": []}, [], False),
+        ]
+    )
+    def test_an_empty_repositories_option_stops_the_task_inheriting_the_channel_repositories(
+        self, _name: str, options: dict[str, Any], repositories: list[str], gets_integration: bool
+    ) -> None:
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        channel = Channel.objects.unscoped().create(
+            team=self.team, name="growth", repositories=["posthog/posthog"], github_integration=integration
+        )
+
+        response = self._create(profile="test.public", channel=str(channel.id), options=options)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(
+            (task.repositories, task.github_integration_id),
+            (repositories, integration.id if gets_integration else None),
+        )
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_with_a_public_profile_can_start_the_first_run(self, _mock_workflow, _mock_internal_team) -> None:
+        response = self._create(
+            profile="test.public", start_run=True, options={"model": "claude-sonnet-5", "runtime": "acp"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.profile, "test.public")
+        self.assertEqual(task.runs.get().state["model"], "claude-sonnet-5")
+
+    @parameterized.expand(
+        [
+            ("unknown_profile", {"profile": "test.unknown"}, "profile"),
+            ("profile_that_is_not_public", {"profile": "test.private"}, "profile"),
+            ("profile_on_a_reserved_origin", {"profile": "test.reserved"}, "profile"),
+            (
+                "origin_that_does_not_match",
+                {"profile": "test.public", "origin_product": "error_tracking"},
+                "origin_product",
+            ),
+            ("options_without_a_profile", {"options": {"model": "claude-sonnet-5"}}, "options"),
+            ("source_without_a_profile", {"source": {"kind": "signal_report", "id": UNKNOWN_SOURCE_ID}}, "source"),
+            ("key_without_a_profile", {"idempotency_key": "abc"}, "idempotency_key"),
+            (
+                "option_outside_the_public_options",
+                {"profile": "test.public", "options": {"auto_publish": True}},
+                "options",
+            ),
+            (
+                "some_options_outside_the_public_options",
+                {"profile": "test.public", "options": {"runtime": "pi", "auto_publish": True}},
+                "options",
+            ),
+            (
+                "option_the_endpoint_does_not_take",
+                {"profile": "test.public", "options": {"idle_minutes": 5}},
+                "options__idle_minutes",
+            ),
+            (
+                "run_option_without_start_run",
+                {"profile": "test.public", "options": {"model": "claude-sonnet-5"}},
+                "options",
+            ),
+            (
+                "some_run_options_without_start_run",
+                {"profile": "test.public", "options": {"runtime": "pi", "model": "claude-sonnet-5"}},
+                "options",
+            ),
+            (
+                "initial_branch_without_start_run",
+                {
+                    "profile": "test.public",
+                    "options": {"repositories": [{"name": "posthog/posthog", "initial_branch": "main"}]},
+                },
+                "options",
+            ),
+            (
+                "option_repeated_at_the_top_level",
+                {"profile": "test.public", "runtime": "pi", "options": {"runtime": "pi"}},
+                "options",
+            ),
+            (
+                "repositories_repeated_at_the_top_level",
+                {
+                    "profile": "test.public",
+                    "repository": "posthog/posthog",
+                    "options": {"repositories": [{"name": "posthog/code"}]},
+                },
+                "options",
+            ),
+            (
+                "runtime_outside_the_profile_when_enforced",
+                {"profile": "test.acp_only_enforced", "options": {"runtime": "pi"}},
+                "options",
+            ),
+            (
+                "source_the_profile_does_not_take",
+                {"profile": "test.public", "source": {"kind": "hog_flow", "id": UNKNOWN_SOURCE_ID}},
+                "source",
+            ),
+            ("source_the_profile_needs", {"profile": "test.report"}, "source"),
+            (
+                "source_of_another_kind",
+                {"profile": "test.report", "source": {"kind": "hog_flow", "id": UNKNOWN_SOURCE_ID}},
+                "source",
+            ),
+            (
+                "source_that_does_not_exist",
+                {"profile": "test.report", "source": {"kind": "signal_report", "id": UNKNOWN_SOURCE_ID}},
+                "source",
+            ),
+            (
+                "source_with_a_malformed_id",
+                {"profile": "test.report", "source": {"kind": "signal_report", "id": "not-an-id"}},
+                "source",
+            ),
+        ]
+    )
+    def test_create_refuses_a_request_the_profile_does_not_allow(
+        self, _name: str, payload: dict[str, Any], attr: str
+    ) -> None:
+        response = self._create(**payload)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["attr"], attr)
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+
+    @parameterized.expand(
+        [("in_this_team", False, status.HTTP_201_CREATED), ("in_another_team", True, status.HTTP_400_BAD_REQUEST)]
+    )
+    def test_create_checks_that_the_source_belongs_to_the_team(
+        self, _name: str, other_team: bool, expected: int
+    ) -> None:
+        from products.signals.backend.models import SignalReport
+
+        owner = Team.objects.create(organization=self.organization, name="Other team") if other_team else self.team
+        report = SignalReport.objects.create(team=owner)
+
+        response = self._create(profile="test.report", source={"kind": "signal_report", "id": str(report.id)})
+
+        self.assertEqual(response.status_code, expected, response.json())
+        if expected == status.HTTP_201_CREATED:
+            task = Task.objects.get(id=response.json()["id"])
+            self.assertEqual(
+                (task.source_kind, task.source_id, task.signal_report_id), ("signal_report", str(report.id), report.id)
+            )
+
+    def test_create_from_a_signal_report_profile_takes_the_source_as_the_report(self) -> None:
+        from products.signals.backend.models import SignalReport
+        from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
+
+        report = SignalReport.objects.create(team=self.team)
+
+        with patch(
+            "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value="acme/web"
+        ):
+            response = self._create(profile="signals.inbox", source={"kind": "signal_report", "id": str(report.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(
+            (
+                task.profile,
+                task.origin_product,
+                task.signal_report_id,
+                task.source_kind,
+                task.source_id,
+                task.repository,
+            ),
+            ("signals.inbox", "signal_report", report.id, "signal_report", str(report.id), "acme/web"),
+        )
+        self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [str(task.id)])
+
+    def test_a_signal_report_profile_counts_against_the_report_task_limit(self) -> None:
+        from products.signals.backend.models import SignalReport
+        from products.tasks.backend.presentation.views.api import SignalReportTaskCreateBurstThrottle
+
+        reports = [SignalReport.objects.create(team=self.team) for _ in range(2)]
+
+        with (
+            patch(
+                "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository",
+                return_value="acme/web",
+            ),
+            patch.object(SignalReportTaskCreateBurstThrottle, "rate", "1/day"),
+        ):
+            statuses = [
+                self._create(
+                    profile="signals.inbox", source={"kind": "signal_report", "id": str(report.id)}
+                ).status_code
+                for report in reports
+            ]
+
+        self.assertEqual(statuses, [status.HTTP_201_CREATED, status.HTTP_429_TOO_MANY_REQUESTS])
+
+    def test_create_refuses_a_source_beside_a_signal_report(self) -> None:
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+
+        response = self._create(
+            profile="test.report",
+            signal_report=str(report.id),
+            source={"kind": "signal_report", "id": str(report.id)},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["attr"], "source")
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+
+    def test_repeating_a_create_returns_the_first_task(self) -> None:
+        first = self._create(profile="test.public", idempotency_key="retry-1", options={"runtime": "pi"})
+        second = self._create(profile="test.public", idempotency_key="retry-1", options={"runtime": "pi"})
+
+        self.assertEqual((first.status_code, second.status_code), (status.HTTP_201_CREATED, status.HTTP_200_OK))
+        self.assertEqual(first.json()["id"], second.json()["id"])
+        self.assertEqual(Task.objects.filter(team=self.team).count(), 1)
+
+    @parameterized.expand(
+        [
+            ("different_title", {"title": "Another title"}),
+            ("different_options", {"options": {"runtime": "acp"}}),
+            ("options_added", {"options": {"runtime": "pi", "model": "claude-sonnet-5"}}),
+        ]
+    )
+    def test_reusing_a_key_with_a_different_body_is_refused(self, _name: str, changes: dict[str, Any]) -> None:
+        first = self._create(profile="test.public", idempotency_key="retry-2", options={"runtime": "pi"})
+
+        second = self._create(
+            profile="test.public", idempotency_key="retry-2", **{"options": {"runtime": "pi"}, **changes}
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(second.json()["code"], "idempotency_key_reused")
+        self.assertEqual(Task.objects.filter(team=self.team).count(), 1)
+
+    @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_repeating_a_scheduled_create_after_its_time_returns_the_first_task(
+        self, _mock_workflow, _mock_internal_team
+    ) -> None:
+        payload = {
+            "profile": "test.public",
+            "idempotency_key": "scheduled-1",
+            "start_run": True,
+            "scheduled_at": "2026-09-19T12:00:00Z",
+        }
+        first = self._create(**payload)
+
+        with time_machine.travel("2026-09-20T12:00:00Z", tick=False):
+            second = self._create(**payload)
+
+        self.assertEqual((first.status_code, second.status_code), (status.HTTP_201_CREATED, status.HTTP_200_OK))
+        self.assertEqual(first.json()["id"], second.json()["id"])
+        self.assertEqual(Task.objects.get(id=first.json()["id"]).runs.count(), 1)
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_repeating_a_create_whose_run_never_started_starts_the_run_once(
+        self, _mock_workflow, _mock_internal_team
+    ) -> None:
+        payload = {"profile": "test.public", "idempotency_key": "lost-run", "start_run": True}
+        with patch("products.tasks.backend.facade.api.run_task", side_effect=RuntimeError("worker died")):
+            first = self._create(**payload)
+        task = Task.objects.get(id=first.json()["id"])
+        runs_after_first = task.runs.count()
+
+        second = self._create(**payload)
+        third = self._create(**payload)
+
+        self.assertEqual(runs_after_first, 0)
+        self.assertEqual(
+            [response.status_code for response in (first, second, third)],
+            [status.HTTP_201_CREATED, status.HTTP_200_OK, status.HTTP_200_OK],
+        )
+        self.assertEqual({response.json()["id"] for response in (first, second, third)}, {str(task.id)})
+        self.assertEqual(task.runs.count(), 1)
+        self.assertEqual(second.json()["latest_run"]["id"], str(task.runs.get().id))
+
+    @parameterized.expand(
+        [
+            ("first_call", 0, 1),
+            ("repeated_call", 0, 2),
+            ("task_that_has_a_run", 1, 1),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_starting_a_missing_first_run_never_adds_a_second_run(
+        self, _name: str, existing_runs: int, calls: int, _mock_workflow
+    ) -> None:
+        task = self.create_task(created_by=self.user)
+        for _ in range(existing_runs):
+            TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        detail = tasks_facade.get_task_detail(task.id, self.team.id, self.user.id)
+        assert detail is not None
+
+        for _ in range(calls):
+            result = tasks_facade.start_missing_first_run(
+                self.team.id, self.user.id, task=detail, run_data={"mode": "background"}
+            )
+
+        self.assertIsNone(result.error)
+        self.assertIsNone(result.run_error)
+        self.assertEqual(task.runs.count(), 1)
+
+    def test_reusing_a_key_after_the_task_was_deleted_is_refused(self) -> None:
+        first = self._create(profile="test.public", idempotency_key="retry-3")
+        Task.objects.get(id=first.json()["id"]).soft_delete()
+
+        second = self._create(profile="test.public", idempotency_key="retry-3")
+
+        self.assertEqual(second.status_code, status.HTTP_409_CONFLICT)
+
+    def test_reusing_a_key_after_the_task_was_handed_off_is_refused(self) -> None:
+        recipient = self.create_organization_user("recipient")
+        first = self._create(profile="test.public", idempotency_key="retry-4")
+        handoff = self.client.post(
+            f"/api/projects/@current/tasks/{first.json()['id']}/handoff/", {"user": recipient.id}, format="json"
+        )
+
+        second = self._create(profile="test.public", idempotency_key="retry-4")
+
+        self.assertEqual(handoff.status_code, status.HTTP_200_OK, handoff.json())
+        self.assertEqual(second.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(second.json()["code"], "idempotency_key_reused")
+        self.assertNotIn("id", second.json())
+
+    def test_keys_belong_to_the_user_who_sent_them(self) -> None:
+        first = self._create(profile="test.public", idempotency_key="shared")
+        self.client.force_authenticate(self.create_organization_user())
+
+        second = self._create(profile="test.public", idempotency_key="shared")
+
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(first.json()["id"], second.json()["id"])
+
+    def test_a_key_cannot_reach_a_task_a_server_created(self) -> None:
+        server_task = Task.objects.create(
+            team=self.team,
+            title="Server task",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            origin_key="server-key",
+            idempotency_key="server-key",
+        )
+
+        response = self._create(profile="test.public", idempotency_key="server-key")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(response.json()["id"], str(server_task.id))
+
+    def test_a_create_that_loses_a_race_for_its_key_returns_the_winner(self) -> None:
+        first = self._create(profile="test.public", idempotency_key="race")
+        find = tasks_facade.find_task_for_idempotency_key
+        lookups: list[int] = []
+
+        def miss_the_first_lookup(*args: Any, **kwargs: Any) -> Any:
+            lookups.append(1)
+            return None if len(lookups) == 1 else find(*args, **kwargs)
+
+        with patch.object(tasks_facade, "find_task_for_idempotency_key", side_effect=miss_the_first_lookup):
+            second = self._create(profile="test.public", idempotency_key="race")
+
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.json()["id"], first.json()["id"])
+
+    @parameterized.expand(
+        [
+            ("origin_omitted", {}, "user"),
+            ("user_created", {"origin_product": "user_created"}, "user"),
+            ("error_tracking", {"origin_product": "error_tracking"}, "error_tracking"),
+            ("loop", {"origin_product": "loop"}, "loop"),
+            ("posthog_ai", {"origin_product": "posthog_ai"}, "posthog_ai"),
+        ]
+    )
+    def test_an_origin_only_create_stores_the_public_profile_of_its_origin(
+        self, _name: str, payload: dict[str, Any], profile_key: str
+    ) -> None:
+        response = self._create(**payload)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual((task.profile, task.options, task.source_kind), (profile_key, None, None))
+
+    def test_an_origin_only_create_without_a_public_profile_is_refused_like_a_reserved_origin(self) -> None:
+        with patch("products.tasks.backend.presentation.serializers.public_profile_for_origin", return_value=None):
+            response = self._create(origin_product="error_tracking")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["attr"], "origin_product")
+        self.assertIn("reserved for server-created tasks", response.json()["detail"])
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+
+    @parameterized.expand(
+        [
+            ("origin_only", {}, True),
+            ("profile_only", {"profile": "test.public"}, True),
+            ("profile_and_options", {"profile": "test.public", "options": {"runtime": "pi"}}, False),
+            ("profile_and_key", {"profile": "test.public", "idempotency_key": "warm-1"}, False),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._find_idling_warm_run", return_value=None)
+    def test_only_a_plain_create_looks_for_a_warm_run_to_reuse(
+        self, _name: str, payload: dict[str, Any], looks: bool, mock_find_warm_run
+    ) -> None:
+        response = self._create(branch="main", **payload)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(mock_find_warm_run.called, looks)
 
 
 class TestTaskRepositoriesAction(BaseTaskAPITest):
@@ -13961,6 +14566,54 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
             },
         )
 
+    # A claim left with the previous owner would refuse every rerun the new owner starts, but a replacement task the
+    # previous owner still runs under the same claim keeps it.
+    @parameterized.expand([("only_task_on_claim", False, "recipient"), ("replacement_shares_claim", True, "owner")])
+    def test_handoff_moves_the_report_claim_the_task_works_under(
+        self, _name: str, with_replacement: bool, expected_holder: str
+    ) -> None:
+        from products.signals.backend.facade.report_tasks import record_report_task
+        from products.signals.backend.models import SignalReport
+
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        record_report_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        if with_replacement:
+            replacement = self.create_task(title="Replacement", created_by=self.user)
+            record_report_task(team_id=self.team.id, report_id=str(report.id), task_id=str(replacement.id))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assignee = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()["assignee"]
+        holder = recipient if expected_holder == "recipient" else self.user
+        self.assertEqual((assignee["kind"], assignee["user"]["id"]), ("user", holder.id))
+
+    def test_handoff_claim_follows_the_owner_when_a_second_handoff_commits_first(self) -> None:
+        from products.signals.backend.facade.report_tasks import record_report_task
+        from products.signals.backend.models import SignalReport
+
+        recipient = self.create_organization_user("recipient")
+        third = self.create_organization_user("third")
+        task = self.create_task(created_by=self.user)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        record_report_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        with self.captureOnCommitCallbacks() as first_handoff_callbacks:
+            self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+        recipient_client = APIClient()
+        recipient_client.force_authenticate(recipient)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = recipient_client.post(self._handoff_url(task), {"user": third.id}, format="json")
+        for callback in first_handoff_callbacks:
+            callback()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assignee = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()["assignee"]
+        self.assertEqual(assignee["user"]["id"], third.id)
+
     @parameterized.expand(
         [
             ("active_run", False, "Finish or cancel active runs before handing off this task."),
@@ -14684,6 +15337,129 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_post.call_args.kwargs["json"]["method"], method)
+
+    @parameterized.expand(
+        [
+            ("desktop", ARRAY_APP_CLIENT_ID_DEV, None, TaskClientProvenance.POSTHOG_DESKTOP),
+            ("mobile", POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US, None, TaskClientProvenance.POSTHOG_MOBILE),
+            ("web", ARRAY_APP_CLIENT_ID_DEV, TaskClientProvenance.POSTHOG_WEB, TaskClientProvenance.POSTHOG_WEB),
+            ("session", None, None, TaskClient.SLACK),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_user_message_records_last_client(
+        self,
+        _name: str,
+        client_id: str | None,
+        header: TaskClientProvenance | None,
+        expected: TaskClient | TaskClientProvenance,
+        _mock_signal_followup,
+    ) -> None:
+        task = self.create_task()
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
+        run = self._create_run_with_sandbox(task)
+        client = self._oauth_client(client_id) if client_id else self.client
+        headers: dict[str, Any] = {"HTTP_X_POSTHOG_CLIENT_PROVENANCE": header} if header else {}
+
+        response = client.post(self._command_url(task, run), self._make_user_message(), format="json", **headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.last_client, expected)
+
+    @parameterized.expand(
+        [
+            (
+                "acp_permission",
+                Task.Runtime.ACP,
+                "permission_response",
+                {"requestId": "perm-1", "optionId": "allow"},
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClientProvenance.POSTHOG_DESKTOP,
+            ),
+            (
+                "pi_mcp_permission",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {
+                    "command": {
+                        "id": "p1",
+                        "type": "mcp_permission_response",
+                        "requestId": "perm-1",
+                        "decision": "allow",
+                    }
+                },
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClientProvenance.POSTHOG_DESKTOP,
+            ),
+            (
+                "pi_mcp_permission_error",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {
+                    "command": {
+                        "id": "p1",
+                        "type": "mcp_permission_response",
+                        "requestId": "perm-1",
+                        "decision": "allow",
+                    }
+                },
+                {"jsonrpc": "2.0", "id": "p1", "error": {"code": -32000, "message": "No pending request"}},
+                TaskClient.SLACK,
+            ),
+            (
+                "pi_dialog_answer",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "p1", "type": "extension_ui_response", "confirmed": True}},
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClientProvenance.POSTHOG_DESKTOP,
+            ),
+            (
+                "pi_dialog_cancel",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "p1", "type": "extension_ui_response", "cancelled": True}},
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClient.SLACK,
+            ),
+            (
+                "pi_control_command",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "p1", "type": "get_state"}},
+                {"jsonrpc": "2.0", "id": "p1", "result": {}},
+                TaskClient.SLACK,
+            ),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_permission_answer_records_last_client(
+        self,
+        _name: str,
+        runtime: Task.Runtime,
+        method: str,
+        params: dict,
+        agent_body: dict,
+        expected: TaskClient | TaskClientProvenance,
+        mock_post,
+    ) -> None:
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, agent_body)
+        task = self.create_task(runtime=runtime)
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
+        run = self._create_run_with_sandbox(task)
+
+        response = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV).post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": method, "params": params, "id": "p1"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.last_client, expected)
 
     @parameterized.expand([("claude", True), ("claude", False), ("codex", True), ("codex", False)])
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
@@ -18451,6 +19227,7 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["builder_task_id"])
         self.assertEqual(task.repository, "posthog/hedgebox")
         self.assertEqual(task.origin_product, Task.OriginProduct.IMAGE_BUILDER)
+        self.assertEqual(task.profile, "image_builder")
         run = task.runs.order_by("-created_at").first()
         assert run is not None
         self.assertIn("/tmp/workspace/repos/posthog/hedgebox", run.state["pending_user_message"])
@@ -18922,6 +19699,7 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         self.assertTrue(body["created"])
         analysis_task = Task.objects.get(id=body["analysis_task_id"])
         self.assertEqual(analysis_task.origin_product, Task.OriginProduct.TASK_ANALYSIS)
+        self.assertEqual(analysis_task.profile, "task_analysis")
         self.assertTrue(analysis_task.internal)
         self.assertIn("analyzing-task-runs", analysis_task.description)
         run = analysis_task.latest_run

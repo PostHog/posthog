@@ -7,6 +7,7 @@ import enum
 from collections.abc import Mapping
 from typing import Annotated, Literal, get_args
 
+import re2
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.fields import FieldInfo
 
@@ -59,6 +60,38 @@ class AlertScope(enum.StrEnum):
     INVESTIGATED_ONLY = "investigated_only"
     # Every insight alert that starts to fire, also alerts without the investigation agent.
     ALL_FIRING_ALERTS = "all_firing_alerts"
+    # No alert becomes a signal. Alert checks, notifications, and investigations still run.
+    OFF = "off"
+
+
+# ── Alert name patterns ─────────────────────────────────────────────────────────
+# Patterns matched against a firing alert's name and its insight's name. Only `ALERT_SCOPE_SOURCE` accepts them.
+# They compile with RE2, which runs in linear time, so a user pattern cannot stall a worker as `re` can.
+ALERT_ALLOW_PATTERNS_KEY = "alert_allow_patterns"
+ALERT_BLOCK_PATTERNS_KEY = "alert_block_patterns"
+ALERT_PATTERNS_MAX_COUNT = 20
+ALERT_PATTERN_MAX_LENGTH = 200
+
+
+def alert_patterns_problem(value: object) -> str | None:
+    """Why `value` is not a valid pattern list, or None when it is. The API rejects the value with
+    this message, and the signal paths drop every alert when a stored list fails it."""
+    if not isinstance(value, list) or not all(isinstance(pattern, str) and pattern for pattern in value):
+        return "must be a list of non-empty strings"
+    if len(value) > ALERT_PATTERNS_MAX_COUNT:
+        return f"must have at most {ALERT_PATTERNS_MAX_COUNT} patterns"
+    for pattern in value:
+        if len(pattern) > ALERT_PATTERN_MAX_LENGTH:
+            return f"patterns must be at most {ALERT_PATTERN_MAX_LENGTH} characters"
+        try:
+            re2.compile(pattern)
+        except re2.error as error:
+            # RE2 raises with the parser message as bytes, which would print as a `b'...'` literal.
+            detail = error.args[0] if error.args else ""
+            if isinstance(detail, bytes):
+                detail = detail.decode(errors="replace")
+            return f"pattern {pattern!r} is not a valid RE2 regex: {detail}"
+    return None
 
 
 # The sources that emit straight through `emit_signal` and still honor steering, via the gate in
@@ -75,6 +108,26 @@ DIRECT_STEERABLE_SOURCES: frozenset[tuple[str, str]] = frozenset(
         (SignalSourceProduct.ANALYTICS, SignalSourceType.ALERT_FIRING),
     }
 )
+
+
+# ── Issue filters ───────────────────────────────────────────────────────────────
+# `SignalSourceConfig.config` key holding a compiled error tracking filter. The same filter is saved
+# on every error tracking row, and emission drops a signal it excludes before the steering gate.
+# The error tracking facade compiles the bytecode on the server, so a client cannot store its own.
+ISSUE_FILTERS_KEY = "issue_filters"
+ISSUE_FILTER_SOURCES: frozenset[tuple[str, str]] = frozenset(
+    {
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_CREATED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_REOPENED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_SPIKING),
+    }
+)
+
+# ── HogQL source filters ────────────────────────────────────────────────────────
+# `SignalSourceConfig.config` key holding a boolean expression over the source's filter catalog fields.
+# Clients send the expression as a string. The server stores it with the catalog version it was validated
+# against, so a later catalog version cannot change what a saved filter means.
+HOGQL_FILTER_KEY = "hogql_filter"
 
 
 class ContractModel(BaseModel):

@@ -17,6 +17,7 @@ from products.tasks.backend.logic.repo_selection import (
     list_team_connected_repositories,
     resolve_team_github_integration,
     select_repository,
+    team_repository_names,
 )
 from products.tasks.backend.temporal.process_task.utils import get_github_token
 
@@ -43,4 +44,5 @@ __all__ = [
     "resolve_team_github_integration",
     "resolve_team_github_integration_id",
     "select_repository",
+    "team_repository_names",
 ]

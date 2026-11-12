@@ -183,6 +183,7 @@ class TestChannelSetup(ChannelExtrasBaseTest):
         task = Task.objects.get(id=response.json()["task_id"])
         assert task.channel_id == self.channel.id
         assert task.origin_product == Task.OriginProduct.SPACE_SETUP
+        assert task.profile == "space_setup"
         assert task.created_by_id == self.user.id
         assert "Increase the weekly activation rate" in task.description
         assert "posthog/posthog" in task.description

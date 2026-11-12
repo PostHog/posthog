@@ -1,11 +1,14 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { emptySceneParams } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { initKeaTests } from '~/test/init'
 
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
@@ -51,6 +54,25 @@ describe('customerAnalyticsSceneLogic', () => {
                 filterTestAccounts: true,
             })
         })
+    })
+
+    describe('page name', () => {
+        it.each([
+            ['customerAnalyticsDashboard', false, 'people', 'Customer analytics'],
+            ['customerAnalyticsFeed', false, 'people', 'Customer analytics'],
+            ['customerAnalyticsDashboard', true, 'people', 'Overview'],
+            ['customerAnalyticsFeed', true, 'people', 'Feed'],
+            ['customerAnalyticsFeed', true, 'products', 'Customer analytics'],
+        ] as const)(
+            'names the %s breadcrumb when today-rail-nav is %s and the %s pane is open',
+            (sceneKey, todayRailNav, pane, name) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayRailNav })
+                todayShellLogic.actions.setPickedPane(pane)
+                sceneLogic.actions.setScene(Scene.CustomerAnalytics, sceneKey, emptySceneParams)
+
+                expect(logic.values.breadcrumbs[0].name).toEqual(name)
+            }
+        )
     })
 
     describe('URL sync', () => {

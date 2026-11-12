@@ -1,5 +1,3 @@
-import { dayjs } from 'lib/dayjs'
-
 import type { HighlightMetricApi } from 'products/today/frontend/generated/api.schemas'
 
 const PERIOD_CAPTIONS: Record<HighlightMetricApi['interval'], string> = {
@@ -15,56 +13,11 @@ const PRIOR_LABELS: Record<HighlightMetricApi['interval'], string> = {
 }
 
 export function pulsePeriodCaption(metric: HighlightMetricApi): string {
-    return PERIOD_CAPTIONS[metric.interval]
+    return metric.reason === 'evaluation' ? 'Recent reports' : PERIOD_CAPTIONS[metric.interval]
 }
 
 export function pulsePriorLabel(metric: HighlightMetricApi): string {
-    return PRIOR_LABELS[metric.interval]
-}
-
-function openedWhen(day: string, today: dayjs.Dayjs): string {
-    const days = today.startOf('day').diff(dayjs(day).startOf('day'), 'day')
-    if (days <= 0) {
-        return 'today'
-    }
-    if (days === 1) {
-        return 'yesterday'
-    }
-    return `on ${dayjs(day).format('MMM D')}`
-}
-
-function openedSubject(metric: HighlightMetricApi): string {
-    if (metric.reason !== 'dashboard') {
-        return 'this insight'
-    }
-    return metric.dashboard_name ? `the ${metric.dashboard_name} dashboard` : 'its dashboard'
-}
-
-const FIXED_WHY: Partial<Record<NonNullable<HighlightMetricApi['reason']>, string>> = {
-    key_metric: 'It is a key metric for this project, set in Customer analytics.',
-    popular: 'People in this project open this insight often.',
-    watched: 'You get an alert or a subscription for this insight.',
-    built: 'You created or edited this insight recently.',
-}
-
-export function pulseWhy(metric: HighlightMetricApi, today: dayjs.Dayjs = dayjs()): string | null {
-    const fixed = metric.reason ? FIXED_WHY[metric.reason] : undefined
-    if (fixed) {
-        return fixed
-    }
-    if (metric.reason !== 'routine' && metric.reason !== 'dashboard') {
-        return null
-    }
-    const subject = openedSubject(metric)
-    const suffix = metric.reason === 'dashboard' ? ' This is the first chart on that dashboard.' : ''
-    if (!metric.last_opened) {
-        return `You open ${subject} often.${suffix}`
-    }
-    const when = openedWhen(metric.last_opened, today)
-    if (!metric.opened_days || metric.opened_days < 2) {
-        return `You last opened ${subject} ${when}.${suffix}`
-    }
-    return `You opened ${subject} on ${metric.opened_days} of the last 14 days, most recently ${when}.${suffix}`
+    return metric.reason === 'evaluation' ? 'vs previous report' : PRIOR_LABELS[metric.interval]
 }
 
 export interface PulseChange {

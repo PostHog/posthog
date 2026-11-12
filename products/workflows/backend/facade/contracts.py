@@ -34,6 +34,18 @@ if TYPE_CHECKING:
 
 
 @frozen
+class WorkflowViewAccess:
+    viewable_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+    can_view_deleted: bool
+
+    def allows(self, workflow_id: str) -> bool:
+        if workflow_id in self.viewable_ids:
+            return True
+        return self.can_view_deleted and bool(workflow_id) and workflow_id not in self.blocked_ids
+
+
+@frozen
 class WorkflowSummary:
     id: str
     name: str
@@ -277,10 +289,9 @@ class PeopleImportSummary:
 
 @frozen
 class EmailSendingTierLimits:
-    """What a trust tier allows: two send-rate caps and a maximum batch audience."""
+    """What a trust tier allows: a daily send cap and a maximum batch audience."""
 
     tier: int
-    per_hour: int
     per_day: int
     max_batch_audience: int
 
@@ -313,11 +324,13 @@ class EmailSendingSuspensionChange:
     """The outcome of a suspend or unsuspend request.
 
     ``changed_at`` is set only when this request flipped the state. ``previously_suspended_at`` is
-    set when a suspend request found the team already suspended.
+    set when a suspend request found the team already suspended. ``notification_failed`` is set when
+    the state flipped but the email or the in-app notification to the team could not be sent.
     """
 
     changed_at: datetime | None
     previously_suspended_at: datetime | None = None
+    notification_failed: bool = False
 
 
 @frozen
@@ -326,10 +339,8 @@ class EmailSendingAllowance:
 
     tier: int
     max_tier: int
-    emails_per_hour: int
     emails_per_day: int
     max_batch_audience: int
-    emails_sent_last_hour: int
     emails_sent_last_day: int
     enforced: bool
 
@@ -511,6 +522,10 @@ class EmailDomainCheck:
 
 class EmailProviderUnavailableError(Exception):
     """The email provider could not be reached or refused the read, so the domain's state is unknown."""
+
+
+class TwilioCredentialsRejected(Exception):
+    """Twilio answered 401: the account SID or auth token is wrong."""
 
 
 class TwilioPhoneNumber(TypedDict):
@@ -708,6 +723,16 @@ class TransactionalEmailContent:
     from_email: str = ""
     from_name: str = ""
     reply_to: str = ""
+
+
+@frozen
+class CodeEmailWorkflow:
+    """The labels on the hidden workflow behind an email sent from code under a `template_key`."""
+
+    id: UUID
+    description: str
+    tags: tuple[str, ...]
+    sensitive: bool
 
 
 class TransactionalEmailSenderUnavailable(Exception):
@@ -1203,3 +1228,12 @@ class PushTokenImportRecord:
     error: str
     created_at: datetime
     finished_at: datetime | None
+
+
+@frozen
+class SandboxSenderStatus:
+    integration_id: int | None
+    from_address: str
+    display_name: str
+    organization_blocked: bool
+    adoption_enabled: bool

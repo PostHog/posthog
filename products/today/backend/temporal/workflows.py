@@ -24,7 +24,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
 HIGHLIGHT_SOURCE_TIMEOUT = timedelta(seconds=180)
 HIGHLIGHT_SOURCE_TOTAL_TIMEOUT = timedelta(seconds=240)
 FINALIZE_HIGHLIGHTS_TIMEOUT = timedelta(seconds=30)
-PINNED_NUMBERS_PATCH = "today-pinned-numbers"
 
 
 @temporalio.workflow.defn(name=HIGHLIGHTS_WORKFLOW_NAME)
@@ -34,7 +33,7 @@ class ComputeTodayHighlightsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ComputeHighlightsInputs) -> None:
         sources = asyncio.gather(*(_run_source(inputs, name) for name in inputs.source_names))
-        if temporalio.workflow.patched(PINNED_NUMBERS_PATCH) and inputs.pins:
+        if inputs.pins:
             results, pinned = await asyncio.gather(sources, _resolve_pins(inputs))
         else:
             results, pinned = await sources, ResolvePinsResult(found="[]")
@@ -64,7 +63,8 @@ async def _run_source(inputs: ComputeHighlightsInputs, source_name: str) -> High
                 scopes=inputs.scopes,
                 source_name=source_name,
                 pinned=[pin.key for pin in inputs.pins],
-                highlights_id=inputs.highlights_id if inputs.progressive else None,
+                hidden=inputs.hidden,
+                highlights_id=inputs.highlights_id,
             ),
             start_to_close_timeout=HIGHLIGHT_SOURCE_TIMEOUT,
             schedule_to_close_timeout=HIGHLIGHT_SOURCE_TOTAL_TIMEOUT,
@@ -84,7 +84,7 @@ async def _resolve_pins(inputs: ComputeHighlightsInputs) -> ResolvePinsResult:
                 local_day=inputs.local_day,
                 scopes=inputs.scopes,
                 pins=inputs.pins,
-                highlights_id=inputs.highlights_id if inputs.progressive else None,
+                highlights_id=inputs.highlights_id,
             ),
             start_to_close_timeout=HIGHLIGHT_SOURCE_TIMEOUT,
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),

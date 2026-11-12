@@ -165,6 +165,9 @@ export interface entityFilterLogicActions {
     renameSeries: (customName: string) => {
         customName: string
     }
+    revealSeriesFilters: () => {
+        value: true
+    }
     selectSeries: (
         index: number | null,
         node?: SeriesNode | null,
@@ -241,6 +244,17 @@ export type entityFilterLogicType = MakeLogicType<
     entityFilterLogicMeta
 >
 
+const seriesFiltersToReveal = new Set<string>()
+
+export function revealSeriesFilters(typeKey: string): void {
+    const mounted = entityFilterLogic.findMounted({ typeKey })
+    if (mounted) {
+        mounted.actions.revealSeriesFilters()
+    } else {
+        seriesFiltersToReveal.add(typeKey)
+    }
+}
+
 export const entityFilterLogic = kea<entityFilterLogicType>([
     props({} as EntityFilterProps),
     key((props) => props.typeKey),
@@ -264,6 +278,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         setLocalSeries: (localSeries: LocalSeries[]) => ({ localSeries }),
         setSeries: (series: SeriesNode[]) => ({ series }),
         setEntityFilterVisibility: (index: number, value: boolean) => ({ index, value }),
+        revealSeriesFilters: true,
         showModal: true,
         hideModal: true,
     }),
@@ -524,6 +539,13 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                     })),
                 })
             },
+            revealSeriesFilters: () => {
+                values.localSeries.forEach(({ node }, index) => {
+                    if (node.properties?.length && !values.entityFilterVisible[index]) {
+                        actions.setEntityFilterVisibility(index, true)
+                    }
+                })
+            },
             setEntityFilterVisibility: ({ index, value }) => {
                 const entityName = values.localSeries[index]?.node.name || undefined
                 posthog.capture('entity filter visbility set', { index: index, visible: value, entityName: entityName })
@@ -532,6 +554,9 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     }),
     events(({ actions, props }) => ({
         afterMount: () => {
+            if (seriesFiltersToReveal.delete(props.typeKey)) {
+                actions.revealSeriesFilters()
+            }
             if (props.singleMode) {
                 const node = withLatestVersion({ kind: NodeKind.EventsNode, event: null } as EventsNode)
                 actions.setSeries([node])

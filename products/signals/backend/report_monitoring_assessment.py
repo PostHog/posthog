@@ -242,6 +242,9 @@ def poll_monitoring_assessment(
         STEP_RESEARCH,
         resolve_agent_runtime,
     )
+    from products.signals.backend.task_profiles import (  # noqa: PLC0415 -- keep task dependencies off the coordinator import path
+        MONITORING_ASSESSMENT,
+    )
     from products.signals.backend.temporal.agentic import (  # noqa: PLC0415 -- keep sandbox dependencies off the coordinator import path
         SIGNALS_REPORT_RESEARCH_ENV_NAME,
         get_or_create_signals_sandbox_env,
@@ -249,6 +252,10 @@ def poll_monitoring_assessment(
     )
     from products.tasks.backend.facade import (  # noqa: PLC0415 -- keep task dependencies off the coordinator import path
         api as tasks_facade,
+    )
+    from products.tasks.backend.facade.profiles import (  # noqa: PLC0415 -- keep task dependencies off the coordinator import path
+        SourceKind,
+        TaskSource,
     )
 
     if not 0 <= execution < ASSESSMENT_MAX_ATTEMPTS:
@@ -276,18 +283,15 @@ def poll_monitoring_assessment(
                 return "errored"
             prompt = _assessment_prompt(report, attempt, user_id)
             runtime = resolve_agent_runtime(team_id, STEP_RESEARCH)
-            env_id = get_or_create_signals_sandbox_env(
-                team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
-            )
+            env_id = get_or_create_signals_sandbox_env(team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, MONITORING_ASSESSMENT)
             created = tasks_facade.create_and_run_task(
                 team=report.team,
                 user_id=user_id,
                 title="[sandbox_prompt:monitoring_assessment] Assess implementation evidence",
                 description="Assess the saved implementation evidence for this report.",
-                origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+                profile=MONITORING_ASSESSMENT,
+                source=TaskSource(kind=SourceKind.SIGNAL_REPORT, id=str(report_id)),
                 origin_key=origin_key,
-                signal_report_id=str(report_id),
-                internal=True,
                 create_pr=False,
                 sandbox_environment_id=env_id,
                 channel_id=tasks_facade.ensure_personal_channel_id(team_id, user_id),

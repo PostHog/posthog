@@ -38,7 +38,7 @@ from posthog.api.cohort import (
     CohortSerializer,
     get_flags_blocking_cohort_deletion,
 )
-from posthog.api.utils import ServiceRequest
+from posthog.api.utils import ServiceRequest, parse_id_list
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import (
     ACTIONS,
@@ -97,7 +97,7 @@ from products.experiments.backend.metric_calculation.config import (
     stamp_calculation_keys,
 )
 from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
-from products.experiments.backend.metric_resolution import MetricRole
+from products.experiments.backend.metric_resolution import MetricRole, find_metric_dict
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
     defined_event_names,
@@ -121,7 +121,12 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.task_profiles import CLEANUP
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
+from products.experiments.backend.warehouse_native_sources import (
+    validate_experiment_warehouse_native_sources,
+    warehouse_native_exposure_config,
+)
 from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
 from products.feature_flags.backend.facade.api import (
     archive_flag,
@@ -248,6 +253,9 @@ FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
 
 # Auto-saved sample-size estimate, not a user edit: skip the "experiment updated" event.
 RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
+
+# The update fields that can change which data sources an experiment reads.
+_WAREHOUSE_NATIVE_SOURCE_FIELDS = frozenset({"exposure_criteria", "metrics", "metrics_secondary", "saved_metrics_ids"})
 
 _INLINE_METRIC_FIELD_ROLES: tuple[tuple[str, MetricRole], ...] = (
     ("metrics", "primary"),
@@ -841,11 +849,10 @@ class ExperimentService:
         # to mirror the pydantic Literal default on that model.
         kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
         if kind == "ExperimentWarehouseNativeExposureConfig" and warehouse_native_allowed:
-            # The kind exists so the rest of the product can be built against it; nothing can run it yet.
             cls._validate_exposure_config_model(
                 ExperimentWarehouseNativeExposureConfig, exposure_config, field_path, kind
             )
-            raise ValidationError(f"{field_path}: warehouse-native exposures are not supported yet.")
+            return
         if kind not in cls.EXPOSURE_CONFIG_KINDS:
             raise ValidationError(
                 f"{field_path}.kind must be one of "
@@ -1238,9 +1245,21 @@ class ExperimentService:
             team=self.team,
             user=self.user,
         )
+        validate_experiment_warehouse_native_sources(
+            exposure_criteria=exposure_criteria,
+            metrics=[
+                *(metrics or []),
+                *(metrics_secondary or []),
+                *self._collect_saved_metric_queries(saved_metrics_ids),
+            ],
+            team=self.team,
+            user=self.user,
+        )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
         self._reject_live_create_under_launch_policy(is_draft)
+        if not is_draft:
+            self._reject_warehouse_native_launch(exposure_criteria)
 
         feature_flag, used_variants = self._ensure_feature_flag(
             feature_flag_key=feature_flag_key,
@@ -1686,6 +1705,13 @@ class ExperimentService:
         if feature_flag.deleted:
             raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
 
+    @staticmethod
+    def _reject_warehouse_native_launch(exposure_criteria: dict | None) -> None:
+        """Nothing runs a warehouse-native query yet, so a launched experiment would only fail every
+        calculation. The exposure stands for the experiment: a warehouse-native experiment always has one."""
+        if warehouse_native_exposure_config(exposure_criteria) is not None:
+            raise ValidationError("Warehouse-native sources cannot run yet. Use them on a draft experiment only.")
+
     def _validate_flag_for_launch(self, experiment: Experiment, feature_flag: FeatureFlag) -> None:
         """Flag guards shared by launch_experiment and the PATCH(start_date) launch path.
 
@@ -1755,6 +1781,14 @@ class ExperimentService:
             if sm.query and (uuid := sm.query.get("uuid")):
                 seen.add(uuid)
         return seen
+
+    @staticmethod
+    def _linked_saved_metric_queries(experiment: Experiment) -> list[dict]:
+        return [
+            link.saved_metric.query
+            for link in experiment.experimenttosavedmetric_set.select_related("saved_metric")
+            if link.saved_metric.query
+        ]
 
     def _collect_saved_metric_queries(self, saved_metrics_ids: list | None) -> list[dict]:
         """Query definitions of the attached saved metrics, so their tables get the same warehouse
@@ -1863,6 +1897,7 @@ class ExperimentService:
         """Launch a draft experiment: validate readiness, set start_date, activate feature flag."""
         if not experiment.is_draft:
             raise ValidationError("Experiment has already been launched.")
+        self._reject_warehouse_native_launch(experiment.exposure_criteria)
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
@@ -2755,7 +2790,7 @@ class ExperimentService:
                         team=team,
                         title=title,
                         description=description,
-                        origin_product=tasks_facade.TaskOriginProduct.EXPERIMENTS,
+                        profile=CLEANUP,
                         user_id=user_id,
                         repository=repository,
                         create_pr=True,
@@ -2811,19 +2846,9 @@ class ExperimentService:
         # request import path.
         from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
 
-        # team_only: the candidates are shown to any experiment viewer with Code access, and the
-        # cleanup PR is opened by the team installation's bot identity — a personal-connection
-        # fallback would both leak someone's private repo names and target a repo the bot can't use.
-        github = tasks_repo_selection.resolve_team_github_integration(
-            experiment.team_id, team=experiment.team, team_only=True
-        )
-        if github is None:
+        cached = tasks_repo_selection.team_repository_names(experiment.team_id, team=experiment.team)
+        if cached is None:
             return {"repository": None, "source": "no_integration", "candidates": []}
-        cached = {
-            full_name.lower(): full_name
-            for repo in github.list_all_cached_repositories(max_repos=1000)
-            if (full_name := repo.get("full_name"))
-        }
         candidates = sorted(cached.values(), key=str.lower)
         if not cached:
             # An integration with nothing to target is as good as none — without this, a
@@ -3568,6 +3593,28 @@ class ExperimentService:
             team=self.team,
             user=self.user,
         )
+        if _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
+            # The rule spans the exposure and every metric, so the fields left out of the update are read
+            # from the experiment. An update that touches none of them skips the check, so a connection
+            # removed later does not block an unrelated edit.
+            if "saved_metrics_ids" in update_data:
+                saved_metric_queries = self._collect_saved_metric_queries(update_data["saved_metrics_ids"])
+            else:
+                saved_metric_queries = self._linked_saved_metric_queries(experiment)
+            validate_experiment_warehouse_native_sources(
+                exposure_criteria=update_data.get("exposure_criteria", experiment.exposure_criteria),
+                metrics=[
+                    *(update_data.get("metrics", experiment.metrics) or []),
+                    *(update_data.get("metrics_secondary", experiment.metrics_secondary) or []),
+                    *saved_metric_queries,
+                ],
+                team=self.team,
+                user=self.user,
+            )
+        if "start_date" in update_data or _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
+            # Covers a draft that launches and a launched experiment that switches its sources.
+            if update_data.get("start_date", experiment.start_date) is not None:
+                self._reject_warehouse_native_launch(update_data.get("exposure_criteria", experiment.exposure_criteria))
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
@@ -3941,6 +3988,14 @@ class ExperimentService:
         separately because that relation is excluded from it.
         """
         changed_fields = get_changed_fields_local(before_update, experiment) if before_update is not None else []
+        if before_update is not None:
+            # A restamp of the fingerprints alone, for example after the calculation key version changes, is no
+            # metric change.
+            for field_name in ("metrics", "metrics_secondary"):
+                if _metric_list_view(getattr(before_update, field_name)) == _metric_list_view(
+                    getattr(experiment, field_name)
+                ):
+                    changed_fields = [name for name in changed_fields if name != field_name]
         # Check if saved_metric assignment has changed
         if before_saved_metrics != self._saved_metric_signature(experiment):
             changed_fields = [*changed_fields, "saved_metrics"]
@@ -4483,6 +4538,10 @@ class ExperimentService:
             else:
                 queryset = queryset.filter(archived=False)
 
+            feature_flag_ids = parse_id_list(query_params.get("feature_flag_ids"), name="feature_flag_ids", parse=int)
+            if feature_flag_ids is not None:
+                queryset = queryset.filter(feature_flag_id__in=feature_flag_ids)
+
             feature_flag_id = query_params.get("feature_flag_id")
             if feature_flag_id:
                 try:
@@ -4669,6 +4728,7 @@ class ExperimentService:
             "metric_uuid": metric_uuid,
             "status": overall_status,
             "timeseries": timeseries,
+            "configuration_by_day": {day.isoformat(): status for day, status in stored.configuration_by_day.items()},
             "errors": errors if errors else None,
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
             "created_at": stored.earliest.created_at.isoformat()
@@ -4678,8 +4738,13 @@ class ExperimentService:
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
+        metric_definition = find_metric_dict(experiment, metric_uuid) or {}
         response["formatted_results"] = ExperimentTimeseriesFormatter(
-            MetricTimeseries.from_stored(status=overall_status, timeseries=timeseries)
+            MetricTimeseries.from_stored(
+                status=overall_status,
+                timeseries=timeseries,
+                is_quantile=metric_definition.get("metric_type") == "quantile",
+            )
         ).format()
         return response
 

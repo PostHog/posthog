@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 from django.apps import apps
 from django.conf import settings
+from django.contrib.auth import SESSION_KEY
 from django.core.cache import cache
 from django.db import ProgrammingError, models
 from django.db.models.functions import Coalesce
@@ -84,8 +85,7 @@ if TYPE_CHECKING:
 
     from posthog.models import Organization, Team, User
 
-    from products.dashboards.backend.models.dashboard import Dashboard
-    from products.dashboards.backend.models.dashboard_tile import DashboardTile
+    from products.dashboards.backend.facade.contracts import AppliedDashboard
     from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
     from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
 
@@ -106,6 +106,10 @@ logger = structlog.get_logger(__name__)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+
+
+# C0 controls anywhere, and a leading space: characters URL parsers strip or drop before reading the authority.
+_URL_CONTROL_CHARS = re.compile(r"^[\x00-\x20]|[\x00-\x1f]")
 
 
 class PotentialSecurityProblemException(Exception):
@@ -131,18 +135,29 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if has_ambiguous_authority(url):
         raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
+    # urlparse and urljoin drop tabs and newlines and strip leading control characters and
+    # spaces, so the value they resolve can differ from the one checked below.
+    if _URL_CONTROL_CHARS.search(url):
+        raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
+
     provided_url = urlparse(url)
     if provided_url.hostname and provided_url.scheme:
         site_url = urlparse(settings.SITE_URL)
-        provided_url = provided_url
         if (
             site_url.hostname != provided_url.hostname
             or site_url.port != provided_url.port
             or site_url.scheme != provided_url.scheme
         ):
             raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
+        return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
-    return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
+    relative_url = url.lstrip("/")
+    # A relative value must stay on SITE_URL: anything still carrying an authority after the
+    # slashes are stripped would be read by urljoin as a protocol-relative URL.
+    if urlparse(relative_url).netloc:
+        raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
+
+    return urljoin(settings.SITE_URL.rstrip("/") + "/", relative_url)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -584,6 +599,21 @@ def flag_identity(
     )
 
 
+def signed_out_session_reason(request: HttpRequest) -> Optional[str]:
+    """
+    Why a request that carries a session cookie is still signed out, or None without the cookie.
+    The app can find a user through the API straight after such a page renders, and nobody knows why yet.
+    """
+    if settings.SESSION_COOKIE_NAME not in request.COOKIES:
+        return None
+    if SESSION_KEY in request.session:
+        return "user_not_resolved"
+    # Auth flushes a session whose hash fails before this runs, so only the loaded row tells it apart from a miss.
+    if getattr(request.session, "loaded_row", None) is None:
+        return "session_not_found"
+    return "session_without_user"
+
+
 @tracer.start_as_current_span("template.context")
 def get_context_for_template(
     template_name: str,
@@ -720,10 +750,7 @@ def _build_template_context(
             ).data
         elif request.user.pk:
             user = cast("User", request.user)
-            variant = deferred_app_context_variant(request, user) if template_name == "index.html" else None
-            if variant:
-                posthog_app_context["deferred_app_context_variant"] = variant
-            if variant == "test":
+            if template_name == "index.html" and defers_user_app_context(request):
                 # The page fetches the user's data from `app_context` while its JS loads.
                 posthog_app_context["deferred"] = True
                 posthog_distinct_id = user.distinct_id
@@ -760,6 +787,9 @@ def _build_template_context(
     # Only the SPA shell references these; other templates (exporter, layout, ...) load different bundles
     if template_name == "index.html":
         is_authenticated = bool(request.user and request.user.is_authenticated)
+        if not is_authenticated and (reason := signed_out_session_reason(request)):
+            # Never log the path or the cookie: both can carry a credential.
+            logger.info("signed_out_page_with_session_cookie", reason=reason)
         context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
             is_authenticated
         )
@@ -828,39 +858,15 @@ def _build_template_context(
     return context
 
 
-DEFERRED_APP_CONTEXT_FLAG = "deferred-app-context"
 DEFERRED_APP_CONTEXT_PARAM = "deferred_app_context"
 
 
-def deferred_app_context_variant(request: HttpRequest, user: "User") -> Optional[str]:
+def defers_user_app_context(request: HttpRequest) -> bool:
     """
-    The variant of the app page. "test" leaves out the user's data and fetches it from `app_context` instead.
-    None means the user is outside the experiment.
-    The query param wins over the experiment, so a lab run can pick a side and a failed fetch can reload without it.
+    Whether the app page leaves out the user's data. The page then fetches it from `app_context` while its JS loads.
+    `?deferred_app_context=0` keeps the data in the page: the app reloads with it when that fetch fails.
     """
-    param = request.GET.get(DEFERRED_APP_CONTEXT_PARAM)
-    if param is not None:
-        return "test" if param == "1" else "control"
-    try:
-        variant = posthoganalytics.get_feature_flag(
-            DEFERRED_APP_CONTEXT_FLAG,
-            str(user.distinct_id),
-            person_properties={"email": user.email},
-            only_evaluate_locally=True,
-            # The SDK would report every signed-in user, so only the experiment's users are reported below.
-            send_feature_flag_events=False,
-        )
-        if isinstance(variant, str):
-            posthoganalytics.capture(
-                "$feature_flag_called",
-                distinct_id=str(user.distinct_id),
-                properties={"$feature_flag": DEFERRED_APP_CONTEXT_FLAG, "$feature_flag_response": variant},
-            )
-            return variant
-        return None
-    except Exception as e:
-        capture_exception(e)
-        return None
+    return request.GET.get(DEFERRED_APP_CONTEXT_PARAM) != "0"
 
 
 def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -1226,7 +1232,7 @@ def _default_event_info_cache_key(team_id: int) -> str:
 
 @tracer.start_as_current_span("template.default_event_info")
 def get_default_event_info(team: "Team") -> dict:
-    from posthog.models import EventDefinition
+    from products.event_definitions.backend.models import EventDefinition
 
     cache_key = _default_event_info_cache_key(team.id)
     cached = get_safe_cache(cache_key)
@@ -1305,8 +1311,7 @@ def _has_person_email_ttl(team: "Team", has_person_email: bool) -> int:
 
 @tracer.start_as_current_span("template.has_person_email")
 def get_has_person_email(team: "Team") -> bool:
-    from posthog.models import PropertyDefinition
-
+    from products.event_definitions.backend.models import PropertyDefinition
     from products.event_definitions.backend.models.property_definition import PERSON_EMAIL_PROPERTY_NAME
 
     cache_key = _has_person_email_cache_key(team.project_id)
@@ -1998,10 +2003,10 @@ class GenericEmails:
             self.emails = {x.rstrip(): True for x in f}
 
     def is_generic(self, email: str) -> bool:
-        at_location = email.find("@")
-        if at_location == -1:
+        _, separator, domain = email.rpartition("@")
+        if not separator:
             return False
-        return self.is_generic_domain(email[(at_location + 1) :])
+        return self.is_generic_domain(domain)
 
     def is_generic_domain(self, domain: str) -> bool:
         return self.emails.get(domain, False)
@@ -2072,7 +2077,7 @@ def _with_saved_metric_variables(request_filters: dict, dashboard_filters: dict)
 
 
 def filters_override_requested_by_client(
-    request: Request, dashboard: Optional["Dashboard"], is_shared: bool = False
+    request: Request, dashboard: Optional["AppliedDashboard"], is_shared: bool = False
 ) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
@@ -2138,7 +2143,7 @@ def validate_filters_override(request_filters: Any) -> None:
 
 def variables_override_requested_by_client(
     request: Optional[Request],
-    dashboard: Optional["Dashboard"],
+    dashboard: Optional["AppliedDashboard"],
     variables: list["InsightVariableDefinition"],
     is_shared: bool = False,
 ) -> Optional[dict[str, dict]]:
@@ -2174,11 +2179,11 @@ def variables_override_requested_by_client(
 
 
 def tile_filters_override_requested_by_client(
-    request: Request, tile: Optional["DashboardTile"], is_shared: bool = False
+    request: Request, tile_filters: dict | None, is_shared: bool = False
 ) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
-    tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
+    tile_filters = tile_filters or {}
     raw_override = request.query_params.get("tile_filters_override")
 
     # Security: never honor client-supplied overrides for shared/embedded access. The
@@ -2348,19 +2353,24 @@ def cast_timestamp_or_now(timestamp: Optional[Union[datetime.datetime, str]]) ->
     return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
+def parse_crontab(schedule: str) -> crontab:
+    """Parse a five-field cron string. Raises for a wrong field count or an invalid field."""
+    minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
+    return crontab(
+        minute=minute,
+        hour=hour,
+        day_of_month=day_of_month,
+        month_of_year=month_of_year,
+        day_of_week=day_of_week,
+    )
+
+
 def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     if schedule is None or schedule == "":
         return None
 
     try:
-        minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
-        return crontab(
-            minute=minute,
-            hour=hour,
-            day_of_month=day_of_month,
-            month_of_year=month_of_year,
-            day_of_week=day_of_week,
-        )
+        return parse_crontab(schedule)
     except Exception as err:
         capture_exception(err)
         return None

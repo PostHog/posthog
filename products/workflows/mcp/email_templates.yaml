@@ -81,7 +81,7 @@ tools:
         operation: messaging_templates_make_transactional_create
         enabled: true
         scopes:
-            - hog_flow:write
+            - transactional_email:write
         annotations:
             readOnly: false
             destructive: true
@@ -167,6 +167,9 @@ tools:
         exclude_params:
             - template_id
             - message_data
+            - cc
+            - bcc
+            - attachments
         param_overrides:
             template_key:
                 required: true

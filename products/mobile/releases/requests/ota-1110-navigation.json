@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1110-navigation",
+    "kind": "ota",
+    "runtimeVersion": "1.11.0",
+    "previousRelease": "native-1110",
+    "notes": "Fix opening Sessions and Errors from Views and returning with Back. Pinned lists stay in their navigation tabs. Both features remain controlled by their existing feature flags."
+}

@@ -7,6 +7,13 @@ import { template } from './openai.template'
 
 const EMAIL_SHA256 = '3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3'
 const EXTERNAL_ID_SHA256 = 'c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646'
+// The fixture phone +1234567890 hashes as the digits 1234567890, the same string as the fixture external ID
+const PHONE_SHA256 = EXTERNAL_ID_SHA256
+const FIRST_NAME_SHA256 = '9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6'
+const LAST_NAME_SHA256 = '32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566'
+// OpenAI's sample hash for +1 (415) 555-2671 in its Conversions API docs
+const DOCS_PHONE_SHA256 = '758fbf68945f21c416814c539ab578876c8d98fb69e6da692def92cd52417fe0'
+const NO_PHONE_OR_NAME = { phone: null, first_name: null, last_name: null }
 
 const getBody = (response: { invocation: { queueParameters?: unknown } }): Record<string, any> =>
     parseJSON((response.invocation.queueParameters as { body: string }).body)
@@ -53,6 +60,7 @@ describe('openai template', () => {
             },
         })
         expect(getBody(response)).toEqual({
+            integration_source: 'posthog',
             events: [
                 {
                     id: 'event-id',
@@ -64,6 +72,9 @@ describe('openai template', () => {
                     user: {
                         emails_sha256: [EMAIL_SHA256],
                         external_ids_sha256: [EXTERNAL_ID_SHA256],
+                        phone_numbers_sha256: [PHONE_SHA256],
+                        first_names_sha256: [FIRST_NAME_SHA256],
+                        last_names_sha256: [LAST_NAME_SHA256],
                     },
                     data: {
                         type: 'contents',
@@ -160,17 +171,41 @@ describe('openai template', () => {
                 expect(conversion.user).toEqual({ external_ids_sha256: [EXTERNAL_ID_SHA256] })
             },
         ],
+        [
+            'phone',
+            { oppref: null, email: null, external_id: null, phone: '+1234567890' },
+            (conversion: Record<string, any>) => {
+                expect(conversion.user).toEqual({ phone_numbers_sha256: [PHONE_SHA256] })
+            },
+        ],
     ])('sends the conversion when only %s is available', async (_, personProperties, assertIdentifiers) => {
         const response = await tester.invokeMapping(
             'Custom',
             { pixelId: 'pixel-123', apiKey: 'api-key' },
             createAdDestinationPayload({
                 event: { properties: { $current_url: 'https://posthog.com/checkout' } },
-                person: { properties: personProperties },
+                person: { properties: { ...NO_PHONE_OR_NAME, ...personProperties } },
             })
         )
         expect(response.error).toBeUndefined()
         assertIdentifiers(getBody(response).events[0])
+    })
+    // Person properties keep their JSON type, so a numeric customer ID must hash like its string form
+    it.each([
+        ['a numeric', 1234567890, EXTERNAL_ID_SHA256],
+        ['a zero', 0, '5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9'],
+        ['a string', ' 1234567890 ', EXTERNAL_ID_SHA256],
+    ])('hashes %s external ID', async (_, externalId, expectedHash) => {
+        const response = await tester.invokeMapping(
+            'Custom',
+            { pixelId: 'pixel-123', apiKey: 'api-key' },
+            createAdDestinationPayload({
+                event: { properties: { $current_url: 'https://posthog.com/checkout' } },
+                person: { properties: { ...NO_PHONE_OR_NAME, oppref: null, email: null, external_id: externalId } },
+            })
+        )
+        expect(response.error).toBeUndefined()
+        expect(getBody(response).events[0].user).toEqual({ external_ids_sha256: [expectedHash] })
     })
     it('skips when only weak identifiers are available', async () => {
         const response = await tester.invokeMapping(
@@ -184,17 +219,102 @@ describe('openai template', () => {
                         $raw_user_agent: 'Mozilla/5.0',
                     },
                 },
-                person: { properties: { oppref: null, email: null, external_id: null } },
+                person: { properties: { oppref: null, email: null, external_id: null, phone: null } },
             })
         )
         expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toMatchInlineSnapshot(
             `
             [
-              "No \`oppref\`, \`obref\`, \`email\` or \`externalId\` to identify the user with. Skipping...",
+              "No \`oppref\`, \`obref\`, \`email\`, \`externalId\` or \`phone\` to identify the user with. Skipping...",
             ]
         `
         )
         expect(response.finished).toEqual(true)
+    })
+    it.each([
+        ['formatted phone', { phone: '+1 (415) 555-2671' }, { phone_numbers_sha256: [DOCS_PHONE_SHA256] }],
+        [
+            'phone with 00 prefix',
+            { phone: '0044 20 7946 0000' },
+            { phone_numbers_sha256: ['38e62b3e091778f9214de3aa00ae498aa4b78433d73dec5977eb2ec1c8be4a69'] },
+        ],
+        [
+            'phone with Unicode spaces',
+            { phone: '+1\u00a0415\u202f555\u20092671' },
+            { phone_numbers_sha256: [DOCS_PHONE_SHA256] },
+        ],
+        ['phone without a country code', { phone: '415 555 2671' }, {}],
+        [
+            'pre-hashed phone',
+            { phone: '758FBF68945F21C416814C539AB578876C8D98FB69E6DA692DEF92CD52417FE0' },
+            { phone_numbers_sha256: [DOCS_PHONE_SHA256] },
+        ],
+        [
+            'name with a space',
+            { first_name: 'Mary Jane' },
+            { first_names_sha256: ['f08f448a5e7a9dc3619bb7c129f6a7d5fc6af002cea17ad71dfdc1c68f4d4e0e'] },
+        ],
+        [
+            'name with punctuation',
+            { first_name: 'Anne-Marie', last_name: "O'Connor" },
+            {
+                first_names_sha256: ['67495eb5715de43c26f7c18b25cc7f62a7540236516bd59d5162a6f743598083'],
+                last_names_sha256: ['7a0fbfdf40cbeb97429bdb88f512cecd27f0d44b7e57986ab578423bb61936ac'],
+            },
+        ],
+        [
+            'name with an accent',
+            { last_name: 'José' },
+            { last_names_sha256: ['d994e1d001886fe5b45b1267bd1fa2b752ac50742579bd3dad7b2a2aa0ed6866'] },
+        ],
+        ['name that is only punctuation', { first_name: '---' }, {}],
+        [
+            'name with a line break and Unicode spaces',
+            { first_name: 'Mary\nJane', last_name: 'O\u2009Connor\u00a0' },
+            {
+                first_names_sha256: ['f08f448a5e7a9dc3619bb7c129f6a7d5fc6af002cea17ad71dfdc1c68f4d4e0e'],
+                last_names_sha256: ['7a0fbfdf40cbeb97429bdb88f512cecd27f0d44b7e57986ab578423bb61936ac'],
+            },
+        ],
+        [
+            'hex-looking external ID',
+            { external_id: 'A'.repeat(64) },
+            { external_ids_sha256: ['d53eda7a637c99cc7fb566d96e9fa109bf15c478410a3f5eb4d4c4e26cd081f6'] },
+        ],
+        [
+            'city longer than 128 characters',
+            { $geoip_city_name: 'x'.repeat(129), $geoip_country_code: 'US' },
+            { countries: ['US'] },
+        ],
+        [
+            'location',
+            {
+                $geoip_city_name: ' San Francisco ',
+                $geoip_subdivision_1_name: 'California',
+                $geoip_postal_code: '94107',
+                $geoip_country_code: 'us',
+            },
+            { cities: ['San Francisco'], regions: ['California'], postal_codes: ['94107'], countries: ['US'] },
+        ],
+        [
+            'invalid postal code and country',
+            { $geoip_postal_code: 'bad/postcode', $geoip_country_code: 'United States' },
+            {},
+        ],
+    ])('normalizes %s', async (_, personProperties, expectedUser) => {
+        const response = await tester.invokeMapping(
+            'Custom',
+            { pixelId: 'pixel-123', apiKey: 'api-key' },
+            createAdDestinationPayload({
+                event: { properties: { $current_url: 'https://posthog.com/checkout' } },
+                person: {
+                    properties: { ...NO_PHONE_OR_NAME, email: null, external_id: null, ...personProperties },
+                },
+            })
+        )
+        expect(response.error).toBeUndefined()
+        expect(getBody(response).events[0].user ?? {}).toEqual(expectedUser)
+        expect(JSON.stringify(response.logs)).not.toContain('555')
     })
     it.each([
         [

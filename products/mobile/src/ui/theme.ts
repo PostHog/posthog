@@ -59,6 +59,8 @@ export const lightColors = {
     onTerminalMuted: '#B0B0AA',
     /** The outline of a `terminal` card. Light needs none, dark needs one to lift the card off the page. */
     terminalBorder: 'rgba(0,0,0,0)',
+    /** Behind a video and its letterbox, black in both schemes. */
+    media: '#000000',
     switchOn: '#1F1F1C',
     switchOff: '#D6D6D1',
     /** The ring of an unselected radio button or checkbox. */
@@ -119,6 +121,7 @@ export const darkColors: ThemeColors = {
     onTerminal: '#F4F4F2',
     onTerminalMuted: '#8C8E95',
     terminalBorder: '#2E3139',
+    media: '#000000',
     // The amber accent, like the web app's dark toggles.
     switchOn: '#F7A503',
     switchOff: '#3F4046',

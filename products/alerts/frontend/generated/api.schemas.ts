@@ -639,10 +639,10 @@ export interface AlertScheduleRestrictionApi {
  * * `notify` - Notify
  * * `suppress` - Suppress
  */
-export type InvestigationInconclusiveActionEnumApi =
-    (typeof InvestigationInconclusiveActionEnumApi)[keyof typeof InvestigationInconclusiveActionEnumApi]
+export type AlertInvestigationInconclusiveActionEnumApi =
+    (typeof AlertInvestigationInconclusiveActionEnumApi)[keyof typeof AlertInvestigationInconclusiveActionEnumApi]
 
-export const InvestigationInconclusiveActionEnumApi = {
+export const AlertInvestigationInconclusiveActionEnumApi = {
     Notify: 'notify',
     Suppress: 'suppress',
 } as const
@@ -669,6 +669,8 @@ export interface AlertApi {
      * @nullable
      */
     readonly llm_detector_available: boolean | null
+    /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
+    readonly pagerduty_available: boolean
     /**
      * Human-readable name for the alert.
      * @maxLength 255
@@ -745,7 +747,7 @@ export interface AlertApi {
      *
      * * `notify` - Notify
      * * `suppress` - Suppress */
-    investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
@@ -774,6 +776,8 @@ export interface PatchedAlertApi {
      * @nullable
      */
     readonly llm_detector_available?: boolean | null
+    /** Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty. */
+    readonly pagerduty_available?: boolean
     /**
      * Human-readable name for the alert.
      * @maxLength 255
@@ -850,7 +854,7 @@ export interface PatchedAlertApi {
      *
      * * `notify` - Notify
      * * `suppress` - Suppress */
-    investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
@@ -892,6 +896,49 @@ export interface AlertDeleteDestinationApi {
 }
 
 /**
+ * * `critical` - critical
+ * * `error` - error
+ * * `warning` - warning
+ * * `info` - info
+ */
+export type PagerDutySeverityEnumApi = (typeof PagerDutySeverityEnumApi)[keyof typeof PagerDutySeverityEnumApi]
+
+export const PagerDutySeverityEnumApi = {
+    Critical: 'critical',
+    Error: 'error',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+/**
+ * * `us` - us
+ * * `eu` - eu
+ */
+export type PagerDutyRegionEnumApi = (typeof PagerDutyRegionEnumApi)[keyof typeof PagerDutyRegionEnumApi]
+
+export const PagerDutyRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
+} as const
+
+export interface AlertCreatePagerDutyDestinationApi {
+    /** The 32-character integration key of a PagerDuty Events API v2 integration. */
+    pagerduty_routing_key: string
+    /** Severity of the incidents the alert opens.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** Region of the PagerDuty account.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+}
+
+/**
  * * `email` - email
  * * `destination` - destination
  */
@@ -910,6 +957,11 @@ export interface AlertTestDeliveryResponseApi {
     email_recipient_count: number
     /** Configured delivery channels that failed to schedule or send. */
     failed_delivery_channels: FailedDeliveryChannelsEnumApi[]
+}
+
+export interface AlertPagerDutyAvailabilityApi {
+    /** Whether a new alert with these settings can open PagerDuty incidents. */
+    available: boolean
 }
 
 export interface AlertSimulateApi {
@@ -1076,6 +1128,37 @@ export type AlertsRetrieveParams = {
      */
     checks_offset?: number
 }
+
+export type AlertsPagerdutyAvailabilityRetrieveParams = {
+    /**
+     * How often the new alert is checked.
+     *
+     * * `real_time` - real_time
+     * * `every_15_minutes` - every_15_minutes
+     * * `hourly` - hourly
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly
+     * @minLength 1
+     */
+    calculation_interval: AlertsPagerdutyAvailabilityRetrieveCalculationInterval
+    /**
+     * Whether the new alert runs the investigation agent.
+     */
+    investigation_agent_enabled?: boolean
+}
+
+export type AlertsPagerdutyAvailabilityRetrieveCalculationInterval =
+    (typeof AlertsPagerdutyAvailabilityRetrieveCalculationInterval)[keyof typeof AlertsPagerdutyAvailabilityRetrieveCalculationInterval]
+
+export const AlertsPagerdutyAvailabilityRetrieveCalculationInterval = {
+    RealTime: 'real_time',
+    Every15Minutes: 'every_15_minutes',
+    Hourly: 'hourly',
+    Daily: 'daily',
+    Weekly: 'weekly',
+    Monthly: 'monthly',
+} as const
 
 export type InsightsThresholdsListParams = {
     /**

@@ -7,7 +7,11 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { BillingAPIErrorCodes, billingLogic } from 'lib/logic/billing/billingLogic'
+import {
+    BillingAPIErrorCodes,
+    GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY,
+    billingLogic,
+} from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -879,6 +883,46 @@ describe('billingLogic', () => {
             await failDeactivation({ billing_provider: BillingProvider.Vercel }, code, invoiceLink)
 
             expect(billingLogic.values.unsubscribeError).toEqual({ detail: UNSUBSCRIBE_ERROR_DETAIL })
+        }
+    )
+
+    it.each([
+        {
+            name: 'another paid plan',
+            paidPlanKeys: ['paid-20240111'],
+            grandfathered: false,
+            planAfterPackageDowngrade: 'paid-20240111',
+        },
+        {
+            name: 'the 7-year plan, which billing lists with only the free plan',
+            paidPlanKeys: [GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY],
+            grandfathered: true,
+            planAfterPackageDowngrade: undefined,
+        },
+        {
+            name: 'the 7-year plan once billing offers the 2-year plan',
+            paidPlanKeys: [GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY, 'paid-20261105'],
+            grandfathered: true,
+            planAfterPackageDowngrade: 'paid-20261105',
+        },
+    ])(
+        'decides grandfathered events retention for $name',
+        async ({ paidPlanKeys, grandfathered, planAfterPackageDowngrade }) => {
+            const [freePlan, paidPlan] = billingJson.products[0].plans
+            const paidPlans = paidPlanKeys.map((plan_key, index) => ({
+                ...paidPlan,
+                plan_key,
+                current_plan: index === 0,
+            }))
+            billingState = billingWithProducts([productWithUsage(0.5, { plans: [freePlan, ...paidPlans] })])
+            billingLogic.mount()
+
+            await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+
+            expect(billingLogic.values.hasGrandfatheredEventsRetention).toBe(grandfathered)
+            expect(billingLogic.values.productAnalyticsPlanAfterPackageDowngrade?.plan_key).toBe(
+                planAfterPackageDowngrade
+            )
         }
     )
 })

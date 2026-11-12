@@ -1,7 +1,10 @@
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Literal
 
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
+
+from posthog.metrics import pushed_metrics_registry
 
 logger = structlog.get_logger(__name__)
 
@@ -69,6 +72,12 @@ TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL = Counter(
         "runtime_adapter",
         "prewarmed",
     ],
+)
+
+TASK_STATUS_OUTSIDE_TRANSITIONS_TOTAL = Counter(
+    "posthog_tasks_status_outside_transitions_total",
+    "Task status changes mirrored from a run that the task status transition table does not allow",
+    labelnames=["from_status", "to_status"],
 )
 
 TASK_CONTRACT_VIOLATION_TOTAL = Counter(
@@ -500,6 +509,7 @@ ComputeSettlementOutcome = Literal[
     "retry",
     "attempts_exhausted",
     "contract_error",
+    "insufficient_credits",
     "deployment_error",
     "skipped",
 ]
@@ -510,19 +520,33 @@ COMPUTE_SETTLEMENTS_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
-HOGLAND_SANDBOX_SESSIONS_OPEN_OVER_DAY = Gauge(
-    "posthog_tasks_hogland_sandbox_sessions_open_over_day",
-    "Hogland sandbox sessions with no end stamp that opened more than a day ago",
-    multiprocess_mode="mostrecent",
-)
-
 
 def observe_compute_settlement(outcome: ComputeSettlementOutcome) -> None:
     COMPUTE_SETTLEMENTS_TOTAL.labels(outcome=outcome).inc()
 
 
-def set_hogland_sandbox_sessions_open_over_day(count: int) -> None:
-    HOGLAND_SANDBOX_SESSIONS_OPEN_OVER_DAY.set(count)
+def push_compute_settlement_sweep_gauges(
+    *, hogland_open_over_day: int, unsettled_over_hour: int, parked_by_reason: Mapping[str, int]
+) -> None:
+    with pushed_metrics_registry("tasks_compute_settlement") as registry:
+        Gauge(
+            "posthog_tasks_hogland_sandbox_sessions_open_over_day",
+            "Hogland sandbox sessions with no end stamp that opened more than a day ago",
+            registry=registry,
+        ).set(hogland_open_over_day)
+        Gauge(
+            "posthog_tasks_sandbox_sessions_unsettled_over_hour",
+            "Attributed sandbox sessions that ended more than an hour ago and are neither settled nor parked",
+            registry=registry,
+        ).set(unsettled_over_hour)
+        parked = Gauge(
+            "posthog_tasks_sandbox_sessions_parked",
+            "Sandbox sessions that are parked and not settled, by park reason",
+            labelnames=["reason"],
+            registry=registry,
+        )
+        for reason, rows in parked_by_reason.items():
+            parked.labels(reason=reason).set(rows)
 
 
 # scoped: "true" when the delivery's installation resolved to at least one team, so the
@@ -537,6 +561,17 @@ GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL = Counter(
 
 def observe_github_webhook_task_run_lookup(*, scoped: bool) -> None:
     GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL.labels(scoped="true" if scoped else "false").inc()
+
+
+GITHUB_WEBHOOK_TASK_LOOKUP_SHADOW_TOTAL = Counter(
+    "posthog_tasks_github_webhook_task_lookup_shadow_total",
+    "GitHub webhook lookups by the run leg that matched, and whether the task column lookup found the same task",
+    labelnames=["leg", "outcome"],
+)
+
+
+def observe_github_webhook_task_lookup_shadow(*, leg: str, outcome: str) -> None:
+    GITHUB_WEBHOOK_TASK_LOOKUP_SHADOW_TOTAL.labels(leg=leg, outcome=outcome).inc()
 
 
 MCP_EXCLUDE_TOOLS_OVER_CAP_TOTAL = Counter(
@@ -623,6 +658,10 @@ def observe_task_run_created(task_run: "TaskRun") -> None:
 
 def observe_task_run_started_beside_live_run(task_run: "TaskRun") -> None:
     TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_status_outside_transitions(*, from_status: str, to_status: str) -> None:
+    TASK_STATUS_OUTSIDE_TRANSITIONS_TOTAL.labels(from_status=from_status, to_status=to_status).inc()
 
 
 def observe_contract_violation(*, check: str, profile: str) -> None:

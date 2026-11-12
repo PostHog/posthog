@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { AppState, type NativeEventSubscription } from 'react-native'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
@@ -37,7 +38,7 @@ export type { AuthOrganization, AuthProject, AuthUser } from './account'
 
 export type AuthStatus = 'loading' | 'signed_out' | 'signed_in'
 export type AuthMethod = 'oauth' | 'personal_api_key'
-export type ProjectSwitchSource = 'nav_menu' | 'settings' | 'push'
+export type ProjectSwitchSource = 'nav_menu' | 'settings' | 'push' | 'link'
 
 export interface AuthState {
     status: AuthStatus
@@ -64,8 +65,10 @@ export interface AuthState {
     signOut: () => Promise<void>
 }
 
-/** Refresh at launch when the access token has less than this left, so the first requests do not all 401. */
 const RESTORE_REFRESH_MARGIN_MS = 60_000
+
+/** Refresh at launch or on foreground when the access token has less than this left, so the home screen widget's copy stays valid. */
+const FOREGROUND_REFRESH_MARGIN_MS = 24 * 60 * 60_000
 
 type SignOutTask = () => Promise<undefined | (() => void)>
 type SessionEndTask = () => void | Promise<void>
@@ -310,11 +313,13 @@ export const useAuthStore = create<AuthState>()(
                             method: owner.method,
                             region: regionForHost(owner.host),
                         })
+                        let refreshedDuringRestore = false
                         if (
                             tokens.kind === 'oauth' &&
                             tokens.expiresAt !== null &&
                             tokens.expiresAt - Date.now() < RESTORE_REFRESH_MARGIN_MS
                         ) {
+                            refreshedDuringRestore = true
                             try {
                                 if ((await refreshAccessToken()) === null) {
                                     return
@@ -328,6 +333,9 @@ export const useAuthStore = create<AuthState>()(
                             await get().reloadAccount()
                         }
                         set({ status: 'signed_in', signedIn: true })
+                        if (!refreshedDuringRestore && AppState.currentState === 'active') {
+                            refreshBeforeForegroundMargin()
+                        }
                         const restored = get().user
                         if (restored) {
                             identify(restored.distinctId)
@@ -571,7 +579,29 @@ export function refreshAccessToken(): Promise<string | null> {
     return promise
 }
 
+function refreshBeforeForegroundMargin(): void {
+    const tokens = getSessionTokens()
+    if (
+        useAuthStore.getState().status !== 'signed_in' ||
+        tokens?.kind !== 'oauth' ||
+        tokens.expiresAt === null ||
+        tokens.expiresAt - Date.now() >= FOREGROUND_REFRESH_MARGIN_MS
+    ) {
+        return
+    }
+    // Offline or a server error keeps the session; the next foreground or 401 tries again.
+    refreshAccessToken().catch(() => undefined)
+}
+
+let foregroundSubscription: NativeEventSubscription | null = null
+
 export function installAuthProvider(): void {
+    foregroundSubscription?.remove()
+    foregroundSubscription = AppState.addEventListener('change', (state) => {
+        if (state === 'active') {
+            refreshBeforeForegroundMargin()
+        }
+    })
     setAuthProvider({
         getAuth: () => {
             const state = useAuthStore.getState()

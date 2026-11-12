@@ -2,7 +2,7 @@ import asyncio
 from datetime import timedelta
 
 import temporalio.workflow
-from temporalio.common import Priority, RetryPolicy
+from temporalio.common import RetryPolicy
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -191,9 +191,6 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     heartbeat_timeout=timedelta(seconds=METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS),
                     retry_policy=calc_retry_policy,
                     task_queue=task_queue,
-                    # Round-robin dispatch across orgs under backlog; a no-op on namespaces without
-                    # fairness support.
-                    priority=Priority(fairness_key=inputs.fairness_key),
                 )
             )
         results = await asyncio.gather(*calcs, return_exceptions=True)

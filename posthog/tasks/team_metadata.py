@@ -7,6 +7,7 @@ Provides async tasks for updating and syncing team metadata caches.
 import time
 
 from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS
 
 import structlog
 from celery import shared_task
@@ -101,6 +102,11 @@ def clear_team_metadata_cache_for_token_task(api_token: str) -> None:
 
     The task takes the token because the Team row may be gone, and then no query can find the token from a team id.
     """
+    # A retry can run hours later, after a staff token change gave the token back to a team.
+    # The check reads the primary because a lagging replica still shows the old owner.
+    # The task would then skip the delete and never retry it.
+    if Team.objects.using(DEFAULT_DB_ALIAS).filter(api_token=api_token).exists():
+        return
     # strict_mirror raises on a failed delete of the shared Redis copy too, so the task retries it.
     team_metadata_hypercache.delete_cache_entry(api_token, strict_mirror=True)
 
@@ -163,8 +169,8 @@ def cleanup_stale_expiry_tracking_task() -> None:
     """
     Periodic task to clean up stale entries in the expiry tracking sorted set.
 
-    Removes entries for teams that no longer exist in the database.
-    Runs daily to prevent sorted set bloat from deleted teams.
+    Deletes the cache entries of teams that no longer exist and removes their tracking members.
+    Runs daily, because a refresh can write a deleted team's entry again after the delete path cleared it.
     """
     if not settings.FLAGS_REDIS_URL:
         logger.info("Flags Redis URL not set, skipping expiry tracking cleanup")

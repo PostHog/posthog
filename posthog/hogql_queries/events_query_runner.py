@@ -29,10 +29,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.flag_evaluations import (
-    EVENTS_LIST_JOINED_FIELDS,
-    add_events_list_fields_to_flag_evaluations,
-)
+from posthog.hogql.database.schema.flag_evaluations import EVENTS_LIST_JOINED_FIELDS, join_persons_to_flag_evaluations
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import (
     action_to_expr,
@@ -54,7 +51,7 @@ from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQuery
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
-from posthog.models import Person, PropertyDefinition
+from posthog.models import Person
 from posthog.models.element import chain_to_elements
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
@@ -62,9 +59,10 @@ from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_map
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import relative_date_parse
 
-from products.actions.backend.models.action import Action, ActionStepJSON
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound, ActionStep
+from products.event_definitions.backend.models import PropertyDefinition
+from products.feature_flags.backend.facade.flags import reads_flag_calls_from_flag_evaluations
 
 logger = structlog.get_logger(__name__)
 
@@ -453,7 +451,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             return EVENTS_LIST_TABLE
         if set(self._event_names()) != {FLAG_EVALUATIONS_SOURCE_EVENT}:
             return EVENTS_LIST_TABLE
-        if get_flag_evaluations_read_mode(self.team.organization_id) == FlagEvaluationsMode.EVENTS:
+        if not reads_flag_calls_from_flag_evaluations(self.team, self.modifiers):
             return EVENTS_LIST_TABLE
         return FLAG_EVALUATIONS_LIST_TABLE
 
@@ -491,7 +489,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         return modifiers is None or modifiers.personsOnEventsMode not in STORED_PERSON_PROPERTIES_MODES
 
     def _query_modifiers(self, table: EventsListTable) -> HogQLQueryModifiers:
-        # add_events_list_fields_to_flag_evaluations makes `person` a persons join. A person filter therefore joins persons.
+        # join_persons_to_flag_evaluations makes `person` a persons join. A person filter therefore joins persons.
         # The pushdown limits that join to the persons that the page's flag calls reach.
         # An explicit personIdPushdown value on the team or the query still wins.
         if self._adds_persons_join(table) and self.modifiers.personIdPushdown is None:
@@ -502,7 +500,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         context = self.build_hogql_context()
         assert context.database is not None
         if self._adds_persons_join(table):
-            add_events_list_fields_to_flag_evaluations(context.database)
+            join_persons_to_flag_evaluations(context.database)
         return context
 
     def _filter_where_exprs(self, table: EventsListTable) -> list[ast.Expr]:
@@ -551,8 +549,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
     def _action_where_expr(self, action_id: int) -> ast.Expr:
         try:
-            action = Action.objects.get(pk=action_id, team__project_id=self.team.project_id)
-        except Action.DoesNotExist:
+            action = get_action(action_id=action_id, project_id=self.team.project_id)
+        except ActionNotFound:
             raise Exception("Action does not exist")
         if not action.steps:
             raise Exception("Action does not have any match groups")
@@ -560,7 +558,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
     def _action_steps_where_expr(self) -> ast.Expr:
         steps = [
-            ActionStepJSON(
+            ActionStep(
                 event=s.event,
                 tag_name=s.tag_name,
                 text=s.text,

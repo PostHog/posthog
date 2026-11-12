@@ -15,19 +15,20 @@ from posthog.api.search import (
     FEATURE_FLAG_SEARCH_CONFIG,
     LIMIT as SEARCH_LIMIT,
     EntityConfig,
+    FacadeSearch,
     search_entities as search_entities_fts,
+    search_live_actions,
 )
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
 from products.customer_analytics.backend.facade import api as customer_analytics_facade
 from products.customer_analytics.backend.facade.api import build_account_deeplink
 from products.customer_analytics.backend.facade.contracts import AccountRef
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.api import search_dashboards
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flag_status import (
     FeatureFlagStatus,
@@ -80,12 +81,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "extra_fields": ["name", "description", "query_metadata", "query"],
         "filters": {"deleted": False, "saved": True},
     },
-    "dashboard": {
-        "klass": Dashboard,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
-        "filters": {"deleted": False},
-    },
     "experiment": {
         "klass": Experiment,
         "search_fields": {"name": "A", "description": "C"},
@@ -93,12 +88,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "filters": {"deleted": False},
     },
     "feature_flag": FEATURE_FLAG_SEARCH_CONFIG,
-    "action": {
-        "klass": Action,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
-        "filters": {"deleted": False},
-    },
     "cohort": {
         "klass": Cohort,
         "search_fields": {"name": "A", "description": "C", "filters": "B"},
@@ -129,6 +118,22 @@ Map of entity names to their class, search_fields and extra_fields.
 
 The value in search_fields corresponds to the PostgreSQL weighting i.e. A, B, C or D.
 """
+
+
+# Actions and dashboards are searched through their products' facades rather than unioned by model class, so
+# they are not in ENTITY_MAP.
+ACTION_ENTITY = "action"
+DASHBOARD_ENTITY = "dashboard"
+FACADE_SEARCHES: dict[str, FacadeSearch] = {ACTION_ENTITY: search_live_actions, DASHBOARD_ENTITY: search_dashboards}
+_UNION_ENTITY_NAMES = [*ENTITY_MAP]
+# Dashboards keep their place after insights, and actions theirs between feature flags and cohorts, in the counts.
+COUNTED_ENTITIES = [
+    *_UNION_ENTITY_NAMES[: _UNION_ENTITY_NAMES.index("experiment")],
+    DASHBOARD_ENTITY,
+    *_UNION_ENTITY_NAMES[_UNION_ENTITY_NAMES.index("experiment") : _UNION_ENTITY_NAMES.index("cohort")],
+    ACTION_ENTITY,
+    *_UNION_ENTITY_NAMES[_UNION_ENTITY_NAMES.index("cohort") :],
+]
 
 EXCLUDE_FROM_DISPLAY: dict[str, set[str]] = {
     "insight": {"query", "query_metadata"},
@@ -172,7 +177,7 @@ class EntitySearchContext:
             Tuple of (results list, counts dict)
         """
         if entity_types == "all":
-            entity_types = {*ENTITY_MAP, "hog_flow"}
+            entity_types = {*ENTITY_MAP, *FACADE_SEARCHES, "hog_flow"}
 
         results: list[dict] = []
         counts: dict[str, int | None] = {}
@@ -204,6 +209,8 @@ class EntitySearchContext:
                 self._team.project_id,
                 self,  # type: ignore
                 ENTITY_MAP,
+                facade_searches=FACADE_SEARCHES,
+                counted_entities=COUNTED_ENTITIES,
             )
             assert fts_counts is not None
             counts.update(fts_counts)
@@ -294,6 +301,8 @@ class EntitySearchContext:
                 entity_map=ENTITY_MAP,
                 limit=limit,
                 offset=offset,
+                facade_searches=FACADE_SEARCHES,
+                counted_entities=COUNTED_ENTITIES,
             )
             all_entities.extend(db_results)
             assert maybe_count is not None

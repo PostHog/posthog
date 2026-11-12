@@ -24,7 +24,6 @@ export enum ProductTourEvent {
     STEP_ADDED = 'product tour step added',
     STEP_REMOVED = 'product tour step removed',
     PREVIEW_STARTED = 'product tour preview started',
-    AI_GENERATED = 'product tour ai generated',
     CONSENT_SELECTED = 'product tour consent selected',
     RECORDING_STARTED = 'product tour recording started',
 }

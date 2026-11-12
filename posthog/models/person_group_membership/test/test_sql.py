@@ -1,3 +1,4 @@
+import json
 import importlib
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
@@ -17,15 +18,22 @@ from posthog.clickhouse.schema import (
 )
 from posthog.models.person_group_membership.sql import (
     DISTRIBUTED_PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE,
+    KAFKA_PERSON_GROUP_MEMBERSHIP_COLUMNS,
+    KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE_SQL,
     PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY,
     PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY_SQL,
     PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE,
+    PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL,
+    PERSON_GROUP_MEMBERSHIP_MV_SQL,
     PERSON_GROUP_MEMBERSHIP_TABLE,
     SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE,
     WRITABLE_PERSON_GROUP_MEMBERSHIP_TABLE,
 )
 
 MIGRATION = "posthog.clickhouse.migrations.0343_person_group_membership"
+INGESTION_MIGRATION = "posthog.clickhouse.migrations.0369_person_group_membership_ingestion"
+ACTIVITY_MIGRATION = "posthog.clickhouse.migrations.0375_person_group_membership_activity"
+SOURCE_TABLE = "test_source_person_group_membership"
 
 
 def test_dictionary_sql(snapshot, mocker, settings) -> None:
@@ -38,30 +46,62 @@ def test_dictionary_sql(snapshot, mocker, settings) -> None:
     creds.assert_called_once_with(ClickHouseUser.DICT_READER)
 
 
-@pytest.mark.parametrize("deployment", ["", "DEV", "US", "EU"])
-@pytest.mark.parametrize("multinode", [False, True])
-def test_migration_placement(deployment: str, multinode: bool) -> None:
-    module = importlib.import_module(MIGRATION)
-    try:
-        with patch.multiple("posthog.settings", CLOUD_DEPLOYMENT=deployment, MULTINODE_CLICKHOUSE=multinode):
-            operations = importlib.reload(module).operations
-            expected_roles = [
+@pytest.mark.parametrize(
+    "build_sql", [KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE_SQL, PERSON_GROUP_MEMBERSHIP_MV_SQL], ids=["kafka_table", "view"]
+)
+def test_ingestion_sql(build_sql: Callable[[], str], snapshot, settings) -> None:
+    settings.CLICKHOUSE_DATABASE = "posthog"
+    settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION = "warpstream_ingestion"
+    assert build_sql() == snapshot
+
+
+@pytest.mark.parametrize(
+    "migration,expected_roles,consumes_kafka",
+    [
+        (
+            MIGRATION,
+            [
                 [NodeRole.AUX],
                 [NodeRole.AUX],
                 [NodeRole.DATA, NodeRole.INGESTION_SMALL],
                 [NodeRole.DATA],
                 [NodeRole.INGESTION_SMALL],
                 [NodeRole.INGESTION_SMALL],
-            ]
+            ],
+            False,
+        ),
+        (INGESTION_MIGRATION, [[NodeRole.INGESTION_EVENTS]] * 5, True),
+        (ACTIVITY_MIGRATION, [[NodeRole.INGESTION_EVENTS]], False),
+    ],
+    ids=["storage", "ingestion", "activity"],
+)
+@pytest.mark.parametrize("deployment", ["", "DEV", "US", "EU"])
+@pytest.mark.parametrize("multinode", [False, True])
+def test_migration_placement(
+    migration: str, expected_roles: list[list[NodeRole]], consumes_kafka: bool, deployment: str, multinode: bool
+) -> None:
+    module = importlib.import_module(migration)
+    try:
+        with patch.multiple("posthog.settings", CLOUD_DEPLOYMENT=deployment, MULTINODE_CLICKHOUSE=multinode):
+            operations = importlib.reload(module).operations
             assert [op._node_roles for op in operations] == expected_roles
             assert [op._effective_node_roles for op in operations] == (
-                expected_roles if deployment or multinode else [[NodeRole.ALL]] * 6
+                expected_roles if deployment or multinode else [[NodeRole.ALL]] * len(expected_roles)
             )
             for op in operations:
                 assert "ON CLUSTER" not in op._sql
-                assert "IF NOT EXISTS" in op._sql
-                assert "Kafka" not in op._sql
-                assert "MATERIALIZED VIEW" not in op._sql
+                if migration == ACTIVITY_MIGRATION:
+                    assert op._sql.startswith(
+                        f"ALTER TABLE {django_settings.CLICKHOUSE_DATABASE}.person_group_membership_mv MODIFY QUERY "
+                    )
+                    assert f"FROM {django_settings.CLICKHOUSE_DATABASE}.kafka_person_group_membership" in op._sql
+                    assert op._sharded is False
+                    assert op._is_alter_on_replicated_table is False
+                    assert "JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'" in op._sql
+                else:
+                    assert "IF NOT EXISTS" in op._sql
+            assert any("Kafka" in op._sql for op in operations) == consumes_kafka
+            assert any("kafka_events_json_ws" in op._sql for op in operations) is False
     finally:
         importlib.reload(module)
 
@@ -214,7 +254,8 @@ def test_distributed_writes_and_reads_aggregate_overlap() -> None:
         )
     assert sync_execute(
         f"""SELECT team_id, group_type_index, group_key, distinct_id, min(first_seen), max(last_seen)
-        FROM {PERSON_GROUP_MEMBERSHIP_TABLE} GROUP BY team_id, group_type_index, group_key, distinct_id"""
+        FROM {PERSON_GROUP_MEMBERSHIP_TABLE} GROUP BY team_id, group_type_index, group_key, distinct_id
+        ORDER BY distinct_id"""
     ) == [
         (
             1001,
@@ -254,3 +295,89 @@ def test_storage_supports_distinct_id_and_team_deletion(lightweight: bool) -> No
             )
             == expected
         )
+
+
+@pytest.mark.parametrize("group_type_index", range(5))
+@pytest.mark.usefixtures("membership_schema")
+def test_ingestion_admits_only_eligible_events(group_type_index: int) -> None:
+    sync_execute(
+        f"INSERT INTO {DISTRIBUTED_PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE} VALUES",
+        [(2001, group_type_index, 1, 1), (2002, group_type_index, 1, 1), (2002, group_type_index, 0, 2)],
+        settings={"distributed_foreground_insert": 1},
+    )
+    sync_execute(f"SYSTEM RELOAD DICTIONARY {PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY}")
+    every_group = json.dumps({f"$group_{index}": f"account-{index}" for index in range(5)})
+    suppressed = json.dumps({**json.loads(every_group), "$update_person_last_seen_at": False})
+    configured_empty = json.dumps({f"$group_{group_type_index}": ""})
+    events = [
+        (2001, "identified", every_group, datetime(2024, 1, 2, tzinfo=UTC), "full"),
+        (2001, "identified", every_group, datetime(2024, 1, 1, tzinfo=UTC), "force_upgrade"),
+        (2001, "identified", every_group, datetime(2024, 1, 3, tzinfo=UTC), "full"),
+        (2001, "numeric-key", json.dumps({f"$group_{group_type_index}": 42}), datetime(2024, 1, 1, tzinfo=UTC), "full"),
+        (2001, "personless", every_group, datetime(2024, 1, 1, tzinfo=UTC), "propertyless"),
+        (2001, "empty-key", configured_empty, datetime(2024, 1, 1, tzinfo=UTC), "full"),
+        (2001, "no-properties", "", datetime(2024, 1, 1, tzinfo=UTC), "full"),
+        (2002, "disabled-team", every_group, datetime(2024, 1, 1, tzinfo=UTC), "full"),
+        (2003, "missing-team", every_group, datetime(2024, 1, 1, tzinfo=UTC), "full"),
+    ]
+    events.extend(
+        (2001, distinct_id, suppressed, timestamp, "full")
+        for distinct_id, timestamp in [
+            ("identified", datetime(2023, 12, 1, tzinfo=UTC)),
+            ("identified", datetime(2024, 2, 1, tzinfo=UTC)),
+            ("suppressed-only", datetime(2024, 2, 1, tzinfo=UTC)),
+        ]
+    )
+    events.extend(
+        (
+            2001,
+            f"retained-{index}",
+            json.dumps({**json.loads(every_group), "$update_person_last_seen_at": value}),
+            datetime(2024, 1, 2, tzinfo=UTC),
+            "full",
+        )
+        for index, value in enumerate((True, "false", 0, None))
+    )
+    sync_execute(f"DROP TABLE IF EXISTS {SOURCE_TABLE}")
+    sync_execute(f"CREATE TABLE {SOURCE_TABLE} ({KAFKA_PERSON_GROUP_MEMBERSHIP_COLUMNS}) ENGINE = Memory")
+    try:
+        sync_execute(f"INSERT INTO {SOURCE_TABLE} VALUES", events)
+        for _ in range(2):
+            sync_execute(
+                f"INSERT INTO {WRITABLE_PERSON_GROUP_MEMBERSHIP_TABLE} {PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL(SOURCE_TABLE)}",
+                settings={"distributed_foreground_insert": 1},
+            )
+    finally:
+        sync_execute(f"DROP TABLE IF EXISTS {SOURCE_TABLE}")
+    assert sync_execute(
+        f"""SELECT team_id, group_type_index, group_key, distinct_id, min(first_seen), max(last_seen)
+        FROM {PERSON_GROUP_MEMBERSHIP_TABLE} GROUP BY team_id, group_type_index, group_key, distinct_id
+        ORDER BY distinct_id"""
+    ) == [
+        (
+            2001,
+            group_type_index,
+            f"account-{group_type_index}",
+            "identified",
+            datetime(2024, 1, 1, tzinfo=UTC),
+            datetime(2024, 1, 3, tzinfo=UTC),
+        ),
+        (
+            2001,
+            group_type_index,
+            "42",
+            "numeric-key",
+            datetime(2024, 1, 1, tzinfo=UTC),
+            datetime(2024, 1, 1, tzinfo=UTC),
+        ),
+    ] + [
+        (
+            2001,
+            group_type_index,
+            f"account-{group_type_index}",
+            f"retained-{index}",
+            datetime(2024, 1, 2, tzinfo=UTC),
+            datetime(2024, 1, 2, tzinfo=UTC),
+        )
+        for index in range(4)
+    ]

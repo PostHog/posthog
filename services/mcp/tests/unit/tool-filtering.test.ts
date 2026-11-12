@@ -329,17 +329,39 @@ describe('Tool Filtering - API Scopes', () => {
     it.each([
         { scopes: ['task:write'], rollout: true, visible: false },
         { scopes: ['query:read'], rollout: true, visible: false },
-        { scopes: ['task:write', 'query:read'], rollout: true, visible: true },
+        { scopes: ['task:write', 'query:read'], rollout: true, legacyRollout: false, visible: true },
         { scopes: ['task:write', 'query:write'], rollout: true, visible: true },
         { scopes: ['task:write', 'query:read'], rollout: false, visible: false },
         { scopes: ['task:write', 'query:read'], rollout: undefined, visible: false },
-    ])('metric replacement requires query access and rollout: %j', async ({ scopes, rollout, visible }) => {
-        const featureFlags: EvaluatedFlags = {}
-        if (rollout !== undefined) {
-            featureFlags['signals-report-checks-replace'] = rollout
+    ])(
+        'metric replacement requires query access and rollout: %j',
+        async ({ scopes, rollout, legacyRollout = true, visible }) => {
+            const featureFlags: EvaluatedFlags = { 'signals-report-checks-replace': legacyRollout }
+            if (rollout !== undefined) {
+                featureFlags['signals-report-monitoring'] = rollout
+            }
+            const tools = await getToolsFromContext(createMockContext(scopes), { featureFlags })
+            expect(tools.some((tool) => tool.name === 'inbox-report-checks-replace')).toBe(visible)
         }
-        const tools = await getToolsFromContext(createMockContext(scopes), { featureFlags })
-        expect(tools.some((tool) => tool.name === 'inbox-report-checks-replace')).toBe(visible)
+    )
+
+    // The legacy fallback lets codegen accept `hog_flow:write` here, which would hide these tools from send-scoped keys.
+    it.each([
+        { scopes: ['transactional_email:write'], visible: true },
+        { scopes: ['hog_flow:write'], visible: true },
+        { scopes: ['transactional_email:read'], visible: false },
+    ])('making a template transactional needs the send scope: $scopes', async ({ scopes, visible }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes), {
+            featureFlags: { 'workflows-transactional-email-api': true },
+        })
+        const names = tools.map((tool) => tool.name)
+
+        for (const name of [
+            'workflows-make-email-template-transactional-prepare',
+            'workflows-make-email-template-transactional-execute',
+        ]) {
+            expect(names.includes(name)).toBe(visible)
+        }
     })
 
     it.each([
@@ -1108,7 +1130,7 @@ describe('Tool Filtering - Feature Flags', () => {
         const branchFlags = [
             'workflows-supabase-auth-emails',
             'scout-trials',
-            'signals-report-checks-replace',
+            'signals-report-monitoring',
             'inbox-report-actions-mcp',
             'inbox-reports-create-mcp',
             'signals-reviewer-exclusions-mcp',
@@ -1124,11 +1146,11 @@ describe('Tool Filtering - Feature Flags', () => {
             'marketing-analytics-conversion-setup-ai',
             'marketing-analytics-recommendations',
             'insight-data-checks',
-            'logs-agent-tools',
             'workflows-transactional-email-api',
             'workflows-email-from-code',
             'activity-summary',
             'personal-inbox-ranking',
+            'inbox-reports-search',
             'anomalies-search',
             'workflows-email-domain-agent-setup',
             'feature-flag-rules-v2-mcp',
@@ -1136,7 +1158,10 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-customerio-import',
             'mcp-session-recording-console-logs',
             'workflows-push-token-import-mcp',
-            'support-macros',
+            'discussions-slack-sync',
+            'ui-customization',
+            'warehouse-migration-import',
+            'mcp-feature-flag-restore-version',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1179,11 +1204,13 @@ describe('Tool Filtering - Feature Flags', () => {
                 'subscription-source-summaries',
                 'workflows-mcp-onboarding',
                 'aeo-citation-tracking',
+                'self-driving-usage-display',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
         expect(allFlags).not.toContain('dashboard-widgets')
-        expect(flags).toHaveLength(36)
+        expect(allFlags).not.toContain('self-driving-usage-mcp')
+        expect(flags).toHaveLength(37)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

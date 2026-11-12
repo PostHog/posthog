@@ -453,11 +453,20 @@ describe('ReportsTab', () => {
         expect(document.querySelector('[data-attr="report-card-closed"]')).not.toBeNull()
     })
 
-    it.each([0, 2])('offers Closed only when the project has closed reports (%s)', async (count) => {
+    it.each([
+        ['closed', 'Closed', 0],
+        ['closed', 'Closed', 2],
+        ['outcome-monitoring', 'Monitoring', 0],
+        ['outcome-monitoring', 'Monitoring', 2],
+    ] as const)('offers %s only when the project has matching reports (%s, %s)', async (sectionKey, label, count) => {
         mockReportCounts([
             {
                 match: (params) =>
-                    params.get('view') === 'closed' && !params.has('search') && !params.has('suggested_reviewers'),
+                    (sectionKey === 'closed'
+                        ? params.get('view') === 'closed'
+                        : params.get('status') === 'monitoring') &&
+                    !params.has('search') &&
+                    !params.has('suggested_reviewers'),
                 count,
             },
         ])
@@ -466,10 +475,10 @@ describe('ReportsTab', () => {
         render(<InboxStateFilter />)
 
         await waitFor(() =>
-            expect(reportListLogic(sectionListLogicProps('closed')).values.hasProjectClosedReports).toBe(count > 0)
+            expect(reportListLogic(sectionListLogicProps(sectionKey)).values.hasProjectReports).toBe(count > 0)
         )
         fireEvent.click(screen.getByText('2 statuses'))
-        expect(screen.queryByText('Closed') !== null).toBe(count > 0)
+        expect(screen.queryByText(label) !== null).toBe(count > 0)
     })
 
     // A shared link or persisted storage can carry `state=not-actionable`, a staff-only state the

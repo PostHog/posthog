@@ -2,7 +2,7 @@ import json
 import uuid
 import hashlib
 import calendar
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
 from django.db import DatabaseError, OperationalError, transaction
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -38,8 +38,9 @@ from oauthlib.common import Request as OauthlibRequest
 from oauthlib.oauth2 import InvalidClientError, InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
-from rest_framework.exceptions import AuthenticationFailed, NotFound
+from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -47,6 +48,7 @@ from posthog.api import id_jag
 from posthog.api.oauth.cimd import (
     CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
+    CIMDSigningKeyMissingError,
     CIMDValidationError,
     enqueue_cimd_refresh_if_stale,
     get_or_create_cimd_application,
@@ -77,13 +79,14 @@ from posthog.api.oauth.metadata import (
     protected_resource_metadata,
 )
 from posthog.api.oauth.step_up import resolve_step_up_grant
-from posthog.auth import IDJagAccessTokenAuthentication, SessionAuthentication
+from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
+from posthog.ip_restrictions import enforce_credential_ip_restrictions, enforce_ip_restrictions
 from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
@@ -172,7 +175,9 @@ _OTHER_CLOUD_REGION_HOST = {"US": "https://eu.posthog.com", "EU": "https://us.po
 # InvalidClientIdError doesn't carry the request, so this is how error_response learns the
 # reason. validate_client_id resets it on every call, and error_response only uses it for the
 # same client_id.
-_cimd_resolution_error: ContextVar[tuple[str, str] | None] = ContextVar("cimd_resolution_error", default=None)
+_cimd_resolution_error: ContextVar[tuple[str, CIMDFetchError | CIMDValidationError] | None] = ContextVar(
+    "cimd_resolution_error", default=None
+)
 
 
 def unknown_client_id_description(client_id: str | None, cimd_error: str | None = None) -> str:
@@ -764,7 +769,7 @@ class OAuthValidator(OAuth2Validator):
                 return True
             except (CIMDFetchError, CIMDValidationError) as e:
                 logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e), cause=repr(e.__cause__))
-                _cimd_resolution_error.set((client_id, str(e)))
+                _cimd_resolution_error.set((client_id, e))
                 return False
 
         # Standard UUID lookup
@@ -1446,22 +1451,30 @@ def _pending_connection_for_request(request) -> PendingOAuthConnection | None:
     )
 
 
-def _login_required_with_pending_connection(view):
+def login_required_with_pending_connection(
+    connection_for_request: Callable[[HttpRequest], PendingOAuthConnection | None],
+):
     """`login_required` that also sets the pending-connection cookie on the login redirect,
     so the login, signup and verification screens can name the application."""
-    base_handler = login_required(view)
 
-    @wraps(view)
-    def handler(request, *args, **kwargs):
-        response = base_handler(request, *args, **kwargs)
-        is_login_redirect = response.status_code == 302 and getattr(response, "url", "").startswith(settings.LOGIN_URL)
-        if is_login_redirect:
-            connection = _pending_connection_for_request(request)
-            if connection is not None:
-                set_pending_oauth_connection_cookie(request, response, connection)
-        return response
+    def decorator(view):
+        base_handler = login_required(view)
 
-    return handler
+        @wraps(view)
+        def handler(request, *args, **kwargs):
+            response = base_handler(request, *args, **kwargs)
+            is_login_redirect = response.status_code == 302 and getattr(response, "url", "").startswith(
+                settings.LOGIN_URL
+            )
+            if is_login_redirect:
+                connection = connection_for_request(request)
+                if connection is not None:
+                    set_pending_oauth_connection_cookie(request, response, connection)
+            return response
+
+        return handler
+
+    return decorator
 
 
 def cimd_creation_throttled(request, view, client_id: str) -> bool:
@@ -1621,7 +1634,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             },
         )
 
-    @method_decorator(_login_required_with_pending_connection)
+    @method_decorator(login_required_with_pending_connection(_pending_connection_for_request))
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
         if cimd_creation_throttled(request, self, request.query_params.get("client_id") or ""):
@@ -1742,6 +1755,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
                 credentials["scoped_teams"] = []
+                enforce_credential_ip_restrictions(
+                    request, credentials["scoped_organizations"], credentials["scoped_teams"]
+                )
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1771,6 +1787,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     ):
                         credentials["scoped_teams"] = token.scoped_teams
                         credentials["scoped_organizations"] = token.scoped_organizations
+                        enforce_credential_ip_restrictions(
+                            request, credentials["scoped_organizations"], credentials["scoped_teams"]
+                        )
                         # Conservative fallback: check every org the impersonated user belongs to,
                         # not just the existing token's scope. Auto-approval during impersonation
                         # is a near-dead path (those tokens are short-lived, refresh-less, and
@@ -1922,6 +1941,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            enforce_credential_ip_restrictions(
+                request, credentials["scoped_organizations"], credentials["scoped_teams"]
+            )
+
             if block := _impersonation_ai_processing_block(
                 request,
                 access_level=serializer.validated_data.get("access_level"),
@@ -2026,8 +2049,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             # only ever reaches the JSON body.
             client_id = self.request.query_params.get("client_id")
             failure = _cimd_resolution_error.get()
+            cimd_error = failure[1] if failure and failure[0] == client_id else None
+            if isinstance(cimd_error, CIMDSigningKeyMissingError):
+                return Response(
+                    {"error": "server_error", "error_description": str(cimd_error)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
             oauthlib_error.description = unknown_client_id_description(
-                client_id, cimd_error=failure[1] if failure and failure[0] == client_id else None
+                client_id, cimd_error=str(cimd_error) if cimd_error else None
             )
 
         redirect, error_response = super().error_response(error, **kwargs)
@@ -2233,7 +2262,9 @@ class OAuthTokenView(TokenView):
             )
 
         try:
-            issued_access_token = id_jag.issue_access_token(assertion, request.POST.get("scope"), client.client_id)
+            issued_access_token = id_jag.issue_access_token(
+                assertion, request.POST.get("scope"), client.client_id, request.POST.get("resource")
+            )
         except id_jag.IdJagError as e:
             logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
             self._capture_token_rejected(id_jag.JWT_BEARER_GRANT_TYPE, client.client_id, e.error_code)
@@ -2272,6 +2303,8 @@ class OAuthTokenView(TokenView):
         no client authentication: the OIDC token, checked against a trust policy, is the only credential."""
         grant_type = workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE
         try:
+            # The IP throttles read only `request.META`, which a Django request has too.
+            workload_token_exchange.check_exchange_attempts(cast(Request, request), self)
             issued = workload_token_exchange.exchange_workload_token(
                 subject_token=request.POST.get("subject_token") or "",
                 subject_token_type=request.POST.get("subject_token_type") or "",
@@ -2280,7 +2313,8 @@ class OAuthTokenView(TokenView):
         except workload_token_exchange.WorkloadExchangeError as e:
             logger.info("workload_token_exchange_rejected", error_code=e.code.value)
             self._capture_token_rejected(grant_type, "", e.code.value)
-            return JsonResponse(e.body(), status=e.http_status)
+            headers = {"Retry-After": str(e.retry_after)} if e.retry_after is not None else None
+            return JsonResponse(e.body(), status=e.http_status, headers=headers)
         except (OperationalError, RedisError) as e:
             logger.warning("workload_token_exchange_unavailable", error=str(e))
             return _temporarily_unavailable_response()
@@ -2835,7 +2869,23 @@ class OAuthJwksInfoView(JwksInfoView):
 
 
 class OAuthUserInfoView(UserInfoView):
-    pass
+    def _create_userinfo_response(self, request: HttpRequest) -> HttpResponse:
+        valid, oauth_request = self.get_oauthlib_core().verify_request(request, scopes=["openid"])
+        if valid:
+            authenticator = OAuthAccessTokenAuthentication()
+            authenticator.access_token = oauth_request.access_token
+            try:
+                enforce_ip_restrictions(request, oauth_request.user, authenticator)
+            except PermissionDenied as error:
+                return JsonResponse(
+                    {
+                        "error": "access_denied",
+                        "error_description": str(error.detail),
+                        "code": "ip_not_allowed",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        return cast(HttpResponse, super()._create_userinfo_response(request))
 
 
 class _PublicMetadataView(APIView):

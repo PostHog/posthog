@@ -7,6 +7,70 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AttachmentUploadFileApi {
+    /**
+     * SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it.
+     * @pattern ^[0-9a-f]{64}$
+     */
+    sha256: string
+    /**
+     * Size of the file in bytes.
+     * @minimum 1
+     */
+    size: number
+}
+
+export interface AttachmentUploadsRequestApi {
+    /**
+     * The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.
+     * @minItems 1
+     * @maxItems 10
+     */
+    files: AttachmentUploadFileApi[]
+}
+
+/**
+ * * `present` - Present
+ * * `upload` - Upload
+ */
+export type AttachmentUploadStatusEnumApi =
+    (typeof AttachmentUploadStatusEnumApi)[keyof typeof AttachmentUploadStatusEnumApi]
+
+export const AttachmentUploadStatusEnumApi = {
+    Present: 'present',
+    Upload: 'upload',
+} as const
+
+/**
+ * For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256.
+ */
+export type AttachmentUploadSlotApiHeaders = { [key: string]: string }
+
+export interface AttachmentUploadSlotApi {
+    /** SHA-256 of the file, as sent. */
+    sha256: string
+    /** `present` when PostHog already has the file and nothing needs uploading, `upload` when the file must be uploaded to `url` before the send.
+     *
+     * * `present` - Present
+     * * `upload` - Upload */
+    status: AttachmentUploadStatusEnumApi
+    /** For a `present` file: when PostHog deletes it unless a send uses it before then. */
+    expires_at?: string
+    /** For an `upload` file: where to send the file's bytes, without your PostHog API key. */
+    url?: string
+    /** For an `upload` file: the HTTP method, `PUT`. */
+    method?: string
+    /** For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256. */
+    headers?: AttachmentUploadSlotApiHeaders
+    /** For an `upload` file: when `url` stops accepting the upload. */
+    url_expires_at?: string
+}
+
+export interface AttachmentUploadsResponseApi {
+    /** One answer per requested file, in request order. */
+    files: AttachmentUploadSlotApi[]
+}
+
 /**
  * * `queued` - Queued
  * * `failed` - Failed
@@ -88,6 +152,29 @@ export interface TopicPreferencesApi {
  */
 export type SendEmailApiMessageData = { [key: string]: unknown }
 
+export interface EmailAttachmentApi {
+    /**
+     * SHA-256 of a file uploaded through `POST /api/projects/{project_id}/messaging/attachments/uploads/`, as 64 lowercase hex characters.
+     * @pattern ^[0-9a-f]{64}$
+     */
+    sha256: string
+    /**
+     * File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.
+     * @maxLength 255
+     */
+    filename: string
+    /**
+     * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
+     * @maxLength 78
+     */
+    content_type?: string
+    /**
+     * Content ID that the HTML body references as `cid:<content_id>` to show the file inline, such as `logo`. Without `<` or `>`.
+     * @maxLength 78
+     */
+    content_id?: string
+}
+
 export interface SendEmailApi {
     /** Email address of the recipient. */
     to: string
@@ -96,8 +183,8 @@ export interface SendEmailApi {
     /** ID of the email template to send. The template must be made transactional first. Send either `template_id` or `template_key`. */
     template_id?: string
     /**
-     * Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.
-     * @maxLength 400
+     * Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most 256 characters. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.
+     * @maxLength 256
      * @pattern ^[a-zA-Z0-9_-]+$
      */
     template_key?: string
@@ -118,6 +205,16 @@ export interface SendEmailApi {
      * @maxItems 10
      */
     reply_to?: string[]
+    /** Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+    cc?: string | string[] | null
+    /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+    bcc?: string | string[] | null
+    /**
+     * Files attached to the email your code rendered: up to 10, each uploaded first through `POST /api/projects/{project_id}/messaging/attachments/uploads/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
+     * @maxItems 10
+     * @nullable
+     */
+    attachments?: EmailAttachmentApi[] | null
     /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
     capture_engagement?: boolean
     /**
@@ -615,6 +712,35 @@ export interface MessageSuppressionApi {
     readonly updated_at: string
 }
 
+export interface BulkRemoveSuppressionsRequestApi {
+    /**
+     * The email addresses to remove, at most 100 per request.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 512
+     */
+    identifiers: string[]
+    /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+    confirm_complaints?: boolean
+}
+
+export interface BulkRemoveSuppressionsResponseApi {
+    /** Addresses removed from the suppression list. */
+    removed: string[]
+    /** Addresses that were not on the suppression list. */
+    not_found: string[]
+}
+
+export interface RemoveSuppressionRequestApi {
+    /**
+     * The email address to remove.
+     * @maxLength 512
+     */
+    identifier: string
+    /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+    confirm_complaints?: boolean
+}
+
 /**
  * OpenAPI shape for the paginated suppressions response. Declared so drf-spectacular emits
  * the {count, next, previous, results} envelope on the generated client, rather than a bare
@@ -965,6 +1091,376 @@ export interface SendTransactionalEmailApi {
     identifiers?: TransactionalEmailIdentifiersApi
 }
 
+/**
+ * * `manual` - Manual
+ * * `detected` - Detected from GitHub
+ */
+export type CodeEmailSourceOriginEnumApi =
+    (typeof CodeEmailSourceOriginEnumApi)[keyof typeof CodeEmailSourceOriginEnumApi]
+
+export const CodeEmailSourceOriginEnumApi = {
+    Manual: 'manual',
+    Detected: 'detected',
+} as const
+
+export interface CodeEmailApi {
+    /** The code email's ID. */
+    id: string
+    /** The `template_key` your code sends under. Each key is one email. */
+    key: string
+    /** The hidden workflow that sends this key's emails. */
+    hog_flow_id: string
+    /** What the email is for. Empty when nobody added one. */
+    description: string
+    /** Tags for organizing transactional emails. */
+    tags: string[]
+    /** True when PostHog keeps no copy of each sent email's body and doesn't track link clicks. */
+    sensitive: boolean
+    /**
+     * A link to the file in your repository that sends this email. Null when unlinked.
+     * @nullable
+     */
+    source_url: string | null
+    /** How `source_url` was set: `manual` when a person linked or unlinked it, `detected` when PostHog found the file in a connected GitHub repository. Setting `source_url` makes it `manual`. Null when no link was ever set or cleared.
+     *
+     * * `manual` - Manual
+     * * `detected` - Detected from GitHub */
+    readonly source_origin: CodeEmailSourceOriginEnumApi | null
+    /** When your code first sent under this key. */
+    created_at: string
+    /**
+     * Your access level to this email's workflow, such as `viewer` or `editor`. Editing the description, the tags or the source file needs `editor`.
+     * @nullable
+     */
+    user_access_level: string | null
+}
+
+export interface PatchedCodeEmailUpdateApi {
+    /**
+     * What the email is for.
+     * @maxLength 1000
+     */
+    description?: string
+    /**
+     * Tags for organizing transactional emails. Replaces the current tags. Send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
+    /** A link to the file in your repository that sends this email, such as a GitHub or GitLab file link. Must start with http:// or https://. Send null or an empty string to unlink it. */
+    source_url?: string | null
+}
+
+export interface CodeEmailSourceCandidateApi {
+    /** The repository that holds the file, as `owner/name`. */
+    repository: string
+    /** The file's path in the repository. */
+    path: string
+    /** The line that holds the key: the first one next to an email send call, otherwise the first match. */
+    line: number
+    /** A link to that line on the repository's default branch. Send it as `source_url` to link the file. */
+    url: string
+    /** True when the key is within five lines of an email send call, so the file most likely sends it. */
+    call_site: boolean
+}
+
+export interface CodeEmailSourceCandidatesApi {
+    /** One entry per file in the project's connected GitHub repositories that holds the key exactly, files with a send call first. Test, fixture and build files are left out. Empty when nothing matched or the project has no GitHub integration. */
+    candidates: CodeEmailSourceCandidateApi[]
+    /** False when part of the search did not finish, such as a repository GitHub could not search or a file it could not read, so a file may be missing from `candidates`. */
+    complete: boolean
+}
+
+export interface TransactionalEmailLogEntryApi {
+    /** The `message_id` that the send returned. */
+    message_id: string
+    /** When the send was queued. */
+    created_at: string
+    /** The email's delivery status. `queued` waits to go out, `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` and `complained` came back later, and `failed` was not sent.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailDeliveryStatusEnumApi
+    /** When the email reached its delivery status. */
+    status_at: string
+    /**
+     * Why a failed email was not sent, or the bounce type. Null otherwise.
+     * @nullable
+     */
+    reason: string | null
+    /** The address the email was sent to. */
+    recipient: string
+    /** The workflow behind the transactional email. */
+    workflow_id: string
+    /**
+     * The transactional email template. Null when it no longer exists.
+     * @nullable
+     */
+    template_id: string | null
+    /** The template's name. Empty when it was deleted. */
+    template_name: string
+    /** The domain the email was sent from. Empty before it was sent. */
+    sending_domain: string
+    /** Whether the recipient opened the email. */
+    opened: boolean
+    /** Whether the recipient clicked a link in the email. */
+    clicked: boolean
+}
+
+export interface TransactionalEmailLogListApi {
+    /** Sends, newest first. */
+    results: TransactionalEmailLogEntryApi[]
+    /** Whether another page follows. */
+    has_more: boolean
+}
+
+/**
+ * * `queued` - Queued
+ * * `failed` - Failed
+ * * `sent` - Sent
+ * * `delivered` - Delivered
+ * * `bounced` - Bounced
+ * * `complained` - Complained
+ * * `opened` - Opened
+ * * `clicked` - Clicked
+ */
+export type EmailLogEventKindEnumApi = (typeof EmailLogEventKindEnumApi)[keyof typeof EmailLogEventKindEnumApi]
+
+export const EmailLogEventKindEnumApi = {
+    Queued: 'queued',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+    Opened: 'opened',
+    Clicked: 'clicked',
+} as const
+
+export interface TransactionalEmailLogEventApi {
+    /** What happened. The delivery statuses, plus `opened` and `clicked` for what the recipient did.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     * * `opened` - Opened
+     * * `clicked` - Clicked */
+    kind: EmailLogEventKindEnumApi
+    /** When it happened. */
+    at: string
+    /**
+     * Why a send failed, or the bounce type. Null otherwise.
+     * @nullable
+     */
+    reason: string | null
+}
+
+export interface TransactionalEmailLogDetailApi {
+    /** The `message_id` that the send returned. */
+    message_id: string
+    /** When the send was queued. */
+    created_at: string
+    /** The email's delivery status. `queued` waits to go out, `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` and `complained` came back later, and `failed` was not sent.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailDeliveryStatusEnumApi
+    /** When the email reached its delivery status. */
+    status_at: string
+    /**
+     * Why a failed email was not sent, or the bounce type. Null otherwise.
+     * @nullable
+     */
+    reason: string | null
+    /** The address the email was sent to. */
+    recipient: string
+    /** The workflow behind the transactional email. */
+    workflow_id: string
+    /**
+     * The transactional email template. Null when it no longer exists.
+     * @nullable
+     */
+    template_id: string | null
+    /** The template's name. Empty when it was deleted. */
+    template_name: string
+    /** The domain the email was sent from. Empty before it was sent. */
+    sending_domain: string
+    /** Whether the recipient opened the email. */
+    opened: boolean
+    /** Whether the recipient clicked a link in the email. */
+    clicked: boolean
+    /** Everything that happened, oldest first. */
+    timeline: TransactionalEmailLogEventApi[]
+    /** The subject the email went out with. Empty when it was never sent. */
+    subject: string
+    /** The distinct ID the send named. Empty when it named none. */
+    distinct_id: string
+    /** The workflow step that sent the email, which the rendered email is stored under. Empty when no rendered email was stored. */
+    action_id: string
+    /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
+    sensitive: boolean
+}
+
+export interface TransactionalEmailActivityEventApi {
+    /** The event's UUID. */
+    uuid: string
+    /** The event name, such as `$pageview` or a custom event. */
+    event: string
+    /** When the event happened. */
+    timestamp: string
+    /**
+     * The page the person was on. Null when not set.
+     * @nullable
+     */
+    current_url: string | null
+    /**
+     * The path of that page, such as `/pricing`.
+     * @nullable
+     */
+    pathname: string | null
+    /**
+     * The session the event belongs to. Use it to find the session recording. Null for events captured without a session, such as server-side events.
+     * @nullable
+     */
+    session_id: string | null
+    /**
+     * What an autocaptured event did, such as `click` or `submit`. Null otherwise.
+     * @nullable
+     */
+    event_type: string | null
+    /** The element an autocaptured event happened on, with its parents. Empty for other events. */
+    elements_chain: string
+}
+
+export interface TransactionalEmailActivitySessionApi {
+    /** The session ID, the same one session recordings use. */
+    session_id: string
+    /** The first event of this session in the window. */
+    first_event_at: string
+    /** The last event of this session in the window. */
+    last_event_at: string
+    /** How many of the returned events belong to this session. */
+    event_count: number
+    /** True when none of the session's events came before the send, so the person started it after the email. */
+    started_after_send: boolean
+}
+
+export interface TransactionalEmailActivityApi {
+    /** The distinct ID the send named. Empty when it named none, and then there are no events. */
+    distinct_id: string
+    /** When the email went to the provider, or when it was queued if it was never sent. */
+    sent_at: string
+    /** The person's events in the week before the send, oldest first. */
+    before: TransactionalEmailActivityEventApi[]
+    /** The person's events in the week after the send, oldest first. */
+    after: TransactionalEmailActivityEventApi[]
+    /** True when older events in the window were left out. */
+    has_more_before: boolean
+    /** True when later events in the window were left out. */
+    has_more_after: boolean
+    /** The sessions the returned events belong to, in the order they first appear. */
+    sessions: TransactionalEmailActivitySessionApi[]
+}
+
+export interface TransactionalEmailResultsApi {
+    /** People the email was sent to in the date range. */
+    recipients: number
+    /** Of those, people who did the event within the window. */
+    converted: number
+    /** The sum of the revenue property on those events. */
+    revenue: number
+    /**
+     * Median hours from the first send to the first conversion. Null when none converted.
+     * @nullable
+     */
+    median_hours_to_convert: number | null
+}
+
+export interface TransactionalEmailStatsRowApi {
+    /** The template ID or the sending domain. */
+    key: string
+    /** The template name or the sending domain. Empty for a deleted template. */
+    label: string
+    /** Emails that reached the email provider. */
+    sent: number
+    /** Emails the recipient's mail server accepted. */
+    delivered: number
+    /** Emails that bounced. */
+    bounced: number
+    /** Emails the recipient marked as spam. */
+    complained: number
+    /** Emails the recipient opened. */
+    opened: number
+    /** Emails where the recipient clicked a link. */
+    clicked: number
+    /** Emails that were not sent. */
+    failed: number
+}
+
+export interface TransactionalEmailStatsApi {
+    /** One row per group, busiest first. */
+    results: TransactionalEmailStatsRowApi[]
+}
+
+/**
+ * * `minute` - Minute
+ * * `hour` - Hour
+ * * `day` - Day
+ */
+export type EmailStatsIntervalEnumApi = (typeof EmailStatsIntervalEnumApi)[keyof typeof EmailStatsIntervalEnumApi]
+
+export const EmailStatsIntervalEnumApi = {
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+} as const
+
+export interface TransactionalEmailStatsCountsApi {
+    /** Emails that reached the email provider. */
+    sent: number
+    /** Emails the recipient's mail server accepted. */
+    delivered: number
+    /** Emails that bounced. */
+    bounced: number
+    /** Emails the recipient marked as spam. */
+    complained: number
+    /** Emails that were not sent. */
+    failed: number
+}
+
+export interface TransactionalEmailStatsBucketApi {
+    /** When this time bucket starts. */
+    start: string
+    /** Sends queued during this bucket. */
+    counts: TransactionalEmailStatsCountsApi
+}
+
+export interface TransactionalEmailStatsOverTimeApi {
+    /** The width of each bucket. A `minute` bucket spans five minutes.
+     *
+     * * `minute` - Minute
+     * * `hour` - Hour
+     * * `day` - Day */
+    interval: EmailStatsIntervalEnumApi
+    /** The project timezone that the buckets start in. */
+    timezone: string
+    /** Every bucket in the period, oldest first. */
+    buckets: TransactionalEmailStatsBucketApi[]
+    /** Totals for the same length of time just before the period. Null when retention no longer covers it. */
+    previous: TransactionalEmailStatsCountsApi | null
+}
+
 export type MessagingCategoriesListParams = {
     /**
      * Number of results to return per page.
@@ -1016,4 +1512,126 @@ export type MessagingTemplatesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type TransactionalEmailLogListParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Sends to skip.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * A `message_id` for an exact match, or part of the recipient's email address.
+     */
+    search?: string
+    /**
+     * Only sends in this delivery status.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     * @minLength 1
+     */
+    status?: TransactionalEmailLogListStatus
+    /**
+     * Only sends of the transactional email backed by this workflow.
+     */
+    workflow_id?: string
+}
+
+export type TransactionalEmailLogListStatus =
+    (typeof TransactionalEmailLogListStatus)[keyof typeof TransactionalEmailLogListStatus]
+
+export const TransactionalEmailLogListStatus = {
+    Queued: 'queued',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+} as const
+
+export type TransactionalEmailLogResultsRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * The event that counts as a conversion, such as `signed_up`.
+     * @minLength 1
+     */
+    event: string
+    /**
+     * An event property holding a revenue amount to add up.
+     */
+    revenue_property?: string
+    /**
+     * How many days after the first send the event still counts.
+     * @minimum 1
+     * @maximum 30
+     */
+    window_days?: number
+    /**
+     * The workflow behind the transactional email.
+     */
+    workflow_id: string
+}
+
+export type TransactionalEmailLogStatsRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Count per template or per sending domain.
+     *
+     * * `template` - Template
+     * * `sending_domain` - Sending domain
+     * @minLength 1
+     */
+    group_by?: TransactionalEmailLogStatsRetrieveGroupBy
+}
+
+export type TransactionalEmailLogStatsRetrieveGroupBy =
+    (typeof TransactionalEmailLogStatsRetrieveGroupBy)[keyof typeof TransactionalEmailLogStatsRetrieveGroupBy]
+
+export const TransactionalEmailLogStatsRetrieveGroupBy = {
+    Template: 'template',
+    SendingDomain: 'sending_domain',
+} as const
+
+export type TransactionalEmailLogStatsOverTimeRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
 }

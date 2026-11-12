@@ -10,7 +10,6 @@ import { DashboardSettingsChangesTooltip } from './DashboardSettingsChangesToolt
 export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
     const {
         dashboardSettingsState,
-        layoutEditMode,
         canEditDashboard,
         dashboardSettingsChanges,
         dashboardFiltersSaving,
@@ -25,12 +24,11 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
 
     const changedCount = dashboardSettingsChanges.length
     const changeSummary = `${changedCount} unsaved ${changedCount === 1 ? 'filter' : 'filters'}`
-    const discardDataAttr = layoutEditMode ? 'dashboard-discard-filters' : 'dashboard-edit-mode-discard'
     const actions = [
         {
             key: 'discard',
             label: 'Discard',
-            dataAttr: discardDataAttr,
+            dataAttr: 'dashboard-edit-mode-discard',
             disabledReason: dashboardFiltersSaving ? 'Dashboard filters are saving' : undefined,
             tooltip: 'Restore the settings saved to this dashboard.',
             onClick: discardDashboardChanges,

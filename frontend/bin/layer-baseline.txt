@@ -39,12 +39,6 @@ frontend/src/layout/scenes/components/SceneTitlePanelButton.tsx -> frontend/src/
 frontend/src/layout/scenes/components/SceneTitleSection.tsx -> frontend/src/scenes/max/components/AnimatedSparkles.tsx
 frontend/src/layout/today/TodayAiPanel.tsx -> frontend/src/scenes/max/components/PhaiSidePanelChat.tsx
 frontend/src/layout/today/TodayAiPanel.tsx -> frontend/src/scenes/max/maxLogic.tsx
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/AnalyticsPinButton.tsx
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/AnalyticsSpaceGlyph.tsx
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/AnalyticsTypeIcon.tsx
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/analyticsListLogic.ts
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/analyticsPinnedLogic.ts
-frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/analyticsUtils.ts
 frontend/src/layout/today/TodayContextPanelMenu.tsx -> frontend/src/scenes/max/components/PhaiViewSwitchMenuItem.tsx
 frontend/src/layout/today/TodayContextPanelMenu.tsx -> products/posthog_ai/frontend/api/menus.ts
 frontend/src/layout/today/TodayNewAnalyticsButton.tsx -> frontend/src/scenes/analytics/NewAnalyticsMenu.tsx
@@ -65,8 +59,6 @@ frontend/src/layout/today/TodaySupportPanel.tsx -> products/conversations/fronte
 frontend/src/layout/today/TodaySupportPanel.tsx -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
 frontend/src/layout/today/todayAiChatLogic.ts -> frontend/src/scenes/max/mainFocusUrl.ts
 frontend/src/layout/today/todayAiChatLogic.ts -> frontend/src/scenes/max/maxLogic.tsx
-frontend/src/layout/today/todayAnalyticsLogic.ts -> frontend/src/scenes/analytics/analyticsPinnedLogic.ts
-frontend/src/layout/today/todayAnalyticsLogic.ts -> frontend/src/scenes/analytics/analyticsUtils.ts
 frontend/src/layout/today/todayContextPanelLogic.ts -> frontend/src/scenes/notebooks/NotebookPanel/notebookPanelLogic.ts
 frontend/src/layout/today/todayContextPanelLogic.ts -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
 frontend/src/layout/today/todayObjectGlanceLogic.ts -> frontend/src/scenes/library/libraryUtils.ts
@@ -310,9 +302,6 @@ frontend/src/lib/utils/eventUsageLogic.ts -> products/experiments/frontend/exper
 frontend/src/lib/utils/events.ts -> frontend/src/taxonomy/taxonomy.tsx
 frontend/src/loadPostHogJS.tsx -> products/webmcp/frontend/webmcpToolError.ts
 frontend/src/models/cohortsModel.ts -> frontend/src/exporter/exporterViewLogic.ts
-frontend/src/models/cohortsModel.ts -> frontend/src/scenes/cohorts/CohortFilters/constants.tsx
-frontend/src/models/cohortsModel.ts -> frontend/src/scenes/cohorts/CohortFilters/types.ts
-frontend/src/models/cohortsModel.ts -> products/persons/frontend/logics/personsLogic.tsx
 frontend/src/models/insightsModel.tsx -> frontend/src/scenes/insights/utils/api.ts
 frontend/src/models/notebooksModel.ts -> frontend/src/scenes/analytics/analyticsBackLink.ts
 frontend/src/models/notebooksModel.ts -> frontend/src/scenes/notebooks/NotebookPanel/notebookPanelLogic.ts
@@ -397,7 +386,6 @@ frontend/src/queries/nodes/HogQLQuery/HogQLQueryEditor.tsx -> frontend/src/scene
 frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic.tsx
 frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/scenes/data-warehouse/saved_queries/savedQueryNameValidation.ts
 frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic.ts
-frontend/src/queries/nodes/HogQLX/render.tsx -> products/mcp_analytics/frontend/components/BrandMarkLabel.tsx
 frontend/src/queries/nodes/InsightViz/ComputationTimeWithRefresh.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
 frontend/src/queries/nodes/InsightViz/ComputationTimeWithRefresh.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/InsightViz/FlagCallsRetentionNotice.tsx -> frontend/src/scenes/feature-flags/flagEvaluationsTable.ts
@@ -407,7 +395,6 @@ frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> frontend/src/scenes/insi
 frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> products/product_analytics/frontend/insights/editor/EditorFilters.tsx
-frontend/src/queries/nodes/InsightViz/InsightViz.tsx -> products/product_analytics/frontend/insights/shared/selectorMatchChange/SelectorMatchChangeNotice.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/dashboard/dashboardLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils.ts

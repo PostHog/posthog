@@ -1,15 +1,12 @@
 import { IconFilter } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import { MetricCard } from '@posthog/quill-charts'
+import { Metric, MetricSubtitle, MetricTitle, MetricValue } from '@posthog/quill-components/metric'
 
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 export type StatTone = 'default' | 'danger' | 'warning' | 'success'
 
-/** A compact right-now count: number over a small label, colored only when it's a pressure. Optionally
- *  doubles as a filter toggle (onClick + active) — the compact sibling of StatCard, used by the PR
- *  list's stat strip. */
 export function HeroStat({
     label,
     value,
@@ -23,12 +20,10 @@ export function HeroStat({
     label: string
     value: number | null | undefined
     tone?: StatTone
-    /** Horizontal alignment of the number/label stack; the PR list's left strip uses 'start'. */
     align?: 'start' | 'end'
     loading?: boolean
     onClick?: () => void
     active?: boolean
-    /** What clicking filters the list to — surfaces in the tooltip. */
     filterHint?: string
 }): JSX.Element {
     const pressing = value != null && value > 0
@@ -76,7 +71,6 @@ export function HeroStat({
     )
 }
 
-/** A headline stat that doubles as a filter toggle for the table below it. */
 export function StatCard({
     label,
     value,
@@ -88,13 +82,11 @@ export function StatCard({
 }: {
     label: string
     value: string
-    /** Visible definition — only when the label alone doesn't explain the count. */
     caption?: string
     loading: boolean
-    /** Like HeroStat: without it the card is a plain stat, not a filter toggle. */
+    /** Without it the card is a plain stat, not a filter toggle. */
     onClick?: () => void
     active?: boolean
-    /** What clicking filters the list to — surfaces in the tooltip and hover icon. */
     filterHint?: string
 }): JSX.Element {
     const body = loading ? (
@@ -103,14 +95,11 @@ export function StatCard({
             <LemonSkeleton className="h-9 w-20" />
         </>
     ) : (
-        <MetricCard
-            title={<span className={active ? 'text-accent' : undefined}>{label}</span>}
-            // Pre-formatted display string ('—' when no data yet) rides through the formatter.
-            value={0}
-            formatValue={() => value}
-            change={null}
-            subtitle={caption}
-        />
+        <Metric value={0} subtitle={caption} className="px-0">
+            <MetricTitle className={active ? 'text-accent' : undefined}>{label}</MetricTitle>
+            <MetricValue className="mt-2">{value}</MetricValue>
+            <MetricSubtitle className="mt-1" />
+        </Metric>
     )
     if (!onClick) {
         return (

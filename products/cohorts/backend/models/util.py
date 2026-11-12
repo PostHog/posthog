@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import time
 import uuid
 import dataclasses
 from collections.abc import Callable, Sequence
@@ -74,6 +75,7 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 # Cohort query timeout settings
 COHORT_QUERY_TIMEOUT_SECONDS = 1200  # Max execution time for ClickHouse cohort calculation queries
+STATIC_COHORT_READ_BACK_WAITS_SECONDS = (0.25, 0.5, 1, 2, 4, 8)
 COHORT_QUERY_TIMEOUT_SETTINGS = {
     "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
     "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
@@ -186,6 +188,10 @@ COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to 
 COHORT_STATS_CLOCK_SKEW_ALLOWANCE = timedelta(minutes=5)
 
 logger = structlog.get_logger(__name__)
+
+
+class StaticCohortReadBackIncomplete(Exception):
+    pass
 
 
 def _normalize_legacy_operators(properties: dict) -> None:
@@ -1365,9 +1371,10 @@ def insert_actors_into_cohort_by_query(
     context: HogQLContext,
     *,
     team_id: int,
-):
+) -> int:
+    """Return how many rows the insert wrote."""
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-    sync_execute(
+    written = sync_execute(
         INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
         {
             "cohort_id": cohort.pk,
@@ -1387,14 +1394,16 @@ def insert_actors_into_cohort_by_query(
         ch_user=ClickHouseUser.COHORTS,
         team_id=team_id,
     )
+    # sync_execute returns the written row count for an insert that wrote rows, and an empty result otherwise.
+    return written if isinstance(written, int) else 0
 
 
-def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
+def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team) -> int:
     # SECURITY-SENSITIVE: background population from the cohort's saved source query, with no
     # acting user - the query was run by its author when they created the cohort from it.
     context = HogQLContext(enable_select_queries=True, team_id=team.id, bypass_warehouse_access_control=True)
     query = print_cohort_hogql_query(cohort, context, team=team)
-    insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
+    return insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
 
 
 def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[str, dict[str, Any], HogQLContext]:
@@ -1409,34 +1418,69 @@ def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[st
     return f"SELECT id AS actor_id FROM ({cohort_query})", {}, hogql_context
 
 
-def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team):
+def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team) -> int:
     query, params, context = build_static_cohort_filters_query(cohort, team=team)
-    insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
+    return insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
 
 
-def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int) -> None:
+def insert_cohort_people_into_pg(
+    cohort: Cohort, *, team_id: int, min_rows: int = 0, written_since: str | None = None
+) -> None:
+    """Copy the cohort's ClickHouse rows to Postgres.
+
+    `min_rows` is how many rows the caller just wrote to ClickHouse. Each query can land on a different replica, and
+    a replica that has not received the write yet reads as a smaller cohort, so the copy repeats until it has seen them.
+    `written_since` is a `_timestamp` from before that write. Only rows at or after it count, because a cohort's
+    existing members can otherwise reach `min_rows` on a replica that has none of the new rows.
+    """
+    try:
+        for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
+            new_rows_read = _copy_static_cohort_rows_to_pg(cohort, team_id=team_id, written_since=written_since)
+            if new_rows_read >= min_rows:
+                return
+            if wait_seconds is None:
+                raise StaticCohortReadBackIncomplete(
+                    f"Read {new_rows_read} of {min_rows} rows written to static cohort {cohort.pk}"
+                )
+            time.sleep(wait_seconds)
+    finally:
+        cohort._refresh_count(team_id=team_id)
+
+
+def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_since: str | None) -> int:
+    """Return how many of the copied rows have a `_timestamp` at or after `written_since`."""
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
 
     CH_PAGE_SIZE = 10_000
+    new_rows_read = 0
 
     # Use cursor-based pagination to stream from ClickHouse in pages instead of
     # loading all rows into memory at once. Cursor-based avoids the O(n²) cost
     # of LIMIT/OFFSET where later pages must scan and discard all preceding rows.
     def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
+        nonlocal new_rows_read
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
-            f"SELECT DISTINCT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
+            f"SELECT person_id, max(_timestamp) >= %(written_since)s FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
             {
                 "cohort_id": cohort.pk,
                 "team_id": team_id,
                 "cursor": cursor,
                 "limit": batch_size,
+                "written_since": written_since or "1970-01-01 00:00:00",
             },
+            # The table is sorted by person_id within a cohort, so this streams the GROUP BY instead of
+            # holding every remaining person_id in a hash table.
+            settings={"optimize_aggregation_in_order": 1},
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.COHORTS,
+            team_id=team_id,
         )
         if not rows:
             return [], cursor
+        new_rows_read += sum(1 for _, is_written_since in rows if is_written_since)
         items = [str(r[0]) for r in rows]
         return items, items[-1]
 
@@ -1444,10 +1488,12 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int) -> None:
         fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
     )
     # raise_on_error hands a partial sync to the caller instead of reporting success, which is
-    # what lets the population tasks retry it.
+    # what lets the population tasks retry it. The caller also owns the cohort's state: a pass that
+    # read too few rows must not mark it finished while another pass is coming.
     cohort._insert_users_list_with_batching(
-        batch_iterator, insert_in_clickhouse=False, team_id=team_id, raise_on_error=True
+        batch_iterator, insert_in_clickhouse=False, team_id=team_id, raise_on_error=True, save_state=False
     )
+    return new_rows_read
 
 
 # ── Cohort membership operations (Postgres / personhog) ───────────────
