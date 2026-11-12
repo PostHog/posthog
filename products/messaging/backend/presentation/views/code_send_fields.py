@@ -13,6 +13,7 @@ from posthog.dataclasses import frozen
 from products.messaging.backend.facade.transactional_email import (
     PIPELINE_ADDRESS_PATTERN,
     AttachmentNotUploaded,
+    EmailTracking,
     MessageTooLarge,
 )
 from products.messaging.backend.presentation.views.refusals import ExplainedRefusal
@@ -81,6 +82,61 @@ class AddressListField(serializers.ListField):
 
     def to_internal_value(self, data: Any) -> list[str]:
         return super().to_internal_value([data] if isinstance(data, str) else data)
+
+
+TRACKING_KINDS = ("opens", "clicks", "engagement")
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "boolean"},
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "opens": {
+                        "type": "boolean",
+                        "description": "Whether PostHog adds its open pixel to the email. Defaults to true.",
+                    },
+                    "clicks": {
+                        "type": "boolean",
+                        "description": "Whether the email's links go through a redirect that counts clicks. "
+                        "Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with "
+                        "`data-ph-no-track` keeps its own address.",
+                    },
+                    "engagement": {
+                        "type": "boolean",
+                        "description": "Whether the email's engagement events (sent, delivered, opened, clicked, "
+                        "bounced) are captured as analytics events of the recipient. Defaults to true.",
+                    },
+                },
+            },
+        ]
+    }
+)
+class EmailTrackingField(serializers.Field):
+    default_error_messages = {
+        "unknown_kind": "`tracking` takes `opens`, `clicks` and `engagement`.",
+        "clicks_need_opens": "Click tracking needs open tracking. Turn on `opens`, or turn off `clicks`.",
+    }
+
+    def to_internal_value(self, data: Any) -> EmailTracking:
+        if isinstance(data, Mapping):
+            if any(kind not in TRACKING_KINDS for kind in data):
+                self.fail("unknown_kind")
+            tracking = EmailTracking(
+                **{kind: serializers.BooleanField().to_internal_value(on) for kind, on in data.items()}
+            )
+        else:
+            on = serializers.BooleanField().to_internal_value(data)
+            tracking = EmailTracking(opens=on, clicks=on, engagement=on)
+        if tracking.clicks and not tracking.opens:
+            self.fail("clicks_need_opens")
+        return tracking
+
+    def to_representation(self, value: EmailTracking) -> dict[str, bool | None]:
+        return {"opens": value.opens, "clicks": value.clicks, "engagement": value.engagement}
 
 
 class EmailAttachmentSerializer(serializers.Serializer):

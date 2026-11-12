@@ -249,7 +249,7 @@ Churnkey,api_key app_id,,,,,churnkey
 Cimis,app_key,,,targets unit_of_measure,,cimis
 Cin7,account_id application_key,,,,,cin7
 CircleCI,api_token org_slug,,,,,circle-ci
-CircleSo,,,,,,circle-so
+CircleSo,api_token,,,,,circle-so
 Circleback,api_key,,,,,circleback
 CircleciInsights,api_token project_slugs,,,reporting_window branch_scope,,circleci-insights
 CiscoDuo,api_hostname integration_key secret_key,,,,,cisco-duo
@@ -970,7 +970,7 @@ Plane,api_key workspace_slug base_url,,,,,plane
 PlanetScaleMySQL,host port database user password,,,schema,,planetscale-mysql
 PlanetScalePostgres,connection_string host port database user password verify_server_certificate ca_certificate client_certificate client_key,,,schema,,planetscale-postgres
 Planhat,api_key,,,,,planhat
-PlanningCenter,,,,,,planning-center
+PlanningCenter,application_id secret,,,,,planning-center
 PlatformSh,api_token platform,,,,,platform-sh
 Plausible,api_key site_id host,,,custom_property_keys,,plausible
 Plivo,auth_id auth_token,,,,,plivo
