@@ -7,7 +7,7 @@ import {
     type QueryToolInfo,
     type ToolInfo,
 } from '@/lib/instructions'
-import { EMPTY_METRIC_CATALOG_SECTION, metricCatalogPromptVars, resolveMetricCatalogMode } from '@/lib/metric-catalog'
+import { metricCatalogPromptVars, resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { formatPrompt } from '@/lib/utils'
 import ACTIVITY_HISTORY_SQL from '@/templates/sections/activity-history-sql.md'
 import ACTIVITY_HISTORY from '@/templates/sections/activity-history.md'
@@ -35,6 +35,7 @@ import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
 import INBOX_FIRST from '@/templates/sections/inbox-first.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
+import METRIC_DISCOVERY_EMPTY from '@/templates/sections/metric-discovery-empty.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
@@ -178,7 +179,7 @@ export class InstructionsFormatter {
     }
 
     private metricDiscoverySections(ctx: InstructionsContext, rule: string): string[] {
-        return [resolveMetricCatalogMode(ctx.metricCatalog) === 'empty' ? EMPTY_METRIC_CATALOG_SECTION : rule]
+        return [resolveMetricCatalogMode(ctx.metricCatalog) === 'empty' ? METRIC_DISCOVERY_EMPTY : rule]
     }
 
     private knowledgeFirstSections(ctx: InstructionsContext): string[] {

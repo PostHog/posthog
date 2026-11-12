@@ -21,14 +21,6 @@ Read the selected tool's description and schema when they are not already in con
 
 #### Choosing the right query tool
 
-{catalog_routing_note}
-
-For tasks that need these native analyses:
-
-- {metric_routing}
-- "How frequently / how many days per week / power users" -> `query-stickiness`
-- "What do users do after X / before X / navigation flow" -> `query-paths`
-- "New vs returning vs dormant / user composition" -> `query-lifecycle`
-- "List LLM traces with cost, token, or error metrics" -> `query-llm-traces-list`
+{metric_routing}
 
 Each `query-*` tool's own description carries its full feature set, use cases, and schema documentation — read it (e.g. `info query-trends`) before constructing the query.

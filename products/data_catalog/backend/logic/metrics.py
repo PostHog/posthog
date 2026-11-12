@@ -697,6 +697,9 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
 def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
     """Live metrics whose definitions do not disclose a warehouse table the caller cannot read."""
     metrics = metrics_for_team(team)
+    # The denied-table read builds the caller's whole HogQL schema, so skip it when nothing needs filtering.
+    if not metrics.exists():
+        return metrics
     denied_tables = _denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics

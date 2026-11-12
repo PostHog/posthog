@@ -331,6 +331,11 @@ describe('InstructionsFormatter', () => {
             expect(result.includes('This project has no saved metrics, so skip `metric-list`.')).toBe(empty)
             const offersToSave = surface !== 'Claude exec command reference' || empty
             expect(result.includes('Offer to save a reusable settled measure as a proposed metric')).toBe(offersToSave)
+            if (empty) {
+                expect(result).toContain('Run `learn analytics` before writing SQL or joins')
+                expect(result).toContain('"governed catalog consulted: no match"')
+                expect(result).toContain('If you save one in this session, use `metric-list` from then on.')
+            }
         })
     })
 

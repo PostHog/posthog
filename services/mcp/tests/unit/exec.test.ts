@@ -1817,13 +1817,23 @@ describe('exec tool', () => {
             expect(result.hint).toContain('metric-list')
         })
 
-        it('keeps the metric catalog hint when a data-domain tool is a top match', async () => {
-            const exec = createExec([makeMockTool({ name: 'billing-usage', title: 'Billing usage' }), ...catalogTools])
+        it.each([
+            { name: 'keeps', metricCatalogLookup: undefined, hinted: true },
+            { name: 'drops', metricCatalogLookup: false, hinted: false },
+        ])(
+            '$name the metric catalog hint for a top data-domain match (metricCatalogLookup: $metricCatalogLookup)',
+            async ({ metricCatalogLookup, hinted }) => {
+                const exec = createExec(
+                    [makeMockTool({ name: 'billing-usage', title: 'Billing usage' }), ...catalogTools],
+                    undefined,
+                    { metricCatalogLookup }
+                )
 
-            const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
+                const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
 
-            expect(result.hint).toContain('metric-list')
-        })
+                expect(result.hint?.includes('metric-list') ?? false).toBe(hinted)
+            }
+        )
 
         it('rejects an overly long search pattern before compiling the regex', async () => {
             const exec = createExec([makeMockTool()])

@@ -248,6 +248,9 @@ class TestMetricAPI(APIBaseTest):
         database = MagicMock()
         database._denied_tables = {"restricted_source"}
         create_database.return_value = database
+        assert self.client.get(self.url).json()["results"] == []
+        create_database.assert_not_called()
+
         allowed = self.client.post(self.url, {"name": "allowed", "description": "d"}, format="json").json()
         hidden = self.client.post(self.url, {"name": "hidden", "description": "d"}, format="json").json()
         Metric.objects.for_team(self.team.id).filter(pk=allowed["id"]).update(referenced_table_names=["safe_source"])
