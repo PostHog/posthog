@@ -47,8 +47,9 @@ export function statusOf({ minOffered, units, down, convergence, invariants, tim
             statusReason: `the generator offered ${units.offeredUnits} of ${units.targetUnits} units, under minOffered ${minOffered}`,
         }
     }
+    const crashes = exits.filter(({ byValve }) => !byValve).map((exit) => unexpectedExit(exit, timeline))
     const unobserved = timeline.filter(({ observedAt }) => observedAt === undefined)
-    if (unobserved.length > 0) {
+    if (crashes.length === 0 && unobserved.length > 0) {
         return {
             status: 'invalid',
             statusReason: unobserved
@@ -57,7 +58,7 @@ export function statusOf({ minOffered, units, down, convergence, invariants, tim
         }
     }
     const reasons = [
-        ...exits.filter(({ byValve }) => !byValve).map((exit) => unexpectedExit(exit, timeline)),
+        ...crashes,
         ...(convergence.converged
             ? []
             : [

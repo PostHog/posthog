@@ -100,10 +100,25 @@ describe('statusOf', () => {
             {
                 timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }],
                 invariants: [BROKEN],
-                exits: [exited(HOGFLOW_WORKER, 20)],
             },
             'invalid',
             `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
+        ],
+        [
+            'a role crashed on its own, so the valve on it found nothing running',
+            {
+                timeline: [
+                    {
+                        valve: 'role.kill',
+                        target: EMAIL_WORKER,
+                        requestedAt: at(0),
+                        error: `${EMAIL_WORKER} is not running`,
+                    },
+                ],
+                exits: [exited(EMAIL_WORKER, 20)],
+            },
+            'failed',
+            `${EMAIL_WORKER} exited (SIGKILL) without a valve causing it`,
         ],
         [
             'a dependency went away',
