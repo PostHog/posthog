@@ -36,7 +36,7 @@ export interface FakeRuntimeOptions {
     telemetryToken?: string
     // The MCP tool catalog `hog api` loads. Without it, loading the catalog fails the test.
     apiTools?: ApiToolLibrary
-    // Builds the skills library `hog learn` loads. Without it, loading the skills fails the test.
+    // Builds the skills library `hog skills read` loads. Without it, loading the skills fails the test.
     skills?: (options: SkillsLibraryOptions) => SkillsLibrary
     // Items already in the keychain, by name.
     keychain?: Record<string, string>

@@ -73,11 +73,12 @@ function assertSafeSkillId(skillId: string): void {
     }
 }
 
+type InstallOptions = { cwd?: string; force?: boolean; skillsDir?: string }
+
 export async function installSkill(
     skillId: string,
-    opts: { cwd?: string; force?: boolean; skillsDir?: string; source?: InstallableSkills } = {}
+    opts: InstallOptions & { source?: InstallableSkills } = {}
 ): Promise<SkillInstallResult> {
-    const cwd = opts.cwd ?? process.cwd()
     const source = opts.source ?? (await loadSkills())
     const entry = source.entries.find((candidate) => candidate.id === skillId)
 
@@ -99,7 +100,16 @@ export async function installSkill(
 
     // Unzipped before anything on disk changes, so an archive past the limits, or with an unsafe path, leaves an
     // installed copy as it is.
-    const skillArchive = unzipUntrusted(skillBytes, `Skill archive "${entry.file}"`)
+    return writeSkill(skillId, unzipUntrusted(skillBytes, `Skill archive "${entry.file}"`), opts)
+}
+
+/** Writes a skill's files, keyed by their path inside the skill folder, into `<skillsDir>/<skillId>` under `cwd`. */
+export async function writeSkill(
+    skillId: string,
+    files: Readonly<Record<string, Uint8Array>>,
+    opts: InstallOptions = {}
+): Promise<SkillInstallResult> {
+    const cwd = opts.cwd ?? process.cwd()
     const destinationRoot = targetSkillDirectory(cwd, opts.skillsDir ?? DEFAULT_SKILLS_DIR, skillId)
     await assertResolvesInside(cwd, destinationRoot)
     try {
@@ -120,7 +130,7 @@ export async function installSkill(
     await fs.mkdir(destinationRoot, { recursive: true })
     let fileCount = 0
 
-    for (const [fileName, bytes] of Object.entries(skillArchive)) {
+    for (const [fileName, bytes] of Object.entries(files)) {
         if (fileName.endsWith('/')) {
             continue
         }

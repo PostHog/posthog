@@ -90,7 +90,7 @@ export async function readState(ctx: Context, scope: SetupScope): Promise<SetupS
     }
 }
 
-// Reads the file again under a lock, so a `hog learn` that records a read at the same time keeps it.
+// Reads the file again under a lock, so a `hog skills read` that records a read at the same time keeps it.
 export async function updateState(
     ctx: Context,
     scope: SetupScope,
@@ -109,7 +109,7 @@ export function hasRead(state: SetupState, file: SkillFile): boolean {
     return state.reads.some((read) => read.skill === file.skill && read.path === file.path)
 }
 
-// Called by `hog learn`. A read counts only while a setup is running in this folder, and a failure
+// Called by `hog skills read`. A read counts only while a setup is running in this folder, and a failure
 // to record it never fails the read.
 export async function recordSkillReads(ctx: Context, reads: readonly SkillRead[]): Promise<void> {
     // The install gates stand for having read whole files, so a line range or a search doesn't count.

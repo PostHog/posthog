@@ -32,7 +32,7 @@ export function earlyBlock(): string {
 
 interface UseCase {
     text: string
-    // Each one adds its `hog learn` command to the line.
+    // Each one adds its `hog skills read` or `hog skills search` command to the line.
     products: readonly ProductId[]
     command?: string
     onlyWhenChosen?: boolean
@@ -48,7 +48,7 @@ const USE_CASES: readonly UseCase[] = [
     {
         text: 'Checking metrics or answering product questions',
         products: [],
-        command: '`hog query run "<HogQL>"` (see `hog learn -s "query data"` for how to write HogQL)',
+        command: '`hog query run "<HogQL>"` (see `hog skills search query data` for how to write HogQL)',
     },
     { text: 'AI observability (LLM analytics)', products: ['llm-analytics'], onlyWhenChosen: true },
 ]
@@ -90,7 +90,7 @@ export function finalBlock(options: {
         `This folder sends data to PostHog project ${projectId} on ${host}, set in \`posthog.json\`. Start PostHog tasks with these commands:`,
         '',
         ...lines,
-        '- Anything else: `hog learn -s "<keywords>"`',
+        '- Anything else: `hog skills search <keywords>`',
     ].join('\n')
 }
 

@@ -2,15 +2,18 @@ import type { SkillInfo } from '../result'
 import { runNext, type SetupRun, type Step } from '../setup-run'
 import { SETUP_NEXT } from '../state'
 
-export const ADD_SKILLS = 'hog skills add <id...>'
+export const ADD_SKILLS = 'hog skills add <skill...>'
 
-// A list that fails to load only leaves the skills out of this step.
+// Setup has just added PostHog to the code, so the skills worth keeping for later are the ones for
+// using it. A list that fails to load only leaves the skills out of this step.
 async function skillList(run: SetupRun): Promise<SkillInfo[]> {
     let failure: string
     try {
-        const result = await (await run.ctx.skills()).installable()
+        const result = await (await run.ctx.skills()).catalog()
         if (result.ok) {
-            return result.value.skills.map(({ id, name, description }) => ({ id, name, description }))
+            return result.value.skills
+                .filter((skill) => skill.kind === 'learning')
+                .map(({ name, description }) => ({ id: name, name, description }))
         }
 
         failure = result.error.message

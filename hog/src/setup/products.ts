@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import type { Context } from '@/core/context'
+import { SKILL_COMMANDS } from '@/core/skill-commands'
 
 export const PRODUCT_IDS = [
     'product-analytics',
@@ -43,7 +44,7 @@ export const ProductListSchema = z.string().transform((raw, ctx) => {
 interface ProductInfo {
     label: string
     description: string
-    // Keywords for `hog learn -s` when the product has no `posthog:instrument-<id>` skill.
+    // Keywords for `hog skills search` when the product has no `posthog:instrument-<id>` skill.
     search: string
 }
 
@@ -124,7 +125,7 @@ export interface Product {
     id: ProductId
     label: string
     description: string
-    // The `hog learn` command for adding the product to an app.
+    // The `hog skills read` or `hog skills search` command for adding the product to an app.
     command: string
 }
 
@@ -144,11 +145,18 @@ function productList(skills: readonly string[] | undefined): Product[] {
     return PRODUCT_IDS.map((id) => {
         const { label, description, search } = PRODUCTS[id]
         const skill = `${INSTRUMENT_PREFIX}${id}`
-        return { id, label, description, command: known.has(skill) ? `hog learn ${skill}` : `hog learn -s "${search}"` }
+        return {
+            id,
+            label,
+            description,
+            command: known.has(skill)
+                ? SKILL_COMMANDS.read(skill.replace(/^posthog:/, ''))
+                : SKILL_COMMANDS.search(search),
+        }
     })
 }
 
-// The skill list downloads like any `hog learn`. A failure leaves every product on a search.
+// The skill list downloads like any `hog skills read`. A failure leaves every product on a search.
 export async function loadProducts(ctx: Context): Promise<Product[]> {
     try {
         const result = await (await ctx.skills()).instrumentSkills()
