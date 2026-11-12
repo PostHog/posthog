@@ -50,10 +50,13 @@ import {
 
 type TargetType = 'event' | 'action'
 
+/** Who a custom model predicts for: people who did an event, or every identified user. */
+export type PopulationChoice = 'event' | 'all'
+
 /** A semantic population spec (`{"kind": ...}`) from resolve-template. */
 type PopulationKind = Record<string, unknown>
 
-interface NewPipelineFormValues {
+export interface NewPipelineFormValues {
     name: string
     target_type: TargetType
     // For event targets this is the event name; for action targets it's the action's
@@ -69,6 +72,8 @@ interface NewPipelineFormValues {
     iteration_budget: number
     // Null for a custom definition.
     template_key: TemplateKeyEnumApi | null
+    // Null until the person chooses. A template sets the population, so it ignores this.
+    population_choice: PopulationChoice | null
     inference_population_kind: PopulationKind | null
     training_population_kind: PopulationKind | null
     output_person_property: string
@@ -86,12 +91,48 @@ const DEFAULTS: NewPipelineFormValues = {
     training_population: [],
     iteration_budget: 50,
     template_key: null,
+    population_choice: null,
     inference_population_kind: null,
     training_population_kind: null,
     output_person_property: '',
 }
 
 export const HORIZON_PRESETS = [7, 14, 30, 90]
+
+export const POPULATION_EVENT_DAYS_PRESETS = [7, 14, 30, 60, 90]
+export const DEFAULT_POPULATION_EVENT_DAYS = 30
+
+/** The population kind a custom model stores when it predicts for people who did an event. */
+export function eventPopulationKind(event: string, days: number): PopulationKind {
+    return { kind: 'performed_event_within_days', event, days }
+}
+
+/** True once the population is a decision: a template's, or a custom choice that is complete. */
+export function populationChosen(values: NewPipelineFormValues): boolean {
+    if (values.template_key) {
+        return true
+    }
+    if (values.population_choice === 'event') {
+        return !!values.inference_population_kind?.event
+    }
+    return values.population_choice === 'all'
+}
+
+/**
+ * True when the population's own event narrows every scan. Without one, the check reads every event
+ * in the training lookback, which is what runs out of time on a high-volume project.
+ */
+export function populationHasEvent(kind: PopulationKind | null): boolean {
+    switch (kind?.kind) {
+        case 'performed_event_within_days':
+            return !!kind.event
+        case 'ever_performed_event':
+        case 'ever_performed_target':
+            return true
+        default:
+            return false
+    }
+}
 
 /** Start training creates the model and runs it. Save as draft only creates it. */
 export type SubmitIntent = 'train' | 'draft'
@@ -297,6 +338,7 @@ export interface autoresearchNewLogicValues {
     newPipelineTouched: boolean
     newPipelineTouches: Record<string, boolean>
     newPipelineValidationErrors: DeepPartialMap<NewPipelineFormValues, ValidationErrorType>
+    populationPickerOpen: boolean
     projectLimits: ProjectLimitsApi | null
     projectLimitsLoading: boolean
     projectLimitsSummary: string | null
@@ -403,6 +445,19 @@ export interface autoresearchNewLogicActions {
     setNewPipelineValues: (values: DeepPartial<NewPipelineFormValues>) => {
         values: DeepPartial<NewPipelineFormValues>
     }
+    setPopulationChoice: (choice: PopulationChoice) => {
+        choice: PopulationChoice
+    }
+    setPopulationEvent: (
+        event: string | null,
+        days: number
+    ) => {
+        days: number
+        event: string | null
+    }
+    setPopulationPickerOpen: (open: boolean) => {
+        open: boolean
+    }
     submitNewPipeline: () => {
         value: boolean
     }
@@ -443,7 +498,8 @@ export interface autoresearchNewLogicMeta {
             submitIntent: SubmitIntent,
             validationFailed: boolean,
             validationLoading: boolean,
-            validation: ValidatePipelineResponseApi | null
+            validation: ValidatePipelineResponseApi | null,
+            newPipeline: NewPipelineFormValues
         ) => string | undefined
         saveDraftDisabledReason: (
             resolvedTemplateLoading: boolean,
@@ -477,6 +533,9 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
         resolveTemplateFailure: true,
         setAdvancedOpen: (open: boolean) => ({ open }),
         submitWithIntent: (intent: SubmitIntent) => ({ intent }),
+        setPopulationChoice: (choice: PopulationChoice) => ({ choice }),
+        setPopulationEvent: (event: string | null, days: number) => ({ event, days }),
+        setPopulationPickerOpen: (open: boolean) => ({ open }),
     }),
     loaders(({ values }) => ({
         templates: [
@@ -511,7 +570,14 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     const { horizon_days: horizonError, training_lookback_days: lookbackError } =
                         values.newPipelineValidationErrors
                     // A cleared number input holds NaN, which serializes to null and the API rejects.
-                    if (!teamId || !hasTarget(values.newPipeline) || horizonError || lookbackError) {
+                    // An unchosen custom population means every identified user, the most expensive check there is.
+                    if (
+                        !teamId ||
+                        !hasTarget(values.newPipeline) ||
+                        !populationChosen(values.newPipeline) ||
+                        horizonError ||
+                        lookbackError
+                    ) {
                         return null
                     }
                     const { target_event, target_definition } = targetRequestFields(values.newPipeline)
@@ -584,6 +650,12 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 setAdvancedOpen: (_, { open }) => open,
             },
         ],
+        populationPickerOpen: [
+            false,
+            {
+                setPopulationPickerOpen: (_, { open }) => open,
+            },
+        ],
         submitIntent: [
             'train' as SubmitIntent,
             {
@@ -604,6 +676,11 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     formValues.target_type === 'action' && formValues.target_action_id == null
                         ? 'Pick a target action to predict'
                         : undefined,
+                population_choice: populationChosen(formValues)
+                    ? undefined
+                    : formValues.population_choice === 'event'
+                      ? 'Pick the event that people did'
+                      : 'Choose who the model predicts for',
                 horizon_days:
                     !formValues.horizon_days || formValues.horizon_days < 1
                         ? 'Prediction horizon must be at least 1 day'
@@ -658,7 +735,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                         return
                     }
                     if (!values.validation.can_proceed) {
-                        lemonToast.error("This model can't train yet. Fix the failed checks first.")
+                        lemonToast.error(values.startTrainingDisabledReason ?? "This model can't train yet.")
                         return
                     }
                 }
@@ -683,6 +760,8 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     template_key: payload.template_key,
                     action: intent === 'train' ? 'start_training' : 'save_draft',
                     readiness: values.readiness,
+                    population_choice: payload.template_key ? 'template' : payload.population_choice,
+                    validation_error_code: values.validation?.error_code ?? null,
                 }
                 const teamId = String(values.currentTeamId)
                 let created: AutoresearchPipelineApi
@@ -786,6 +865,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 s.validationFailed,
                 s.validationLoading,
                 s.validation,
+                s.newPipeline,
             ],
             (
                 resolvedTemplateLoading: boolean,
@@ -793,7 +873,8 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 submitIntent: SubmitIntent,
                 validationFailed: boolean,
                 validationLoading: boolean,
-                validation: ValidatePipelineResponseApi | null
+                validation: ValidatePipelineResponseApi | null,
+                newPipeline: NewPipelineFormValues
             ): string | undefined => {
                 if (resolvedTemplateLoading) {
                     return 'Wait for the template to load'
@@ -801,8 +882,19 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 if (isSubmitting && submitIntent === 'draft') {
                     return 'Saving the draft'
                 }
-                if (validationFailed) {
+                if (!populationChosen(newPipeline)) {
+                    return newPipeline.population_choice === 'event'
+                        ? 'Pick the event that people did'
+                        : 'Choose who the model predicts for'
+                }
+                if (validationFailed || validation?.error_code === 'unavailable') {
                     return "Couldn't check this model. Retry the check first."
+                }
+                if (validation?.error_code === 'too_expensive') {
+                    return 'The check ran out of time. Narrow who the model predicts for first.'
+                }
+                if (validation?.error_code === 'invalid_definition') {
+                    return "Couldn't check this model. Fix the definition first."
                 }
                 if (validation && !validation.can_proceed) {
                     return "This model can't train yet. Fix the failed checks first."
@@ -832,8 +924,11 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
             if (validation) {
                 posthog.capture('autoresearch model validated', {
                     can_proceed: validation.can_proceed,
+                    error_code: validation.error_code,
                     target_type: values.newPipeline.target_type,
                     template_key: values.newPipeline.template_key,
+                    population_choice: values.newPipeline.population_choice,
+                    population_has_event: populationHasEvent(values.newPipeline.inference_population_kind),
                 })
             }
         },
@@ -842,6 +937,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 posthog.capture('autoresearch model custom chosen')
                 actions.setNewPipelineValues({
                     template_key: null,
+                    population_choice: null,
                     inference_population_kind: null,
                     training_population_kind: null,
                     output_person_property: '',
@@ -914,6 +1010,27 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 }
             }
         },
+        setPopulationChoice: ({ choice }) => {
+            if (choice === 'all') {
+                actions.setNewPipelineValues({
+                    population_choice: 'all',
+                    inference_population_kind: null,
+                    training_population_kind: null,
+                })
+                return
+            }
+            actions.setNewPipelineValues({ population_choice: 'event' })
+        },
+        setPopulationEvent: ({ event, days }) => {
+            const kind = event ? eventPopulationKind(event, days) : null
+            // A custom model learns from and scores people who did the event. Separate training filters narrow it.
+            // kea-forms types its setter with DeepPartial, which does not accept an opaque population spec.
+            actions.setNewPipelineValues({
+                population_choice: 'event',
+                inference_population_kind: kind,
+                training_population_kind: kind,
+            } as DeepPartial<NewPipelineFormValues>)
+        },
         setAdvancedOpen: ({ open }) => {
             if (open) {
                 posthog.capture('autoresearch model advanced opened')
@@ -953,6 +1070,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 next.horizon_days !== prev.horizon_days ||
                 next.training_lookback_days !== prev.training_lookback_days ||
                 next.separate_training_population !== prev.separate_training_population ||
+                next.population_choice !== prev.population_choice ||
                 next.inference_population_kind !== prev.inference_population_kind ||
                 next.training_population_kind !== prev.training_population_kind ||
                 trainingChanged ||

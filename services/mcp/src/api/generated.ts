@@ -17954,6 +17954,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `invalid_definition` - Invalid definition
+     * * `too_expensive` - Too expensive
+     * * `unavailable` - Unavailable
+     */
+    export type AutoresearchValidationErrorCodeEnum = typeof AutoresearchValidationErrorCodeEnum[keyof typeof AutoresearchValidationErrorCodeEnum];
+
+
+    export const AutoresearchValidationErrorCodeEnum = {
+      InvalidDefinition: 'invalid_definition',
+      TooExpensive: 'too_expensive',
+      Unavailable: 'unavailable',
+    } as const;
+
+    /**
      * Discovered detail fields and their value distributions.
      */
     export type AvailableFiltersResponseDetailFields = { [key: string]: unknown };
@@ -120689,6 +120703,12 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+      /** Why validation did not run, or null when it did. 'invalid_definition': a query error in the definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this project's data, so a retry fails the same way; narrow the population, for example to people who performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth a retry.
+       *
+       * * `invalid_definition` - Invalid definition
+       * * `too_expensive` - Too expensive
+       * * `unavailable` - Unavailable */
+      error_code: AutoresearchValidationErrorCodeEnum | null;
     }
 
     /**
