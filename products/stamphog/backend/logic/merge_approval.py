@@ -11,7 +11,6 @@ from django.db.models.functions import JSONArray
 
 from ..facade.enums import ReviewVerdict
 from ..models import ReviewRun
-from .approval_retention import RETAINED_HEADS_KEY
 
 # A dismissed approval is no longer stamphog's verdict: a same-head re-review may have voided it
 # and then refused.
@@ -30,7 +29,9 @@ def retained_at_head(head_sha: str | OuterRef) -> Q:
     ``logic/approval_retention.py``), so the approval covers it although it was never posted there.
     """
     head = Value(head_sha) if isinstance(head_sha, str) else head_sha
-    return _STANDING_APPROVAL & Q(**{f"output__{RETAINED_HEADS_KEY}__contains": JSONArray(head)})
+    # The key is RETAINED_HEADS_KEY in approval_retention.py, spelled out because an interpolated
+    # lookup path reads as an injectable field path.
+    return _STANDING_APPROVAL & Q(output__retained_head_shas__contains=JSONArray(head))
 
 
 def approving_run_at_head(runs: QuerySet[ReviewRun], head_sha: str) -> ReviewRun | None:

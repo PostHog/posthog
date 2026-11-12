@@ -1530,6 +1530,8 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             "additions": 40,
             "deletions": 12,
             "changed_files": 3,
+            "summary": None,
+            "approved_by_stamphog": False,
         }
         # The stored size is 0 until the merge, which the API reports as unknown.
         PullRequest.objects.unscoped().filter(team_id=self.team.id, pr_number=1).update(merged_at=None)
@@ -1561,6 +1563,20 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                 [{"change_summary": "Splits the config. @PostHog/team-alpha: moves the loader."}],
                 "Splits the config.",
                 "moves the loader.",
+                False,
+            ),
+            (
+                "markdown_images_are_neutralized_in_the_summary_and_every_clause",
+                [
+                    {
+                        "change_summary": (
+                            "Adds a chart ![a](https://example.com/a.png). "
+                            "@PostHog/team-alpha: moves ![b](https://example.com/b.png) the loader."
+                        )
+                    }
+                ],
+                "Adds a chart [image removed].",
+                "moves [image removed] the loader.",
                 False,
             ),
             (

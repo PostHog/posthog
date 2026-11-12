@@ -20,6 +20,8 @@ from django.db.models import (
     Exists,
     ExpressionWrapper,
     F,
+    Func,
+    JSONField,
     OuterRef,
     Prefetch,
     Q,
@@ -724,8 +726,20 @@ _ROUTING_PULL_REQUEST_COLUMNS = (
 )
 
 
-# How many of an owner's files the run list shows. The single-run read returns all of them.
-ROUTING_TOP_FILES = 3
+class _LargestFiles(Func):
+    """An owner's 3 most changed files from its stored `files` list, computed in Postgres.
+
+    The list reads only these, so a large pull request's full file lists never leave the database.
+    Ties keep the stored order. The template is a constant and its one expression is a column.
+    """
+
+    template = (
+        "(SELECT COALESCE(jsonb_agg(entry.file ORDER BY entry.lines DESC, entry.position), '[]'::jsonb) "
+        "FROM (SELECT file, position, (file->>'additions')::int + (file->>'deletions')::int AS lines "
+        "FROM jsonb_array_elements(%(expressions)s) WITH ORDINALITY AS stored(file, position) "
+        "ORDER BY lines DESC, position LIMIT 3) AS entry)"
+    )
+    output_field = JSONField()
 
 
 def _routing_file_to_dto(file: dict[str, Any]) -> contracts.RoutingFileDTO:
@@ -743,7 +757,6 @@ def _routing_file_to_dto(file: dict[str, Any]) -> contracts.RoutingFileDTO:
 def _routing_owner_to_dto(
     row: RoutingRunOwner, *, with_files: bool, reviewed: ReviewedSummary
 ) -> contracts.RoutingRunOwnerDTO:
-    largest_first = sorted(row.files, key=lambda file: file["additions"] + file["deletions"], reverse=True)
     return contracts.RoutingRunOwnerDTO(
         owner=row.owner,
         kind=OwnerKind(row.kind),
@@ -752,7 +765,8 @@ def _routing_owner_to_dto(
         model_reason=row.model_reason,
         pins=[contracts.RoutingPinDTO(reason=PinReason(pin["reason"]), path=pin["path"]) for pin in row.pins],
         files=[_routing_file_to_dto(file) for file in row.files] if with_files else [],
-        top_files=[_routing_file_to_dto(file) for file in largest_first[:ROUTING_TOP_FILES]],
+        # Annotated by _routing_runs.
+        top_files=[_routing_file_to_dto(file) for file in row.top_files],  # type: ignore[attr-defined]
         lines=row.lines,
         file_count=row.file_count,
         # Clauses are keyed by team slug, which is how owners.yaml spells a team owner.
@@ -763,8 +777,8 @@ def _routing_owner_to_dto(
 def _routing_run_to_dto(row: RoutingRun, *, with_files: bool = False) -> contracts.RoutingRunDTO:
     # The stored size is 0 until the merge, which would read as an empty pull request.
     merged = row.pull_request.merged_at is not None
-    # Annotated by _routing_runs.
-    reviewed = split_clauses(row.change_summary or "")  # type: ignore[attr-defined]
+    # Annotated by _routing_runs. Cleaned before the split, so the whole summary and every clause are.
+    reviewed = split_clauses(_clean_reviewer_text(row.change_summary or ""))  # type: ignore[attr-defined]
     return contracts.RoutingRunDTO(
         id=row.id,
         team_id=row.team_id,
@@ -797,8 +811,14 @@ def _routing_run_to_dto(row: RoutingRun, *, with_files: bool = False) -> contrac
 
 
 def _routing_runs(team_id: int, *, with_files: bool) -> QuerySet[RoutingRun]:
-    # The list loads every owner's files too, for the largest few, in the same one prefetch.
-    owners = RoutingRunOwner.objects.for_team(team_id, canonical=True).order_by("owner")
+    owners = (
+        RoutingRunOwner.objects.for_team(team_id, canonical=True)
+        .annotate(top_files=_LargestFiles("files"))
+        .order_by("owner")
+    )
+    if not with_files:
+        # A large pull request gives every owner a long file list, which only the single-run read returns.
+        owners = owners.defer("files")
     review_runs = ReviewRun.objects.for_team(team_id, canonical=True).filter(
         pull_request_id=OuterRef("pull_request_id")
     )
