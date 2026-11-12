@@ -65275,6 +65275,8 @@ export namespace Schemas {
       readonly suspended: NodeSuspended;
       /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
       readonly endpoint: NodeEndpoint | null;
+      /** Whether you get failure notifications for this node. The creator of a view watches it until they unwatch it, and anyone else watches it after they watch it. */
+      readonly watching: boolean;
     }
 
     export interface LineageResponse {
@@ -71163,6 +71165,11 @@ export namespace Schemas {
     export interface NodeRunResponse {
       /** The nodes included in the dependency run. */
       node_ids: string[];
+    }
+
+    export interface NodeWatching {
+      /** Whether you now get failure notifications for this node. */
+      watching: boolean;
     }
 
     /**
@@ -88912,6 +88919,8 @@ export namespace Schemas {
       readonly suspended?: PatchedNodeSuspended;
       /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
       readonly endpoint?: NodeEndpoint | null;
+      /** Whether you get failure notifications for this node. The creator of a view watches it until they unwatch it, and anyone else watches it after they watch it. */
+      readonly watching?: boolean;
     }
 
     /**
