@@ -1161,6 +1161,41 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
         assert retrieved.json()["alerts"] == []
 
+    def test_a_native_alerts_activity_names_its_insight_after_it_is_deleted(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Signups", query=self.alert.insight.query)
+        with patch("products.alerts.backend.platform_ownership.posthoganalytics.feature_enabled", return_value=True):
+            created = self.client.post(
+                self.url,
+                {
+                    "insight": insight.id,
+                    "subscribed_users": [],
+                    "condition": {"type": "absolute_value"},
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "name": "A new alert",
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                },
+                format="json",
+            )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        deleted = self.client.delete(f"{self.url}/{created.json()['id']}/")
+
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        logged = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="PlatformAlertConfiguration", item_id=created.json()["id"]
+        )
+        assert sorted((row.activity, (row.detail or {}).get("context")) for row in logged) == [
+            (
+                activity,
+                {
+                    "source_kind": "insight",
+                    "alert_id": created.json()["id"],
+                    "source_id": insight.short_id,
+                    "source_name": "Signups",
+                },
+            )
+            for activity in ("created", "deleted")
+        ]
+
     def _forget_the_insight_row(self) -> None:
         with team_scope(self.team.id):
             platform_testing.forget_source_row(self.copy_id)

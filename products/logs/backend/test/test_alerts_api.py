@@ -2559,9 +2559,10 @@ class TestLogsAlertAPI(APIBaseTest):
             10,
             self.user,
         )
-        assert ActivityLog.objects.filter(
+        logged = ActivityLog.objects.get(
             scope="PlatformAlertConfiguration", item_id=created["id"], activity="created", user=self.user
-        ).exists()
+        )
+        assert (logged.detail or {})["context"]["alert_id"] == created["legacy_configuration_id"]
 
     @parameterized.expand(
         [
