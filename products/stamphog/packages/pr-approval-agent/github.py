@@ -202,6 +202,8 @@ def rebuttable_threads(pr: PRData) -> dict[str, str]:
         bot = bot_handle(root.get("user") or "")
         if root.get("in_reply_to_id") is not None or not root.get("is_bot") or not bot or bot == author:
             continue
+        if any(c.get("hides_person") for c in comments):
+            continue
         actors = {(bot_handle(c.get("user") or ""), bool(c.get("is_bot"))) for c in comments}
         if actors == {(bot, True), (author, pr.author_is_bot)}:
             rebuttable[thread] = bot
@@ -505,6 +507,11 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
                     f"Review thread on {thread.get('path')}:{thread.get('line')} "
                     f"has >50 comments — pagination not implemented, escalate to human review"
                 )
+            hides_person = any(
+                (c.get("author") or {}).get("__typename") != "Bot"
+                and not _prompt_worthy_author((c.get("author") or {}).get("login"), c.get("authorAssociation"), False)
+                for c in comment_page["nodes"]
+            )
             for c in comment_page["nodes"]:
                 # Same author-trust gate as reviews and discussion: stamphog's
                 # own inline comments describe an earlier snapshot (feeding them
@@ -522,6 +529,7 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
                         "user": comment_author.get("login", "ghost"),
                         "is_bot": comment_author.get("__typename") == "Bot",
                         "thread": f"T{thread_number}",
+                        "hides_person": hides_person,
                         "body": c.get("body", ""),
                         "path": thread.get("path", ""),
                         "line": thread.get("line"),

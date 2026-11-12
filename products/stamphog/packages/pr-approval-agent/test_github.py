@@ -3,6 +3,7 @@
 import re
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -485,3 +486,48 @@ def test_fetch_threads_excludes_stamphogs_own_inline_comments(
     comments, _ = github._fetch_threads_and_reactions("PostHog/posthog", 1, author="alice")
 
     assert [c["user"] for c in comments] == expected_users
+
+
+@pytest.mark.parametrize(
+    "replies, expected",
+    [
+        pytest.param([("alice", "User", "MEMBER")], {"T1": "posthog"}, id="author-answered-the-bot"),
+        pytest.param([("alice", "User", "MEMBER"), ("mallory", "User", "NONE")], {}, id="an-untrusted-person-joined"),
+    ],
+)
+def test_fetched_bot_thread_is_rebuttable_only_between_the_bot_and_the_author(
+    monkeypatch: pytest.MonkeyPatch, replies: list[tuple[str, str, str]], expected: dict
+) -> None:
+    def comment(login: str, typename: str, association: str, reply_to: dict | None) -> dict:
+        return {
+            "author": {"login": login, "__typename": typename},
+            "authorAssociation": association,
+            "body": f"comment from {login}",
+            "databaseId": 1,
+            "replyTo": reply_to,
+            "reactions": {"nodes": []},
+        }
+
+    nodes = [comment("posthog", "Bot", "NONE", None)] + [comment(*reply, {"databaseId": 1}) for reply in replies]
+    thread = {"isResolved": False, "isOutdated": False, "path": "src/app.py", "line": 3}
+    page = {"pageInfo": {"hasNextPage": False, "endCursor": None}}
+    response = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reactions": {"nodes": []},
+                    "reviewThreads": {
+                        **page,
+                        "nodes": [{**thread, "comments": {"pageInfo": {"hasNextPage": False}, "nodes": nodes}}],
+                    },
+                }
+            }
+        }
+    }
+    monkeypatch.setattr(github, "_gh_graphql", lambda query, variables=None: response)
+    monkeypatch.setattr(github, "_is_org_member", lambda org, member: False)
+
+    comments, _ = github._fetch_threads_and_reactions("PostHog/posthog", 1, author="alice")
+    pr = SimpleNamespace(author="alice", author_is_bot=False, review_comments=comments)
+
+    assert github.rebuttable_threads(pr) == expected
