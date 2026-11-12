@@ -46,9 +46,9 @@ function Install-Hog {
             $Version = $Version.TrimStart('v')
         } else {
             try {
-                $manifest = Invoke-RestMethod -Uri "$releases/stable/manifest.json"
+                $manifest = Invoke-RestMethod -Uri "$releases/latest/manifest.json"
             } catch {
-                throw "Couldn't find the latest hog release at $releases/stable/manifest.json."
+                throw "Couldn't find the latest hog release at $releases/latest/manifest.json."
             }
             $Version = $manifest.version
             if (-not $Version) { throw 'The release manifest names no version.' }

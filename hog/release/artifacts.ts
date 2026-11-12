@@ -6,10 +6,6 @@ export function releaseTag(version: string): string {
     return `hog/v${version}`
 }
 
-export function isPrerelease(version: string): boolean {
-    return version.split('+')[0]!.includes('-')
-}
-
 export function baseUrl(version: string): string {
     return `${RELEASES_URL}/v${version}/`
 }
@@ -29,7 +25,6 @@ export function buildManifest(
         name: 'hog',
         version,
         tag: releaseTag(version),
-        prerelease: isPrerelease(version),
         publishedAt: dates.publishedAt.toISOString(),
         buildDate: dates.buildDate.toISOString(),
         ...(minimumVersion ? { minimumVersion } : {}),

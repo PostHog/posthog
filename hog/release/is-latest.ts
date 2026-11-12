@@ -1,4 +1,4 @@
-// Prints whether this version may move stable, so a rerun of an older release never moves it back.
+// Prints whether this version may move latest, so a rerun of an older release never moves it back.
 
 import { parseArgs } from 'node:util'
 
