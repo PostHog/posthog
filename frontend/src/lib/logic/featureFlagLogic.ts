@@ -69,6 +69,11 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     if (posthogAiAccess !== undefined) {
         availableFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE] = posthogAiAccess
     }
+    // The scene menu bar is part of the new navigation. Deriving it here keeps it in step with `today-rail-nav`,
+    // which the nav switch changes locally before the server re-evaluates `scene-menu-bar`.
+    if (availableFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+        availableFlags[FEATURE_FLAGS.SCENE_MENU_BAR] = true
+    }
 
     const serialized = JSON.stringify(availableFlags)
     if (serialized === cachedFlagsSerialized && cachedFlagsProxy) {
