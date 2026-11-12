@@ -5,6 +5,7 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
+import builtins
 from typing import Any, cast
 from uuid import UUID
 
@@ -18,11 +19,13 @@ from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import get_authenticator_scopes
 from posthog.scopes import scopes_not_covered
 
 from products.feature_flags.backend.facade.api import existing_flag_ids
+from products.feature_flags.backend.facade.release_candidates import list_release_import_flags
 from products.workflows.backend.facade.api import (
     get_recent_batch_jobs,
     get_workflow_summaries,
@@ -35,6 +38,7 @@ from ..facade import api, contracts
 from .serializers import (
     BroadcastOptionSerializer,
     BroadcastSearchQuerySerializer,
+    ImportAllResponseSerializer,
     ReleaseSerializer,
     UpdateReleaseSerializer,
     WriteReleaseSerializer,
@@ -48,6 +52,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "feature_flag"
     requires_resource_level_access = True
     scope_object_read_actions = ["list", "retrieve", "broadcast_search"]
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "import_all"]
     serializer_class = ReleaseSerializer
     pagination_class = FacadeLimitOffsetPagination
     path_parameters = {"pk": UUID}
@@ -191,6 +196,24 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=BROADCAST_SEARCH_LIMIT,
         )
         return Response(BroadcastOptionSerializer(options, many=True).data)
+
+    @extend_schema(request=None, responses={201: ImportAllResponseSerializer})
+    @action(detail=False, methods=["post"], pagination_class=None)
+    def import_all(self, request: Request, **kwargs) -> Response:
+        """Set up releases for the whole project once: one per active flag. Later calls create nothing."""
+        created_count = api.import_all(self.team_id, self._import_flags)
+        report_user_action(request.user, "release import completed", {"created_count": created_count}, request=request)
+        return Response(
+            ImportAllResponseSerializer({"created_count": created_count}).data, status=status.HTTP_201_CREATED
+        )
+
+    def _import_flags(self) -> "builtins.list[api.ImportFlag]":
+        return [
+            api.ImportFlag(id=flag.id, key=flag.key)
+            for flag in list_release_import_flags(
+                team_id=self.team_id, project_id=self.team.project_id, access_control=None
+            )
+        ]
 
     @extend_schema(responses={204: None})
     def destroy(self, request: Request, pk: UUID, **kwargs) -> Response:
