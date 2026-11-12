@@ -70,69 +70,74 @@ def import_suppressions(
     effective_team_id = resolve_effective_team_id(team_id)
     by_identifier = {record.identifier: record for record in imported}
     suppressions = MessageSuppression.objects.for_team(effective_team_id, canonical=True)
-    existing = {row.identifier: row for row in suppressions.filter(identifier__in=list(by_identifier))}
-    now = timezone.now()
-    new_rows = [
-        MessageSuppression(
-            team_id=effective_team_id,
-            identifier=identifier,
-            source=record.source,
-            reason=record.reason,
-            suppressed=True,
-            suppressed_at=record.suppressed_at or now,
-            last_bounce_at=record.suppressed_at if record.source == SuppressionSource.BOUNCE else None,
-            last_bounce_diagnostic=record.diagnostic,
-            hard_bounced_at=(record.suppressed_at or now) if record.source == SuppressionSource.BOUNCE else None,
-            created_by_id=created_by_id,
-        )
-        # Sorted so concurrent imports take the unique-index locks in the same order and can't deadlock.
-        for identifier, record in sorted(by_identifier.items())
-        if identifier not in existing
-    ]
-    # ignore_conflicts covers an address the bounce feedback inserts between the read above and this write.
-    suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
-    inserted = set(suppressions.filter(pk__in=[row.pk for row in new_rows]).values_list("identifier", flat=True))
+    with transaction.atomic():
+        # The lock stops a bounce PostHog records meanwhile from being overwritten with what this read saw.
+        existing = {
+            row.identifier: row
+            for row in suppressions.filter(identifier__in=list(by_identifier))
+            .order_by("identifier")
+            .select_for_update()
+        }
+        now = timezone.now()
+        new_rows = [
+            MessageSuppression(
+                team_id=effective_team_id,
+                identifier=identifier,
+                source=record.source,
+                reason=record.reason,
+                suppressed=True,
+                suppressed_at=record.suppressed_at or now,
+                last_bounce_at=record.suppressed_at if record.source == SuppressionSource.BOUNCE else None,
+                last_bounce_diagnostic=record.diagnostic,
+                hard_bounced_at=(record.suppressed_at or now) if record.source == SuppressionSource.BOUNCE else None,
+                created_by_id=created_by_id,
+            )
+            # Sorted so concurrent imports take the unique-index locks in the same order and can't deadlock.
+            for identifier, record in sorted(by_identifier.items())
+            if identifier not in existing
+        ]
+        # ignore_conflicts covers an address the bounce feedback inserts between the read above and this write.
+        suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
+        inserted = set(suppressions.filter(pk__in=[row.pk for row in new_rows]).values_list("identifier", flat=True))
 
-    changed = []
-    newly_suppressed: list[str] = []
-    for identifier, row in existing.items():
-        record = by_identifier[identifier]
-        # Someone removed the address, or added it by hand and owns that row.
-        if row.deleted or (row.suppressed and row.source == SuppressionSource.MANUAL):
-            continue
-        bounced_at = record.suppressed_at or now
-        if not row.suppressed:
-            row.suppressed = True
-            row.source = record.source
-            row.reason = record.reason
-            row.suppressed_at = bounced_at
-            newly_suppressed.append(identifier)
-        elif row.reason == record.reason and not row.last_bounce_diagnostic and record.suppressed_at:
-            row.suppressed_at = record.suppressed_at
-        elif not (
-            record.source == SuppressionSource.BOUNCE
-            and row.source == SuppressionSource.BOUNCE
-            and row.hard_bounced_at is None
-        ):
-            continue
-        if record.source == SuppressionSource.BOUNCE:
-            row.last_bounce_at = record.suppressed_at or row.last_bounce_at
-            row.hard_bounced_at = row.hard_bounced_at or bounced_at
-        row.last_bounce_diagnostic = row.last_bounce_diagnostic or record.diagnostic
-        changed.append(row)
-    suppressions.bulk_update(
-        changed,
-        [
-            "suppressed",
-            "source",
-            "reason",
-            "suppressed_at",
-            "last_bounce_at",
-            "last_bounce_diagnostic",
-            "hard_bounced_at",
-        ],
-        batch_size=500,
-    )
+        changed = []
+        newly_suppressed: list[str] = []
+        for identifier, row in existing.items():
+            record = by_identifier[identifier]
+            # Someone removed the address, or added it by hand and owns that row.
+            if row.deleted or (row.suppressed and row.source == SuppressionSource.MANUAL):
+                continue
+            bounced_at = record.suppressed_at or now
+            if not row.suppressed:
+                row.suppressed = True
+                row.source = record.source
+                row.reason = record.reason
+                row.suppressed_at = bounced_at
+                newly_suppressed.append(identifier)
+            elif row.reason == record.reason and not row.last_bounce_diagnostic and record.suppressed_at:
+                row.suppressed_at = record.suppressed_at
+            # A complaint row keeps its source and reason, but a bounce still stops transactional email to it, as it does
+            # when PostHog sees the bounce itself.
+            elif not (record.source == SuppressionSource.BOUNCE and row.hard_bounced_at is None):
+                continue
+            if record.source == SuppressionSource.BOUNCE:
+                row.last_bounce_at = record.suppressed_at or row.last_bounce_at
+                row.hard_bounced_at = row.hard_bounced_at or bounced_at
+            row.last_bounce_diagnostic = row.last_bounce_diagnostic or record.diagnostic
+            changed.append(row)
+        suppressions.bulk_update(
+            changed,
+            [
+                "suppressed",
+                "source",
+                "reason",
+                "suppressed_at",
+                "last_bounce_at",
+                "last_bounce_diagnostic",
+                "hard_bounced_at",
+            ],
+            batch_size=500,
+        )
 
     added = Counter(by_identifier[identifier].source for identifier in [*inserted, *newly_suppressed])
     return SuppressionImportResult(

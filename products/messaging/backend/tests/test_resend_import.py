@@ -98,25 +98,34 @@ class TestResendImport(BaseTest):
         return run
 
     def test_suppressions_map_by_origin_and_never_reach_the_global_list(self) -> None:
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team=self.team,
+            identifier="gone@example.com",
+            source=SuppressionSource.COMPLAINT,
+            reason="Marked as spam",
+            suppressed=True,
+        )
+
         run = self._run(["suppressions"])
 
         rows = {row.identifier: row for row in MessageSuppression.objects.for_team(self.team.id).filter(deleted=False)}
         assert {identifier: row.source for identifier, row in rows.items()} == {
-            "gone@example.com": SuppressionSource.BOUNCE,
+            "gone@example.com": SuppressionSource.COMPLAINT,
             "mixedcase.bounce@example.com": SuppressionSource.BOUNCE,
             "complainer@example.com": SuppressionSource.COMPLAINT,
             "added-by-team@example.com": SuppressionSource.MANUAL,
             "jürgen+🦔@example.com": SuppressionSource.MANUAL,
         }
         assert rows["gone@example.com"].hard_bounced_at is not None
+        assert rows["gone@example.com"].reason == "Marked as spam"
         assert rows["complainer@example.com"].hard_bounced_at is None
         assert rows["added-by-team@example.com"].hard_bounced_at is None
         assert EmailHardBounce.objects.count() == 0
         assert run.progress["suppressions"]["counts"] == {
-            "bounced": 2,
+            "bounced": 1,
             "complained": 1,
             "manual": 2,
-            "already_present": 0,
+            "already_present": 1,
             "invalid": 1,
         }
 
