@@ -709,6 +709,53 @@ class TestGetInstallationsForSandbox(BaseTest):
         assert resolve([]) == set()
         assert resolve(None) == {str(picked.id), str(dropped.id)}
 
+    @parameterized.expand(
+        [
+            ("token_needs_reconnect", "needs_reconnect"),
+            ("connection_turned_off", "needs_reconnect"),
+            ("server_turned_off_for_team", "server_disabled"),
+            ("no_grant", "not_shared"),
+            ("teammate_share_still_works", None),
+        ]
+    )
+    def test_agent_run_reports_why_a_selected_server_is_not_mounted(
+        self, case: str, expected_reason: UnmountedInstallationReason | None
+    ) -> None:
+        account = get_built_in_agent(self.team.id, "workflow")
+        assert account is not None
+        server = self._create_gateway_server(
+            name="Linear", url="https://mcp.linear.app/mcp", is_team_enabled=case != "server_turned_off_for_team"
+        )
+        installation = self._create_installation(
+            gateway_server=server,
+            url=server.url,
+            auth_type="oauth",
+            is_enabled=case != "connection_turned_off",
+            sensitive_configuration={"access_token": "tok", "needs_reauth": True}
+            if case in ("token_needs_reconnect", "teammate_share_still_works")
+            else {"access_token": "tok"},
+        )
+        if case != "no_grant":
+            self._grant(account, server, user=self.user, installation=installation, scope="team")
+        if case == "teammate_share_still_works":
+            teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+            working = self._create_installation(user=teammate, gateway_server=server, url=server.url)
+            self._grant(account, server, user=teammate, installation=working, scope="team")
+
+        resolution = resolve_installations_for_sandbox(
+            self.team.id,
+            task_origin="workflow",
+            task_agent_key="workflow",
+            allowed_gateway_server_ids=[str(server.id)],
+        )
+
+        assert bool(resolution.mounted) == (expected_reason is None)
+        assert resolution.unmounted == (
+            (UnmountedInstallation(id=str(server.id), name="Linear", scope="team", reason=expected_reason),)
+            if expected_reason is not None
+            else ()
+        )
+
     def test_installation_allowlist_narrows_the_member_path_only(self) -> None:
         kept = self._create_installation(scope="shared", display_name="Kept", url="https://kept.example.com/mcp")
         self._create_installation(scope="shared", display_name="Dropped", url="https://dropped.example.com/mcp")

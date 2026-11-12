@@ -576,6 +576,7 @@ _UNMOUNTED_REASON_NOTICES: dict[UnmountedInstallationReason, str] = {
     "needs_reconnect": "reconnect it in the MCP Store",
     "server_disabled": "a project admin turned this server off",
     "revoked": "a project admin turned this server off for you",
+    "not_shared": "share it with this agent in the MCP Store",
 }
 
 
