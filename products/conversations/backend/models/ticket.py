@@ -185,6 +185,9 @@ class Ticket(Taggable, UUIDTModel):
     # No standalone index: the partial unique constraint below covers the dedup lookup
     # (team + zendesk_ticket_id), mirroring the GitHub issue-number pattern.
     zendesk_ticket_id = models.BigIntegerField(null=True, blank=True)
+    # Intercom import dedup — same pattern as zendesk_ticket_id. Intercom conversation ids are
+    # opaque strings in its API, so store them verbatim.
+    intercom_conversation_id = models.CharField(max_length=64, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -295,6 +298,11 @@ class Ticket(Taggable, UUIDTModel):
                 condition=models.Q(zendesk_ticket_id__isnull=False),
                 name="posthog_con_zendesk_ticket_uniq",
             ),
+            models.UniqueConstraint(
+                fields=["team", "intercom_conversation_id"],
+                condition=models.Q(intercom_conversation_id__isnull=False),
+                name="posthog_con_intercom_conv_uniq",
+            ),
         ]
 
     def __str__(self):
@@ -313,4 +321,6 @@ class Ticket(Taggable, UUIDTModel):
             lookups.append({"github_repo": self.github_repo, "github_issue_number": self.github_issue_number})
         if self.zendesk_ticket_id is not None:
             lookups.append({"zendesk_ticket_id": self.zendesk_ticket_id})
+        if self.intercom_conversation_id:
+            lookups.append({"intercom_conversation_id": self.intercom_conversation_id})
         return [ticket_thread_key(**lookup) for lookup in lookups]
