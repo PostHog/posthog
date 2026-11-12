@@ -21,7 +21,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
-import { GeoIPService } from '~/common/utils/geoip'
+import { GeoIPService, geoipServerDefaultMode, resolveMmdbMode } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
@@ -118,6 +118,7 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'CLOUD_DEPLOYMENT'
         | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
+        | 'MMDB_ENABLED'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
@@ -227,7 +228,10 @@ export class IngestionApiServer implements NodeServer {
         const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
-        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
+        const geoipService = new GeoIPService(
+            this.config.MMDB_FILE_LOCATION,
+            resolveMmdbMode(this.config.MMDB_ENABLED, geoipServerDefaultMode(this.config.CLOUD_DEPLOYMENT))
+        )
         await geoipService.get()
 
         const personhogClient = createPersonHogClient(this.config)

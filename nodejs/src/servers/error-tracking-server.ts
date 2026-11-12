@@ -13,7 +13,7 @@ import { UsageIngestionConfig } from '~/common/usage-ingestion'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
-import { GeoIPService } from '~/common/utils/geoip'
+import { GeoIPService, geoipServerDefaultMode, resolveMmdbMode } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -91,6 +91,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
         | 'CLOUD_DEPLOYMENT'
         | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
+        | 'MMDB_ENABLED'
         | 'CAPTURE_INTERNAL_URL'
         | 'HEALTHCHECK_MAX_STALE_SECONDS'
         | 'KAFKA_HEALTHCHECK_SECONDS'
@@ -186,7 +187,10 @@ export class ErrorTrackingServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
+        const geoipService = new GeoIPService(
+            this.config.MMDB_FILE_LOCATION,
+            resolveMmdbMode(this.config.MMDB_ENABLED, geoipServerDefaultMode(this.config.CLOUD_DEPLOYMENT))
+        )
         await geoipService.get()
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)

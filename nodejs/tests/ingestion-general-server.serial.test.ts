@@ -54,6 +54,17 @@ describe('ingestion general server', () => {
         expect(process.exit).not.toHaveBeenCalledWith(1)
     })
 
+    it('should fail startup before consuming when the MMDB is missing on hosted cloud', async () => {
+        const failedServer = new IngestionGeneralServer({
+            PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
+            CLOUD_DEPLOYMENT: 'US',
+            MMDB_FILE_LOCATION: 'non-existent-file.mmdb',
+        })
+        await failedServer.start()
+        expect(process.exit).toHaveBeenCalledWith(1)
+        expect(failedServer.lifecycle.services).toEqual([])
+    })
+
     it('should not error on startup - ingestion_v2_combined', async () => {
         server = new IngestionGeneralServer({
             LOG_LEVEL: 'debug',

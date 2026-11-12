@@ -101,7 +101,7 @@ let cachedModule: HogvmNodeModule | null | undefined = undefined
  * Returns null when the addon isn't built for this environment. `options` only take effect on the
  * first call in the process — later callers always get the module as first configured.
  */
-export function loadHogvmNodeModule(options: { mmdbPath: string }): HogvmNodeModule | null {
+export function loadHogvmNodeModule(options: { mmdbPath: string | undefined }): HogvmNodeModule | null {
     if (cachedModule !== undefined) {
         return cachedModule
     }

@@ -66,7 +66,7 @@ export class RustVmExecutor {
      */
     private handles: LRUCache<string, number>
 
-    constructor(private options: { mmdbPath: string }) {
+    constructor(private options: { mmdbPath: string | undefined }) {
         this.scheduler = new RustVmBatchScheduler(async (bytecode, events) => {
             const module_ = this.getModule()
             if (!module_) {
