@@ -1417,6 +1417,16 @@ class TestConnectionTimeouts(SimpleTestCase):
         assert kwargs["connectTimeoutMS"] == CONNECT_TIMEOUT_MS
         assert kwargs["socketTimeoutMS"] == SOCKET_TIMEOUT_MS
 
+    def test_client_tolerates_non_utf8_bytes_in_mongodb_strings(self):
+        # A string field that isn't valid UTF-8 (a buggy driver, a bad migration) must not fail
+        # the whole getMore batch with InvalidBSON. "replace" substitutes U+FFFD for the bad
+        # bytes instead of raising, so the sync continues.
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with mongo_client("mongodb://user:pw@db.example.com/db?tls=true", team_id=1):
+                pass
+
+        assert client_class.call_args.kwargs["unicode_decode_error_handler"] == "replace"
+
     @parameterized.expand(
         [
             (

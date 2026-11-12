@@ -306,6 +306,7 @@ rules:
     - match:
           - '/services/credentials-service/tests/integration/*.test.*'
           - '/services/credentials-service/tests/unit/*.test.*'
+          - '/frontend/src/lib/integrations/credentialAccountsLogic.test.ts'
       owners: team-warehouse-sources
     - match:
           - '/frontend/src/layout/navigation-3000/sidepanel/panels/max/*.test.*'

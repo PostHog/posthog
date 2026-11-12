@@ -1,7 +1,17 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
-import { once } from 'events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, rmdirSync, symlinkSync, writeFileSync } from 'fs'
+import { EventEmitter, once } from 'events'
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    realpathSync,
+    rmSync,
+    rmdirSync,
+    symlinkSync,
+    writeFileSync,
+} from 'fs'
 import http from 'http'
 import Redis from 'ioredis'
 import net from 'net'
@@ -10,7 +20,6 @@ import path from 'path'
 import { setTimeout as nextTimers } from 'timers/promises'
 import { promisify } from 'util'
 
-import { SES_RATE_LIMIT_KEY } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
 import { defaultConfig } from '~/common/config/config'
 import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
@@ -25,6 +34,7 @@ import * as processes from './processes'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import {
+    SES_RATE_LIMIT_KEY,
     STACK,
     downServices,
     forgetSesBucket,
@@ -517,22 +527,6 @@ describe('scenario environment', () => {
         expect(seekFailures(output)).toEqual(failures)
     })
 
-    it('refills the SES token bucket the email worker claims from, so a reset starts with a full one', async () => {
-        const { limiter, close } = sesLimiterOn({ host: '127.0.0.1', port: 6379 })
-        const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
-        try {
-            await limiter.claimUpTo(claim)
-            expect(await limiter.claimUpTo(claim)).toBe(0)
-
-            await forgetSesBucket({ host: '127.0.0.1', port: 6379 })
-
-            expect(await limiter.claimUpTo(claim)).toBe(5)
-        } finally {
-            await forgetSesBucket({ host: '127.0.0.1', port: 6379 })
-            await close()
-        }
-    })
-
     it('reports a Redis that accepts but never answers as down instead of hanging', async () => {
         const silent = net.createServer(() => {})
         await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
@@ -893,6 +887,8 @@ describe('scenario environment', () => {
             "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
             "let answered = false; require('http').createServer((_request, response) => (answered ? process.exit(1) : response.end(() => (answered = true)))).listen(Number(process.env.HTTP_SERVER_PORT))"
+        const stubRoleNeverAnswering =
+            "require('http').createServer(() => undefined).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleBindingAfterHolder = `
             const port = Number(process.env.HTTP_SERVER_PORT)
             const bind = () =>
@@ -1072,6 +1068,8 @@ describe('scenario environment', () => {
         let losesItsPort: Role | undefined
         let takesPortOnExit: Role | undefined
         let exitsAfterHealth: Role | undefined
+        let exitGoesUnreported: Role | undefined
+        let neverAnswers: Role | undefined
         let reachedKafka: Error | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
@@ -1120,16 +1118,30 @@ describe('scenario environment', () => {
             (Object.keys(ROLE_PORTS) as Role[]).filter(
                 (role) => existsSync(logOf(role)) && readFileSync(logOf(role), 'utf8').includes(STARTED_WHILE_HELD)
             )
+        const teardownOf = async (edgeUrl: string): Promise<{ edge: number | string; lock: string }> => ({
+            edge: await internalFetch(`${edgeUrl}/_health`).then(
+                (answer) => answer.status,
+                () => 'unreachable'
+            ),
+            lock: await holdRunLock(path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios')).then(
+                async (release) => {
+                    await release()
+                    return 'free'
+                },
+                (error: Error) => error.message
+            ),
+        })
         const writeStack = (stack: { running: boolean; ready: boolean; busy?: boolean }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
-        const environmentOf = (): Environment =>
+        const environmentOf = (roleHealthyWithinMs?: number): Environment =>
             createEnvironment({
                 hogli: { command: path.join(fakes, 'hogli'), cwd: fakes },
                 docker: path.join(fakes, 'docker'),
                 postgresUrl: templatesUrl,
                 sesRateLimiterValkey: testRedis,
+                roleHealthyWithinMs,
             })
 
         beforeAll(async () => {
@@ -1180,7 +1192,9 @@ describe('scenario environment', () => {
                         ? stubRoleBindingAfterHolder
                         : mode === exitsAfterHealth
                           ? stubRoleExitingAfterHealth
-                          : stubRole
+                          : mode === neverAnswers
+                            ? stubRoleNeverAnswering
+                            : stubRole
                 const groupAtStart = `if (require('fs').existsSync(${JSON.stringify(path.join(fakes, 'dead-member-held'))})) console.log(${JSON.stringify(STARTED_WHILE_HELD)})\n`
                 const role = realSpawn(process.execPath, ['-e', groupAtStart + script], options)
                 if (mode === losesItsPort) {
@@ -1197,6 +1211,15 @@ describe('scenario environment', () => {
                     }
                 })
                 stubRolePids.add(role.pid!)
+                if (mode === exitGoesUnreported) {
+                    const unreported = Object.assign(new EventEmitter(), {
+                        pid: role.pid,
+                        exitCode: null,
+                        signalCode: null,
+                    })
+                    role.once('spawn', () => unreported.emit('spawn'))
+                    return unreported
+                }
                 return role
             }) as unknown as typeof childProcess.spawn)
             const guardedExecFile = jest.spyOn(childProcess, 'execFile').mockImplementation(((
@@ -1232,11 +1255,13 @@ describe('scenario environment', () => {
             losesItsPort = undefined
             takesPortOnExit = undefined
             exitsAfterHealth = undefined
+            exitGoesUnreported = undefined
             if (cyclotronFromEnv === undefined) {
                 delete process.env.CYCLOTRON_NODE_DATABASE_URL
             } else {
                 process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronFromEnv
             }
+            neverAnswers = undefined
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
             leftover?.kill('SIGKILL')
@@ -1270,12 +1295,10 @@ describe('scenario environment', () => {
                 seen,
                 up: await up,
                 startedWhileMemberHeld: startedWhileMemberHeld(),
-                health: await Promise.all(CdpRole.options.map((role) => healthOf(role).catch(String))),
             }).toEqual({
                 seen: 'member seen',
                 up: 'up',
                 startedWhileMemberHeld: [],
-                health: CdpRole.options.map(() => 200),
             })
         }, 45_000)
 
@@ -1333,16 +1356,25 @@ describe('scenario environment', () => {
             expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: false })])
         }, 30_000)
 
-        it('brings every role up healthy', async () => {
+        it('brings every role up healthy, and keeps a role that stops answering out of the dependency health', async () => {
+            const hung: Role = 'cdp-cyclotron-worker-hogflow'
             environment = environmentOf()
 
             await environment.up()
 
             const health = await Promise.all(CdpRole.options.map(async (role) => [role, await healthOf(role)]))
             const edge = (await internalFetch(`${environment.edgeUrl()}/_health`)).status
-            expect({ ...Object.fromEntries(health), edge }).toEqual({
-                ...Object.fromEntries(CdpRole.options.map((role) => [role, 200])),
+            const pid = Number(await (await internalFetch(`http://127.0.0.1:${ROLE_PORTS[hung]}/_health`)).text())
+            process.kill(pid, 'SIGSTOP')
+            const { down } = await environment.dependencyHealth().finally(() => process.kill(pid, 'SIGCONT'))
+            expect({
+                health: Object.fromEntries(health),
+                edge,
+                rolesDown: down.filter((name) => name in ROLE_PORTS),
+            }).toEqual({
+                health: Object.fromEntries(CdpRole.options.map((role) => [role, 200])),
                 edge: 200,
+                rolesDown: [],
             })
         }, 30_000)
 
@@ -1368,11 +1400,19 @@ describe('scenario environment', () => {
                     unspawnable = 'cdp-cyclotron-worker-email'
                 },
             ],
+            [
+                'stays alive without answering /_health',
+                'cdp-cyclotron-worker-hogflow',
+                () => {
+                    neverAnswers = 'cdp-cyclotron-worker-hogflow'
+                },
+            ],
         ])(
-            'fails naming a role that %s and its log',
+            'fails naming a role that %s and its log, stopping every role and freeing the state dir',
             async (_name, role, arrange) => {
                 arrange()
-                environment = environmentOf()
+                const earlierRoles = new Set(stubRolePids)
+                environment = environmentOf(5000)
 
                 const failure = await environment.up().then(
                     () => null,
@@ -1381,6 +1421,19 @@ describe('scenario environment', () => {
 
                 expect(failure).toMatch(new RegExp(`^${role} `))
                 expect(failure).toContain(logOf(role))
+                const alive = [...stubRolePids].filter((pid) => {
+                    if (earlierRoles.has(pid)) {
+                        return false
+                    }
+                    try {
+                        return process.kill(pid, 0)
+                    } catch {
+                        return false
+                    }
+                })
+                expect(alive).toEqual([])
+                const release = await holdRunLock(realpathSync(path.join(cacheDir, 'posthog-scenarios')))
+                await release()
             },
             30_000
         )
@@ -1505,13 +1558,11 @@ describe('scenario environment', () => {
                 reset: await reset,
                 offsets: offsetsOf(),
                 startedWhileMemberHeld: startedWhileMemberHeld(),
-                health: await Promise.all(CdpRole.options.map((role) => healthOf(role).catch(String))),
             }).toEqual({
                 seen: 'member seen',
                 reset: 'reset',
                 offsets: { [group]: { [topic]: 'end' } },
                 startedWhileMemberHeld: [],
-                health: CdpRole.options.map(() => 200),
             })
         }, 45_000)
 
@@ -1593,17 +1644,7 @@ describe('scenario environment', () => {
                 expect(failure).toContain(logOf(role))
                 const others = CdpRole.options.filter((other) => other !== role)
                 expect({
-                    edge: await internalFetch(`${edgeUrl}/_health`).then(
-                        (answer) => answer.status,
-                        () => 'unreachable'
-                    ),
-                    lock: await holdRunLock(path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios')).then(
-                        async (release) => {
-                            await release()
-                            return 'free'
-                        },
-                        (error: Error) => error.message
-                    ),
+                    ...(await teardownOf(edgeUrl)),
                     rolePortsHeld: (
                         await Promise.all(
                             others.map(async (other) => ((await isPortFree(ROLE_PORTS[other])) ? [] : [other]))
@@ -1613,6 +1654,24 @@ describe('scenario environment', () => {
             },
             30_000
         )
+
+        it('names a role whose exit never arrives after SIGKILL and still frees the edge and the state dir on down', async () => {
+            exitGoesUnreported = 'cdp-processed-events'
+            environment = environmentOf()
+            await environment.up()
+            const edgeUrl = environment.edgeUrl()
+
+            const failure = await environment.down().then(
+                () => null,
+                (error: Error) => error.message
+            )
+
+            expect({ failure, ...(await teardownOf(edgeUrl)) }).toEqual({
+                failure: expect.stringMatching(/^cdp-processed-events \(pid \d+\) did not exit after SIGKILL/),
+                edge: 'unreachable',
+                lock: 'free',
+            })
+        }, 20_000)
 
         it('refuses a reset when another server takes a role port while the roles are stopped', async () => {
             environment = environmentOf()

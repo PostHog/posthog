@@ -3,7 +3,8 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import Model, Prefetch
+from django.db.models import Expression, JSONField, Model, Prefetch, Value
+from django.db.models.fields.json import KeyTransform
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -41,6 +42,7 @@ from products.data_modeling.backend.facade.api import (
     enable_saved_query_materialization,
     run_related_node_materializations,
 )
+from products.data_modeling.backend.facade.contracts import VIEW_ENGINE_ANNOTATIONS
 from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -48,7 +50,6 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     Node,
     NodeType,
-    ViewEngine,
 )
 from products.managed_warehouse.backend.facade.sql_editor import managed_trino_query_flag_enabled
 from products.warehouse_sources.backend.facade.api import team_has_had_direct_query_source
@@ -57,6 +58,16 @@ from products.warehouse_sources.backend.facade.models import sync_frequency_to_s
 from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
 
 logger = structlog.get_logger(__name__)
+
+
+def _view_engine_annotations(*, read_query_keys: bool) -> dict[str, Expression]:
+    """Annotations that let `ViewEngine.from_annotated` build the engine of a row whose `query` is deferred.
+
+    Reading the keys still detoasts `query`. With `read_query_keys=False` every row reads as ClickHouse.
+    """
+    if read_query_keys:
+        return {name: KeyTransform(key, "query") for key, name in VIEW_ENGINE_ANNOTATIONS.items()}
+    return {name: Value(None, output_field=JSONField()) for name in VIEW_ENGINE_ANNOTATIONS.values()}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -260,7 +271,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             read_query_keys = managed_trino_query_flag_enabled(
                 self.team.organization_id
             ) or team_has_had_direct_query_source(self.team.pk)
-            base_queryset = base_queryset.annotate(**ViewEngine.queryset_annotations(read_query_keys=read_query_keys))
+            base_queryset = base_queryset.annotate(**_view_engine_annotations(read_query_keys=read_query_keys))
 
         if self.action == "list" and not self._include_columns:
             base_queryset = base_queryset.defer("columns")
