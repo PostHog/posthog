@@ -176,9 +176,6 @@ export interface projectTreeLogicActions {
         ref: string
         type: string
     } // projectTreeDataLogic
-    dropStaleItems: (items: FileSystemEntry[]) => {
-        items: FileSystemEntry[]
-    } // projectTreeDataLogic
     linkItem: (
         oldPath: string,
         newPath: string,
@@ -601,7 +598,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'addLoadedResults',
                 'createSavedItem',
                 'deleteSavedItem',
-                'dropStaleItems',
                 'deleteTypeAndRef',
                 'movedItem',
                 'queueAction',
@@ -767,7 +763,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return state
                 },
-                dropStaleItems: (state, { items }) =>
+                [projectTreeDataLogic.actionTypes.dropStaleItems]: (state, { items }) =>
                     state.searchTerm && state.results.length > 0 ? withoutItems(state, items) : state,
                 deleteTypeAndRef: (state, { type, ref }) => {
                     return {
@@ -815,7 +811,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return state
                 },
-                dropStaleItems: (state, { items }) => (state.results.length > 0 ? withoutItems(state, items) : state),
+                [projectTreeDataLogic.actionTypes.dropStaleItems]: (state, { items }) =>
+                    state.results.length > 0 ? withoutItems(state, items) : state,
                 deleteTypeAndRef: (state, { type, ref }) => {
                     return {
                         ...state,
@@ -1336,7 +1333,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         deleteSavedItem: () => {
             actions.checkSelectedFolders()
         },
-        dropStaleItems: () => {
+        [projectTreeDataLogic.actionTypes.dropStaleItems]: () => {
             actions.checkSelectedFolders()
         },
         movedItem: () => {
