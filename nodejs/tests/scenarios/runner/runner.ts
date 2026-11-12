@@ -73,7 +73,7 @@ function watchHealth(environment: Environment): () => Promise<string[]> {
     const stopped = new AbortController()
     const watching = (async () => {
         while (!stopped.signal.aborted) {
-            const health = await environment.health().catch(() => ({ down: ['health check'] }))
+            const health = await environment.dependencyHealth().catch(() => ({ down: ['health check'] }))
             health.down.forEach((name) => down.add(name))
             await sleep(HEALTH_INTERVAL_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
         }

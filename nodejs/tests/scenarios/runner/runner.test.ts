@@ -73,7 +73,7 @@ describe('runner', () => {
         reset: () => Promise.resolve(duringReset()),
         edgeUrl: () => 'http://127.0.0.1:1',
         role: (name) => ({ name, metricsUrl: '' }),
-        health: () => Promise.resolve({ healthy: true, down: [] }),
+        dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         down: () => Promise.resolve(),
     }
@@ -415,7 +415,7 @@ describe('runner through seed, drive and judge', () => {
         },
         edgeUrl: () => edge.url,
         role: (name) => ({ name, metricsUrl: '' }),
-        health: () => Promise.resolve({ healthy: true, down: [] }),
+        dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         down: async () => {
             await roles?.stop()

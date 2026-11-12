@@ -101,7 +101,7 @@ describe('runCards', () => {
                 return edgeUrl
             },
             role: (name) => ({ name, metricsUrl: '' }),
-            health: () => Promise.resolve({ healthy: true, down: [] }),
+            dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
             exits: () => [],
             down: () => Promise.resolve(),
         }
