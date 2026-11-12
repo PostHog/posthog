@@ -2317,7 +2317,6 @@ describe('CDP API', () => {
             payload: Record<string, unknown>
         ) => supertest(app).post(`/api/projects/${team.id}/hog_flows/${flowId}/${route}`).set(headers).send(payload)
 
-        const DAY_MS = 24 * 60 * 60 * 1000
         const inDays = (days: number): string => new Date(Date.now() + days * DAY_MS).toISOString()
         const toClickHouseTime = (date: Date): string => date.toISOString().replace('T', ' ').replace('Z', '000')
 
@@ -2672,7 +2671,6 @@ describe('CDP API', () => {
             it.each(['transactional_email', 'transactional_email/send'] as const)(
                 'parks a send on %s until its time on the fast lane',
                 async (route) => {
-                    // The 30 days count from the message's creation, a moment after this line.
                     const scheduledAt = new Date(Date.now() + 30 * DAY_MS).toISOString()
 
                     const res = await sendAt(route, scheduledAt)
