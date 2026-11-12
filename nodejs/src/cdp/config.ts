@@ -115,6 +115,7 @@ export type CdpConfig = ClickhouseConfig & {
     // Counts crashed attempts of each Kafka cyclotron batch in CDP Valkey.
     //   "off"     - no counting.
     //   "shadow"  - a batch that crashed the worker MAX_ATTEMPTS times is logged and counted, then processed.
+    //   "enforce" - a batch that crashed the worker MAX_ATTEMPTS times goes unprocessed to cdp_cyclotron_hogdlq.
     CDP_BATCH_QUARANTINE_MODE: string
     // A batch that crashed the worker this many times is poisoned.
     CDP_BATCH_QUARANTINE_MAX_ATTEMPTS: number
@@ -122,6 +123,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_BATCH_QUARANTINE_KEY_TTL_SECONDS: number
     // Every batch waits for the count, so a slow Valkey must not stall the consumer.
     CDP_BATCH_QUARANTINE_VALKEY_TIMEOUT_MS: number
+    // A poisoned message flags only the partitions fetched with it, while a bad deploy or an outage that kills
+    // the worker flags nearly all of them. Past this many flagged partitions within the key TTL, the guard
+    // stops setting aside and the worker stalls, so the lag alerts page instead of the DLQ filling.
+    CDP_BATCH_QUARANTINE_MAX_FLAGGED_PARTITIONS: number
 
     SES_RATE_LIMITER_VALKEY_HOST: string
     SES_RATE_LIMITER_VALKEY_PORT: number
@@ -413,6 +418,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_BATCH_QUARANTINE_MAX_ATTEMPTS: 3,
         CDP_BATCH_QUARANTINE_KEY_TTL_SECONDS: 60 * 60,
         CDP_BATCH_QUARANTINE_VALKEY_TIMEOUT_MS: 500,
+        CDP_BATCH_QUARANTINE_MAX_FLAGGED_PARTITIONS: 32,
 
         // Dev points at the compose stack's Valkey (same instance as CDP_VALKEY) so the SES gate,
         // per-workflow email rate limits, and the MX-validation cache are exercisable locally.

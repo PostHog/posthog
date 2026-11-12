@@ -7,6 +7,7 @@ import { captureException } from '~/common/utils/posthog'
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { ConsumerOptions, JobQueue } from '../services/job-queue/job-queue.interface'
 import { CrashGuard, CrashGuardSettings } from '../services/poison-batch/crash-guard'
+import { divertToDeadLetter } from '../services/poison-batch/divert-to-dead-letter'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
     CyclotronJobInvocation,
@@ -300,7 +301,13 @@ export class CdpCyclotronWorker<
 
     protected consumerOptions(): ConsumerOptions {
         const settings = this.crashGuardSettings
-        return settings ? { crashGuard: ({ groupId }) => new CrashGuard(settings, groupId) } : {}
+        if (!settings) {
+            return {}
+        }
+        return {
+            crashGuard: ({ groupId, produce }) =>
+                new CrashGuard(settings, groupId, divertToDeadLetter(produce, groupId)),
+        }
     }
 
     public override async stop() {

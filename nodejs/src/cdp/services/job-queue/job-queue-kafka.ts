@@ -19,6 +19,8 @@ import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueue
 import { ConsumerOptions, JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
+export const cyclotronTopic = (queue: CyclotronJobQueueKind): string => `cdp_cyclotron_${queue}`
+
 export class CyclotronJobQueueKafka implements JobQueue {
     private kafkaConsumer?: KafkaConsumerInterface
     private kafkaProducer?: KafkaProducerWrapper
@@ -57,12 +59,15 @@ export class CyclotronJobQueueKafka implements JobQueue {
         this.consumeBatch = consumeBatch
 
         const groupId = `cdp-cyclotron-${this.queue}-consumer`
-        const topic = `cdp_cyclotron_${this.queue}`
+        const topic = cyclotronTopic(this.queue)
 
         // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
         this.kafkaConsumer = createKafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
 
-        const crashGuard = options.crashGuard?.({ groupId })
+        const crashGuard = options.crashGuard?.({
+            groupId,
+            produce: (message) => this.getKafkaProducer().produce(message),
+        })
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic, quarantineMode: crashGuard?.mode ?? 'off' })
         await this.kafkaConsumer.connect(async (messages) => {
@@ -132,7 +137,7 @@ export class CyclotronJobQueueKafka implements JobQueue {
                     .produce({
                         value: Buffer.from(value),
                         key: Buffer.from(msg.id),
-                        topic: `cdp_cyclotron_${msg.queue}`,
+                        topic: cyclotronTopic(msg.queue),
                         headers,
                     })
                     .catch((e) => {
