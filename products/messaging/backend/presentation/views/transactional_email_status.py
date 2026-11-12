@@ -14,6 +14,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
@@ -141,8 +142,7 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["retrieve", *MANAGE_ACTIONS]
 
-    @property
-    def required_scopes(self) -> list[str]:
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
         return [TRANSACTIONAL_EMAIL_SEND_SCOPE if self.action in MANAGE_ACTIONS else TRANSACTIONAL_EMAIL_STATUS_SCOPE]
 
     def get_throttles(self) -> list[BaseThrottle]:
