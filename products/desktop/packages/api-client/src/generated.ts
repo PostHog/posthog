@@ -7473,6 +7473,7 @@ export namespace Schemas {
         | "stripe"
         | "intercom"
         | "email"
+        | "email_sandbox"
         | "twilio"
         | "linear"
         | "github"

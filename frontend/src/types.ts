@@ -5670,6 +5670,7 @@ export const INTEGRATION_KINDS = [
     'stripe',
     'intercom',
     'email',
+    'email_sandbox',
     'twilio',
     'linear',
     'github',
