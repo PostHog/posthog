@@ -1137,10 +1137,11 @@ database "posthog" {
   table "email_status_data" {
     order_by     = ["team_id", "message_id"]
     partition_by = "toYYYYMMDD(created_at)"
-    ttl          = "toDate(created_at) + toIntervalDay(31)"
+    ttl          = "toDate(created_at) + toIntervalDay(61)"
     settings = {
-      index_granularity   = "1024"
-      ttl_only_drop_parts = "1"
+      index_granularity                = "1024"
+      materialize_ttl_recalculate_only = "1"
+      ttl_only_drop_parts              = "1"
     }
     extend = "_email_status_columns"
     column "_timestamp" {

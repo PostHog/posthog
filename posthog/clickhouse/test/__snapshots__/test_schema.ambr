@@ -1635,7 +1635,7 @@
   PARTITION BY toYYYYMMDD(created_at)
   ORDER BY (team_id, message_id)
   
-  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
   
   '''
 # ---
@@ -12282,7 +12282,7 @@
   PARTITION BY toYYYYMMDD(created_at)
   ORDER BY (team_id, message_id)
   
-  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
   
   '''
 # ---

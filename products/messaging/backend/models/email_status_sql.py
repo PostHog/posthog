@@ -14,6 +14,11 @@ EMAIL_STATUS_RETENTION_DAYS = 30
 # Parts drop by whole day of `created_at`, so one more day keeps an email created late in a day
 # for its full retention.
 EMAIL_STATUS_TTL_DAYS = EMAIL_STATUS_RETENTION_DAYS + 1
+# A send can wait up to 30 days before it goes out, so the latest status outlives the full timeline by 30 days. Changing
+# this value sets the TTL only when the table is created. An existing table takes a migration, such as
+# 0381_email_status_ttl_61_days.
+EMAIL_STATUS_READ_DAYS = 60
+EMAIL_STATUS_READ_TTL_DAYS = EMAIL_STATUS_READ_DAYS + 1
 
 # AUX-resident table family modelled on `hog_invocation_results`. Each status change of a
 # transactional email is one row. A message's rows replace each other by `version`, which puts the
@@ -69,8 +74,8 @@ CREATE TABLE IF NOT EXISTS {EMAIL_STATUS_DATA_TABLE}
 ENGINE = {ReplacingMergeTree(EMAIL_STATUS_DATA_TABLE, ver="version", replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toYYYYMMDD(created_at)
 ORDER BY (team_id, message_id)
-{ttl_period("created_at", EMAIL_STATUS_TTL_DAYS, unit="DAY")}
-SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+{ttl_period("created_at", EMAIL_STATUS_READ_TTL_DAYS, unit="DAY")}
+SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
 """
 )
 
@@ -214,3 +219,17 @@ ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_DATA_SQL = lambda: (
     f"ALTER TABLE {EMAIL_STATUS_EVENTS_DATA_TABLE} {_ADD_SCHEDULED_AT_SQL}"
 )
 ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_SQL = lambda: f"ALTER TABLE {EMAIL_STATUS_EVENTS_TABLE} {_ADD_SCHEDULED_AT_SQL}"
+
+
+# A settings-only ALTER changes only the replica that runs it. The setting keeps the TTL mutation from rewriting columns
+# if the table later gains a column TTL or loses ttl_only_drop_parts.
+EMAIL_STATUS_DATA_RECALCULATE_TTL_ONLY_SQL = lambda: (
+    f"ALTER TABLE {EMAIL_STATUS_DATA_TABLE} MODIFY SETTING materialize_ttl_recalculate_only = 1"
+)
+# The mutation recalculates the TTL of every existing part, so sends from before the change also stay for the new
+# retention. The table has only a row TTL and ttl_only_drop_parts = 1, so it reads only `created_at` and rewrites only
+# each part's TTL metadata. With alter_sync = 0 the deploy doesn't wait for every replica to run it.
+EMAIL_STATUS_DATA_TTL_SQL = lambda: (
+    f"ALTER TABLE {EMAIL_STATUS_DATA_TABLE} MODIFY TTL toDate(created_at) + INTERVAL {EMAIL_STATUS_READ_TTL_DAYS} DAY "
+    "SETTINGS materialize_ttl_after_modify = 1, alter_sync = 0"
+)
