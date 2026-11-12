@@ -16,6 +16,7 @@ from rest_framework.response import Response
 
 from posthog.hogql.direct_sql.capability import is_direct_capable
 
+from posthog.api.fields import LengthFirstListField
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.utils import action
 from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS
@@ -24,7 +25,10 @@ from posthog.permissions import is_service_auth
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
 from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
-from products.warehouse_sources.backend.facade.incremental_field_model import recommend_for_candidates
+from products.warehouse_sources.backend.facade.incremental_field_model import (
+    MAX_TABLES_PER_CALL,
+    recommend_for_candidates,
+)
 from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     ExternalDataSchema,
@@ -71,19 +75,6 @@ class RefreshSchemasResponseSerializer(serializers.Serializer):
 MAX_IDENTIFIER_LENGTH = 4096
 
 
-class BoundedListField(serializers.ListField):
-    """A ListField that rejects an oversized list before it validates any item.
-
-    DRF checks `max_length` only after it validates every child, so an oversized request would
-    still cost the full validation work.
-    """
-
-    def to_internal_value(self, data: Any) -> list[Any]:
-        if self.max_length is not None and isinstance(data, list) and len(data) > self.max_length:
-            self.fail("max_length", max_length=self.max_length)
-        return super().to_internal_value(data)
-
-
 class IncrementalFieldCandidateSerializer(serializers.Serializer):
     label = serializers.CharField(  # type: ignore[assignment]
         max_length=MAX_IDENTIFIER_LENGTH, trim_whitespace=False, help_text="Name of the field as shown in the UI."
@@ -103,9 +94,10 @@ class IncrementalFieldCandidateSerializer(serializers.Serializer):
         required=False, help_text="Whether this is the field the source recommends as the incremental cursor."
     )
     picked_by_model = serializers.BooleanField(
-        required=False, help_text="Whether the decision model, not the name rules, picked this field."
+        required=False,
+        help_text="Whether the decision model, not the name rules, picked this field. Ignored on input.",
     )
-    notes = BoundedListField(
+    notes = LengthFirstListField(
         child=serializers.CharField(max_length=1000),
         max_length=16,
         required=False,
@@ -119,7 +111,7 @@ class IncrementalFieldTableSerializer(serializers.Serializer):
         trim_whitespace=False,
         help_text="Name of the table, as returned by database_schema.",
     )
-    incremental_fields = BoundedListField(
+    incremental_fields = LengthFirstListField(
         child=IncrementalFieldCandidateSerializer(),
         max_length=GATEWAY_MAX_CHOICE_OPTIONS,
         help_text=(
@@ -130,9 +122,9 @@ class IncrementalFieldTableSerializer(serializers.Serializer):
 
 
 class IncrementalFieldRecommendationsRequestSerializer(serializers.Serializer):
-    tables = BoundedListField(
+    tables = LengthFirstListField(
         child=IncrementalFieldTableSerializer(),
-        max_length=512,
+        max_length=MAX_TABLES_PER_CALL,
         help_text="Tables from database_schema to get a recommended incremental field for.",
     )
 

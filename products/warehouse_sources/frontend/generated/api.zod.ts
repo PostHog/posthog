@@ -1327,7 +1327,7 @@ export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesI
 
 export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax = 16
 
-export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 512
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 128
 
 export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @__PURE__ */ zod.object({
     tables: zod
@@ -1378,7 +1378,9 @@ export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @
                             picked_by_model: zod
                                 .boolean()
                                 .optional()
-                                .describe('Whether the decision model, not the name rules, picked this field.'),
+                                .describe(
+                                    'Whether the decision model, not the name rules, picked this field. Ignored on input.'
+                                ),
                             notes: zod
                                 .array(
                                     zod
