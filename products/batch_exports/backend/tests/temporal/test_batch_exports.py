@@ -5,8 +5,6 @@ from random import randint
 
 import pytest
 
-from django.test import override_settings
-
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.temporal.batch_exports import DataInterval, get_data_interval, iter_records
@@ -186,61 +184,6 @@ async def test_iter_records_can_include_events(clickhouse_client):
     ]
 
     assert_records_match_events(records, events[5000:])
-
-
-async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
-    """Test the rows returned by iter_records ignores timestamp predicates when configured."""
-    team_id = randint(1, 1000000)
-
-    inserted_at = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-    data_interval_end = inserted_at + dt.timedelta(hours=1)
-
-    # Insert some data with timestamps a couple of years before inserted_at
-    timestamp_start = inserted_at - dt.timedelta(hours=24 * 365 * 2)
-    timestamp_end = inserted_at - dt.timedelta(hours=24 * 365)
-
-    (events, _, _) = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=timestamp_start,
-        end_time=timestamp_end,
-        count=10,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=True,
-        person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        inserted_at=inserted_at,
-        table="sharded_events",
-    )
-
-    records = [
-        record
-        for record_batch in iter_records(
-            clickhouse_client,
-            team_id,
-            inserted_at.isoformat(),
-            data_interval_end.isoformat(),
-            use_new_events_schema=False,
-        )
-        for record in record_batch.to_pylist()
-    ]
-
-    assert len(records) == 0
-
-    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
-        records = [
-            record
-            for record_batch in iter_records(
-                clickhouse_client,
-                team_id,
-                inserted_at.isoformat(),
-                data_interval_end.isoformat(),
-                use_new_events_schema=False,
-            )
-            for record in record_batch.to_pylist()
-        ]
-
-    assert_records_match_events(records, events)
 
 
 async def test_iter_records_can_flatten_properties(clickhouse_client):
