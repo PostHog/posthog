@@ -15,7 +15,7 @@ import {
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { SegmentDestinationExecutorService } from './segment-destination-executor.service'
 
-type RecordedRequest = { url: string; method: string; headers: Record<string, string>; body: any }
+type RecordedRequest = { url: string; method: string; headers: Record<string, string>; body: unknown }
 
 const fakeDestinationServer = (status: number, responseBody: unknown): RecordedRequest[] => {
     const requests: RecordedRequest[] = []
@@ -54,15 +54,7 @@ describe('SegmentDestinationExecutorService', () => {
         Settings.defaultZone = 'UTC'
         service = new SegmentDestinationExecutorService(defaultConfig)
 
-        mockFetch.mockImplementation((_url, _options) =>
-            Promise.resolve({
-                status: 200,
-                json: () => Promise.resolve({}),
-                text: () => Promise.resolve(JSON.stringify({})),
-                headers: {},
-                dump: () => Promise.resolve(),
-            } as any)
-        )
+        fakeDestinationServer(200, {})
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
