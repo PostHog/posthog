@@ -232,7 +232,7 @@ describe('Hogflow Executor', () => {
             new EmailSuppressionService(suppressionDb ?? hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
             null,
-            { report: jest.fn() },
+            { report: jest.fn(), reportEmailSent: jest.fn() },
             undefined,
             null,
             teamEmailRateLimiter,
@@ -287,7 +287,8 @@ describe('Hogflow Executor', () => {
                         backoffMaxMs: 30000,
                     },
                     undefined as any,
-                    undefined as any
+                    undefined as any,
+                    { reportPushSent: () => Promise.resolve() }
                 ),
             }
         )

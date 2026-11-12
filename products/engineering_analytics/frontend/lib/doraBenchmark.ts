@@ -1,9 +1,5 @@
-// DORA report performance bands for the four deploy metrics, so each deploy tile can say
-// which band the current window lands in. Thresholds are loosely modeled on the DORA State
-// of DevOps report ladders (elite / high / medium / low), not a literal reproduction: the
-// deployment-frequency and change-failure-rate bands are tuned tighter than the published
-// report. Our change-failure and recovery figures are also deploy-status proxies, so the
-// tile tooltips carry that caveat alongside the ladder.
+// The thresholds are loosely modeled on the DORA State of DevOps report ladders, not a literal
+// reproduction. The deployment-frequency and change-failure-rate bands are tighter than the report's.
 
 const DAY_SECONDS = 86400
 const WEEK_SECONDS = 7 * DAY_SECONDS
@@ -13,9 +9,7 @@ export type DoraBand = 'elite' | 'high' | 'medium' | 'low'
 
 export interface DoraBenchmark {
     band: DoraBand
-    /** The band name, shown in the label tooltip. */
     label: string
-    /** The full DORA ladder for the metric, shown in the label tooltip. */
     tooltip: string
 }
 

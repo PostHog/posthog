@@ -27,6 +27,7 @@ export const ReleasesCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.number().min(1).max(releasesCreateBodyFeatureFlagIdsItemMax))
         .optional()
         .describe('IDs of the feature flags that control who gets the release.'),
+    broadcast_ids: zod.array(zod.uuid()).optional().describe('IDs of the broadcasts that announce the release.'),
 })
 
 /**
@@ -47,4 +48,5 @@ export const ReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.number().min(1).max(releasesPartialUpdateBodyFeatureFlagIdsItemMax))
         .optional()
         .describe('IDs of the feature flags that control who gets the release.'),
+    broadcast_ids: zod.array(zod.uuid()).optional().describe('IDs of the broadcasts that announce the release.'),
 })
