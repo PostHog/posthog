@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -56,19 +55,19 @@ with workflow.unsafe.imports_passed_through():
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@frozen
 class EnumerateConversationsInput:
     job_id: str
     cursor: str | None = None
 
 
-@dataclass
+@frozen
 class EnumerateConversationsOutput:
     conversation_ids: list[str]
     next_cursor: str | None
 
 
-@dataclass
+@frozen
 class ImportBatchInput:
     job_id: str
     team_id: int
@@ -78,21 +77,21 @@ class ImportBatchInput:
     default_email_channel_id: str | None = None
 
 
-@dataclass
+@frozen
 class ImportBatchOutput:
     imported: int
     skipped: int
     failed: int
 
 
-@dataclass
+@frozen
 class UpdateJobStatusInput:
     job_id: str
     status: str
     latest_error: str | None = None
 
 
-@dataclass
+@frozen
 class UpdateJobProgressInput:
     job_id: str
     processed_delta: int = 0

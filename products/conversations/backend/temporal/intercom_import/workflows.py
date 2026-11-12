@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import asyncio
-from dataclasses import dataclass
 from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
+
+from posthog.dataclasses import frozen
 
 with workflow.unsafe.imports_passed_through():
     from products.conversations.backend.models.intercom_import_job import IntercomImportJob
@@ -35,7 +36,7 @@ IMPORT_FAILED_MESSAGE = "The import failed. Please try again or contact support 
 IMPORT_CANCELLED_MESSAGE = "The import was cancelled."
 
 
-@dataclass
+@frozen
 class IntercomImportCoordinatorInput:
     job_id: str
     team_id: int
@@ -53,14 +54,14 @@ class IntercomImportCoordinatorInput:
     failed_offset: int = 0
 
 
-@dataclass
+@frozen
 class IntercomImportCoordinatorOutput:
     imported: int
     skipped: int
     failed: int
 
 
-@dataclass
+@frozen
 class IntercomImportBatchWorkflowInput:
     job_id: str
     team_id: int

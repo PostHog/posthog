@@ -168,8 +168,13 @@ class TestIntercomImportBatchActivity(BaseTest):
             "Internal: refund approved",
             "Thanks!",
         ]
-        assert [c.item_context["author_type"] for c in comments] == ["customer", "support", "support", "customer"]
-        assert [c.item_context["is_private"] for c in comments] == [False, False, True, False]
+        assert [(c.item_context or {})["author_type"] for c in comments] == [
+            "customer",
+            "support",
+            "support",
+            "customer",
+        ]
+        assert [(c.item_context or {})["is_private"] for c in comments] == [False, False, True, False]
         assert comments[0].created_at == datetime.fromtimestamp(CREATED_AT, tz=UTC)
 
         # The note is excluded from every customer-facing counter and from last_message_text.
@@ -214,7 +219,7 @@ class TestIntercomImportBatchActivity(BaseTest):
 
         ticket = Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="301")
         assert ticket.distinct_id == "lee@example.com"
-        assert self._comments(ticket)[0].item_context["author_type"] == "support"
+        assert (self._comments(ticket)[0].item_context or {})["author_type"] == "support"
 
     def test_default_email_channel_attached_and_backfilled_on_rerun(self) -> None:
         self._run_batch([_conversation("401")])

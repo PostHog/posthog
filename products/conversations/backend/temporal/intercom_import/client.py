@@ -78,7 +78,8 @@ def _next_cursor(pages: dict[str, Any]) -> str | None:
     if isinstance(next_page, dict):
         cursor = next_page.get("starting_after")
     elif isinstance(next_page, str):
-        cursor = (parse_qs(urlsplit(next_page).query).get("starting_after") or [None])[0]
+        values = parse_qs(urlsplit(next_page).query).get("starting_after")
+        cursor = values[0] if values else None
     else:
         cursor = None
     return str(cursor) if cursor else None
