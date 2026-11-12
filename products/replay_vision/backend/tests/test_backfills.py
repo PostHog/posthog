@@ -71,7 +71,7 @@ from products.replay_vision.backend.temporal.constants import (
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 from products.replay_vision.backend.temporal.sweep_types import CandidateSessionPayload
 from products.replay_vision.backend.temporal.types import CreateObservationInputs
-from products.replay_vision.backend.tests.helpers import create_experiment, seed_scanner_spend
+from products.replay_vision.backend.tests.helpers import create_experiment, seed_scanner_spend, update_experiment
 
 _WINDOW_END = dt.datetime(2026, 5, 1, tzinfo=dt.UTC)
 _WINDOW_START = _WINDOW_END - dt.timedelta(days=30)
@@ -708,8 +708,7 @@ class TestBackfillsApi(APIBaseTest):
         mock_query.return_value.count.return_value = 3
         experiment = create_experiment(self.team, "ended-flag", launched=True, variants=["control", "test"])
         ended_at = timezone.now() - dt.timedelta(days=3)
-        experiment.end_date = ended_at
-        experiment.save()
+        update_experiment(experiment, end_date=ended_at)
         self.scanner.scanner_type = ScannerType.EXPERIMENT
         self.scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         self.scanner.save()

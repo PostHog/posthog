@@ -13,6 +13,8 @@ from products.customer_analytics.backend.temporal.account_track_rules import (
 )
 from products.customer_analytics.backend.temporal.calendar_sync import create_calendar_sync_coordinator_schedule
 from products.customer_analytics.backend.temporal.membership_backfill import create_membership_coordinator_schedule
+from products.customer_analytics.backend.temporal.membership_deletion import create_membership_deletion_schedule
+from products.customer_analytics.backend.temporal.membership_discovery import create_membership_discovery_schedule
 from products.customer_analytics.backend.temporal.ownership_claims import create_ownership_claims_coordinator_schedule
 
 __all__ = [
@@ -25,5 +27,7 @@ __all__ = [
     "create_calendar_sync_coordinator_schedule",
     "create_ownership_claims_coordinator_schedule",
     "create_membership_coordinator_schedule",
+    "create_membership_discovery_schedule",
+    "create_membership_deletion_schedule",
     "stage_warehouse_account_property_files_activity",
 ]

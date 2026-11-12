@@ -76,8 +76,19 @@ pnpm --filter @posthog/hog typecheck
 Add the regression test on both sides too. hog tests drive the real CLI with `runHog` from `hog/src/testing.ts`, and its `respond` option fakes PostHog and object storage, so a hog test can cover the same failure as the Rust one without a server.
 Use `/writing-tests` for both.
 
+## Show the terminal in the PR
+
+A PR that changes what either CLI prints, asks or exits with shows it in the description.
+Add a mockup of the terminal for each case that changed: success, each error, and each prompt, as a person at a terminal sees it.
+When agent output (`-o json`) changed, show that too.
+
+- Copy the mockup from a real run, such as `pnpm --filter @posthog/hog hog <command>` or `cargo run --manifest-path cli/Cargo.toml -- <command>`. Write one by hand only for a state you can't reach locally, and say which.
+- Put each in a `console` code block that starts with the command, and give the exit code when it isn't 0.
+- Reviewers judge wording, order and hints from the mockup, so they don't have to check out the branch to see what users get.
+
 ## Before you report done
 
+- The PR description shows the terminal for each changed case.
 - Both CLIs carry the change, or the PR says why one does not need it.
 - Both test suites pass, and `hog/test/parity/` is green.
 - `cli/` and `hog/` each have a changeset when their behavior changed.
