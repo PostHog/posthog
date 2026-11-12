@@ -33,7 +33,7 @@ export function QuillWidgetCardHeader({
     const displayTitle = title || defaultTitle || 'Untitled'
     const titleContent = (
         <>
-            <span className="truncate text-foreground">{displayTitle}</span>
+            <span className="truncate">{displayTitle}</span>
             {loading && (
                 <span className="ml-1.5 inline-flex items-center gap-1.5 text-sm font-medium text-accent">
                     <Spinner />
@@ -62,7 +62,10 @@ export function QuillWidgetCardHeader({
                         }
                     >
                         {titleHref ? (
-                            <LinkPrimitive to={titleHref} className="max-w-full truncate hover:underline">
+                            <LinkPrimitive
+                                to={titleHref}
+                                className="max-w-full truncate text-foreground hover:underline"
+                            >
                                 {titleContent}
                             </LinkPrimitive>
                         ) : (

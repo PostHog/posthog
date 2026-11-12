@@ -36,7 +36,7 @@ export function QuillInsightMetaContent({
     const hasTitleIndicator = !!(infoPopover || dataRetentionWarning || queryScanTooltip || warehouseSyncTooltip)
     const titleContent = (
         <>
-            <span className={clsx('text-foreground', hasTitleIndicator && 'truncate')}>
+            <span className={clsx(hasTitleIndicator && 'truncate')}>
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
@@ -65,7 +65,7 @@ export function QuillInsightMetaContent({
                 }
             >
                 {link ? (
-                    <LinkPrimitive to={link} className="max-w-full truncate hover:underline">
+                    <LinkPrimitive to={link} className="max-w-full truncate text-foreground hover:underline">
                         {titleContent}
                     </LinkPrimitive>
                 ) : (
