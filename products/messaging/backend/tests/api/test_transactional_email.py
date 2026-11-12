@@ -492,6 +492,12 @@ class TestTransactionalEmail(APIBaseTest):
                 "intake_unavailable",
             ),
             (
+                "idempotency_key_in_flight_from_an_older_pipeline",
+                MagicMock(status_code=409, json=lambda: {"error": "idempotency_key_in_flight"}),
+                "4xx",
+                "idempotency_key_in_flight",
+            ),
+            (
                 "workflow_not_found",
                 MagicMock(status_code=404, json=lambda: {"error": "Workflow not found"}),
                 "4xx",
@@ -573,7 +579,6 @@ class TestTransactionalEmail(APIBaseTest):
     @parameterized.expand(
         [
             ("quota_limited", 429, 429, "quota_limited"),
-            ("idempotency_key_in_flight", 409, 409, "idempotency_key_in_flight"),
             ("idempotency_key_reused", 422, 422, "idempotency_key_reused"),
             ("sending_suspended", 422, 422, "sending_suspended"),
             ("sending_paused", 422, 422, "sending_paused"),
