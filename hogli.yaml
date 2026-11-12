@@ -1196,6 +1196,9 @@ utilities:
     pr:upload-video:
         click: hogli_commands.upload_video:upload_video
         description: Attach demo video(s) to the PR description, or upload to PostHog/pr-assets and print a link
+    replay:hogql:
+        cmd: python tools/infra-scripts/clitools/hogql_replay.py
+        description: Replay logged customer queries against a pull request's code and report result and cost changes
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
