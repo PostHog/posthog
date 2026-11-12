@@ -495,19 +495,19 @@ export interface sourceSettingsLogicActions {
         frequency: DataWarehouseSyncInterval
         schemas: ExternalDataSourceSchema[]
     }
-    bulkSetSyncMethod: (
-        schemas: ExternalDataSourceSchema[],
-        syncType: BulkSyncMethod
-    ) => {
-        schemas: ExternalDataSourceSchema[]
-        syncType: BulkSyncMethod
-    }
     bulkSetLiveQuery: (
         schemas: ExternalDataSourceSchema[],
         enabled: boolean
     ) => {
         enabled: boolean
         schemas: ExternalDataSourceSchema[]
+    }
+    bulkSetSyncMethod: (
+        schemas: ExternalDataSourceSchema[],
+        syncType: BulkSyncMethod
+    ) => {
+        schemas: ExternalDataSourceSchema[]
+        syncType: BulkSyncMethod
     }
     bulkSyncNow: (schemas: ExternalDataSourceSchema[]) => {
         schemas: ExternalDataSourceSchema[]
