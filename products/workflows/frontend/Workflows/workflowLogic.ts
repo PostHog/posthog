@@ -398,6 +398,17 @@ interface ScheduleEdits {
     scheduleConfigSources: { picker: boolean; natural_language: boolean }
 }
 
+const SECRET_REENTRY_CODE = 'secret_reentry_required'
+const SECRET_REENTRY_ATTR = /^actions__(.+)__inputs__(.+)$/
+
+function withoutStep<T>(byStep: Record<string, T>, stepId: string): Record<string, T> {
+    if (!(stepId in byStep)) {
+        return byStep
+    }
+    const { [stepId]: _, ...rest } = byStep
+    return rest
+}
+
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = { ...workflow }
     for (const field of WORKFLOW_CONTENT_FIELDS) {
@@ -418,6 +429,7 @@ export interface workflowLogicValues {
     aiEmailDraftApplied: boolean
     aiEmailDraftLoading: boolean
     aiEmailDraftStatus: AiEmailDraftStatusProps | null
+    autoSaveBlockedBySecret: boolean
     autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
     currentSchedule: HogFlowSchedule | null
@@ -467,6 +479,7 @@ export interface workflowLogicValues {
     scheduleState: ScheduleState
     scheduleTimezone: string
     schedules: HogFlowSchedule[]
+    secretReentryErrors: Record<string, Record<string, string>>
     selectedScheduleId: string | null
     showDraftActions: boolean
     showWorkflowErrors: boolean
@@ -2769,6 +2782,15 @@ export interface workflowLogicActions {
     setSchedules: (schedules: HogFlowSchedule[]) => {
         schedules: HogFlowSchedule[]
     }
+    setSecretReentryError: (
+        stepId: string,
+        key: string,
+        detail: string
+    ) => {
+        detail: string
+        key: string
+        stepId: string
+    }
     setSyncingExternalEdit: (syncing: boolean) => {
         syncing: boolean
     }
@@ -3221,13 +3243,18 @@ export interface workflowLogicMeta {
             hogFunctionTemplatesByIdLoading: boolean,
             scheduleStartsAt: string | null,
             saveAttemptedActionIds: string[] | null,
-            integrations: IntegrationType[] | null
+            integrations: IntegrationType[] | null,
+            secretReentryErrors: Record<string, Record<string, string>>
         ) => Record<string, HogFlowActionValidationResult | null>
         workflowHasActionErrors: (
             workflow: HogFlow,
             actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
         ) => boolean
         autoSaveBlockedByValidation: (workflow: HogFlow) => boolean
+        autoSaveBlockedBySecret: (
+            workflow: HogFlow,
+            secretReentryErrors: Record<string, Record<string, string>>
+        ) => boolean
         keepsLocalEditsOnExternalEdit: (featureFlags: FeatureFlagsSet) => boolean
         triggerAction: (workflow: HogFlow) => TriggerAction | null
         isRowScopedTrigger: (
@@ -3453,6 +3480,7 @@ export const workflowLogic = kea<workflowLogicType>([
         setWorkflowActionConfig: (actionId: string, config: HogFlowAction['config']) => ({ actionId, config }),
         setWorkflowAction: (actionId: string, action: HogFlowAction) => ({ actionId, action }),
         setWorkflowActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
+        setSecretReentryError: (stepId: string, key: string, detail: string) => ({ stepId, key, detail }),
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
         setScheduleState: (scheduleState: ScheduleState, source: 'picker' | 'natural_language' = 'picker') => ({
@@ -3735,6 +3763,12 @@ export const workflowLogic = kea<workflowLogicType>([
                             cache.lastSavedWorkflow = result
                             return result
                         } catch (error) {
+                            if (error instanceof ApiError && error.code === SECRET_REENTRY_CODE) {
+                                const refused = SECRET_REENTRY_ATTR.exec(error.attr ?? '')
+                                if (refused) {
+                                    actions.setSecretReentryError(refused[1], refused[2], error.detail ?? '')
+                                }
+                            }
                             if (error instanceof ApiError && error.status === 409) {
                                 if (initiatedByAutoSave && values.pendingSchedule === false) {
                                     // An auto-save losing the race is not a decision point: the user never
@@ -3917,6 +3951,21 @@ export const workflowLogic = kea<workflowLogicType>([
                 setScheduleState: (state, { source }) => ({ ...state, [source]: true }),
                 restoreScheduleEdits: (_, { edits }) => edits.scheduleConfigSources,
                 setSchedules: () => ({ picker: false, natural_language: false }),
+            },
+        ],
+        secretReentryErrors: [
+            {} as Record<string, Record<string, string>>,
+            {
+                setSecretReentryError: (state, { stepId, key, detail }) => ({
+                    ...state,
+                    [stepId]: { ...state[stepId], [key]: detail },
+                }),
+                partialSetWorkflowActionConfig: (state, { actionId }) => withoutStep(state, actionId),
+                setWorkflowActionConfig: (state, { actionId }) => withoutStep(state, actionId),
+                setWorkflowAction: (state, { actionId }) => withoutStep(state, actionId),
+                saveWorkflowSuccess: () => ({}),
+                loadWorkflowSuccess: () => ({}),
+                resetWorkflow: () => ({}),
             },
         ],
         isAutoSave: [
@@ -4143,6 +4192,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 s.scheduleStartsAt,
                 s.saveAttemptedActionIds,
                 s.integrations,
+                s.secretReentryErrors,
             ],
             (
                 workflow: HogFlow,
@@ -4150,7 +4200,8 @@ export const workflowLogic = kea<workflowLogicType>([
                 hogFunctionTemplatesByIdLoading: boolean,
                 scheduleStartsAt: string | null,
                 saveAttemptedActionIds: string[] | null,
-                integrations: IntegrationType[] | null
+                integrations: IntegrationType[] | null,
+                secretReentryErrors: Record<string, Record<string, string>>
             ): Record<string, HogFlowActionValidationResult | null> => {
                 // Warehouse- and Slack-triggered workflows are person-less ("row-scoped").
                 // Person-dependent step types make no sense without a person, so we block them at
@@ -4318,6 +4369,12 @@ export const workflowLogic = kea<workflowLogicType>([
                             }
                         }
 
+                        const reentryErrors = secretReentryErrors[action.id]
+                        if (reentryErrors) {
+                            result.valid = false
+                            result.errors = { ...result.errors, ...reentryErrors }
+                        }
+
                         acc[action.id] = result
                         return acc
                     },
@@ -4342,6 +4399,11 @@ export const workflowLogic = kea<workflowLogicType>([
         // anything deploys, and agents stage incomplete drafts through the same API). Pausing on
         // them would strand a user's edits unsaved exactly while they iterate.
         autoSaveBlockedByValidation: [(s) => [s.workflow], (workflow: HogFlow): boolean => !workflow.name],
+        autoSaveBlockedBySecret: [
+            (s) => [s.workflow, s.secretReentryErrors],
+            (workflow: HogFlow, secretReentryErrors: Record<string, Record<string, string>>): boolean =>
+                workflow.actions.some((action) => action.id in secretReentryErrors),
+        ],
         keepsLocalEditsOnExternalEdit: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS],
@@ -5107,6 +5169,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 !!props.editTemplateId ||
                 !values.workflowChanged ||
                 values.autoSaveBlockedByValidation ||
+                values.autoSaveBlockedBySecret ||
                 (values.keepsLocalEditsOnExternalEdit && values.isSyncingExternalEdit)
 
             if (shouldSkip) {

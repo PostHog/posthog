@@ -288,14 +288,19 @@ from products.workflows.backend.facade.schedules import (
     validate_rrule,
 )
 from products.workflows.backend.facade.secrets import (
+    SECRET_REENTRY_CODE,
     TemplateCache,
+    TypedSecrets,
     mask_workflow_fields,
     merge_secret_maps,
     plaintext_secret_map,
     recover_or_drop_masked_inputs,
+    refused_secret_inputs,
     rehydrate_flow_secrets,
     secret_keys_for_action,
+    secrets_to_type_again,
     strip_content_secrets,
+    typed_secrets,
 )
 from products.workflows.backend.facade.send_calendar import SEND_CALENDAR_MAX_RANGE_DAYS, list_send_calendar_flows
 from products.workflows.backend.facade.suggestions_scout import (
@@ -615,6 +620,43 @@ def existing_secret_map(instance: WorkflowEditState, template_cache: Optional[Te
     result = merge_secret_maps(result, plaintext_secret_map((instance.draft or {}).get("actions"), template_cache))
     result = merge_secret_maps(result, instance.encrypted_inputs)
     return merge_secret_maps(result, instance.draft_encrypted_inputs)
+
+
+def require_secret_reentry(context: dict, to_type_again: dict[str, list[str]]) -> None:
+    view = context.get("view")
+    errors = refused_secret_inputs(
+        getattr(view, "team", None), to_type_again, f"workflow_{getattr(view, 'action', None) or 'internal'}"
+    )
+    if errors:
+        raise serializers.ValidationError({"actions": errors}, code=SECRET_REENTRY_CODE)
+
+
+def _typed_by_graph_operations(operations: list[dict], new_actions: list[dict]) -> dict[str, TypedSecrets]:
+    # The graph is rebuilt from the stored steps, which can hold a legacy plaintext secret, so a key counts as typed
+    # only when an operation sent it. A later operation can drop what an earlier one typed, so the rebuilt step must
+    # still hold a typed value too.
+    sent: dict[str, dict] = {}
+    for operation in operations:
+        if operation["op"] == "update_action":
+            step_id, step = operation.get("id"), operation.get("patch")
+        elif operation["op"] == "add_action":
+            step = operation.get("action")
+            step_id = step.get("id") if isinstance(step, dict) else None
+        else:
+            continue
+        config = step.get("config") if isinstance(step, dict) else None
+        inputs = config.get("inputs") if isinstance(config, dict) else None
+        if step_id and isinstance(inputs, dict):
+            sent.setdefault(str(step_id), {}).update(inputs)
+    by_operations = typed_secrets([{"id": step_id, "config": {"inputs": inputs}} for step_id, inputs in sent.items()])
+    in_result = typed_secrets(new_actions)
+    return {
+        step_id: TypedSecrets(
+            entered=typed.entered & (in_result[step_id].entered if step_id in in_result else frozenset()),
+            supplied=typed.supplied,
+        )
+        for step_id, typed in by_operations.items()
+    }
 
 
 def snapshot_flow_content(flow: WorkflowEditState) -> dict:
@@ -3771,6 +3813,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
+        # Read before validation, which recovers the stored secrets into these same inputs.
+        typed = self.context.get("typed_secrets")
+        self._typed_secrets = (
+            typed if typed is not None else typed_secrets(data.get("actions") if isinstance(data, dict) else None)
+        )
         return super().to_internal_value(data)
 
     class Meta:
@@ -4045,6 +4092,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                         event_serializer.is_valid(raise_exception=True)
                         event_config["filters"] = event_serializer.validated_data
 
+        if "actions" in data:
+            stored = cast(Optional[WorkflowEditState], self.instance) or self.context.get("instance")
+            to_type_again = secrets_to_type_again(
+                data["actions"],
+                stored,
+                getattr(self, "_typed_secrets", {}),
+                live_secrets_only=bool(self.context.get("live_secrets_only")),
+                template_cache=self.context.setdefault("_hogflow_template_cache", {}),
+            )
+            require_secret_reentry(self.context, to_type_again)
         return data
 
 
@@ -5897,10 +5954,16 @@ class HogFlowViewSet(
             )
 
     def _validate_locked_content(
-        self, state: WorkflowEditState, data: dict, enforce_graph_structure: bool = False
+        self,
+        state: WorkflowEditState,
+        data: dict,
+        enforce_graph_structure: bool = False,
+        typed: Optional[dict[str, TypedSecrets]] = None,
     ) -> dict:
         # Runs inside the write's row lock, against the locked row the service passes in.
         serializer = self.get_serializer(state, data=data, partial=True)
+        # The content is built from the stored row, so a secret counts as typed only when the caller says so.
+        serializer.context["typed_secrets"] = typed or {}
         if enforce_graph_structure:
             # The surgical endpoints are the paths where structural corruption would be newly introduced,
             # so they enforce graph validation as a hard error (unlike the lenient full-save path).
@@ -5924,7 +5987,10 @@ class HogFlowViewSet(
         def edit(state: WorkflowEditState, base_actions: list[dict], base_edges: list[dict]) -> dict:
             new_actions, new_edges = apply_graph_operations(base_actions, base_edges, operations)
             return self._validate_locked_content(
-                state, {"actions": new_actions, "edges": new_edges}, enforce_graph_structure=True
+                state,
+                {"actions": new_actions, "edges": new_edges},
+                enforce_graph_structure=True,
+                typed=_typed_by_graph_operations(operations, new_actions),
             )
 
         try:
@@ -6361,7 +6427,12 @@ class HogFlowViewSet(
             # Publish revalidates the draft with the workflow serializer; run it here, where the producer can fix what it refuses.
             # Validation recovers stored secrets into the inputs it is given, and the merge shares
             # the dicts of steps the proposal adds, so a shallow copy would leak a draft secret.
-            draft_serializer = self.get_serializer(instance, data=deepcopy(merged), partial=True)
+            draft_serializer = self.get_serializer(
+                instance,
+                data=deepcopy(merged),
+                partial=True,
+                context={**self.get_serializer_context(), "typed_secrets": {}},
+            )
             if not draft_serializer.is_valid():
                 raise exceptions.ValidationError(
                     {
@@ -6744,6 +6815,12 @@ class HogFlowViewSet(
             draft = dict(hog_flow.draft)
             draft_secrets = merge_secret_maps(hog_flow.encrypted_inputs, hog_flow.draft_encrypted_inputs)
             if isinstance(draft.get("actions"), list):
+                # A restored version or an approved suggestion stages no secrets, so the live ones would run with the
+                # draft's steps. The run gets the check publish makes.
+                to_type_again = secrets_to_type_again(
+                    draft["actions"], hog_flow, {}, live_secrets_only=False, template_cache={}
+                )
+                require_secret_reentry(self.get_serializer_context(), to_type_again)
                 draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)
             payload["configuration"] = draft
 
@@ -6906,6 +6983,7 @@ class HogFlowViewSet(
                 context={
                     **self.get_serializer_context(),
                     "live_secrets_only": True,
+                    "typed_secrets": {},
                     "utm_defaults_apply": True,
                     "_hogflow_template_cache": template_cache,
                 },

@@ -8055,6 +8055,205 @@ class TestHogFlowSecretInputs(APIBaseTest):
         sent_inputs = next(a for a in sent_actions if a["type"] == "function")["config"]["inputs"]
         assert sent_inputs["api_key"]["value"] == "SUPER-SECRET"
 
+    def _secret_reentry_flag(self, enabled: bool = True):
+        return patch(
+            "products.cdp.backend.secret_reentry.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: enabled and flag == "cdp-secret-host-binding",
+        )
+
+    def _masked_flow(self, flow_id: str) -> dict:
+        body = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        return {"actions": body["actions"], "edges": body["edges"]}
+
+    def _step(self, content: dict, step_id: str = "action_1") -> dict:
+        return next(step for step in content["actions"] if step["id"] == step_id)
+
+    def _assert_refused(self, response, attr_prefix: str = "") -> None:
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "secret_reentry_required"
+        assert response.json()["attr"] == f"{attr_prefix}actions__action_1__inputs__api_key"
+
+    def _rename_step(self, content: dict) -> None:
+        self._step(content)["name"] = "Renamed step"
+
+    def _add_delay_step(self, content: dict) -> None:
+        content["actions"].append(
+            {"id": "delay_1", "name": "Wait", "type": "delay", "config": {"delay_duration": "10m"}}
+        )
+
+    def _send_elsewhere(self, content: dict) -> None:
+        self._step(content)["config"]["inputs"]["url"] = {"value": "https://evil.example.com"}
+
+    def _send_elsewhere_with_the_secret(self, content: dict) -> None:
+        self._send_elsewhere(content)
+        self._step(content)["config"]["inputs"]["api_key"] = {"value": "SUPER-SECRET"}
+
+    @parameterized.expand(
+        [
+            ("step_sends_elsewhere", "_send_elsewhere", True, status.HTTP_400_BAD_REQUEST),
+            ("secret_typed_again", "_send_elsewhere_with_the_secret", True, status.HTTP_200_OK),
+            ("step_renamed", "_rename_step", True, status.HTTP_200_OK),
+            ("delay_step_added", "_add_delay_step", True, status.HTTP_200_OK),
+            ("flag_off", "_send_elsewhere", False, status.HTTP_200_OK),
+        ]
+    )
+    def test_a_save_that_changes_a_secret_step_must_type_the_secret_again(self, _name, edit, flag_on, expected_status):
+        flow_id = self._create()
+        content = self._masked_flow(flow_id)
+        getattr(self, edit)(content)
+
+        with self._secret_reentry_flag(flag_on):
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", content, format="json")
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self._assert_refused(response)
+            stored = HogFlow.objects.get(id=flow_id)
+            assert self._step({"actions": stored.actions})["config"]["inputs"]["url"]["value"] == "https://example.com"
+        else:
+            assert response.status_code == expected_status, response.json()
+
+    def test_a_save_cannot_move_a_secret_into_another_steps_code(self):
+        payload = self._flow_payload()
+        payload["actions"].append(
+            {
+                "id": "action_2",
+                "name": "action_2",
+                "type": "function",
+                "config": {
+                    "template_id": _SECRET_TEMPLATE_ID,
+                    "inputs": {"url": {"value": "https://evil.example.com"}},
+                },
+            }
+        )
+        flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
+        content = self._masked_flow(flow_id)
+        first, second = self._step(content, "action_1"), self._step(content, "action_2")
+        first["id"], second["id"] = "action_2", "action_1"
+        second["config"]["inputs"]["api_key"] = {"secret": True}
+
+        with self._secret_reentry_flag():
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", content, format="json")
+
+        self._assert_refused(response)
+        assert HogFlow.objects.get(id=flow_id).encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
+
+    @parameterized.expand([("test_run",), ("graph_edit",), ("graph_edit_typed_then_dropped",), ("staged_draft",)])
+    def test_every_save_path_refuses_a_secret_step_that_sends_elsewhere(self, surface):
+        flow_id = self._create()
+        content = self._masked_flow(flow_id)
+        self._send_elsewhere(content)
+        if surface == "staged_draft":
+            HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.ACTIVE)
+
+        with (
+            self._secret_reentry_flag(),
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+            ) as mock_invoke,
+        ):
+            if surface == "test_run":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
+                    {"globals": {"event": {"event": "$pageview", "distinct_id": "d"}}, "configuration": content},
+                    format="json",
+                )
+            elif surface.startswith("graph_edit"):
+                send_elsewhere = {"config": {"inputs": {"url": {"value": "https://evil.example.com"}}}}
+                patches = (
+                    [{"config": {"inputs": {"api_key": {"value": "junk"}}}}, {"config": {"inputs": None}}]
+                    if surface == "graph_edit_typed_then_dropped"
+                    else []
+                )
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+                    {
+                        "operations": [
+                            {"op": "update_action", "id": "action_1", "patch": patch}
+                            for patch in [*patches, send_elsewhere]
+                        ]
+                    },
+                    format="json",
+                )
+            else:
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {**content, "stage_draft": True}, format="json"
+                )
+
+        self._assert_refused(response, "configuration__" if surface == "test_run" else "")
+        mock_invoke.assert_not_called()
+        assert HogFlow.objects.get(id=flow_id).draft is None
+
+    @parameterized.expand([("publish",), ("draft_test_run",)])
+    def test_a_restored_draft_cannot_send_the_live_secret_to_its_old_host(self, surface):
+        flow_id = self._create()
+        content = self._masked_flow(flow_id)
+        self._send_elsewhere_with_the_secret(content)
+        with self._secret_reentry_flag():
+            assert (
+                self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"}).status_code
+                == status.HTTP_200_OK
+            )
+            moved = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", content, format="json")
+            assert moved.status_code == status.HTTP_200_OK, moved.json()
+            restore = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/1/restore", {})
+            assert restore.status_code == status.HTTP_200_OK, restore.json()
+
+            with (
+                patch(
+                    "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+                ) as mock_invoke,
+                patch(
+                    "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+                    side_effect=Exception("down"),
+                ),
+            ):
+                if surface == "publish":
+                    token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {}).json()[
+                        "confirm_token"
+                    ]
+                    response = self.client.post(
+                        f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+                        {"confirm": True, "confirm_token": token},
+                    )
+                else:
+                    response = self.client.post(
+                        f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
+                        {"globals": {"event": {"event": "$pageview", "distinct_id": "d"}}, "use_draft": True},
+                        format="json",
+                    )
+
+        self._assert_refused(response)
+        mock_invoke.assert_not_called()
+        live = HogFlow.objects.get(id=flow_id)
+        assert self._step({"actions": live.actions})["config"]["inputs"]["url"]["value"] == "https://evil.example.com"
+
+    def test_a_secret_typed_in_a_staged_draft_publishes_with_it(self):
+        flow_id = self._create()
+        HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.ACTIVE)
+        content = self._masked_flow(flow_id)
+        self._send_elsewhere_with_the_secret(content)
+
+        with self._secret_reentry_flag():
+            staged = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {**content, "stage_draft": True}, format="json"
+            )
+            assert staged.status_code == status.HTTP_200_OK, staged.json()
+            draft = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()["draft"]
+            self._add_delay_step(draft)
+            assert (
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                    {"actions": draft["actions"], "edges": draft["edges"], "stage_draft": True},
+                    format="json",
+                ).status_code
+                == status.HTTP_200_OK
+            )
+            self._publish_confirmed(flow_id)
+
+        live = HogFlow.objects.get(id=flow_id)
+        assert self._step({"actions": live.actions})["config"]["inputs"]["url"]["value"] == "https://evil.example.com"
+        assert live.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
+
     def test_function_shaped_trigger_secret_is_masked_on_read(self):
         # A legacy row (pre-encryption) with a webhook trigger carrying a plaintext secret in both the
         # trigger action and the derived `trigger` field. Read-back must mask it on the trigger field,

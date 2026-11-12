@@ -17,6 +17,7 @@ export function WorkflowAutoSaveIndicator(): JSX.Element | null {
         autoSaveEnabled,
         workflowChanged,
         autoSaveBlockedByValidation,
+        autoSaveBlockedBySecret,
         externallyEdited,
         lastSavedAt,
     } = useValues(workflowLogic)
@@ -46,6 +47,9 @@ export function WorkflowAutoSaveIndicator(): JSX.Element | null {
     }
     if (workflowChanged && autoSaveBlockedByValidation) {
         return <span className="text-xs text-warning whitespace-nowrap">Auto-save paused: name your workflow</span>
+    }
+    if (workflowChanged && autoSaveBlockedBySecret) {
+        return <span className="text-xs text-warning whitespace-nowrap">Auto-save paused: enter the secret again</span>
     }
     if (workflowChanged && !autoSaveEnabled) {
         return (

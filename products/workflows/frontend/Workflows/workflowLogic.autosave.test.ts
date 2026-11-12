@@ -301,6 +301,77 @@ describe('workflowLogic auto-save', () => {
             expect(updateCalls).toBe(0)
         })
 
+        it.each([
+            [
+                'edited',
+                (logic: ReturnType<typeof workflowLogic.build>): void => {
+                    logic.actions.partialSetWorkflowActionConfig('action_1', {
+                        inputs: { url: { value: 'https://example.com' }, api_key: { value: 'typed again' } },
+                    })
+                },
+            ],
+            [
+                'deleted',
+                (logic: ReturnType<typeof workflowLogic.build>): void => {
+                    logic.actions.setWorkflowInfo({
+                        actions: logic.values.workflow.actions.filter((action) => action.id !== 'action_1'),
+                    })
+                },
+            ],
+        ])('marks the secret input and pauses auto-save until the refused step is %s', async (_label, resolve) => {
+            const webhookStep = {
+                id: 'action_1',
+                type: 'function',
+                name: 'Webhook',
+                description: '',
+                created_at: 0,
+                updated_at: 0,
+                config: { template_id: 'template-webhook', inputs: { url: { value: 'https://example.com' } } },
+            } as HogFlow['actions'][number]
+            const withSecretStep = makeWorkflow({ actions: [...makeWorkflow().actions, webhookStep] })
+            let refuse = true
+            useMocks({
+                get: { '/api/environments/:team_id/hog_flows/:id/': withSecretStep },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => {
+                        updateCalls += 1
+                        return refuse
+                            ? [
+                                  400,
+                                  {
+                                      type: 'validation_error',
+                                      code: 'secret_reentry_required',
+                                      detail: 'Enter this secret again',
+                                      attr: 'actions__action_1__inputs__api_key',
+                                  },
+                              ]
+                            : [200, withSecretStep]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+            logic.actions.setWorkflowValue('name', 'Edit 1')
+            await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toDispatchActions(['saveWorkflowFailure'])
+            expect(logic.values.actionValidationErrorsById['action_1']?.errors?.api_key).toBe('Enter this secret again')
+
+            logic.actions.setWorkflowValue('name', 'Edit 2')
+            await jest.advanceTimersByTimeAsync(3500)
+            expect(updateCalls).toBe(1)
+
+            refuse = false
+            resolve(logic)
+            await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+            expect(updateCalls).toBe(2)
+            expect(logic.values.autoSaveBlockedBySecret).toBe(false)
+        })
+
         it('does not auto-save when nothing has changed', async () => {
             initKeaTests()
             logic = workflowLogic({ id: WORKFLOW_ID })
