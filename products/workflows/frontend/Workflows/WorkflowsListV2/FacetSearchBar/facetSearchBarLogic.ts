@@ -45,7 +45,6 @@ interface SuggestionRow {
 export type FacetSuggestion =
     | (SuggestionRow & {
           kind: 'facet'
-          /** The input after picking the facet. */
           nextInput: string
       })
     | (SuggestionRow & {
@@ -160,7 +159,6 @@ const isFilterRow = (suggestion: FacetSuggestion | null | undefined): boolean =>
 const verbOf = (suggestion: FacetSuggestion): string =>
     suggestion.kind === 'facet' ? `pick ${suggestion.label}` : 'add filter'
 
-/** What narrows a draft's values besides its own facet: the free text and the other facets' pills. */
 function narrowingOf(draft: FacetDraft, value: FacetSearchValue): string | null {
     const otherFilters = value.filters.some((filter) => filter.facet !== draft.facetKey)
     const search = !!draft.rest.trim()
@@ -269,7 +267,7 @@ function valueSuggestions(
             break
         }
         const label = formatFacetValue(facet, v)
-        if (partial && !label.toLowerCase().includes(partial) && !v.toLowerCase().includes(partial)) {
+        if (!matchesPartial(partial, label, v)) {
             continue
         }
         const filter = { facet: facet.key, value: v, negated: draft.negated }
@@ -287,16 +285,27 @@ function valueSuggestions(
             rest: draft.rest,
         })
     }
-    if (rows.length) {
-        return rows
-    }
+    return rows.length ? rows : [noValuesRow(draft, value, facet, counts.length, firstChosenLabel)]
+}
+
+function matchesPartial(partial: string, label: string, value: string): boolean {
+    return !partial || label.toLowerCase().includes(partial) || value.toLowerCase().includes(partial)
+}
+
+function noValuesRow(
+    draft: FacetDraft,
+    value: FacetSearchValue,
+    facet: FacetDefinition<unknown>,
+    valueCount: number,
+    firstChosenLabel: string | null
+): FacetSuggestion {
     const label =
-        counts.length === 0 && facet.emptyLabel
+        valueCount === 0 && facet.emptyLabel
             ? facet.emptyLabel
             : firstChosenLabel !== null
               ? `${firstChosenLabel} is already a filter`
               : noValuesLabel(draft, value, !!facet.freeTextValues)
-    return [{ id: 'none', kind: 'none', label }]
+    return { id: 'none', kind: 'none', label }
 }
 
 function facetNameSuggestions(
