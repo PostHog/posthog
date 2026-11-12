@@ -24,10 +24,14 @@ tools:
             encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect
             credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find
             the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and
-            call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are
-            single-use, expire after 24 hours, and are only visible to the PostHog user who entered them — the page must
-            be filled by the same user this session authenticates as. Never ask the user to paste raw database
-            passwords, API keys, or OAuth tokens into the chat.
+            call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Use the same link to
+            reconnect an EXISTING source or rotate its credentials (expired OAuth token, changed password or API key):
+            request the link for that source's source_type, wait for the user to finish the page, find the credential
+            with 'data-warehouse-stored-credentials-list', then call 'external-data-sources-partial-update' with the
+            source id and {"payload": {"credential_id": "<uuid>"}}. Stored credentials are single-use, expire after 24
+            hours, and are only visible to the PostHog user who entered them — the page must be filled by the same user
+            this session authenticates as. Never ask the user to paste raw database passwords, API keys, or OAuth tokens
+            into the chat.
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
@@ -98,8 +102,10 @@ tools:
             cannot be listed or consumed. Returns metadata only (credential_id, source_type, created_at, expires_at) —
             never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished
             the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup'
-            with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as
-            soon as setup consumes them — and expire after 24 hours if never used.
+            with {'credential_id': '<uuid>'} in the payload to create a source, or
+            'external-data-sources-partial-update' with {"payload": {"credential_id": "<uuid>"}} to reconnect an
+            existing source. Stored credentials are single-use — they are deleted as soon as a setup or update consumes
+            them — and expire after 24 hours if never used.
     external-data-schemas-cancel:
         operation: external_data_schemas_cancel_create
         enabled: true
@@ -554,10 +560,18 @@ tools:
             idempotent: true
         title: Update data warehouse source
         description: >
-            Update an existing data warehouse source's prefix (table name prefix in HogQL) or description. Cannot change
-            the source_type or access_method after creation. Avoid sending new connection credentials inline here — to
-            rotate or fix credentials, point the user at 'data-warehouse-source-connect-link' so they re-enter them
-            securely in their browser rather than pasting secrets into the chat.
+            Update an existing data warehouse source's prefix (table name prefix in HogQL) or description, or reconnect
+            it with new credentials. Cannot change the source_type or access_method after creation. Do not send
+            connection secrets inline here. To reconnect the source or rotate its credentials (expired OAuth token,
+            changed password or API key): 1) call 'data-warehouse-source-connect-link' with the source's source_type and
+            share the connect_url with the user; 2) wait for the user to confirm they finished the page; 3) find the
+            newest credential_id for that source_type with 'data-warehouse-stored-credentials-list'; 4) call this tool
+            with the source id and {"payload": {"credential_id": "<uuid>"}}, and no job_inputs. The stored values
+            replace the source's connection details and the connection is checked before the save. An SSH tunnel or
+            connection host that the user did not enter on the page is not kept. The stored credential must belong to
+            the same user, match the source's source_type, and not be expired. It is deleted after a successful update.
+            A failed update keeps it. When the connection check fails, get a new link so the user can enter correct
+            details.
         param_overrides:
             id:
                 aliases:
@@ -583,6 +597,7 @@ tools:
             - prefix
             - description
             - job_inputs
+            - payload
         param_overrides:
             id:
                 aliases:
@@ -607,6 +622,7 @@ tools:
             - prefix
             - description
             - job_inputs
+            - payload
         param_overrides:
             id:
                 aliases:

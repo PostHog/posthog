@@ -10,6 +10,7 @@ import {
 } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
@@ -18,6 +19,7 @@ import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
 import { DashboardImageTile } from '../ImageTile/DashboardImageTile'
 import { getImageOnlyTextCardImage } from '../ImageTile/imageTileUtils'
+import { QuillDashboardTileMenuItems } from '../QuillDashboardTileMenuItems'
 
 type BaseTextCardProps = React.ComponentProps<typeof TextCard>
 
@@ -64,8 +66,33 @@ function DashboardTextItemInternal(
         })
     )
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     const image = tile.text ? getImageOnlyTextCardImage(tile.text.body) : null
     const tileType = image ? 'image' : 'text'
+    const quillMenuItems = todayRailNav ? (
+        <QuillDashboardTileMenuItems
+            editLabel={`Edit ${tileType}`}
+            editDataAttr={`edit-${tileType}`}
+            onEdit={onEdit}
+            placement={{
+                destinations: copyToDestinations,
+                onMoveToDashboard,
+                onCopyToDashboard,
+                tileGroupMoveOptions,
+                onMoveToTileGroup,
+            }}
+            onDuplicate={onDuplicate}
+            duplicateDataAttr={`duplicate-${tileType}-from-dashboard`}
+            onRemove={onRemove}
+            removeDataAttr={`remove-${tileType}-tile-from-dashboard`}
+            transparentBackground={
+                tileType === 'text' && onToggleTransparentBackground
+                    ? { checked: !!tile.transparent_background, onToggle: onToggleTransparentBackground }
+                    : undefined
+            }
+        />
+    ) : undefined
     const moreButtonOverlay = (
         <>
             <LemonButton fullWidth onClick={onEdit} data-attr={`edit-${tileType}`}>
@@ -130,6 +157,7 @@ function DashboardTextItemInternal(
                 image={image}
                 placement={placement}
                 moreButtonOverlay={moreButtonOverlay}
+                quillMenuItems={quillMenuItems}
                 isDraggingRef={isDraggingRef}
                 {...textCardProps}
             />
@@ -142,6 +170,7 @@ function DashboardTextItemInternal(
             textTile={tile}
             placement={placement}
             moreButtonOverlay={moreButtonOverlay}
+            quillMenuItems={quillMenuItems}
             {...textCardProps}
         />
     )

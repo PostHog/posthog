@@ -395,7 +395,8 @@ async function refreshInsightTile(
     } catch (e: any) {
         if (shouldCancelQuery(e)) {
             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
-            actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
+            const deferred = signal.aborted && !refreshSignal.aborted
+            actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id, deferred })
             return refreshSignal.aborted ? 'aborted' : 'deferred'
         }
         actions.setRefreshError(insight.short_id, e)
@@ -952,7 +953,8 @@ export interface dashboardLogicActions {
     abortAnyRunningQuery: () => {
         value: true
     }
-    abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId }) => {
+    abortQuery: (payload: { deferred?: boolean; queryId: string; queryStartTime: number; shortId: InsightShortId }) => {
+        deferred?: boolean | undefined
         queryId: string
         queryStartTime: number
         shortId: InsightShortId
@@ -2322,7 +2324,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
         /** Number of insights enrolled in the current refresh cycle, captured up front. */
         setRefreshTilesTotal: (total: number) => ({ total }),
-        abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId }) => payload,
+        abortQuery: (payload: {
+            queryId: string
+            queryStartTime: number
+            shortId: InsightShortId
+            deferred?: boolean
+        }) => payload,
         abortAnyRunningQuery: true,
         cancelDashboardRefresh: true,
 
@@ -3396,11 +3403,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         // Denominator for "X out of Y", pinned up front so Y stays fixed while tiles enroll one by one.
         // null = no batch pinned → selector falls back to the live map size (single-insight refreshes).
-        // Reset on cycle boundaries only, never on the per-tile abortQuery, so an aborted tile can't shrink Y.
+        // Reset on cycle boundaries only. An aborted tile can't shrink Y, except one deferred by a tab switch.
         refreshTilesTotal: [
             null as number | null,
             {
                 setRefreshTilesTotal: (_, { total }) => total,
+                // A deferred tile waits for its group to open and enrolls again then, so it leaves the batch here.
+                abortQuery: (state, { deferred }) => (deferred && state !== null ? state - 1 : state),
                 refreshDashboardItems: () => null,
                 cancelDashboardRefresh: () => null,
             },

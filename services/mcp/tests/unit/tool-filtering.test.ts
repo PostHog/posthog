@@ -1174,6 +1174,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'ui-customization',
             'warehouse-migration-import',
             'mcp-feature-flag-restore-version',
+            'platform-alerts-source-warehouse',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
