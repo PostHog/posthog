@@ -893,6 +893,31 @@ describe('scenario environment', () => {
             }
         }, 15_000)
 
+        it('does not take credit for a role that exited on its own before the kill landed', async () => {
+            const crashing = createSupervisor({
+                command: process.execPath,
+                args: ['-e', 'process.exit(3)'],
+                cwd: os.tmpdir(),
+                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
+                graceMs: 1000,
+                restartBackoffMs: 60_000,
+            })
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+            try {
+                await crashing.start([spec])
+                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
+
+                const observed = await crashing.kill(spec.role, 2000)
+
+                expect({ observed, exits: crashing.exits() }).toEqual({
+                    observed: false,
+                    exits: [expect.objectContaining({ role: spec.role, code: 3, signal: null, byValve: false })],
+                })
+            } finally {
+                await crashing.stop()
+            }
+        }, 15_000)
+
         it('records a role it cannot start again and keeps retrying until it starts', async () => {
             const cwd = mkdtempSync(path.join(tempRoot, 'cwd-'))
             const exiting = createSupervisor({
