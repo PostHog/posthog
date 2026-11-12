@@ -226,6 +226,9 @@ database "posthog" {
     column "sending_domain" {
       type = "LowCardinality(String)"
     }
+    column "scheduled_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -279,6 +282,9 @@ database "posthog" {
     }
     column "sending_domain" {
       type = "LowCardinality(String)"
+    }
+    column "scheduled_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -1086,6 +1092,9 @@ database "posthog" {
     }
     column "sending_domain" {
       type = "LowCardinality(String)"
+    }
+    column "scheduled_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
     }
     engine "kafka" {
       collection           = "warpstream_cyclotron"
@@ -5555,6 +5564,7 @@ SELECT
   recipient,
   function_id,
   sending_domain,
+  scheduled_at,
   _timestamp,
   _offset,
   _partition
@@ -5590,6 +5600,9 @@ SQL
     }
     column "sending_domain" {
       type = "LowCardinality(String)"
+    }
+    column "scheduled_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"

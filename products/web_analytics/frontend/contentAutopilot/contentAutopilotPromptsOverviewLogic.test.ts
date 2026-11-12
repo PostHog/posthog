@@ -68,12 +68,12 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             days: OVERVIEW_DAYS,
             branded: 'non_branded',
         })
-        expect(logic.values.citationQuery?.source.values).toEqual({
+        expect(logic.values.visibilityQuery?.source.values).toEqual({
             window_start: '2026-09-01 00:00:00',
             brand_pattern: '\\b(example)\\b',
         })
         // The legend shows the engine's display name, built into the SQL from the shared label map.
-        expect(logic.values.citationQuery?.source.query).toContain("engine = 'claude-web-search', 'Claude'")
+        expect(logic.values.visibilityQuery?.source.query).toContain("engine = 'claude-web-search', 'Claude'")
         expect(logic.values.sourcesQuery?.source).toMatchObject({ values: { window_start: '2026-09-01 00:00:00' } })
     })
 
@@ -102,7 +102,7 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
                 days: OVERVIEW_DAYS,
                 branded: segment,
             })
-            const queries = [logic.values.citationQuery?.source, logic.values.sourcesQuery?.source].map(
+            const queries = [logic.values.visibilityQuery?.source, logic.values.sourcesQuery?.source].map(
                 (source) => (source as HogQLQuery).query
             )
             for (const query of queries) {

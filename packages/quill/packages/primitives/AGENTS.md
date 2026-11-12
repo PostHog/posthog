@@ -333,6 +333,10 @@ Grouped fields with fieldset:
 The node covers the input's own box with the input's padding, so it starts where the caret sits whatever the addons do, and hides once the input has a value.
 It is visual only, so give the input an `aria-label`.
 
+A rich text editor works as the control too: put its `contenteditable` element (TipTap's `EditorContent`, for example) where the input would go.
+The group draws its focus ring around it, and a click on an addon's empty space focuses it, the same as for an input.
+The editor's own padding and height are the caller's, because the group's control padding only reaches `InputGroupInput` and `InputGroupTextarea`.
+
 ```tsx
 <InputGroupInput
   aria-label="Search"

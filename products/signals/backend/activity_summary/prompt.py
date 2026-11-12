@@ -28,7 +28,7 @@ EMBEDDING_RENDERING = "summary_text"
 PROMPT_VERSION = 9
 # Summaries below this rebuild at once, others age in. Raise it only when old summaries must not stay served,
 # for example when a `summary_text` change makes old vectors incomparable.
-MIN_PROMPT_VERSION = 9
+MIN_PROMPT_VERSION = 8
 
 MAX_THEMES = 6
 MAX_MODES = 3
