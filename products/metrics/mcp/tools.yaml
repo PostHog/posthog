@@ -126,6 +126,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: ?{url_params}
         title: Query metrics
         description_file: ./prompts/query-metrics.md
         system_prompt_hint:
@@ -147,4 +148,3 @@ tools:
                 - omitted_empty_series
                 - omitted_by_limit
                 - url_params
-        enrich_url: '?{url_params}'
