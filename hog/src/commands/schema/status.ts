@@ -1,11 +1,13 @@
 import { defineCommand } from '@/core/command'
+import type { TypeScriptSdk } from '@/core/config'
 import { absolutePath } from '@/core/paths'
 import { plural } from '@/core/text'
 
-import { configRoot, fetchDefinitions, isLanguage, LANGUAGE_INFO } from './shared'
+import { configRoot, fetchDefinitions, isLanguage, moduleInfo } from './shared'
 
 interface LanguageStatus {
     language: string
+    sdk: TypeScriptSdk | undefined
     file: string
     // `outdated` means the event definitions changed since the module was generated.
     status: 'up_to_date' | 'outdated' | 'missing' | 'unknown_language'
@@ -27,6 +29,7 @@ export default defineCommand({
             const file = absolutePath(root, saved.output_path)
             const base = {
                 language,
+                sdk: saved.sdk,
                 file: saved.output_path,
                 eventCount: saved.event_count ?? null,
                 updatedAt: saved.updated_at ?? null,
@@ -39,7 +42,7 @@ export default defineCommand({
                 languages.push({ ...base, status: 'missing' })
                 continue
             }
-            const definitions = await fetchDefinitions(ctx, language)
+            const definitions = await fetchDefinitions(ctx, language, saved.sdk)
             languages.push({
                 ...base,
                 status: saved.schema_hash === definitions.schema_hash ? 'up_to_date' : 'outdated',
@@ -64,7 +67,7 @@ export default defineCommand({
         out.table(
             ['language', 'file', 'status', 'events', 'updated'],
             result.languages.map((entry) => [
-                isLanguage(entry.language) ? LANGUAGE_INFO[entry.language].name : entry.language,
+                isLanguage(entry.language) ? moduleInfo(entry.language, entry.sdk).name : entry.language,
                 entry.file,
                 labels[entry.status],
                 entry.eventCount,
