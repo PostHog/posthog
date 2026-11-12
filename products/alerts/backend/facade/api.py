@@ -463,9 +463,10 @@ ERRORED_ALERT_CANDIDATES = 200
 def list_errored_alerts(team: Team, access: UserAccessControl, *, limit: int) -> list[contracts.ErroredAlert]:
     """Enabled alerts whose checks fail, on insights the reader can view, newest first, with or without
     an insight row."""
+    viewable = access.filter_queryset_by_access_level(Insight.objects.filter(team_id=team.id, deleted=False))
     rows = (
         _insight_owned_rows()
-        .filter(team_id=team.id, enabled=True, state=AlertState.ERRORED, insight__deleted=False)
+        .filter(team_id=team.id, enabled=True, state=AlertState.ERRORED, insight_id__in=viewable.values("id"))
         .select_related("insight")
         .order_by("-created_at")[:ERRORED_ALERT_CANDIDATES]
     )
@@ -574,14 +575,31 @@ WATCHED_ROWS_PER_INSIGHT = 4
 def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> list[str]:
     """Short ids of insights with an enabled alert that the user created or subscribes to, newest alert first."""
     follows = AlertSubscription.objects.filter(alert_configuration=OuterRef("pk"), user_id=user_id, subscribed=True)
-    rows = (
-        _insight_owned_rows()
-        .filter(team_id=team_id, enabled=True, insight__deleted=False)
-        .filter(Q(created_by_id=user_id) | Exists(follows))
-        .order_by("-created_at")
-        .values_list("created_at", "insight__short_id")[: limit * WATCHED_ROWS_PER_INSIGHT]
-    )
     candidates = limit * WATCHED_ROWS_PER_INSIGHT
+    # A moved alert's row still holds its subscriptions, which the database can filter on, while the
+    # platform holds whether it is on.
+    matched = list(
+        AlertConfiguration.objects.filter(team_id=team_id, insight__deleted=False)
+        .filter(
+            Q(enabled=True, created_by_id=user_id) & ~Q(owner=PlatformAlertOwner.PLATFORM)
+            | Q(Exists(follows)) & (Q(enabled=True) | Q(owner=PlatformAlertOwner.PLATFORM))
+        )
+        .order_by("-created_at")
+        .values_list("id", "owner", "created_at", "insight__short_id")[:candidates]
+    )
+    moved_ids = [alert_id for alert_id, owner, _, _ in matched if owner == PlatformAlertOwner.PLATFORM]
+    enabled_copies = {
+        legacy_id
+        for legacy_id, copy in owned_copies_by_legacy_id(
+            team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=moved_ids
+        ).items()
+        if copy.enabled
+    }
+    rows = [
+        (created_at, short_id)
+        for alert_id, owner, created_at, short_id in matched
+        if owner != PlatformAlertOwner.PLATFORM or alert_id in enabled_copies
+    ]
     created = _platform_enabled_alerts(team_id=team_id, created_by_id=user_id, limit=candidates)
     # The platform keeps an alert's subscribers in encrypted destination configs, which the database
     # cannot filter on, so only the newest alerts are checked for them.
