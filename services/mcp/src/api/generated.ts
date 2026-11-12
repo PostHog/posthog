@@ -3175,6 +3175,14 @@ export namespace Schemas {
       readonly tags: readonly string[];
     }
 
+    /**
+     * A tag that is on at least one account note the caller can read.
+     */
+    export interface AccountNoteTag {
+      /** Name of the tag. */
+      readonly name: string;
+    }
+
     export interface AccountNotebook {
       readonly id: string;
       readonly short_id: string;
@@ -74299,6 +74307,15 @@ export namespace Schemas {
       results: AccountNote[];
     }
 
+    export interface PaginatedAccountNoteTagList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountNoteTag[];
+    }
+
     export interface PaginatedAccountNotebookList {
       count: number;
       /** @nullable */
@@ -127381,6 +127398,22 @@ export namespace Schemas {
      * JSON-encoded array of tag names, e.g. `["renewal","risk"]`. Only return notes that carry any of the listed tags.
      */
     tags?: string;
+    };
+
+    export type AccountNotesTagsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return tags whose name contains this text (case-insensitive).
+     */
+    search?: string;
     };
 
     export type AccountRelationshipDefinitionsListParams = {

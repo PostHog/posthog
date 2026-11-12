@@ -91,6 +91,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountNotebookSerializer,
     AccountNotebookUpdateSerializer,
     AccountNoteSerializer,
+    AccountNoteTagSerializer,
     AccountPresenceListRequestSerializer,
     AccountPresenceSerializer,
     AccountPresenceViewerSerializer,
@@ -2752,6 +2753,32 @@ class AccountNotesViewSet(
                 order=ordering,
             ),
             serializer_class=AccountNoteSerializer,
+        )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Only return tags whose name contains this text (case-insensitive).",
+            ),
+        ],
+        responses={200: AccountNoteTagSerializer(many=True)},
+    )
+    @action(detail=False, methods=["get"], url_path="tags")
+    def tags(self, request: Request, *args, **kwargs) -> Response:
+        """Tags that are on account notes, without the tags the project uses on other resources."""
+        return facade_page_response(
+            self,
+            lambda page: api.list_account_note_tags_for_view(
+                team_id=self.team_id,
+                user_access_control=self.user_access_control,
+                page=page,
+                search=request.query_params.get("search", "").strip() or None,
+            ),
+            serializer_class=AccountNoteTagSerializer,
         )
 
 

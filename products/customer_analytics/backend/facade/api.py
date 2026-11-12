@@ -5102,6 +5102,26 @@ def list_account_notes_for_view(
     return Page(results=views, count=count)
 
 
+def list_account_note_tags_for_view(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    page: PageRequest,
+    search: str | None = None,
+) -> Page[contracts.AccountNoteTag]:
+    """Tags on the account notes the caller can read, in alphabetical order. ``search`` keeps tag names
+    that contain it."""
+    accessible_account_ids = _accounts_queryset(team_id, user_access_control).values_list("id", flat=True)
+    names, count = notebooks.list_team_account_note_tags(
+        team_id,
+        account_ids=accessible_account_ids,
+        search=search,
+        offset=page.offset,
+        limit=page.limit,
+    )
+    return Page(results=[contracts.AccountNoteTag(name=name) for name in names], count=count)
+
+
 def get_account_notebook(
     team_id: int, account_id: str, short_id: str, user_access_control: "UserAccessControl"
 ) -> contracts.AccountNotebookView | None:

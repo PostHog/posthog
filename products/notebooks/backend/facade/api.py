@@ -389,3 +389,16 @@ def list_team_account_notes(
         limit=limit,
     )
     return [_to_team_account_note(link) for link in links], count
+
+
+def list_team_account_note_tags(
+    team_id: int,
+    *,
+    account_ids: Iterable[UUID | str] | None = None,
+    search: str | None = None,
+    offset: int = 0,
+    limit: int = 100,
+) -> tuple[list[str], int]:
+    return logic.list_team_account_note_tags(
+        team_id, account_ids=account_ids, search=search, offset=offset, limit=limit
+    )

@@ -3254,6 +3254,35 @@ class TestAccountNotesViewSet(APIBaseTest):
         by_title = self.client.get(f"{self.endpoint_base}?ordering=title").json()["results"]
         self.assertEqual([row["short_id"] for row in by_title], [plain.short_id, risky.short_id])
 
+    def _tag(self, notebook: Notebook, name: str) -> None:
+        tag, _ = Tag.objects.get_or_create(name=name, team=self.team)
+        TaggedItem.for_content_object(tag, notebook).save()
+
+    def test_tags_lists_only_tags_on_account_notes(self):
+        first = self._link_note(title="First")
+        self._tag(first, "renewal")
+        self._tag(first, "risk")
+        second = self._link_note(title="Second")
+        self._tag(second, "risk")
+        self._tag(Notebook.objects.create(team=self.team, title="Standalone"), "ai-task:standalone")
+        self._tag(self._link_note(title="Deleted", deleted=True), "ai-task:deleted")
+        self._tag(self._link_note(title="Default", visibility=Notebook.Visibility.DEFAULT), "ai-task:default")
+        other_team = Team.objects.create(organization=self.organization)
+        other_note = Notebook.objects.create(team=other_team, visibility=Notebook.Visibility.INTERNAL)
+        ResourceNotebook.objects.create(
+            notebook=other_note, account=Account.objects.unscoped().create(team=other_team, name="Other")
+        )
+        other_tag = Tag.objects.create(name="other-team", team=other_team)
+        TaggedItem.for_content_object(other_tag, other_note).save()
+
+        response = self.client.get(f"{self.endpoint_base}tags/")
+        searched = self.client.get(f"{self.endpoint_base}tags/?search=RENEW")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["renewal", "risk"])
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual([row["name"] for row in searched.json()["results"]], ["renewal"])
+
     def test_list_sorts_by_author(self):
         # Saved views carry one ordering across the team tab and the account tab, so both take the author sort.
         zoe = User.objects.create_and_join(self.organization, "zoe@posthog.com", None, first_name="Zoe")
@@ -3269,8 +3298,9 @@ class TestAccountNotesViewSet(APIBaseTest):
 
     def test_list_hides_notes_of_accounts_the_caller_cannot_read(self):
         visible = self._link_note(title="Visible")
+        self._tag(visible, "visible-tag")
         hidden_account = Account.objects.unscoped().create(team=self.team, name="Hidden Inc")
-        self._link_note(title="Hidden", account=hidden_account)
+        self._tag(self._link_note(title="Hidden", account=hidden_account), "hidden-tag")
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -3292,6 +3322,8 @@ class TestAccountNotesViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         short_ids = [n["short_id"] for n in response.json()["results"]]
         self.assertEqual(short_ids, [visible.short_id])
+        tags = self.client.get(f"{self.endpoint_base}tags/").json()["results"]
+        self.assertEqual([row["name"] for row in tags], ["visible-tag"])
 
 
 class TestAccountRelationshipDefinitionViewSet(APIBaseTest):
