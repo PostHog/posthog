@@ -157,6 +157,7 @@
         "undici-types": "7.3.0",
         "uuid": "^11.1.1",
         "xml-js": "^1.6.11",
+        "yaml": "catalog:",
         "zod": "^4.3.6"
     },
     "devDependencies": {
