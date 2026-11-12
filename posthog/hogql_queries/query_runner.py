@@ -2092,13 +2092,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Kill switch: build per access so query threads never share schema state. No timings
             # measure here because concurrent threads reach this path and HogQLTimings is not
             # thread-safe.
-            return Database.create_for(
-                team=self.team,
-                user=self.user,
-                user_access_control=self.user_access_control,
-                modifiers=self.modifiers,
-                trigger="shared_kill_switch",
-            )
+            return self._create_database(trigger="shared_kill_switch")
         if self._shared_database is None:
             # Concurrent query threads (funnels compare mode) can first-touch this property at the
             # same time. The lock makes the build run once, and keeps the measure on the single
@@ -2106,15 +2100,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             with self._shared_database_build_lock:
                 if self._shared_database is None:
                     with self.timings.measure("build_shared_database"):
-                        self._shared_database = Database.create_for(
-                            team=self.team,
-                            user=self.user,
-                            user_access_control=self.user_access_control,
-                            modifiers=self.modifiers,
-                            timings=self.timings,
-                            trigger="shared",
-                        )
+                        self._shared_database = self._create_database(timings=self.timings, trigger="shared")
         return self._shared_database
+
+    def _create_database(self, *, timings: HogQLTimings | None = None, trigger: str) -> Database:
+        return Database.create_for(
+            team=self.team,
+            user=self.user,
+            user_access_control=self.user_access_control,
+            modifiers=self.modifiers,
+            timings=timings,
+            trigger=trigger,
+        )
 
     def build_hogql_context(self, **kwargs: Any) -> HogQLContext:
         """Context for execute_hogql_query calls this runner makes, wired to the shared database."""

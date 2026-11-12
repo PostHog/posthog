@@ -4,7 +4,7 @@ import time
 import pickle
 import threading
 import dataclasses
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from contextlib import suppress
 from types import SimpleNamespace
 from typing import Any, cast
@@ -85,7 +85,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.constants import AvailableFeature
-from posthog.models.group_type_mapping import invalidate_group_types_cache
+from posthog.models.group_type_mapping import get_group_types_for_project, invalidate_group_types_cache
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
@@ -1244,12 +1244,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
             Database.create_for(team=self.team, modifiers=modifiers)
 
-    def test_database_group_type_mappings(self):
+    @parameterized.expand(
+        [
+            ("full", lambda team: Database.create_for(team=team)),
+            (
+                "posthog_tables",
+                lambda team: Database.create_for_posthog_tables(
+                    team, group_types=get_group_types_for_project(team.project_id)
+                ),
+            ),
+        ]
+    )
+    def test_database_group_type_mappings(self, _name: str, build: Callable[[Team], Database]):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="test", group_type_index=0
         )
         invalidate_group_types_cache(self.team.project_id)
-        db = Database.create_for(team=self.team)
+        db = build(self.team)
 
         assert db.get_table("events").fields["test"] == FieldTraverser(chain=["group_0"])
 

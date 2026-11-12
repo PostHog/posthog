@@ -2013,7 +2013,12 @@ class Database(BaseModel):
 
     @staticmethod
     def create_for_posthog_tables(
-        team: Team, *, modifiers: HogQLQueryModifiers | None = None, timings: HogQLTimings | None = None
+        team: Team,
+        *,
+        modifiers: HogQLQueryModifiers | None = None,
+        timings: HogQLTimings | None = None,
+        group_types: Sequence[dict[str, Any]] = (),
+        mcp_custom_harness_rules: Sequence[CustomHarnessRule] = (),
     ) -> Database:
         """PostHog's built-in tables only, wired for the team's modifiers, with no Postgres I/O.
 
@@ -2022,7 +2027,8 @@ class Database(BaseModel):
         user-written HogQL. Every access-controlled or entitlement-gated system table is removed up
         front, so a query that names one fails with TableAccessDeniedError instead of reading rows
         unchecked. create_for runs a dozen Postgres queries and feature-flag checks that such a
-        query never uses; on teams with many warehouse tables that costs more than the query."""
+        query never uses; on teams with many warehouse tables that costs more than the query.
+        A caller that needs group-type fields or MCP harness labels fetches them and passes them in."""
         if timings is None:
             timings = HogQLTimings()
         with timings.measure("modifiers"):
@@ -2045,8 +2051,8 @@ class Database(BaseModel):
             read_flag_calls_from_flag_evaluations=False,
             flag_calls_only_in_flag_evaluations=False,
             flag_calls_union_enabled=False,
-            group_types=[],
-            mcp_custom_harness_rules=(),
+            group_types=list(group_types),
+            mcp_custom_harness_rules=tuple(mcp_custom_harness_rules),
             saved_queries=[],
             endpoint_saved_queries=[],
             revenue_views=[],
