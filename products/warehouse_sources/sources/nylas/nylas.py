@@ -17,6 +17,9 @@ from products.warehouse_sources.sources.nylas.settings import (
     DEFAULT_REGION,
     EVENT_FUTURE_DAYS,
     EVENT_NO_CANCELLED_PROVIDERS,
+    EVENT_UPDATED_FILTER_MAX_AGE_DAYS,
+    EVENT_UPDATED_FILTER_PROVIDERS,
+    GOOGLE_UPDATED_FILTER_TOO_OLD,
     GRANTS_PAGE_SIZE,
     ICLOUD_MAX_EVENT_WINDOW_DAYS,
     ICLOUD_PROVIDER,
@@ -322,6 +325,18 @@ def _units_for_grant(
             params[config.incremental_param] = incremental_after
         return [_RequestUnit(key="", params=params)]
 
+    # A provider without the filter, or a watermark too old for it, gets the whole time range
+    # again. The merge removes the rows read twice.
+    oldest_filter = int((datetime.combine(today, datetime.min.time(), tzinfo=UTC)).timestamp()) - (
+        EVENT_UPDATED_FILTER_MAX_AGE_DAYS * 86400
+    )
+    if (
+        incremental_after is not None
+        and config.incremental_param
+        and provider in EVENT_UPDATED_FILTER_PROVIDERS
+        and incremental_after >= oldest_filter
+    ):
+        params[config.incremental_param] = incremental_after
     if provider not in EVENT_NO_CANCELLED_PROVIDERS:
         params["show_cancelled"] = "true"
 
@@ -332,6 +347,16 @@ def _units_for_grant(
         for calendar_id in _list_calendar_ids(session, connection, grant["id"])
         for start, end in _event_windows(provider, connection.event_history_days, today)
     ]
+
+
+class _UpdateFilterTooOld(Exception):
+    """The provider refused the incremental filter because the watermark is too far back."""
+
+
+def _update_filter_too_old(error: requests.HTTPError) -> bool:
+    if error.response is None:
+        return False
+    return GOOGLE_UPDATED_FILTER_TOO_OLD in error.response.text
 
 
 @dataclasses.dataclass(frozen=True)
@@ -348,12 +373,14 @@ class _GrantWalk:
         status = error.response.status_code if error.response is not None else None
         self.logger.warning(f"Nylas: skipping {self.config.name} for grant_id={grant_id}, status={status}")
 
-    def fetch_page(self, grant_id: str, unit: _RequestUnit, page_token: str | None) -> dict[str, Any]:
+    def fetch_page(self, grant_id: str, params: dict[str, Any], page_token: str | None) -> dict[str, Any]:
         path = self.config.path.format(grant_id=grant_id)
-        url = _build_url(self.connection.base_url, path, {**unit.params, "page_token": page_token})
+        url = _build_url(self.connection.base_url, path, {**params, "page_token": page_token})
         try:
             return _fetch(self.session, url)
         except requests.HTTPError as error:
+            if self.config.incremental_param in params and _update_filter_too_old(error):
+                raise _UpdateFilterTooOld from error
             self.skip_or_raise(error, grant_id)
             return {}
 
@@ -381,8 +408,13 @@ def _get_unit_rows(
             else next_grant
         )
 
+        params = unit.params
         while True:
-            data = walk.fetch_page(grant_id, unit, page_token)
+            try:
+                data = walk.fetch_page(grant_id, params, page_token)
+            except _UpdateFilterTooOld:
+                params = {key: value for key, value in params.items() if key != walk.config.incremental_param}
+                continue
             rows = [
                 _shape_row(row, grant_id, walk.config.name, walk.connection.include_message_bodies)
                 for row in data.get("data") or []

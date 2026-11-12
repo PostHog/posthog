@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -193,6 +194,72 @@ class TestEvents:
         assert result.response is not None
         assert result.response.primary_keys == ["grant_id", "calendar_id", "id"]
         assert result.committed_states[0].unit.startswith("team|")
+
+    @pytest.mark.parametrize(
+        ("provider", "watermark_age_days", "sends_filter"),
+        [
+            ("google", 2, True),
+            # Google refuses a filter more than 28 days back, so an old watermark reads the range.
+            ("google", 40, False),
+            # Agent Accounts have no `updated_after` filter.
+            ("nylas", 2, False),
+        ],
+    )
+    def test_incremental_run_sends_the_update_filter_only_where_the_provider_takes_it(
+        self, provider: str, watermark_age_days: int, sends_filter: bool
+    ) -> None:
+        watermark = int(time.time()) - watermark_age_days * 86400
+        result = self._run(
+            provider, ["primary"], pages=1, incremental_field="updated_at", db_incremental_field_last_value=watermark
+        )
+
+        assert result.raised is None
+        assert result.params("updated_after")[2:] == [str(watermark - 1) if sends_filter else None]
+        assert result.params("start")[2] is not None
+
+    def test_a_refused_update_filter_is_dropped_and_the_range_is_read_again(self) -> None:
+        # Verbatim Nylas error for a Google grant when `updated_after` is more than 28 days back.
+        too_old = {
+            "request_id": "7c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+            "error": {
+                "type": "general_error",
+                "message": "Not Found",
+                "provider_error": {
+                    "error": {
+                        "code": 410,
+                        "message": "The requested minimum modification time lies too far in the past.",
+                        "errors": [
+                            {
+                                "domain": "calendar",
+                                "reason": "updatedMinTooLongAgo",
+                                "message": "The requested minimum modification time lies too far in the past.",
+                            }
+                        ],
+                    }
+                },
+            },
+        }
+        watermark = int(time.time()) - 86400
+        result = _driver(event_history_days=30).run(
+            "events",
+            route(
+                {
+                    self.CALENDARS: [_page([{"id": "primary"}])],
+                    self.EVENTS: [
+                        ScriptedResponse(status=404, json=too_old),
+                        _page([{"id": "e1", "calendar_id": "primary"}], next_cursor="c2"),
+                        _page([{"id": "e2", "calendar_id": "primary"}]),
+                    ],
+                    GRANTS: [_grants(_grant("g1"))],
+                }
+            ),
+            incremental_field="updated_at",
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        assert result.params("updated_after")[2:] == [str(watermark - 1), None, None]
+        assert [row["id"] for row in result.rows] == ["e1", "e2"]
 
     def test_icloud_grants_get_ranges_of_six_months_or_less_and_no_cancelled_filter(self) -> None:
         # 30 days back plus 365 days ahead is three ranges.

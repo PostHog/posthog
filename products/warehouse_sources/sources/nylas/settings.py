@@ -25,6 +25,12 @@ EVENT_FUTURE_DAYS = 365
 # iCloud rejects a time range longer than six months.
 ICLOUD_PROVIDER = "icloud"
 ICLOUD_MAX_EVENT_WINDOW_DAYS = 180
+# Providers that support the `updated_after` filter on events.
+EVENT_UPDATED_FILTER_PROVIDERS = frozenset({"google", "microsoft", "ews"})
+# Google rejects an `updated_after` more than 28 days back, and Nylas returns that as a 404.
+# An older watermark reads the whole time range instead.
+EVENT_UPDATED_FILTER_MAX_AGE_DAYS = 21
+GOOGLE_UPDATED_FILTER_TOO_OLD = "updatedMinTooLongAgo"
 # Providers that reject `show_cancelled`.
 EVENT_NO_CANCELLED_PROVIDERS = frozenset({"icloud", "ews"})
 
@@ -114,8 +120,8 @@ NYLAS_ENDPOINTS: dict[str, NylasEndpointConfig] = {
         # The same event can sit in two calendars of one grant.
         primary_keys=["grant_id", "calendar_id", "id"],
         page_size=200,
-        # No incremental sync: a list request with `updated_after` returned 404 for a Google
-        # grant whose unfiltered request worked.
+        incremental_fields=[_unix_seconds_field("updated_at")],
+        incremental_param="updated_after",
         description=(
             "Calendar events from every calendar of each grant, with one row per (grant, calendar, event). "
             "Recurring events are one row for the series, plus one row per changed occurrence"
