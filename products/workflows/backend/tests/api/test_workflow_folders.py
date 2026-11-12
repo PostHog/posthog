@@ -610,21 +610,42 @@ class TestWorkflowFolders(APIBaseTest):
             template_queries,
         )
 
-    def test_a_folder_delete_reads_the_team_row_no_more_often_for_more_templates(self) -> None:
-        def team_reads_for_a_folder_of(count: int, folder_path: str) -> int:
+    @parameterized.expand(
+        [("delete_reads_the_team", "delete", "posthog_team"), ("restore_reads_creators", "restore", "posthog_user")]
+    )
+    def test_a_template_folder_write_reads_shared_rows_no_more_often_for_more_templates(
+        self, _name: str, phase: str, table: str
+    ) -> None:
+        def reads_for_a_folder_of(count: int, folder_path: str) -> int:
             folder = FileSystem.objects.create(team=self.team, path=folder_path, depth=1, type="folder")
-            for index in range(count):
+            template_ids = [
                 self.client.post(
                     f"/api/projects/{self.team.id}/messaging_templates/",
                     {"name": f"Email {index}", "type": "email", "_create_in_folder": folder_path},
                     format="json",
-                )
+                ).json()["id"]
+                for index in range(count)
+            ]
+            delete_url = f"/api/projects/{self.team.id}/file_system/{folder.id}/?recursive=true"
+            restore_items = [
+                {"type": "message_template", "ref": template_id, "path": f"{folder_path}/Email {index}"}
+                for index, template_id in enumerate(template_ids)
+            ]
+            if phase == "restore":
+                self.client.delete(delete_url)
             with CaptureQueriesContext(connection) as queries:
-                response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.id}/?recursive=true")
+                if phase == "delete":
+                    response = self.client.delete(delete_url)
+                else:
+                    response = self.client.post(
+                        f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                        {"items": restore_items},
+                        format="json",
+                    )
             self.assertEqual(response.status_code, 200, response.content)
-            return len([query for query in queries.captured_queries if 'FROM "posthog_team"' in query["sql"]])
+            return len([query for query in queries.captured_queries if f'FROM "{table}"' in query["sql"]])
 
-        self.assertEqual(team_reads_for_a_folder_of(3, "Many"), team_reads_for_a_folder_of(1, "One"))
+        self.assertEqual(reads_for_a_folder_of(3, "Many"), reads_for_a_folder_of(1, "One"))
 
     @parameterized.expand(
         [

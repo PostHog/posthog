@@ -44,6 +44,11 @@ def resolved_workflows_list_v2(team: "Team", users: Iterable["User"]) -> Iterato
         _resolved_workflows_list_v2.reset(token)
 
 
+def resolved_workflows_list_v2_answer(team_id: int, user_id: int) -> bool | None:
+    answers = _resolved_workflows_list_v2.get()
+    return answers.get((team_id, user_id)) if answers is not None else None
+
+
 def workflows_list_v2_enabled(team: "Team", user: "User") -> bool:
     answers = _resolved_workflows_list_v2.get()
     if answers is not None and (team.id, user.pk) in answers:

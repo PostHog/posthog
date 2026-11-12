@@ -1270,7 +1270,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         does a row filed under the target after the lock.
         """
         read = [instance]
-        if instance.type == "folder" and recursive:
+        if instance.type == "folder" and recursive and not instance.shortcut:
             read += list(
                 self._filter_by_access_control(
                     self._scope_by_project_and_environment(
@@ -1291,7 +1291,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # again after the lock. When the list changed, roll the lock back to its savepoint, which releases the
         # rows, and lock everything again in one statement. Locking only the new row on top could take it out
         # of id order, because a uuid7 id comes from the time the row was built, not the time it committed.
-        any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id, _ in refs_by_type}
+        any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id in {team_id for team_id, _ in refs_by_type}}
         while True:
             rows = Q(pk=instance.pk) | Q(pk__in=list(read_as), path__startswith=f"{instance.path}/")
             for (team_id, file_type), refs in sorted(refs_by_type.items()):
@@ -1473,8 +1473,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if file_type in WORKFLOW_FILE_SYSTEM_TYPES and placed & refs:
                 creator_ids |= file_system_object_creator_ids(file_type, team_id, placed & refs)
 
+        creators = {user.pk: user for user in User.objects.filter(pk__in=creator_ids)} if creator_ids else {}
+
         with (
-            resolved_workflows_list_v2(self.team, User.objects.filter(pk__in=creator_ids)),
+            resolved_workflows_list_v2(self.team, creators.values()),
             transaction.atomic(),
         ):
             for item in items:
@@ -1497,7 +1499,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "Exception during undo_delete_object (type=%s, ref=%s)", item.get("type"), item.get("ref")
                     )
                     raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
-                self._restore_file_system_path(restored_instance, item)
+                self._restore_file_system_path(restored_instance, item, creators)
                 undo_results.append({"type": item["type"], "ref": item["ref"]})
 
         return Response({"undone": undo_results}, status=status.HTTP_200_OK)
@@ -1875,7 +1877,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     surface=self.file_system_surface,
                 )
 
-    def _restore_file_system_path(self, instance: Any, payload: dict[str, Any]) -> None:
+    def _restore_file_system_path(
+        self, instance: Any, payload: dict[str, Any], creators: dict[int, User] | None = None
+    ) -> None:
         restore_path = payload.get("path")
         if restore_path is None:
             return
@@ -1883,7 +1887,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         team = getattr(instance, "team", None) if instance is not None else None
         team = team or self.team
 
-        created_by = getattr(instance, "created_by", None) if instance is not None else None
+        created_by_id = getattr(instance, "created_by_id", None)
+        if creators and created_by_id in creators:
+            created_by: Any = creators[created_by_id]
+        else:
+            created_by = getattr(instance, "created_by", None) if instance is not None else None
         request_user = self.request.user if isinstance(self.request.user, User) else None
         created_by_user = created_by if isinstance(created_by, User) else request_user
         if created_by_user is None:

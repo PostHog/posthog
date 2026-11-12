@@ -351,6 +351,30 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
 
+    def test_delete_folder_shortcut_removes_only_the_shortcut(self):
+        shortcut = FileSystem.objects.create(
+            team=self.team, path="Links", depth=1, type="folder", shortcut=True, created_by=self.user
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="Under the link", created_by=self.user)
+        FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(dashboard.id)).delete()
+        under = FileSystem.objects.create(
+            team=self.team,
+            path="Links/Under the link",
+            depth=2,
+            type="dashboard",
+            ref=str(dashboard.id),
+            shortcut=False,
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{shortcut.pk}/?recursive=true")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertFalse(FileSystem.objects.filter(pk=shortcut.pk).exists())
+        self.assertTrue(FileSystem.objects.filter(pk=under.pk).exists())
+        dashboard.refresh_from_db()
+        self.assertFalse(dashboard.deleted)
+
     def _create_retired_row_in_folder(self) -> tuple[FileSystem, FileSystem]:
         folder = FileSystem.objects.create(team=self.team, path="Unfiled/Links", type="folder", created_by=self.user)
         retired = FileSystem.objects.create(
