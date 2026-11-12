@@ -391,9 +391,12 @@ export class ScheduledTransactionalSends {
         const result = await this.deps.jobs.cancelUnclaimed(teamId, messageId)
         switch (result.outcome) {
             case 'canceled':
-                await this.recordCanceledRun(v2JobToInvocation(result.job))
+                await this.recordCanceledRun(v2JobToInvocation(result.job), { countMetrics: true })
                 return { outcome: 'canceled' }
             case 'already_canceled':
+                if (result.job) {
+                    await this.recordCanceledRun(v2JobToInvocation(result.job), { countMetrics: false })
+                }
                 return { outcome: 'canceled' }
             default:
                 return { outcome: result.outcome }
@@ -426,12 +429,15 @@ export class ScheduledTransactionalSends {
         return { outcome: 'rescheduled', scheduledAt: scheduledAt.toISOString() }
     }
 
-    private async recordCanceledRun(job: CyclotronJobInvocation): Promise<void> {
+    private async recordCanceledRun(
+        job: CyclotronJobInvocation,
+        { countMetrics }: { countMetrics: boolean }
+    ): Promise<void> {
         const { monitoringService, invocationResultsRowsService } = this.deps.invocationResults
         const hogFlow = await this.deps.hogFlows.getHogFlowCheckingPrimaryOnMiss(job.functionId).catch(() => null)
         const result = createCanceledInvocationResult(job, 'Run canceled before it was sent', hogFlow ?? undefined)
         result.invocation.queueScheduledAt = scheduledAtOfRunningRow(job)
-        if ((job.state as CyclotronJobInvocationHogFlow['state'] | null)?.triggerMetricPending) {
+        if (countMetrics && (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.triggerMetricPending) {
             result.metrics.push({
                 team_id: job.teamId,
                 app_source_id: job.functionId,
@@ -440,7 +446,9 @@ export class ScheduledTransactionalSends {
                 count: 1,
             })
         }
-        monitoringService.queueInvocationResults([result])
+        if (countMetrics) {
+            monitoringService.queueInvocationResults([result])
+        }
         invocationResultsRowsService.queueInvocationResults([result])
         writeStatus(this.deps.emailStatus, {
             teamId: job.teamId,

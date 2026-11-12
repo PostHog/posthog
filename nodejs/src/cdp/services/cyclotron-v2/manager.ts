@@ -762,13 +762,22 @@ export class CyclotronV2Manager {
             [id, teamId]
         )
         const row = result.rows[0]
-        if (!row) {
-            const existing = await this.findJob(teamId, id)
-            return {
-                outcome: !existing ? 'not_found' : existing.status === 'canceled' ? 'already_canceled' : 'claimed',
-            }
+        if (row) {
+            return { outcome: 'canceled', job: unclaimedJob(row) }
         }
-        return { outcome: 'canceled', job: unclaimedJob(row) }
+        const existing = await this.pool.query<UnclaimedJobRow & { status: string; transition_count: number }>(
+            `SELECT status, transition_count, ${UNCLAIMED_JOB_COLUMNS} FROM cyclotron_jobs
+             WHERE id = $1 AND team_id = $2 AND queue_name = 'email'`,
+            [id, teamId]
+        )
+        const found = existing.rows[0]
+        if (!found) {
+            return { outcome: 'not_found' }
+        }
+        if (found.status !== 'canceled') {
+            return { outcome: 'claimed' }
+        }
+        return { outcome: 'already_canceled', job: found.transition_count === 0 ? unclaimedJob(found) : null }
     }
 
     async rescheduleUnclaimed(

@@ -4442,7 +4442,7 @@ describe('CDP API', () => {
                         )
                         const scheduledAt = lifecycleRows[0].scheduled_at
                         expect(lifecycleRows).toEqual(
-                            ['running', 'canceled'].map((status) =>
+                            ['running', 'canceled', 'canceled'].map((status) =>
                                 expect.objectContaining({
                                     invocation_id: messageId,
                                     function_kind: 'hog_flow',
@@ -4455,12 +4455,14 @@ describe('CDP API', () => {
                         expect(emailStatusRows()).toEqual([
                             expect.objectContaining({ message_id: messageId, status: 'scheduled' }),
                             expect.objectContaining({ message_id: messageId, status: 'scheduled' }),
-                            expect.objectContaining({
-                                message_id: messageId,
-                                status: 'canceled',
-                                recipient: body.to,
-                                function_id: hogFlow.id,
-                            }),
+                            ...[1, 2].map(() =>
+                                expect.objectContaining({
+                                    message_id: messageId,
+                                    status: 'canceled',
+                                    recipient: body.to,
+                                    function_id: hogFlow.id,
+                                })
+                            ),
                         ])
                     } finally {
                         hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled

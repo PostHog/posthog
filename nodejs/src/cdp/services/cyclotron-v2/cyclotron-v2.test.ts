@@ -1272,7 +1272,10 @@ describe('Cyclotron V2', () => {
                     outcome: 'canceled',
                     job: { id, teamId: 1, queueName: 'email', state: Buffer.from(JSON.stringify(storedState)) },
                 })
-                expect(repeat).toEqual({ outcome: 'already_canceled' })
+                expect(repeat).toEqual({
+                    outcome: 'already_canceled',
+                    job: first.outcome === 'canceled' ? first.job : null,
+                })
                 expect(await queryJob(id)).toMatchObject({ status: 'canceled', transition_count: 0, lock_id: null })
             })
 
@@ -1365,23 +1368,35 @@ describe('Cyclotron V2', () => {
             )
 
             it.each([
-                ['cancelUnclaimed', 'a claimed job', 'claimed', 'claim'],
-                ['cancelUnclaimed', "another team's job", 'not_found', 'other_team'],
-                ['cancelUnclaimed', 'an unknown id', 'not_found', 'unknown'],
-                ['cancelUnclaimed', 'a job on another queue', 'not_found', 'other_queue'],
-                ['rescheduleUnclaimed', 'a claimed job', 'claimed', 'claim'],
-                ['rescheduleUnclaimed', "another team's job", 'not_found', 'other_team'],
-                ['rescheduleUnclaimed', 'an unknown id', 'not_found', 'unknown'],
-                ['rescheduleUnclaimed', 'a job on another queue', 'not_found', 'other_queue'],
-                ['rescheduleUnclaimed', 'a job canceled before its claim', 'canceled', 'cancel_unclaimed'],
-                ['rescheduleUnclaimed', 'a job flagged by a run cancel', 'canceled', 'cancel_flag'],
-            ] as const)('%s on %s answers %s and changes nothing', async (op, _desc, outcome, setup) => {
+                ['cancelUnclaimed', 'a claimed job', { outcome: 'claimed' }, 'claim'],
+                ['cancelUnclaimed', "another team's job", { outcome: 'not_found' }, 'other_team'],
+                ['cancelUnclaimed', 'an unknown id', { outcome: 'not_found' }, 'unknown'],
+                ['cancelUnclaimed', 'a job on another queue', { outcome: 'not_found' }, 'other_queue'],
+                [
+                    'cancelUnclaimed',
+                    'a job canceled after its claim',
+                    { outcome: 'already_canceled', job: null },
+                    'claim_cancel',
+                ],
+                ['rescheduleUnclaimed', 'a claimed job', { outcome: 'claimed' }, 'claim'],
+                ['rescheduleUnclaimed', "another team's job", { outcome: 'not_found' }, 'other_team'],
+                ['rescheduleUnclaimed', 'an unknown id', { outcome: 'not_found' }, 'unknown'],
+                ['rescheduleUnclaimed', 'a job on another queue', { outcome: 'not_found' }, 'other_queue'],
+                ['rescheduleUnclaimed', 'a job canceled before its claim', { outcome: 'canceled' }, 'cancel_unclaimed'],
+                ['rescheduleUnclaimed', 'a job flagged by a run cancel', { outcome: 'canceled' }, 'cancel_flag'],
+            ] as const)('%s on %s answers %o and changes nothing', async (op, _desc, expected, setup) => {
                 let id =
                     setup === 'other_queue'
                         ? await manager.createJob({ teamId: 1, queueName: QUEUE, scheduled: IN_A_WEEK() })
                         : await seedScheduledEmail(setup === 'other_team' ? 2 : 1)
-                if (setup === 'claim') {
+                if (setup === 'claim' || setup === 'claim_cancel') {
                     await assertPool.query(claimSql, [id])
+                }
+                if (setup === 'claim_cancel') {
+                    await assertPool.query(
+                        `UPDATE cyclotron_jobs SET status = 'canceled', lock_id = NULL WHERE id = $1`,
+                        [id]
+                    )
                 } else if (setup === 'cancel_unclaimed') {
                     await manager.cancelUnclaimed(1, id)
                 } else if (setup === 'cancel_flag') {
@@ -1395,7 +1410,7 @@ describe('Cyclotron V2', () => {
 
                 const result = await Object.fromEntries(operations)[op](1, id)
 
-                expect(result).toEqual({ outcome })
+                expect(result).toEqual(expected)
                 expect(await queryJob(before.id)).toEqual(before)
             })
         })
