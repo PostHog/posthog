@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 from contextlib import contextmanager
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -69,7 +70,14 @@ def _mock_adapter(*, lag_bytes=0, retention_cap_mb=None, slot_survives_drop=Fals
     return adapter
 
 
-def _run(adapter):
+_SCHEDULE_LOOKUP: dict[str, dict[str, Any]] = {
+    "present": {"return_value": True},
+    "missing": {"return_value": False},
+    "error": {"side_effect": TimeoutError()},
+}
+
+
+def _run(adapter, *, schedule_state="present"):
     with (
         patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity") as mock_activity,
         patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.HeartbeaterSync"),
@@ -79,6 +87,10 @@ def _run(adapter):
             return_value=adapter,
         ),
         patch("products.data_warehouse.backend.logic.data_load.service.delete_cdc_extraction_schedule") as mock_delete,
+        patch(
+            "products.data_warehouse.backend.logic.data_load.service.cdc_extraction_schedule_exists",
+            **_SCHEDULE_LOOKUP[schedule_state],
+        ),
         # mark_cdc_broken (critical-lag paths) reaches Temporal / Kafka / analytics — stub the boundaries.
         patch("products.data_warehouse.backend.logic.data_load.service.pause_cdc_extraction_schedule") as mock_pause,
         patch("products.data_warehouse.backend.logic.data_load.service.pause_external_data_schedule"),
@@ -242,6 +254,84 @@ def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(
     assert source.status == expected_status
     schema.refresh_from_db()
     assert schema.sync_type_config["cdc_broken"]["reason"] == expected_reason
+
+
+def _restore_case(
+    case_id,
+    *,
+    management="self_managed",
+    retention_cap_mb=None,
+    lag_mb=5000,
+    schedule_state="missing",
+    existing_reason=None,
+    restored=True,
+    dropped=False,
+    expected_reason=None,
+):
+    return pytest.param(
+        management,
+        retention_cap_mb,
+        lag_mb,
+        schedule_state,
+        existing_reason,
+        restored,
+        dropped,
+        expected_reason,
+        id=case_id,
+    )
+
+
+@pytest.mark.parametrize(
+    "management, retention_cap_mb, lag_mb, schedule_state, existing_reason, restored, dropped, expected_reason",
+    [
+        _restore_case("missing_schedule_is_restored_without_lag_blame"),
+        _restore_case("capped_slot_is_kept_while_capture_catches_up", management="posthog", retention_cap_mb=10000),
+        _restore_case(
+            "uncapped_slot_is_dropped_without_a_restore",
+            management="posthog",
+            restored=False,
+            dropped=True,
+            expected_reason="auto_dropped_critical_lag",
+        ),
+        _restore_case(
+            "existing_schedule_is_left_alone",
+            schedule_state="present",
+            restored=False,
+            expected_reason="critical_lag_self_managed",
+        ),
+        _restore_case(
+            "repair_owns_the_schedule",
+            existing_reason="auto_dropped_critical_lag",
+            restored=False,
+            expected_reason="auto_dropped_critical_lag",
+        ),
+        _restore_case(
+            "failed_lookup_still_checks_the_lag",
+            schedule_state="error",
+            restored=False,
+            expected_reason="critical_lag_self_managed",
+        ),
+        _restore_case("lag_below_the_warning_threshold_skips_the_lookup", lag_mb=100, restored=False),
+    ],
+)
+def test_lagging_source_restores_a_missing_extraction_schedule(
+    team, management, retention_cap_mb, lag_mb, schedule_state, existing_reason, restored, dropped, expected_reason
+):
+    source = _create_source(team, job_inputs=_cdc_job_inputs(management=management))
+    schema = _create_cdc_schema(team, source)
+    if existing_reason:
+        schema.sync_type_config = {**schema.sync_type_config, "cdc_broken": {"reason": existing_reason}}
+        schema.save()
+
+    adapter = _mock_adapter(lag_bytes=lag_mb * 1024 * 1024, retention_cap_mb=retention_cap_mb)
+    with patch("products.data_warehouse.backend.logic.data_load.service.sync_cdc_extraction_schedule") as mock_sync:
+        _, _, mock_pause = _run(adapter, schedule_state=schedule_state)
+
+    assert mock_sync.called is restored
+    assert adapter.drop_stream.called is dropped
+    assert mock_pause.called is dropped
+    schema.refresh_from_db()
+    assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") == expected_reason
 
 
 def _job(team, source, schema, status, age, workflow_id=None):
