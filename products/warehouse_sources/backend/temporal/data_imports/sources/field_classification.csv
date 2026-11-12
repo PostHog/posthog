@@ -1159,7 +1159,7 @@ SmartEngage,api_key,,,,,smart-engage
 Smartlead,api_key,,,,,smartlead
 Smartlook,api_token region,,,,,smartlook
 Smartreach,api_key team_id,,,,,smartreach
-Smartrecruiters,,,,,,smartrecruiters
+Smartrecruiters,api_key,,,,,smartrecruiters
 Smartsheet,access_token,,,,,smartsheet
 Smartwaiver,api_key,,,,,smartwaiver
 Smokeball,,,,,,smokeball
