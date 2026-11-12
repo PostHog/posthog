@@ -188,6 +188,10 @@ describe('loginLogic', () => {
                     '/api/login/precheck': () => [200, { saml_available: false }],
                     '/api/login': () => [401, { code: 'code_based_verification_required', detail: 'user@example.com' }],
                     '/api/login/code-based-verification': () => [200, { success: true }],
+                    '/api/login/code-based-verification/resend': () => [
+                        429,
+                        { code: 'too_soon', detail: 'Please wait before requesting another email' },
+                    ],
                 },
             })
             initKeaTests()
@@ -210,10 +214,44 @@ describe('loginLogic', () => {
             expect(logic.values.codeVerificationRequired).toBe(true)
             expect(logic.values.codeVerificationEmail).toBe('user@example.com')
             expect(logic.values.generalError).toBe(null)
+            expect(logic.values.codeResendAttempted).toBe(false)
+
+            logic.actions.resendCodeBasedVerification(null)
+            await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+            expect(logic.values.resendResponse).toBe(null)
+            expect(logic.values.codeResendAttempted).toBe(true)
 
             logic.actions.exitCodeVerification()
             expect(logic.values.codeVerificationRequired).toBe(false)
             expect(logic.values.codeVerificationEmail).toBe(null)
+            expect(logic.values.codeResendAttempted).toBe(false)
+        })
+
+        it('shows an undeliverable address on resend as a login error, and clears it once a resend goes out', async () => {
+            const detail = "We can't send email to this address."
+            useMocks({
+                post: {
+                    '/api/login/code-based-verification/resend': () => [
+                        400,
+                        { type: 'server_error', code: 'login_code_email_undeliverable', detail },
+                    ],
+                },
+            })
+
+            logic.actions.resendCodeBasedVerification(null)
+            await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+
+            expect(logic.values.resendResponse).toBe(null)
+            expect(logic.values.generalError).toEqual({ code: 'login_code_email_undeliverable', detail })
+
+            const sent = { success: true, message: 'sent' }
+            useMocks({ post: { '/api/login/code-based-verification/resend': () => [200, sent] } })
+
+            logic.actions.resendCodeBasedVerification(null)
+            await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+
+            expect(logic.values.resendResponse).toEqual(sent)
+            expect(logic.values.generalError).toBe(null)
         })
     })
 

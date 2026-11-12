@@ -224,7 +224,10 @@ pub fn write_timeseries_to_kafka_rows(
             let mut sample_attributes = attributes.clone();
             if let Some(original) = original_timestamp {
                 timestamps_overridden += 1;
-                sample_attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+                sample_attributes.insert(
+                    crate::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE.to_string(),
+                    original.to_rfc3339(),
+                );
             }
 
             rows.push(KafkaMetricRow {
@@ -492,7 +495,13 @@ pub async fn export_prometheus_remote_write_http(
 
     if let Err(e) = service
         .sink
-        .write_metrics(&token, rows, uncompressed_bytes, timestamps_overridden)
+        .write_metrics(
+            &token,
+            rows,
+            uncompressed_bytes,
+            None,
+            timestamps_overridden,
+        )
         .await
     {
         error!("Failed to send remote-write metrics to Kafka: {e}");

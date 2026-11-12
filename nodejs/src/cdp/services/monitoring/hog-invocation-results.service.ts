@@ -165,7 +165,7 @@ export const classifyError = (error: unknown): { kind: string; message: string }
         kind = 'http_5xx'
     } else if (http4xxRegex.test(lower)) {
         kind = 'http_4xx'
-    } else if (lower.includes('out of memory') || lower.includes('oom')) {
+    } else if (lower.includes('out of memory') || /\boom\b/.test(lower)) {
         kind = 'oom'
     }
 
@@ -241,7 +241,7 @@ const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {
 // Recovery paths pass a workflow stub with only an id. A run that started before its template became
 // sensitive carries no stamp, so a transactional email run without the actions is treated as sensitive.
 const sendsSensitiveMessage = (invocation: CyclotronJobInvocationHogFlow): boolean => {
-    if (invocation.state?.sensitive === true) {
+    if (invocation.state?.sensitive === true || invocation.state?.send?.sensitive === true) {
         return true
     }
     if (!Array.isArray(invocation.hogFlow?.actions)) {

@@ -9,10 +9,16 @@ id. This module goes away when destinations move into the platform.
 """
 
 from collections.abc import Collection
+from uuid import UUID
 
-from products.alerts_platform.backend.facade.contracts import AlertDestinationGroup, DestinationResolver
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationGroup,
+    DestinationResolver,
+    LiveHogFunctionLookup,
+)
 
 _resolver: DestinationResolver | None = None
+_live_lookup: LiveHogFunctionLookup | None = None
 
 
 def register(resolver: DestinationResolver) -> None:
@@ -31,3 +37,20 @@ def list_alert_destination_groups(
     if _resolver is None:
         raise RuntimeError("No destination resolver is registered. products.alerts registers one in its ready().")
     return _resolver(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
+
+
+def register_live_hog_function_lookup(lookup: LiveHogFunctionLookup) -> None:
+    global _live_lookup
+    if _live_lookup is not None and _live_lookup is not lookup:
+        raise RuntimeError("A different HogFunction lookup is already registered.")
+    _live_lookup = lookup
+
+
+def live_hog_function_ids(*, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The named HogFunctions that still exist. Without a registered lookup every one counts as
+    existing, so a row that copies one is skipped rather than sent twice."""
+    if not hog_function_ids:
+        return frozenset()
+    if _live_lookup is None:
+        return frozenset(hog_function_ids)
+    return _live_lookup(team_id=team_id, hog_function_ids=hog_function_ids)

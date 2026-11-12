@@ -3,10 +3,10 @@ import type { ReactNode } from 'react'
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
-import { BrandMark } from '../components/BrandMark'
 import { harnessMark } from '../dashboard/harnessRegistry'
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
 import { formatDuration } from '../sessions/utils'
@@ -46,7 +46,9 @@ export function ToolCallHeroCard({ call }: { call: MCPActivityRecentCallApi }): 
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col">
                     <span className="text-sm text-secondary">{COPY.called(client)}</span>
-                    <span className="truncate font-mono text-2xl font-semibold">{call.tool}</span>
+                    <span className="truncate font-mono text-2xl font-semibold" title={call.tool}>
+                        {call.tool}
+                    </span>
                 </div>
                 <span className="shrink-0 text-xs text-secondary">
                     <TZLabel time={call.timestamp} />

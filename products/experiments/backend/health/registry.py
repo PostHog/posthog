@@ -17,6 +17,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthRuleTest,
     ExperimentHealthValueKey,
 )
+from products.experiments.backend.facade.daily_calculation import DAILY_CALCULATION_DAYS
 from products.experiments.backend.health.checks.bias_risk import (
     MULTIPLE_VARIANT_BIAS_MINIMUM_COUNT,
     MULTIPLE_VARIANT_BIAS_THRESHOLD,
@@ -64,6 +65,13 @@ from products.experiments.backend.health.checks.srm import (
     SRM_MINIMUM_SAMPLE_SIZE,
     srm,
     srm_values,
+)
+from products.experiments.backend.health.checks.stale_experiment import stale_experiment
+from products.experiments.backend.health.checks.unserved_variants import (
+    UNSERVED_MINIMUM_COUNT,
+    UNSERVED_SHARE_THRESHOLD,
+    unserved_variant_exposures,
+    unserved_variant_values,
 )
 from products.experiments.backend.health.checks.zero_exposures import zero_exposures, zero_exposures_values
 from products.experiments.backend.health.context import HealthContext
@@ -138,8 +146,9 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         key=ExperimentHealthCheckKey.RELEASE_CONDITIONS_CHANGED_MID_RUN,
         name="Release condition changes since launch",
         description=(
-            "Looks for release condition changes after users were first exposed. A change can let in other users or "
-            "move users to another variant, so the results mix two different setups."
+            "Looks for release condition changes after users were first exposed, including a lower rollout. A change "
+            "can let in other users, stop serving users who were already exposed, or move users to another variant, so "
+            "the results mix two different setups."
         ),
         run=release_conditions_changed_mid_run,
     ),
@@ -256,12 +265,24 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         run=metrics_not_matured,
         read=metrics_not_matured_values,
     ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.STALE_EXPERIMENT,
+        name=f"Experiment running past {DAILY_CALCULATION_DAYS} days",
+        description=(
+            f"Checks how long ago the experiment started. PostHog's daily calculation covers only the first "
+            f"{DAILY_CALCULATION_DAYS} days after the start date, so after that the chart of results over time stops "
+            "updating and PostHog sends no significance notifications."
+        ),
+        run=stale_experiment,
+    ),
 )
 
 # The exposure query runs these on its answer. They must not include the checks above: the exposure answer
 # is cached for a day, and a flag edit would not clear their findings. `srm` reads the verdict of
 # `split_changed_mid_run`, which only a split edit can change, and the variant overrides of the release conditions. The
-# split and the release conditions are part of the exposure query's cache key.
+# split and the release conditions are part of the exposure query's cache key. `unserved_variant_exposures` also reads
+# whether the flag is on and when it was last saved. The page's query carries the flag's `active` and `version`, so an
+# edit recalculates the page's answer, and a backend answer's older finding still holds for the users it counts.
 EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,
@@ -320,6 +341,25 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             test=ExperimentHealthRuleTest.CHI_SQUARED,
             minimum=ExperimentHealthRuleMinimum(
                 value=ExperimentHealthValueKey.COMPARED_COUNT, threshold=SRM_MINIMUM_SAMPLE_SIZE
+            ),
+        ),
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.UNSERVED_VARIANT_EXPOSURES,
+        name="Exposures in variants that the flag doesn't serve",
+        description=(
+            "Counts the users first exposed in a variant that the feature flag doesn't serve, for example while the "
+            "flag is off or after a variant's share is set to 0%. Their exposures carry a value that didn't come from "
+            "the flag, so the variants compare users that the flag didn't assign, which can bias the results."
+        ),
+        run=unserved_variant_exposures,
+        read=unserved_variant_values,
+        rule=ExperimentHealthCheckRule(
+            value=ExperimentHealthValueKey.UNSERVED_EXPOSED_PERCENTAGE,
+            threshold=UNSERVED_SHARE_THRESHOLD,
+            warns=ExperimentHealthRuleSide.ABOVE,
+            minimum=ExperimentHealthRuleMinimum(
+                value=ExperimentHealthValueKey.UNSERVED_EXPOSED_COUNT, threshold=UNSERVED_MINIMUM_COUNT
             ),
         ),
     ),

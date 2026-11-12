@@ -41,18 +41,21 @@ jobs:
               id: source-check
               env:
                   GH_TOKEN: ${{ github.token }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.sha }}
                   SOURCE_FILE: ${{ inputs.source_file }}
                   ADDITIONAL_SOURCE_FILES: ${{ inputs.additional_source_files }}
               run: |
-                  # Regenerate when the data file OR any additional source (e.g. the generator) changes,
-                  # so a generator-only edit can't pass without validating the committed output.
-                  # --repo is required because this step runs before checkout, so gh has no
-                  # local git remote to infer the repo from (otherwise: "not a git repository").
-                  changed_files=$(gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only)
+                  # The compare API caps files at 300. An incomplete lookup must still validate docs.
+                  if ! comparison=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BASE_SHA...$HEAD_SHA?per_page=1") \
+                      || ! jq -e '.files | type == "array" and length < 300' <<< "$comparison" > /dev/null; then
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  changed_files=$(jq -r '.files[] | .filename, (.previous_filename // empty)' <<< "$comparison")
                   if printf '%s\n' "$changed_files" \
-                      | grep -qFf <(printf '%s\n' "$SOURCE_FILE" "$ADDITIONAL_SOURCE_FILES" | grep -v '^$'); then
-                      echo "changed=true" >> $GITHUB_OUTPUT
+                      | grep -qxFf <(printf '%s\n' "$SOURCE_FILE" "$ADDITIONAL_SOURCE_FILES" | grep -v '^$'); then
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Checkout

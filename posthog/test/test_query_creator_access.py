@@ -1,11 +1,15 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, Team
 from posthog.query_creator_access import assert_creator_can_run, creator_access_revoked
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.testing import create_dashboard
 
 
 class TestCreatorAccessRevoked(BaseTest):
@@ -40,3 +44,30 @@ class TestCreatorAccessRevoked(BaseTest):
         with self.assertRaises(UserAccessControlError) as raised:
             assert_creator_can_run(self.user, self.team)
         assert raised.exception.resource == "project"
+
+    @parameterized.expand([("project_team", False), ("environment", True)])
+    def test_a_dashboard_ref_is_checked_with_the_rules_of_the_dashboard_team(
+        self, _name: str, via_environment: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        open_id = create_dashboard(team_id=self.team.id)
+        restricted_id = create_dashboard(team_id=self.team.id)
+        AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=str(restricted_id), access_level="none"
+        )
+        open_dashboard = dashboards_api.get_dashboard(team_id=self.team.id, dashboard_id=open_id)
+        restricted_dashboard = dashboards_api.get_dashboard(team_id=self.team.id, dashboard_id=restricted_id)
+        assert open_dashboard is not None and restricted_dashboard is not None
+        team = (
+            Team.objects.create(organization=self.organization, parent_team=self.team) if via_environment else self.team
+        )
+
+        assert_creator_can_run(self.user, team, open_dashboard.access_ref)
+        with self.assertRaises(UserAccessControlError) as raised:
+            assert_creator_can_run(self.user, team, restricted_dashboard.access_ref)
+        assert (raised.exception.resource, raised.exception.resource_id) == ("dashboard", str(restricted_id))

@@ -14,7 +14,7 @@
 //! cap full keeps its labels and is not cached. The same "more labels, never
 //! less" direction as a Redis failure.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::hash::Hasher;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -28,7 +28,7 @@ use siphasher::sip::SipHasher13;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use capture_logs::metric_record::KafkaMetricRow;
+use capture_logs::metric_record::{sum_kafka_metric_row_bytes, KafkaMetricRow};
 
 const REDIS_KEY_PREFIX: &str = "capture-logs:metric-series-labels";
 /// Members are spread over hour buckets so keys expire on their own and no
@@ -133,6 +133,12 @@ struct Entry {
     token_hash: Option<u64>,
 }
 
+/// Gate keys of the series that kept their labels in one batch.
+#[must_use = "pass to SeriesLabelGate::commit once the rows are written"]
+pub struct LabelledSeries {
+    keys: Vec<u64>,
+}
+
 pub struct SeriesLabelGate {
     cache: DashMap<u64, Entry>,
     /// Exact entry count. `DashMap::len` walks every shard, and the request
@@ -191,29 +197,57 @@ impl SeriesLabelGate {
     /// Decide per row whether it carries the series labels. The first row for a
     /// series in the window keeps them; later rows get empty label maps and
     /// `has_labels = false`. Synchronous: never waits on Redis.
-    pub fn apply(&self, token: &str, rows: &mut [KafkaMetricRow]) {
+    ///
+    /// Changes no gate state. Pass the result to [`Self::commit`] once the
+    /// rows are written; a failed write drops it, so a retry of the same batch
+    /// keeps its labels.
+    pub fn decide(&self, token: &str, rows: &mut [KafkaMetricRow]) -> LabelledSeries {
         let now = (self.clock)();
-        let token_hash = token_key(token);
-        let mut sent = 0u64;
+        let mut keys = Vec::new();
+        let mut in_batch = HashSet::new();
         let mut skipped = 0u64;
-        let mut queue_full = 0u64;
-        let mut global_full = 0u64;
-        let mut token_full = 0u64;
 
         for row in rows.iter_mut() {
             let key = gate_key(token, row.series_fingerprint);
-            if self.seen_within_window(key, now) {
+            if self.seen_within_window(key, now) || !in_batch.insert(key) {
                 skipped += 1;
                 if self.enabled {
                     strip_labels(row);
                 }
                 continue;
             }
+            keys.push(key);
+        }
 
-            // The row keeps its labels either way. Only a cached series is
-            // pushed to Redis, so other pods never learn about series this
-            // pod refused to remember.
-            sent += 1;
+        counter!("capture_metrics_series_labels_sent").increment(keys.len() as u64);
+        counter!("capture_metrics_series_labels_skipped").increment(skipped);
+        LabelledSeries { keys }
+    }
+
+    /// Run [`Self::decide`] and return the billable bytes of `rows` measured before any
+    /// labels are stripped. The meter (RFC #1350: 8 bytes per label) bills the
+    /// labels the customer sent, not the ones this dedup leaves on the wire.
+    pub fn decide_metered(
+        &self,
+        token: &str,
+        rows: &mut [KafkaMetricRow],
+    ) -> (LabelledSeries, u64) {
+        let records_bytes = sum_kafka_metric_row_bytes(rows);
+        (self.decide(token, rows), records_bytes)
+    }
+
+    /// Record the series that [`Self::decide`] left labelled, after the write
+    /// that carried them succeeded.
+    pub fn commit(&self, token: &str, labelled: LabelledSeries) {
+        let now = (self.clock)();
+        let token_hash = token_key(token);
+        let mut queue_full = 0u64;
+        let mut global_full = 0u64;
+        let mut token_full = 0u64;
+
+        for key in labelled.keys {
+            // Only a cached series is pushed to Redis, so other pods never
+            // learn about series this pod refused to remember.
             match self.remember(key, now, Some(token_hash)) {
                 Ok(()) => {}
                 Err(Cap::Global) => {
@@ -232,8 +266,6 @@ impl SeriesLabelGate {
             }
         }
 
-        counter!("capture_metrics_series_labels_sent").increment(sent);
-        counter!("capture_metrics_series_labels_skipped").increment(skipped);
         if queue_full > 0 {
             counter!("capture_metrics_series_redis_queue_full").increment(queue_full);
         }
@@ -509,6 +541,12 @@ impl SeriesLabelGate {
                 gate.prune((gate.clock)());
             }
         });
+    }
+
+    #[cfg(test)]
+    fn apply(&self, token: &str, rows: &mut [KafkaMetricRow]) {
+        let labelled = self.decide(token, rows);
+        self.commit(token, labelled);
     }
 
     #[cfg(test)]
@@ -807,6 +845,64 @@ mod tests {
     }
 
     #[test]
+    fn metered_bytes_count_labels_the_gate_strips() {
+        let (gate, _, _) = gate(true, false);
+
+        // Each row: 24 bytes per point + 8 bytes for each of its 2 labels.
+        let full = 24 + 8 * 2;
+        let mut rows = vec![row(7), row(7), row(8)];
+        let (labelled, records_bytes) = gate.decide_metered("token-a", &mut rows);
+        gate.commit("token-a", labelled);
+        assert_stripped(&rows[1]);
+        assert_eq!(records_bytes, 3 * full);
+        assert!(sum_kafka_metric_row_bytes(&rows) < records_bytes);
+
+        // A later batch whose series are all known is fully stripped on the
+        // wire but still metered with every label it sent.
+        let mut rows = vec![row(7), row(8)];
+        let (_, records_bytes) = gate.decide_metered("token-a", &mut rows);
+        assert_stripped(&rows[0]);
+        assert_stripped(&rows[1]);
+        assert_eq!(records_bytes, 2 * full);
+    }
+
+    #[test]
+    fn retry_after_a_failed_write_keeps_its_labels() {
+        let (gate, _, _) = gate(true, false);
+
+        let mut rows = vec![row(7), row(7)];
+        let labelled = gate.decide("token-a", &mut rows);
+        assert_labelled(&rows[0]);
+        assert_stripped(&rows[1]);
+        // The write failed, so the handler drops the result without a commit.
+        drop(labelled);
+        assert_eq!(gate.cache_len(), 0);
+
+        let mut rows = vec![row(7), row(7)];
+        let labelled = gate.decide("token-a", &mut rows);
+        assert_labelled(&rows[0]);
+        assert_stripped(&rows[1]);
+        gate.commit("token-a", labelled);
+
+        let mut rows = vec![row(7)];
+        drop(gate.decide("token-a", &mut rows));
+        assert_stripped(&rows[0]);
+    }
+
+    #[test]
+    fn series_are_queued_for_redis_only_on_commit() {
+        let (gate, _, rx) = gate(true, true);
+        let mut rx = rx.unwrap();
+
+        let mut rows = vec![row(7)];
+        let labelled = gate.decide("token-a", &mut rows);
+        assert!(rx.try_recv().is_err());
+
+        gate.commit("token-a", labelled);
+        assert_eq!(rx.try_recv().unwrap(), (gate_key("token-a", 7), START));
+    }
+
+    #[test]
     fn series_first_seen_together_expire_at_different_times() {
         let (gate, now, _) = gate(true, false);
 
@@ -850,8 +946,14 @@ mod tests {
         let mut rows = vec![row(1), row(2), row(3), row(3)];
         gate.apply("token-a", &mut rows);
         assert_labelled(&rows[2]);
-        // Series 3 was never cached, so its repeat is labelled too.
-        assert_labelled(&rows[3]);
+        // The labelled row of series 3 goes out in the same write.
+        assert_stripped(&rows[3]);
+        assert_eq!(gate.cache_len(), 2);
+
+        // Series 3 was never cached, so the next request labels it again.
+        let mut rows = vec![row(3)];
+        gate.apply("token-a", &mut rows);
+        assert_labelled(&rows[0]);
         assert_eq!(gate.cache_len(), 2);
         // Only cached series reach Redis.
         assert_eq!(rx.try_recv().unwrap().0, gate_key("token-a", 1));
@@ -883,9 +985,12 @@ mod tests {
         };
         let (gate, now, _) = gate_with_limits(true, false, limits);
 
-        let mut rows = vec![row(1), row(2), row(2)];
+        let mut rows = vec![row(1), row(2)];
         gate.apply("token-a", &mut rows);
-        assert_labelled(&rows[2]);
+        // Series 2 found the token cap full, so the next request labels it again.
+        let mut rows = vec![row(2)];
+        gate.apply("token-a", &mut rows);
+        assert_labelled(&rows[0]);
 
         let mut rows = vec![row(1), row(1)];
         gate.apply("token-b", &mut rows);

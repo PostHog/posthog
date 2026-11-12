@@ -14,13 +14,14 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
-        "papaparse": "^5.4.1",
+        "papaparse": "^5.5.4",
         "posthog-js": "catalog:",
         "use-debounce": "catalog:",
         "zod": "^4.0.0"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
         "@testing-library/react": "*",
         "@types/papaparse": "*",
         "kea-test-utils": "catalog:"

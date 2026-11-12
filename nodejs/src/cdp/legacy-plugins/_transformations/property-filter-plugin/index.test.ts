@@ -107,3 +107,18 @@ test.each(['gender,$set.age,$set_once.plan', ' gender , $set.age , $set_once.pla
         expect(event.properties).toEqual({ name: 'Mr. Hog', $set: { pet: 'dog' }, $set_once: null })
     }
 )
+
+test.each(['__proto__.hasOwnProperty', 'constructor.prototype.toString'])(
+    'a filter path through %s leaves the built-in prototype intact',
+    (propertyToFilter) => {
+        const { hasOwnProperty, toString } = Object.prototype
+        const event = processEvent(createEvent({ properties: { name: 'Mr. Hog', gender: 'male' } }), {
+            ...meta,
+            global: { propertiesToFilter: [propertyToFilter, 'gender'] },
+        } as unknown as LegacyTransformationPluginMeta)
+
+        expect(event.properties).toEqual({ name: 'Mr. Hog' })
+        expect(Object.prototype.hasOwnProperty).toBe(hasOwnProperty)
+        expect(Object.prototype.toString).toBe(toString)
+    }
+)

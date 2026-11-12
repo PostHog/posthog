@@ -5,6 +5,7 @@ import {
   buildRows,
   commentSources,
   commentTargets,
+  orderRows,
 } from "./taskArtifactRows";
 
 describe("commentSources", () => {
@@ -81,5 +82,45 @@ describe("buildRows", () => {
         occurrence_count: 3,
       },
     });
+  });
+});
+
+describe("orderRows", () => {
+  it("keeps pull requests first and puts the newest artifact on top", () => {
+    const file = (name: string, uploadedAt: string): ArtifactRow =>
+      ({
+        kind: "file",
+        key: `file:${name}`,
+        artifactId: name,
+        name,
+        runId: "run-1",
+        size: undefined,
+        group: { name, latest: { uploaded_at: uploadedAt }, versions: [] },
+      }) as unknown as ArtifactRow;
+    const rows: ArtifactRow[] = [
+      { kind: "slack", key: "slack-thread", url: "https://example.com" },
+      file("old.html", "2026-08-01T00:00:00Z"),
+      { kind: "pr", key: "pr-old", url: "https://example.com/1", ts: 1 },
+      file("new.png", "2026-08-03T00:00:00Z"),
+      { kind: "pr", key: "pr-new", url: "https://example.com/2", ts: 2 },
+      {
+        kind: "canvas",
+        key: "canvas",
+        name: "Board",
+        url: null,
+        dashboardId: null,
+        ts: Date.parse("2026-08-02T00:00:00Z"),
+      },
+    ];
+
+    const { pullRequests, others } = orderRows(rows);
+
+    expect(pullRequests.map((row) => row.key)).toEqual(["pr-new", "pr-old"]);
+    expect(others.map((row) => row.key)).toEqual([
+      "file:new.png",
+      "canvas",
+      "file:old.html",
+      "slack-thread",
+    ]);
   });
 });

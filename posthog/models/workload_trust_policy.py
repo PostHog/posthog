@@ -90,6 +90,17 @@ def workload_trust_policy_active_cache_key(policy_id: str) -> str:
     return f"workload_trust_policy_active:{policy_id}"
 
 
+# Callable so a new provider in the registry needs no migration.
+def workload_provider_choices() -> dict[str, str]:
+    # The registry imports integration models, which import this module through `posthog.models`.
+    from posthog.workload_identity.providers import get_supported_workload_providers  # noqa: PLC0415
+
+    return {provider.key: provider.name for provider in get_supported_workload_providers()}
+
+
+PROVIDER_MAX_LENGTH = 64
+
+
 class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     """Lets a workload, such as a CI job, exchange its OIDC token for a short-lived project token. Azure
     calls this a federated identity credential, AWS a role trust policy, Google Cloud a workload identity
@@ -105,6 +116,9 @@ class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # No standalone index: the unique constraint below leads on team_id.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False)
     name = models.CharField(max_length=200)
+    # The registry key of the workload provider. The exchange matches it together with the issuer, so a
+    # policy never runs under the rules of a provider it wasn't written for.
+    provider = models.CharField(max_length=PROVIDER_MAX_LENGTH, choices=workload_provider_choices)
     issuer = models.CharField(max_length=255)
     subject_name = models.CharField(max_length=255)
     subject = models.CharField(max_length=255)
@@ -126,6 +140,7 @@ class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 fields=["team", "issuer", "subject", "conditions"],
                 name="posthog_unique_workload_trust_policy_conditions",
             ),
+            models.CheckConstraint(condition=~models.Q(provider=""), name="posthog_workload_policy_provider_set"),
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
@@ -170,6 +185,7 @@ class WorkloadTrustPolicyRequest(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False)
     name = models.CharField(max_length=200)
+    provider = models.CharField(max_length=PROVIDER_MAX_LENGTH, choices=workload_provider_choices)
     issuer = models.CharField(max_length=255)
     subject_name = models.CharField(max_length=255)
     subject = models.CharField(max_length=255)
@@ -211,6 +227,9 @@ class WorkloadTrustPolicyRequest(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
 
     class Meta:
         indexes = [models.Index(fields=["team", "status", "-created_at"], name="posthog_workload_req_team_idx")]
+        constraints = [
+            models.CheckConstraint(condition=~models.Q(provider=""), name="posthog_workload_request_provider_set"),
+        ]
 
     @property
     def effective_status(self) -> str:

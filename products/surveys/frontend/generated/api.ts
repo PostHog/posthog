@@ -9,12 +9,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivityLogPaginatedResponseApi,
     DesktopFeedbackRequestApi,
     DesktopFeedbackResponseApi,
     GenerateSurveyTranslationsRequestApi,
     GenerateSurveyTranslationsResponseApi,
     PaginatedSurveyListApi,
     PatchedSurveySerializerCreateUpdateOnlySchemaApi,
+    SiteSnapshotApi,
     SurveyApi,
     SurveyGlobalStatsResponseApi,
     SurveyQuestionLabelsResponseApi,
@@ -23,9 +25,11 @@ import type {
     SurveySerializerCreateUpdateOnlySchemaApi,
     SurveyStatsResponseApi,
     SurveySummarizeRequestApi,
+    SurveysActivityRetrieveParams,
     SurveysGlobalStatsRetrieveParams,
     SurveysListParams,
     SurveysResponsesListParams,
+    SurveysSiteSnapshotRetrieveParams,
     SurveysStatsRetrieveParams,
     SurveysSummarizeResponsesCreateParams,
 } from './api.schemas'
@@ -262,8 +266,24 @@ export const surveysDestroy = async (projectId: string, id: string, options?: Re
     })
 }
 
-export const getSurveysActivityRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/surveys/${id}/activity/`
+export const getSurveysActivityRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: SurveysActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/${id}/activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/${id}/activity/`
 }
 
 /**
@@ -273,8 +293,13 @@ export const getSurveysActivityRetrieveUrl = (projectId: string, id: string) => 
  * decorator on serializer methods and converts them into the same responses the viewset path
  * produces (see decorators._result_to_response), so both paths share one contract.
  */
-export const surveysActivityRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysActivityRetrieveUrl(projectId, id), {
+export const surveysActivityRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: SurveysActivityRetrieveParams,
+    options?: RequestInit
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getSurveysActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -438,6 +463,42 @@ export const surveysResponsesUnarchiveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
+    })
+}
+
+export const getSurveysSiteSnapshotRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: SurveysSiteSnapshotRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/${id}/site_snapshot/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/${id}/site_snapshot/`
+}
+
+/**
+ * Get an image of the customer's own site for the survey preview. The image is a frame from a recent session recording of a page that matches the survey's URL condition. The first call starts rendering it, so poll until the status is `ready` or `unavailable`.
+ * @summary Get a site snapshot for the draft preview
+ */
+export const surveysSiteSnapshotRetrieve = async (
+    projectId: string,
+    id: string,
+    params: SurveysSiteSnapshotRetrieveParams,
+    options?: RequestInit
+): Promise<SiteSnapshotApi> => {
+    return apiMutator<SiteSnapshotApi>(getSurveysSiteSnapshotRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

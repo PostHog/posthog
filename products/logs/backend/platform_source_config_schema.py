@@ -13,13 +13,15 @@ from products.alerts_platform.backend.facade.contracts import (
     MAX_STORED_INTEGER,
     GroupingMode,
     InvalidPlatformAlertEdit,
+    NativeAlertLifecycle,
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
 )
-from products.logs.backend.alert_deletion import delete_platform_owned
+from products.logs.backend.alert_deletion import delete_platform_owned, remove_alert_destinations
 from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.alert_source_cycle import EVENT_IDS_BY_INCIDENT_ACTION
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import CHECK_INTERVAL_MINUTES, LogsAlertConfiguration
+from products.logs.backend.platform_cutover import creates_native_alert
 from products.logs.backend.platform_ownership import admit_platform_write, create_platform_owned, mirror_platform_edit
 from products.logs.backend.platform_source_config import WindowMinutes, has_any_filter, logs_alert_url
 
@@ -72,6 +74,12 @@ LOGS_SOURCE_CONFIG = SourceConfigSpec(
     mirror=mirror_platform_edit,
     create=create_platform_owned,
     delete=delete_platform_owned,
+    # For a logs alert with no logs row. `admit_platform_write` holds the cap, so the platform keeps none,
+    # and the destinations stay HogFunctions, which the logs API and Terraform manage.
+    native=NativeAlertLifecycle(
+        check_interval_minutes=CHECK_INTERVAL_MINUTES, remove_destinations=remove_alert_destinations
+    ),
+    native_create=creates_native_alert,
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
     alert_url=logs_alert_url,
 )

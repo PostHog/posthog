@@ -49,6 +49,27 @@ describe('navPanelProductPushLogic', () => {
         )
     })
 
+    it('is resolved only once the campaign request answers', async () => {
+        let answer: (campaign: ProductPushCampaignApi | undefined) => void = () => {}
+        jest.spyOn(growthApi, 'productPushCampaignActiveRetrieve').mockReturnValue(
+            new Promise((resolve) => {
+                answer = resolve
+            }) as any
+        )
+
+        logic = navPanelProductPushLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadActiveCampaign'])
+        expect(logic.values).toMatchObject({ activeCampaign: null, activeCampaignResolved: false })
+
+        answer(undefined)
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadActiveCampaignSuccess'])
+            .toMatchValues({ activeCampaign: null, activeCampaignResolved: true })
+    })
+
     it.each([
         ['a 204 no-content response', () => Promise.resolve(undefined)],
         ['a request failure', () => Promise.reject(new Error('boom'))],

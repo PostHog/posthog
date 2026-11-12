@@ -383,7 +383,7 @@ Once the report is delivered, ask the user whether they want the findings fixed.
 - Report back which findings were fixed, which tests pass, and anything that needs follow-up.
 
 Do not start fixing without explicit approval — the user may want to triage or file tickets first.
-Route each approved fix and its reproducer test to `PostHog/posthog` by default. Fix a weakness introduced only by an open public PR in that PR. Use `PostHog/posthog-private` only for a critical or high finding that team-security agrees needs an embargo; medium and low findings always go public with a neutral description. See [Routing security fixes](../../security.md#routing-security-fixes).
+Route each approved fix and its reproducer test to `PostHog/posthog` by default. Fix a weakness introduced only by an open public PR in that PR. Use `PostHog/posthog-private` only for a critical or high finding that meets the severe bar in [Routing security fixes](../../security.md#routing-security-fixes) and that team-security agrees needs an embargo. Medium and low findings always go public with a neutral description. A fix that only upgrades a dependency to a release with a public upstream fix also goes public, as a plain version bump. When you are unsure, follow the unsure path in that section instead of choosing a repo yourself.
 
 ## Re-review mode
 

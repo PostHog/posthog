@@ -64,6 +64,7 @@ const searchCertifications = createFuseSearch<DataCatalogCertificationApi>(['tar
 export interface certificationsLogicValues {
     actionsInFlight: Record<string, boolean>
     certifications: DataCatalogCertificationApi[]
+    certificationsLoadFailed: boolean
     certificationsLoading: boolean
     filteredCertifications: DataCatalogCertificationApi[]
     filters: CertificationsFilters
@@ -198,6 +199,13 @@ export const certificationsLogic = kea<certificationsLogicType>([
         ],
     })),
     reducers({
+        certificationsLoadFailed: [
+            false,
+            {
+                loadCertificationsFailure: () => true,
+                loadCertificationsSuccess: () => false,
+            },
+        ],
         filters: [
             DEFAULT_CERTIFICATIONS_FILTERS as CertificationsFilters,
             {

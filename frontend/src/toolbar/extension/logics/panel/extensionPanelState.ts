@@ -2,7 +2,7 @@ import { checkUrlIsAuthorized } from 'lib/components/AuthorizedUrlList/authorize
 
 import type { ToolbarEntitlementsApiEntitlements, UserApi } from '~/generated/core/api.schemas'
 
-export type UnsupportedPageReason = 'browser-page' | 'insecure-page' | 'posthog-app' | 'extension-store'
+export type UnsupportedPageReason = 'browser-page' | 'insecure-page' | 'extension-store'
 
 export type SessionUserResult = { status: 'signed-in'; user: UserApi } | { status: 'signed-out' } | { status: 'error' }
 
@@ -19,6 +19,8 @@ export type ExtensionPanelState =
     | { kind: 'signed-out' }
     | { kind: 'no-toolbar-access' }
     | { kind: 'unauthorized-url'; origin: string }
+    /** The PostHog app itself, when the project doesn't list it as an authorized URL. */
+    | { kind: 'posthog-app' }
     | { kind: 'error' }
     | { kind: 'ready'; origin: string }
 
@@ -41,7 +43,7 @@ const EXTENSION_STORE_HOSTNAMES = new Set(['chromewebstore.google.com', 'chrome.
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]'])
 
 /** Mirrors the toolbar OAuth rules: http(s) only, and plain http only on loopback hosts. */
-function unsupportedPageReason(tabUrl: string | null, uiHost: string): UnsupportedPageReason | null {
+function unsupportedPageReason(tabUrl: string | null): UnsupportedPageReason | null {
     if (!tabUrl) {
         return 'browser-page'
     }
@@ -60,9 +62,6 @@ function unsupportedPageReason(tabUrl: string | null, uiHost: string): Unsupport
     if (EXTENSION_STORE_HOSTNAMES.has(parsed.hostname)) {
         return 'extension-store'
     }
-    if (parsed.origin === uiHost) {
-        return 'posthog-app'
-    }
     return null
 }
 
@@ -70,7 +69,7 @@ export function getExtensionPanelState(inputs: ExtensionPanelInputs): ExtensionP
     if (inputs.tabUrl === undefined) {
         return { kind: 'checking' }
     }
-    const reason = unsupportedPageReason(inputs.tabUrl, inputs.uiHost)
+    const reason = unsupportedPageReason(inputs.tabUrl)
     if (reason || !inputs.tabUrl) {
         return { kind: 'unsupported-page', reason: reason ?? 'browser-page' }
     }
@@ -113,7 +112,26 @@ export function getExtensionPanelState(inputs: ExtensionPanelInputs): ExtensionP
         return { kind: 'error' }
     }
     if (!checkUrlIsAuthorized(inputs.tabUrl, inputs.authorizedUrls)) {
-        return { kind: 'unauthorized-url', origin }
+        // Only a website the user owns belongs in the list, so the PostHog app never asks to be added to it.
+        return origin === inputs.uiHost ? { kind: 'posthog-app' } : { kind: 'unauthorized-url', origin }
     }
     return { kind: 'ready', origin }
+}
+
+/** The authorized URLs a link can open. A wildcard entry names many sites, so it has no single page to open. */
+export function openableAuthorizedUrls(authorizedUrls: string[] | 'error' | null): string[] {
+    if (!Array.isArray(authorizedUrls)) {
+        return []
+    }
+    const urls = authorizedUrls.filter((url) => !url.includes('*') && isAbsoluteUrl(url))
+    return [...new Set(urls)]
+}
+
+function isAbsoluteUrl(url: string): boolean {
+    try {
+        new URL(url)
+        return true
+    } catch {
+        return false
+    }
 }

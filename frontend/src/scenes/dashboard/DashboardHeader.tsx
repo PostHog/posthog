@@ -11,11 +11,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardMode } from '~/types'
 
-import {
-    EditModeActions,
-    FullscreenModeActions,
-    ViewModeActions,
-} from 'products/dashboards/frontend/DashboardHeaderActions'
+import { DashboardActions, FullscreenModeActions } from 'products/dashboards/frontend/DashboardHeaderActions'
 import { DashboardModals } from 'products/dashboards/frontend/DashboardModals'
 import { DashboardSceneMenuBar } from 'products/dashboards/frontend/DashboardSceneMenuBar'
 import { DashboardScenePanel } from 'products/dashboards/frontend/DashboardScenePanel'
@@ -66,13 +62,12 @@ export function DashboardHeader({
 
     let actions: JSX.Element | undefined
     if (dashboard) {
-        if (dashboardEditing) {
-            actions = <EditModeActions />
-        } else if (dashboardMode === DashboardMode.Fullscreen) {
-            actions = <FullscreenModeActions />
-        } else {
-            actions = <ViewModeActions />
-        }
+        actions =
+            dashboardMode === DashboardMode.Fullscreen && !dashboardEditing ? (
+                <FullscreenModeActions />
+            ) : (
+                <DashboardActions />
+            )
     }
 
     return (

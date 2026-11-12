@@ -12,7 +12,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -70,6 +72,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
     discover_canonical_skills,
 )
+from products.signals.backend.scout_harness.lifecycle_lock import user_holds_scout_lifecycle_claims
 from products.signals.backend.scout_harness.limits import (
     MAX_ENABLED_SCOUTS_PER_TEAM,
     MAX_RUN_NOTE_CHARS,
@@ -1932,6 +1935,44 @@ class TestScoutHarnessConfigLifecycleLockAPI(APIBaseTest):
     def _become_admin(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+    def test_batch_lifecycle_claims_preserve_ownership_without_per_scout_queries(self) -> None:
+        other = self._other_member()
+        configs = []
+        for index in range(20):
+            name = f"signals-scout-batch-{index}"
+            source = index % 4
+            config = SignalScoutConfig.objects.create(
+                team=self.team,
+                skill_name=name,
+                lifecycle_locked=True,
+                created_by=self.user if source == 3 else other,
+                enabled_by=self.user if source == 2 else None,
+            )
+            configs.append(config)
+            if source != 3:
+                LLMSkill.objects.create(
+                    team=self.team,
+                    name=name,
+                    description="",
+                    body="",
+                    created_by=None if source == 2 else self.user,
+                    deleted=source == 1,
+                )
+            if source in (1, 2):
+                previous = LLMSkill.objects.create(
+                    team=self.team, name=name, description="", body="", created_by=other, deleted=True
+                )
+                LLMSkill.objects.filter(pk=previous.pk).update(updated_at=timezone.now() - timedelta(days=1))
+
+        with CaptureQueriesContext(connection) as queries:
+            assert user_holds_scout_lifecycle_claims(team=self.team, configs=configs, user=self.user)
+        assert len(queries) < 20
+
+        configs[-1].created_by_id = other.pk
+        assert not user_holds_scout_lifecycle_claims(team=self.team, configs=configs, user=self.user)
+        self._become_admin()
+        assert user_holds_scout_lifecycle_claims(team=self.team, configs=configs, user=self.user)
 
     @parameterized.expand(
         [
@@ -4817,6 +4858,39 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.enabled is True
         assert config.run_interval_minutes == 120
         assert config.enabled_by_id == self.user.id
+
+    @parameterized.expand(
+        [
+            ("upsert_unattributed", "upsert", False, False, "caller"),
+            ("upsert_attributed", "upsert", True, False, "other"),
+            ("upsert_locked", "upsert", False, True, None),
+            ("partial_update_unattributed", "partial_update", False, False, "caller"),
+            ("partial_update_attributed", "partial_update", True, False, "other"),
+            ("partial_update_locked", "partial_update", False, True, None),
+        ]
+    )
+    def test_enabling_an_already_enabled_scout_records_enabled_by_only_when_unset(
+        self, _name: str, path: str, attributed: bool, locked: bool, expected: str | None
+    ) -> None:
+        self._make_skill("signals-scout-fresh")
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-fresh",
+            enabled_by=other if attributed else None,
+            lifecycle_locked=locked,
+        )
+
+        if path == "upsert":
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-fresh", "enabled": True}, format="json"
+            )
+        else:
+            response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.enabled_by_id == {"caller": self.user.id, "other": other.id, None: None}[expected]
 
     def test_create_upsert_leaves_omitted_fields_untouched(self) -> None:
         self._make_skill("signals-scout-fresh")

@@ -57,7 +57,7 @@ class TestSimFinSource:
         inputs.api_version = None
         inputs.logger = MagicMock()
         with patch(f"{MODULE}.simfin_source") as source_fn:
-            SimFinSource().source_for_pipeline(_make_config("abc", "aapl, msft"), inputs)
+            SimFinSource().source_for_pipeline(_make_config("abc", "aapl, msft"), MagicMock(), inputs)
         source_fn.assert_called_once()
         kwargs = source_fn.call_args.kwargs
         assert kwargs["api_key"] == "abc"
@@ -75,5 +75,5 @@ class TestSimFinSource:
         oversized = _make_config("abc", ",".join(f"T{i}" for i in range(101)))
         with patch(f"{MODULE}.simfin_source") as source_fn:
             with pytest.raises(ValueError, match="Too many tickers"):
-                SimFinSource().source_for_pipeline(oversized, inputs)
+                SimFinSource().source_for_pipeline(oversized, MagicMock(), inputs)
         source_fn.assert_not_called()

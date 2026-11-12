@@ -2,6 +2,7 @@ from datetime import timedelta
 
 import temporalio.workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -20,8 +21,16 @@ class WarehouseSourcesQueuePartitionManagementWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: PartitionManagementInput) -> dict:
-        return await temporalio.workflow.execute_activity(
+        result = await temporalio.workflow.execute_activity(
             manage_warehouse_sources_queue_partitions,
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        if not result["success"]:
+            # Non-retryable: the activity already posted any Slack alert, so a schedule retry would post it again.
+            raise ApplicationError(
+                f"Partition management finished with {len(result['errors'])} error(s)",
+                result["errors"],
+                non_retryable=True,
+            )
+        return result

@@ -246,6 +246,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # instead of naming the source type.
     supports_xmin: bool = False
 
+    # `False` for sources whose incremental sync can replace rows by origin (a file) instead of merging
+    # them on a key. A history table orders each key's versions, so the API offers it only where this
+    # stays `True`.
+    supports_incremental_history: bool = True
+
     # Direct-only connectors opt out so API clients cannot create a source that is accepted by
     # discovery but can never run a scheduled import.
     supports_scheduled_sync: bool = True
@@ -618,6 +623,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def has_legacy_oauth_tokens(self, job_inputs: Mapping[str, Any]) -> bool:
         """Check for legacy OAuth tokens without network calls."""
         return False
+
+    def legacy_oauth_keys(self) -> tuple[str, ...]:
+        return ()
 
     def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
         """Prepare a grant for storage. This method can make network calls and raise LegacyOAuthGrantUnusable.

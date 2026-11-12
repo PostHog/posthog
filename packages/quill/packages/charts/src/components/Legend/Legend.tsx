@@ -26,6 +26,8 @@ export interface LegendItem {
     color: string
     /** Optional trailing text shown muted after the label — e.g. a slope chart's per-series change. */
     secondaryLabel?: string
+    /** Extra classes for the color swatch, for example a dashed outline. */
+    swatchClassName?: string
     /** Per-series summaries for a value-column legend, `null` when the series has no finite value. */
     values?: Partial<Record<LegendValue, number | null>>
 }
@@ -119,7 +121,7 @@ export function Legend({
                     <>
                         <span
                             aria-hidden="true"
-                            className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
+                            className={`inline-block w-2.5 h-2.5 rounded-sm shrink-0 ${item.swatchClassName ?? ''}`}
                             style={{ backgroundColor: item.color }}
                         />
                         <span className="truncate min-w-0" title={item.label} data-attr="hog-chart-legend-label">

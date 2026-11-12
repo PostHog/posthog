@@ -10,6 +10,7 @@ import math
 from copy import deepcopy
 from typing import Annotated, Any, TypeGuard
 
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
@@ -61,8 +62,12 @@ from products.experiments.backend.facade.contracts import (
     HealthExposureInputsStatus,
     RunningTimeMode,
 )
+from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
-from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    EXPERIMENT_EXPOSURE_EVENT,
+    resolve_default_exposure_event,
+)
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
@@ -71,6 +76,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentHoldout,
     ExperimentMetricsRecalculation,
     experiment_has_legacy_metrics,
+    get_experiment_rule,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.experiments.backend.session_buckets import (
@@ -97,6 +103,8 @@ from products.experiments.backend.setup_context import (
     SetupContextSectionStatus,
 )
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -360,6 +368,64 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
     )
 
 
+class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
+    rollout_percentage = serializers.FloatField(
+        help_text="The share of the users matching the condition set's filters who get the flag, from 0 to 100.",
+    )
+    property_count = serializers.IntegerField(
+        help_text="The number of filters a user must match, such as properties and cohorts. 0 matches all users.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when "
+            "it assigns them by user."
+        ),
+    )
+
+
+class ExperimentHealthSetupSerializer(serializers.Serializer):
+    release_conditions = ExperimentHealthReleaseConditionSerializer(
+        many=True,
+        help_text=(
+            "The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a "
+            "request depends on the sets before it and on `early_exit`."
+        ),
+    )
+    early_exit = serializers.BooleanField(
+        help_text=(
+            "Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the "
+            "user out. Otherwise such a user goes on to the next set."
+        ),
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        help_text="The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The flag's own group type, which the exposure counts and the results use. A condition set can override "
+            "it. Null for users."
+        ),
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        help_text="The flag's `evaluation_runtime`. Null on the flag reads as all.",
+    )
+    evaluation_contexts = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The names of the flag's evaluation contexts. When PostHog evaluates the flag, an SDK that sends evaluation "
+            "contexts gets it only when it sends one of these, and an SDK that sends none gets it. Empty when the flag "
+            "has none."
+        ),
+    )
+    ensure_experience_continuity = serializers.BooleanField(
+        help_text="The flag's 'Persist flag across authentication steps' setting.",
+    )
+
+
 class ExperimentHealthSerializer(serializers.Serializer):
     findings = ExperimentHealthFindingSerializer(
         many=True,
@@ -373,6 +439,14 @@ class ExperimentHealthSerializer(serializers.Serializer):
         help_text=(
             "The result of each health check, in the order the checks run. The checks that read the exposure "
             "counts are not here: the exposure query returns them as `health_checks`."
+        ),
+    )
+    setup = ExperimentHealthSetupSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The settings of the experiment's flag that decide which variant a user gets. Null when the experiment "
+            "has no flag."
         ),
     )
 
@@ -512,8 +586,41 @@ class ExperimentBaseSerializer(
 
     def to_representation(self, instance: Experiment) -> dict[str, Any]:
         data = super().to_representation(instance)
-        self._project_feature_flag_config(data, instance.feature_flag)
+        if instance.is_rule_linked:
+            self._project_rule_config(data, instance)
+        else:
+            self._project_feature_flag_config(data, instance.feature_flag)
         return data
+
+    @staticmethod
+    def _project_rule_config(data: dict[str, Any], experiment: Experiment) -> None:
+        """The `parameters` projection of a rule-linked experiment, in the same keys as
+        `_project_feature_flag_config`, so a client reads the variants and the rollout of the rule the
+        way it reads them from a flag.
+
+        A rule that cannot be read, such as one a draft's flag no longer has, projects no variants:
+        the read must still return the experiment.
+        """
+        stored = data.get("parameters")
+        parameters = dict(stored) if isinstance(stored, dict) else {}
+        for key in ("aggregation_group_type_index", "rollout_percentage", "feature_flag_payloads"):
+            parameters.pop(key, None)
+        try:
+            rule = get_experiment_rule(experiment)
+        except (ExperimentRuleError, ConfigFormatError):
+            parameters["feature_flag_variants"] = []
+        else:
+            parameters["feature_flag_variants"] = _with_split_percent(rule.variants)
+            if rule.assign_variant_by is not None:
+                parameters["aggregation_group_type_index"] = rule.assign_variant_by
+            if rule.rollout_percentage is not None:
+                parameters["rollout_percentage"] = rule.rollout_percentage
+        flag = experiment.feature_flag
+        if flag.ensure_experience_continuity is not None:
+            parameters["ensure_experience_continuity"] = flag.ensure_experience_continuity
+        else:
+            parameters.pop("ensure_experience_continuity", None)
+        data["parameters"] = parameters
 
     @staticmethod
     def _project_feature_flag_config(data: dict[str, Any], flag: FeatureFlag | None) -> None:
@@ -655,7 +762,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: "
             "'mean' (set source to an EventsNode with an event name), "
             "'funnel' (set series to an array of EventsNode steps), "
-            "'ratio' (set numerator and denominator EventsNode entries), or "
+            "'ratio' (set numerator and denominator EventsNode entries), "
+            "'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric "
+            "property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or "
             "'retention' (set start_event and completion_event; pass start_event "
             '{"kind": "ExperimentExposureNode"} to start retention from the experiment\'s exposure event). '
             "Use the read-data-schema tool with query kind 'events' to find available events in the project."
@@ -733,6 +842,17 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         ),
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    feature_flag_rule_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The experiment rule that this experiment runs on, when its feature flag has rules. Null for "
+            "every other experiment. Set it only on create, together with the feature_flag_key of an "
+            "existing flag with rules. When that flag has one experiment rule, it can be left out. The "
+            "experiment then counts exposures on the $experiment_exposure events of this rule, and "
+            "never changes the flag."
+        ),
+    )
     flag_cleanup_task_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
@@ -765,6 +885,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "end_date",
             "feature_flag_key",
             "feature_flag",
+            "feature_flag_rule_id",
             "holdout",
             "holdout_id",
             "exposure_cohort",
@@ -837,6 +958,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     @extend_schema_field(serializers.CharField())
     def get_resolved_exposure_event(self, obj: Experiment) -> str:
+        # A rule-linked experiment counts the $experiment_exposure events of its rule, whatever the rollout says.
+        if obj.is_rule_linked:
+            return EXPERIMENT_EXPOSURE_EVENT
         # A draft has no start_date yet, so resolve against now: that's the event it would get if
         # launched today, which is what the setup UI needs to show.
         return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
@@ -1012,11 +1136,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         if not present:
             return None
 
-        flag = self.instance.feature_flag if self.instance is not None else None
+        instance = self.instance
+        flag = instance.feature_flag if instance is not None else None
         projected: dict[str, Any] = {}
-        if flag is not None:
+        if instance is not None and flag is not None:
             projection: dict[str, Any] = {}
-            self._project_feature_flag_config(projection, flag)
+            if instance.is_rule_linked:
+                self._project_rule_config(projection, instance)
+            else:
+                self._project_feature_flag_config(projection, flag)
             projected = projection.get("parameters") or {}
 
         changed = {
@@ -1113,6 +1241,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             create_in_folder=self.validated_data.get("_create_in_folder"),
             allow_unknown_events=self.validated_data.get("allow_unknown_events", False),
             serializer_context=self.context,
+            feature_flag_rule_id=self.validated_data.get("feature_flag_rule_id"),
         )
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
@@ -1159,6 +1288,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "scheduling_config",
             "_create_in_folder",
             "allow_unknown_events",
+            "feature_flag_rule_id",
         }
         unexpected = set(validated_data.keys()) - expected_fields
         if unexpected:
@@ -1187,6 +1317,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         allow_unknown_events = validated_data.pop("allow_unknown_events", False)
         feature_flag_config = validated_data.pop("feature_flag", None)
         tags = validated_data.pop("tags", None)
+        # The rule is chosen on create. A client that sends back what it read changes nothing.
+        if "feature_flag_rule_id" in validated_data:
+            if validated_data.pop("feature_flag_rule_id") != instance.feature_flag_rule_id:
+                raise ValidationError("feature_flag_rule_id cannot change after the experiment is created.")
         team = Team.objects.get(id=self.context["team_id"])
         service = ExperimentService(team=team, user=self.context["request"].user)
         updated_instance = service.update_experiment(
@@ -1653,6 +1787,12 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
 class MetricRecalculationResultSerializer(serializers.Serializer):
     """One metric's recalculated result row, read back from ExperimentMetricResult."""
 
+    configuration_status = serializers.ChoiceField(
+        choices=ExperimentResultConfigurationStatus.choices,
+        read_only=True,
+        help_text="Whether this result uses current settings, earlier settings, or settings that were not recorded.",
+    )
+
     metric_uuid = serializers.CharField(read_only=True, help_text="UUID of the metric this result belongs to")
     status = serializers.ChoiceField(
         choices=["pending", "completed", "failed"],
@@ -1669,6 +1809,63 @@ class MetricRecalculationResultSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         read_only=True, allow_null=True, help_text="Error message when status is failed; otherwise null"
     )
+
+
+class ExperimentTimeseriesResultsStatus(models.TextChoices):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
+class ExperimentTimeseriesResultsSerializer(serializers.Serializer):
+    """Day-by-day results of one metric under the experiment's current settings."""
+
+    experiment_id = serializers.IntegerField(help_text="Experiment id.")
+    metric_uuid = serializers.CharField(help_text="UUID of the metric the series belongs to.")
+    status = serializers.ChoiceField(
+        choices=ExperimentTimeseriesResultsStatus.choices,
+        help_text=(
+            "'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result "
+            "and some failed, 'pending' when no day was calculated yet."
+        ),
+    )
+    timeseries = serializers.DictField(
+        child=serializers.JSONField(allow_null=True),
+        help_text=(
+            "Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start "
+            "date to the end date or today. Null for a day without a completed result."
+        ),
+    )
+    configuration_by_day = serializers.DictField(
+        child=serializers.ChoiceField(choices=ExperimentResultConfigurationStatus.choices),
+        help_text="Configuration provenance for each stored day: current, previous, or unknown.",
+    )
+    computed_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the most recent day's result was computed, or null."
+    )
+    created_at = serializers.DateTimeField(help_text="When the oldest stored day was written.")
+    updated_at = serializers.DateTimeField(help_text="When the newest stored day was last written.")
+    recalculation_status = serializers.CharField(
+        allow_null=True,
+        help_text="'pending' or 'in_progress' while a backfill of this series runs, otherwise null.",
+    )
+    recalculation_created_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the running backfill was requested, or null."
+    )
+    formatted_results = serializers.CharField(
+        help_text="The series as a compact text table, one row per day, for language model consumers."
+    )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        # A declared `errors` attribute would shadow `Serializer.errors`.
+        fields = super().get_fields()
+        fields["errors"] = serializers.DictField(
+            child=serializers.CharField(),
+            allow_null=True,
+            help_text="Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.",
+        )
+        return fields
 
 
 class RecalculateMetricsRequestSerializer(serializers.Serializer):
@@ -1713,13 +1910,14 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     total_metrics = serializers.IntegerField(read_only=True, help_text="Total number of metrics to recalculate")
     completed_metrics = serializers.IntegerField(
         read_only=True,
-        help_text="Number of metrics with a COMPLETED result row in this run (derived, not stored)",
+        help_text="Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored)",
     )
     failed_metrics = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures "
-            "that never made it to a result row"
+            "Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors "
+            "entry. A metric that fails keeps its earlier completed result, so it can count here and still have a "
+            "completed row in results. The error of a rejected run counts only for a metric without a row"
         ),
     )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
@@ -1771,7 +1969,10 @@ class ExperimentMetricsRecalculationRunSerializer(_ExperimentMetricsRecalculatio
         many=True,
         read_only=True,
         required=False,
-        help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
+        help_text=(
+            "Per-metric results of this run, scoped by the run's recalc fingerprint. When a metric fails, its earlier "
+            "completed result at the same window stays here and the failure is in metric_errors"
+        ),
     )
     rows_read = serializers.IntegerField(
         required=False,
@@ -1809,6 +2010,14 @@ class ExperimentMetricsRecalculationLatestSerializer(ExperimentMetricsRecalculat
         help_text=(
             "Where these results came from: 'recalculation' for a real metrics-recalculation run, "
             "'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data."
+        ),
+    )
+    exceeds_recalculation_age_limit = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when the experiment started too long ago for its metrics to be recalculated. A recalculation "
+            "request then returns a rejected run with the recalculation_window_too_long error, and the saved "
+            "results stay as they are"
         ),
     )
 
@@ -3028,7 +3237,9 @@ class ExperimentSetupCandidateMetricSerializer(serializers.Serializer):
 
 class ExperimentSetupOutcomeSerializer(serializers.Serializer):
     metric_type = serializers.CharField(
-        help_text="metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio' or 'retention'."
+        help_text=(
+            "metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio', 'retention' or 'quantile'."
+        )
     )
     metric_samples = serializers.IntegerField(
         allow_null=True,
@@ -3160,7 +3371,9 @@ class ExperimentSetupPreviousExperimentSerializer(serializers.Serializer):
     shared_metric_count = serializers.IntegerField(help_text="Shared metrics attached to the experiment.")
     primary_metric_types = serializers.ListField(
         child=serializers.CharField(),
-        help_text="metric_type of each primary metric, for example 'mean', 'funnel', 'ratio' or 'retention'.",
+        help_text=(
+            "metric_type of each primary metric, for example 'mean', 'funnel', 'ratio', 'retention' or 'quantile'."
+        ),
     )
     primary_metric_events = serializers.ListField(
         child=serializers.CharField(), help_text="Event names the primary metrics count."
@@ -3237,7 +3450,8 @@ class ExperimentSetupSharedMetricSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="Shared metric id, to attach it instead of creating an inline metric.")
     name = serializers.CharField(help_text="Shared metric name.")
     metric_type = serializers.CharField(
-        allow_null=True, help_text="'mean', 'funnel', 'ratio' or 'retention', or null for older metrics."
+        allow_null=True,
+        help_text="'mean', 'funnel', 'ratio', 'retention' or 'quantile', or null for older metrics.",
     )
     events = serializers.ListField(child=serializers.CharField(), help_text="Event names the metric counts.")
     action_ids = serializers.ListField(child=serializers.IntegerField(), help_text="Actions the metric counts.")
@@ -3258,7 +3472,7 @@ class ExperimentSetupSharedMetricSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Where metric_event sits in the metric: 'funnel_step' and 'funnel_final_step' for a funnel, "
-            "'mean_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or "
+            "'mean_source', 'quantile_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or "
             "'retention_completion'. A metric that only starts from the event is a different precedent from one "
             "that converts on it. Empty when the metric does not count it, and null when no metric_event was "
             "passed."
@@ -3423,7 +3637,8 @@ class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', "
-            "'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were."
+            "'exposure_filters', 'exposure_action', 'exposure_criteria', 'too_many_saves' or "
+            "'too_many_conditions'. Null when they were."
         ),
     )
     start_date = serializers.DateTimeField(

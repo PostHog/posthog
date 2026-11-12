@@ -219,6 +219,8 @@ describe('inboxAnalytics', () => {
                 listSize: 1,
                 section: 'needs-decision',
                 rankerId: 'priority',
+                personalTier: null,
+                personalReasonShown: false,
             })
             captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
             return [

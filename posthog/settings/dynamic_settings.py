@@ -363,7 +363,8 @@ CONSTANCE_CONFIG = {
         "feature flag Usage tab, the per-project counts on a flag's Projects tab, and event lists filtered to only "
         "$feature_flag_called. Use it when the flag_evaluations table stops receiving rows. Organizations on mode 2 "
         "keep reading flag_evaluations, because ingestion writes no flag calls to events for their teams in the "
-        "ingestion allowlist. "
+        "ingestion allowlist. A project that reads the native JSON events table keeps reading flag_evaluations "
+        "whatever the mode, because that table holds no flag calls. "
         "Stored modes and the flag_evaluations SQL table stay as they are, so turning it off restores every "
         "organization. Takes up to a minute to apply. Pages that are already open need a reload to update the Usage "
         "tab charts and the 90-day notes.",

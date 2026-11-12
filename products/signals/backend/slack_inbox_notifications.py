@@ -57,7 +57,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
 )
-from products.signals.backend.report_urls import ReportLinkAction, ReportLinkSource, build_report_url
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_formatting import (
     first_sentence as _first_sentence,
@@ -71,7 +71,7 @@ from products.signals.backend.slack_notification_targets import is_slack_member_
 from products.signals.backend.slack_report_threads import record_report_slack_thread
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.typed_report_links import incoming_links
-from products.slack_app.backend.facade.api import slack_followup_invite
+from products.slack_app.backend.facade.api import slack_followup_invite, slack_report_implementation_button
 from products.tasks.backend.facade import api as tasks_facade
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
@@ -280,31 +280,56 @@ def resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
     return set(report.team.all_users_with_access().filter(id__in=user_ids).values_list("id", flat=True))
 
 
-def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, SignalUserAutonomyConfig]:
+@frozen
+class _OwnTarget:
+    integration: IntegrationRecord
+    channel: str
+    min_priority: str | None
+
+
+def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, _OwnTarget]:
     """Per-user configs that name an own Slack target on this team's integration.
 
     The target is a channel or the reviewer's own Slack account. A reviewer absent from this map
     has no own target and falls back to the team default.
     """
-    configs = (
-        SignalUserAutonomyConfig.objects.filter(user_id__in=user_ids)
-        .filter(slack_notification_integration__team_id=team_id)
+    configs = list(
+        SignalUserAutonomyConfig.objects.filter(user_id__in=user_ids, slack_notification_integration_id__isnull=False)
         .exclude(slack_notification_channel__isnull=True)
         .exclude(slack_notification_channel="")
-        .select_related("slack_notification_integration")
     )
-    return {config.user_id: config for config in configs}
+    integrations = IntegrationManager.slack.any.get_many(
+        team_id,
+        {config.slack_notification_integration_id for config in configs if config.slack_notification_integration_id},
+    )
+    return {
+        config.user_id: _OwnTarget(
+            integration=integrations[config.slack_notification_integration_id],
+            channel=config.slack_notification_channel or "",
+            min_priority=config.slack_notification_min_priority,
+        )
+        for config in configs
+        if config.slack_notification_integration_id in integrations
+    }
 
 
-def _team_notification_target(team_id: int) -> tuple[IntegrationRecord, str] | None:
+def _team_notification_target(team_id: int, *, priority: str | None) -> tuple[IntegrationRecord, str] | None:
     """The team-default channel and the Slack workspace that owns it."""
     config = (
         SignalTeamConfig.objects.filter(team_id=team_id)
-        .only("default_slack_notification_channel", "default_slack_notification_integration_id")
+        .only(
+            "default_slack_notification_channel",
+            "default_slack_notification_integration_id",
+            "default_slack_notification_min_priority",
+        )
         .first()
     )
     channel = ((config.default_slack_notification_channel if config else None) or "").strip()
     if config is None or not channel:
+        return None
+    if config.default_slack_notification_min_priority and not _meets_min_priority(
+        priority, config.default_slack_notification_min_priority
+    ):
         return None
     # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
     slack_rows = IntegrationManager.slack.any
@@ -427,6 +452,7 @@ def _build_message_blocks(
     use_section_blocks: bool = False,
     priority: str | None = None,
     offer_implementation: bool = False,
+    slack_integration_id: int | None = None,
 ) -> tuple[list[dict], str]:
     title_line = _display_title(report.title)
     header_text = (
@@ -474,16 +500,8 @@ def _build_message_blocks(
         )
 
     action_elements: list[dict] = []
-    # A link, not an interactive button: the inbox runs its own access, quota and repository checks.
-    if offer_implementation:
-        action_elements.append(
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Implement", "emoji": True},
-                "style": "primary",
-                "url": build_report_url(report.team_id, report.id, ReportLinkSource.SLACK, ReportLinkAction.IMPLEMENT),
-            }
-        )
+    if offer_implementation and slack_integration_id is not None:
+        action_elements.append(slack_report_implementation_button(slack_integration_id))
     action_elements.append(
         {
             "type": "button",
@@ -550,7 +568,7 @@ class _RouteTable:
 
 def _reviewer_destination(
     *,
-    own_config: SignalUserAutonomyConfig | None,
+    own_config: _OwnTarget | None,
     priority: str | None,
     team_integration: IntegrationRecord | None,
     team_channel: str | None,
@@ -560,10 +578,10 @@ def _reviewer_destination(
     `None` means this reviewer gets no notification at all.
     """
     if own_config is not None:
-        if not _meets_min_priority(priority, own_config.slack_notification_min_priority):
+        if not _meets_min_priority(priority, own_config.min_priority):
             return None
-        integration: IntegrationRecord | None = own_config.slack_notification_integration
-        channel = own_config.slack_notification_channel
+        integration: IntegrationRecord | None = own_config.integration
+        channel = own_config.channel
         is_team_channel = False
     elif team_integration is not None and team_channel:
         integration, channel, is_team_channel = team_integration, team_channel, True
@@ -664,6 +682,7 @@ def _deliver_route_notification(
             use_section_blocks=organization_inbox_slack_section_blocks_enabled(report.team.organization_id),
             priority=priority,
             offer_implementation=offer_implementation,
+            slack_integration_id=route.integration.id,
         )
         # Added here rather than inside the block builder, which stays free of the integration so it
         # can be tested without one. Approval is read now, not assumed from generation time: a
@@ -784,7 +803,7 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
         return 0
 
     priority = _latest_priority(report)
-    team_target = _team_notification_target(team_id)
+    team_target = _team_notification_target(team_id, priority=priority)
     team_integration, team_channel = team_target if team_target is not None else (None, None)
 
     routes = _build_reviewer_routes(
@@ -861,14 +880,12 @@ def _build_added_reviewer_routes(team_id: int, user_ids: set[int], priority: str
         # An unprioritized report still pings a reviewer with no min-priority threshold: the
         # initial path would have delivered it via the team channel, but this path has no
         # fallback, so `_meets_min_priority`'s no-priority-never-notifies rule would lose it.
-        min_priority = config.slack_notification_min_priority
+        min_priority = config.min_priority
         if (priority is not None or min_priority is not None) and not _meets_min_priority(priority, min_priority):
             continue
-        integration = config.slack_notification_integration
-        channel = config.slack_notification_channel
-        if integration is None or not channel:
-            continue
-        table.add(_Destination(integration=integration, channel=channel, is_team_channel=False), user=user)
+        table.add(
+            _Destination(integration=config.integration, channel=config.channel, is_team_channel=False), user=user
+        )
     return table.routes()
 
 

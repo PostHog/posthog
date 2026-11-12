@@ -29,7 +29,7 @@ import { isProdEnv } from './env-utils'
 import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
-import { noteOobDomain } from './oob-domains'
+import { checkOobDomain } from './oob-domains'
 
 const requestConfig = getExternalRequestConfig()
 
@@ -210,8 +210,12 @@ function validateUrl(url: string): URL {
  */
 function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void {
     // Above the early return on purpose: every caller passes `!isProdEnv()`, so a check below it
-    // would never run in a test and would reach production unexercised.
-    noteOobDomain(hostname, 'node_request', fetchAttribution.getStore())
+    // would never run in a test and would reach production unexercised. The check is cloud-only,
+    // so the escape hatch it sits above still holds off cloud.
+    if (checkOobDomain(hostname, 'node_request', fetchAttribution.getStore()) !== null) {
+        unsafeRequestCounter.inc({ reason: 'oob_domain' })
+        throw new SecureRequestError('Hostname is not allowed')
+    }
 
     if (allowUnsafe) {
         return
@@ -857,8 +861,18 @@ export type StreamedResponse = {
      * Reads at most `maxBytes`, then abandons the rest. `overLimit` says the response had more, and
      * `bytes` then contains the first `maxBytes`, so parsers with a bounded-prefix rule can use it.
      */
-    read: (maxBytes: number, retainPrefixOnOverflow?: boolean) => Promise<{ bytes: Buffer; overLimit: boolean }>
+    read: (
+        maxBytes: number,
+        retainPrefixOnOverflow?: boolean,
+        head?: BodyHeadCheck
+    ) => Promise<{ bytes: Buffer; overLimit: boolean; refused?: boolean }>
     discard: () => void
+}
+
+/** `accept` gets the first `bytes` of a body, or all of a shorter one. A body it refuses is abandoned and reads as empty. */
+export interface BodyHeadCheck {
+    bytes: number
+    accept: (head: Buffer) => boolean
 }
 
 function orderedHeaderLines(raw: unknown): Array<{ name: string; value: string }> {
@@ -898,11 +912,15 @@ function flattenHeaderLines(lines: Array<{ name: string; value: string }>): Reco
 async function readCappedBody(
     body: Dispatcher.ResponseData['body'],
     maxBytes: number,
-    retainPrefixOnOverflow: boolean
-): Promise<{ bytes: Buffer; overLimit: boolean }> {
+    retainPrefixOnOverflow: boolean,
+    head?: BodyHeadCheck
+): Promise<{ bytes: Buffer; overLimit: boolean; refused?: boolean }> {
     const chunks: Buffer[] = []
     let total = 0
     let overLimit = false
+    let unchecked = head
+    const refuses = (check: BodyHeadCheck): boolean =>
+        !check.accept(Buffer.concat(chunks, total).subarray(0, check.bytes))
     try {
         for await (const chunk of body) {
             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
@@ -921,9 +939,18 @@ async function readCappedBody(
             }
             chunks.push(buffer)
             total += buffer.length
+            if (unchecked && total >= unchecked.bytes) {
+                if (refuses(unchecked)) {
+                    return { bytes: Buffer.alloc(0), overLimit: false, refused: true }
+                }
+                unchecked = undefined
+            }
         }
     } finally {
         destroyBody(body)
+    }
+    if (unchecked && !overLimit && refuses(unchecked)) {
+        return { bytes: Buffer.alloc(0), overLimit: false, refused: true }
     }
     return { bytes: Buffer.concat(chunks, total), overLimit }
 }
@@ -988,12 +1015,12 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         status: result.statusCode,
         headers,
         headerLines,
-        read: async (maxBytes: number, retainPrefixOnOverflow = true) => {
+        read: async (maxBytes: number, retainPrefixOnOverflow = true, head?: BodyHeadCheck) => {
             if (settled) {
                 return { bytes: Buffer.alloc(0), overLimit: false }
             }
             try {
-                return await readCappedBody(result.body, maxBytes, retainPrefixOnOverflow)
+                return await readCappedBody(result.body, maxBytes, retainPrefixOnOverflow, head)
             } finally {
                 settle()
             }

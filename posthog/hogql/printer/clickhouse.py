@@ -53,7 +53,7 @@ from posthog.hogql.type_system import infer_tuple_access_constant_type, parse_sq
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.events_json import NULL_KEYS_COLUMNS, TEMPORARY_PROPERTIES_COLUMN
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -695,23 +695,17 @@ class ClickHousePrinter(BasePrinter):
             return None
 
         prefix = field_sql.removesuffix(self._print_identifier(resolved_field.name))
-        null_keys_sql = f"{prefix}{self._print_identifier(NULL_KEYS_COLUMNS[resolved_field.name])}"
         if resolved_field.name == "properties":
             temporary_properties_sql = f"{prefix}{self._print_identifier(TEMPORARY_PROPERTIES_COLUMN)}"
-            temporary_null_keys_sql = (
-                f"{prefix}{self._print_identifier(NULL_KEYS_COLUMNS[TEMPORARY_PROPERTIES_COLUMN])}"
-            )
             serialized = event_document_sql(
                 field_sql,
-                null_keys_sql,
                 temporary_properties_sql,
-                temporary_null_keys_sql,
                 self._document_feature_flags_sql(type, field_sql),
             )
         elif resolved_field.name == "person_properties":
-            serialized = person_document_sql(field_sql, null_keys_sql)
+            serialized = person_document_sql(field_sql)
         else:
-            serialized = json_document_sql(field_sql, null_keys_sql)
+            serialized = json_document_sql(field_sql)
         return serialized
 
     def _document_feature_flags_sql(self, type: ast.FieldType, field_sql: str) -> str | None:
@@ -1067,7 +1061,7 @@ class ClickHousePrinter(BasePrinter):
 
         # In ClickHouse `equals(x, NULL)` is always NULL, so `IS [NOT] NULL` must print as a null check even when
         # the shortcut below skips the ifNull wrapping (for example on the $ai_* bloom-filter columns).
-        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq) and not in_join_constraint:
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             null_check = "isNull" if node.op == ast.CompareOperationOp.Eq else "isNotNull"
             if isinstance(node.right, ast.Constant) and node.right.value is None:
                 return f"{null_check}({left})"

@@ -13,8 +13,6 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.telnyx.settings import TELNYX_ENDPOINTS
 
 TELNYX_BASE_URL = "https://api.telnyx.com"
-# Detail Record Search caps `page[size]` at 50 (general list endpoints allow up to 250).
-PAGE_SIZE = 50
 
 
 @dataclasses.dataclass(frozen=False)
@@ -38,10 +36,9 @@ def _format_created_at(value: Any) -> str:
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     endpoint = TELNYX_ENDPOINTS[name]
-    params: dict[str, Any] = {
-        "filter[record_type]": endpoint.record_type,
-        "page[size]": PAGE_SIZE,
-    }
+    params: dict[str, Any] = {"page[size]": endpoint.page_size}
+    if endpoint.record_type is not None:
+        params["filter[record_type]"] = endpoint.record_type
 
     use_incremental = should_use_incremental_field and endpoint.incremental_field is not None
     if use_incremental and endpoint.incremental_field is not None:
@@ -54,12 +51,12 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         # Explicit ascending sort on the same field that's being windowed, so the pipeline's
         # incremental watermark advances in the order rows actually arrive.
         params["sort"] = endpoint.incremental_field
-    else:
+    elif endpoint.full_refresh_sort is not None:
         # Full refresh: an explicit stable sort still prevents page-boundary skips/duplicates
         # if the API's implicit default ordering shifts as rows are inserted mid-sync.
-        params["sort"] = endpoint.partition_key
+        params["sort"] = endpoint.full_refresh_sort
 
-    return {
+    resource: EndpointResource = {
         "name": endpoint.name,
         "table_name": endpoint.table_name,
         "write_disposition": {
@@ -71,11 +68,15 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "endpoint": {
             "data_selector": "data",
             "data_selector_required": True,
-            "path": "/v2/detail_records",
+            "path": endpoint.path,
             "params": params,
         },
         "table_format": "delta",
     }
+    if endpoint.excluded_fields:
+        excluded = endpoint.excluded_fields
+        resource["data_map"] = lambda row: {key: value for key, value in row.items() if key not in excluded}
+    return resource
 
 
 def telnyx_source(

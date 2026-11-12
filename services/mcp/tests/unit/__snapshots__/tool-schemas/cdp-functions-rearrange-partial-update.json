@@ -3,9 +3,11 @@
     "properties": {
         "orders": {
             "additionalProperties": {
+                "maximum": 32767,
+                "minimum": 0,
                 "type": "number"
             },
-            "description": "Map of hog function UUIDs to their new execution_order values.",
+            "description": "Map of hog function UUIDs to their new execution_order values, from 0 to 32767.",
             "propertyNames": {
                 "type": "string"
             },

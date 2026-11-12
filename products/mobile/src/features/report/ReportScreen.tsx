@@ -1,9 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { BlurTargetView } from 'expo-blur'
 import { useIsFocused, useRouter } from 'expo-router'
+import * as WebBrowser from 'expo-web-browser'
 import { type ReactElement, useEffect, useRef, useState } from 'react'
 import { View, type ViewInstance } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
+import { ProjectScopeOverride } from '@/auth/projectScope'
+import { CLOUD_REGIONS } from '@/auth/regions'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
 import { useDataMode } from '@/demo/demoMode'
@@ -57,6 +60,7 @@ import { ReportCharts } from './metrics/ReportCharts'
 import { reportDetailQuery } from './queries'
 import { ReportMeta } from './ReportMeta'
 import { apiErrorKind, type ReportOpenSource, type SheetEntry, useSheetFunnel } from './reportAnalytics'
+import { followLinkProject, type ReportLink, useReportLinkScope } from './reportLinkScope'
 import { TextLinkRow } from './TextLinkRow'
 import { HEADLINE_GAP, TopChrome } from './TopChrome'
 import { useReportReadTracking } from './useReportReadTracking'
@@ -67,7 +71,10 @@ type Overlay = 'none' | Sheet
 interface ReportScreenProps {
     reportId: string
     from: ReportOpenSource
+    link?: ReportLink
 }
+
+const NO_LINK: ReportLink = { projectId: null, host: null }
 
 function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
     if (router.canGoBack()) {
@@ -77,7 +84,7 @@ function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
     }
 }
 
-export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElement {
+export function ReportScreen({ reportId, from, link = NO_LINK }: ReportScreenProps): ReactElement {
     const demo = useDataMode() === 'demo'
     const focused = useIsFocused()
     const {
@@ -90,6 +97,7 @@ export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElemen
         reportPane,
         reportNavigation: navigation,
     } = useAppLayout()
+    const linkScope = useReportLinkScope(link)
     return (
         <OverlayHost>
             <View
@@ -126,10 +134,18 @@ export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElemen
                         }
                     >
                         <ChartCanvasBudget active={focused}>
-                            {isReportId(reportId, demo) ? (
-                                <ReportContent reportId={reportId} from={from} />
-                            ) : (
+                            {!isReportId(reportId, demo) ? (
                                 <ReportNotFound />
+                            ) : linkScope.kind === 'elsewhere' ? (
+                                <ReportElsewhere reportId={reportId} link={link} />
+                            ) : (
+                                <ProjectScopeOverride.Provider value={linkScope.override}>
+                                    <ReportContent
+                                        reportId={reportId}
+                                        from={from}
+                                        link={linkScope.override ? link : undefined}
+                                    />
+                                </ProjectScopeOverride.Provider>
                             )}
                         </ChartCanvasBudget>
                     </SceneFrame>
@@ -137,6 +153,41 @@ export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElemen
             </View>
             {navigation ? <ReportNavigation /> : null}
         </OverlayHost>
+    )
+}
+
+function ReportElsewhere({ reportId, link }: { reportId: string; link: ReportLink }): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
+    const router = useRouter()
+    const goBack = (): void => goBackOrInbox(router)
+    // Only the cloud hosts the app links cover, so a crafted link cannot send the browser elsewhere.
+    const cloudHost = CLOUD_REGIONS.some((region) => region.host === `https://${link.host}`)
+    const webUrl =
+        cloudHost && link.projectId !== null
+            ? `https://${link.host}/project/${link.projectId}/inbox/reports/${reportId}`
+            : null
+    useEffect(() => {
+        track('mobile_report_load_failed', { report_id: reportId, kind: 'other_project' })
+    }, [reportId])
+    // An in-app browser, because Linking.openURL can hand an associated link straight back to this app.
+    const openWeb = (): void => {
+        if (webUrl) {
+            WebBrowser.openBrowserAsync(webUrl).catch(() => undefined)
+        }
+    }
+    return (
+        <View style={styles.screen}>
+            <TopChrome onBack={goBack} />
+            <StateView
+                icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
+                title="This report is in another project"
+                message="The app isn't signed in to this report's project or region. Open the link in your browser instead."
+                actionLabel={webUrl ? 'Open in browser' : 'Go back'}
+                onAction={webUrl ? openWeb : goBack}
+                testID="report-elsewhere"
+            />
+        </View>
     )
 }
 
@@ -164,7 +215,7 @@ function ReportNotFound(): ReactElement {
     )
 }
 
-function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
+function ReportContent({ reportId, from, link }: ReportScreenProps): ReactElement {
     const styles = useStyles()
     const colors = useColors()
     const router = useRouter()
@@ -196,12 +247,14 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
 
     // A background refetch that fails keeps the cached report, so only a report that never loaded counts.
     const loadFailed = !query.data && query.isError
-    // biome-ignore lint/correctness/useExhaustiveDependencies: one event each time the error screen appears.
+    const errorKind = loadFailed ? apiErrorKind(query.error) : undefined
+    // The server answers for the link's project, so a project the account cannot read fails here, not before.
+    const linkRefused = link !== undefined && (errorKind === 'forbidden' || errorKind === 'not_found')
     useEffect(() => {
-        if (loadFailed) {
-            track('mobile_report_load_failed', { report_id: reportId, kind: apiErrorKind(query.error) })
+        if (errorKind && !linkRefused) {
+            track('mobile_report_load_failed', { report_id: reportId, kind: errorKind })
         }
-    }, [loadFailed, reportId])
+    }, [errorKind, linkRefused, reportId])
 
     const goBack = (): void => goBackOrInbox(router)
     const goTo = (id: string | undefined): (() => void) | undefined =>
@@ -229,6 +282,9 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     }
 
     const report = query.data
+    if (!report && link && linkRefused) {
+        return <ReportElsewhere reportId={reportId} link={link} />
+    }
     if (!report) {
         return (
             <View style={styles.screen}>
@@ -252,8 +308,20 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     const state = actionBarStateFor(report, { answer, handOffPending: actions.pending.handOff })
     const task = report.task
     const taskId = task?.taskId ?? report.work.assignee?.taskId
+    // Chat reads the session's project, so a report from another project moves the session there first. When the
+    // session cannot move, the web opens the report instead of the chat loading the wrong project.
+    const followReportProject = (): boolean => followLinkProject(link?.projectId)
+    const openReportOnWeb = (): void => {
+        if (report.webUrl) {
+            WebBrowser.openBrowserAsync(report.webUrl).catch(() => undefined)
+        }
+    }
     const openTaskChat = (entry: TaskChatEntry): void => {
         if (taskId) {
+            if (!followReportProject()) {
+                openReportOnWeb()
+                return
+            }
             track('mobile_report_action_pressed', {
                 action: 'task_chat',
                 from: entry,
@@ -300,6 +368,10 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
         sheets.completed()
     }
     const openChat = (): void => {
+        if (!followReportProject()) {
+            openReportOnWeb()
+            return
+        }
         track('mobile_report_action_pressed', { action: 'chat', from: 'action_bar', report_id: report.id })
         router.push({ pathname: '/chat', params: { reportId: report.id, entry: 'report' satisfies ChatSheetEntry } })
     }
@@ -316,7 +388,15 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
                 onNext={goTo(neighbors.nextId)}
                 onReassign={() => openSheet('assignee', 'chip')}
                 onChangePriority={() => openSheet('priority', 'chip')}
-                onReadFull={() => router.push({ pathname: '/report/[id]/details', params: { id: report.id } })}
+                onReadFull={() =>
+                    router.push({
+                        pathname: '/report/[id]/details',
+                        params: {
+                            id: report.id,
+                            ...(link?.projectId != null ? { project: String(link.projectId) } : {}),
+                        },
+                    })
+                }
             />
             <ActionBar
                 report={report}

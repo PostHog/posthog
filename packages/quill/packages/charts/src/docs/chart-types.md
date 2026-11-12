@@ -183,6 +183,53 @@ Takes `value`, `min`, `max`, and `thresholds`, not `series`, and fills its conta
 - A value change eases over `config.animationMs` (default 500), and the arc color follows the bands as it passes them. The first render, `animationMs: 0`, and reduced motion snap.
 - The tooltip shows the value, the range, the threshold band (its `label`, else its range), and the target. A `tooltip` render prop receives `GaugeTooltipContext`: the `TooltipContext` plus the value, the range, the band, and the target. `formatGaugeBand` formats a band the way the default tooltip does.
 
+## FlameGraph
+
+A call tree drawn as nested rectangles on canvas: profiles, aggregated span trees, LLM agent runs.
+`data` is one root or an array of roots, each `{ name, value, children?, baselineValue?, count?, baselineCount?, group?, color?, id?, meta? }`.
+There is no `series` or `labels`.
+
+```tsx
+<FlameGraph data={root} theme={theme} config={{ valueFormatter: formatMs }} />
+```
+
+- `value` is the **total** (inclusive) value: the node plus everything under it.
+  The chart derives self value as `value` minus the children's values, floored at 0.
+  Children that add up to more than their parent (concurrent spans in a trace) scale down to fit inside it, and the parent's self value is then 0.
+  Widths use the larger of `value` and `baselineValue`, so a node present in only one window still gets room.
+- Ids default to the path of names from the root (`main/parse/lex`), with `#2`, `#3` appended to repeated sibling names.
+  A `/`, `#` or `\` inside a name is escaped with `\`, so `src/app.ts` under `main` has the id `main/src\/app.ts`.
+  Set `id` when names repeat and the host needs a stable key, for `defaultFocusedId` or its own state.
+  Only the first node with a given `id` keeps it, and later ones fall back to their path, so a key that repeats under several callers still zooms to the node clicked.
+  The focus is kept by id, so it survives a data update that still has the node.
+  A node object reached twice is skipped, which also guards against cyclic input.
+- Colors follow the data: `diff` colors when any node has a `baselineValue`, else one color per `group` when any node has a `group`, else one color per name.
+  Groups and names get palette colors in first-seen order, blended toward the background so labels stay readable in both themes.
+  `config.groupColors` sets the color of named groups, so a host can match its other views; groups it leaves out take palette colors.
+  A node's `color` fills that node alone, for example to flag an error, and leaves the legend as it is. Diff colors ignore both.
+  A legend below the graph shows each group's share of total self value, largest first. Its rows list colors, not series, so they are not clickable.
+  `diff` colors by `value / baselineValue` on a red (slower) to blue (faster) scale whose strength grows with the change, full at 2× or ½×.
+  The two colors are `theme.colors[4]` and `theme.colors[0]`; a palette with fewer than five colors, or with the same color in both places, uses the default palette's.
+  A change within `diff.threshold` (default 0.1) is neutral, and so is a node with fewer than `diff.minCount` samples in `count` or `baselineCount`.
+  A node with no baseline, or a baseline of 0, is new and gets a dashed outline; a node with a baseline but no value is gone and draws faded.
+  Slower uses the palette's red (`theme.colors[4]`) and faster its blue (`theme.colors[0]`).
+- Labels use a monospace font and truncate with an ellipsis; a node scrolled off the left edge keeps its label at the edge.
+  Nodes narrower than 3px merge with their narrow siblings into one "+N more" cell, and the children of a narrow node are not drawn.
+  Two or more children under 1% of their parent move to the end of the row, so they sit together and merge into one cell.
+- Hover shows the shared `DefaultTooltip`: the name, one row with the value (labeled with the group when there is one), and a baseline row when comparing.
+  A `tooltip` render prop replaces the content and receives `FlameTooltipContext`: `hit` is either `{ kind: 'node', node }` or `{ kind: 'bundle', bundle }`, plus `valueFormatter`, `comparing` and `canFocus`.
+- Click zooms into a node: it spans the full width, its ancestors stay above it at full width and fade, and its siblings leave the view.
+  A "+N more" cell zooms to just the bundled nodes.
+  The breadcrumb row above the graph shows the path with a reset button, and Escape zooms out one level while the graph has keyboard focus.
+  `defaultFocusedId` zooms into a node on mount only and scrolls its row to the top of the viewport; to open on another node, give the chart a new `key`.
+  `onFocusChange` receives the newly zoomed `FlameHit`, or null after a reset, on each click, breadcrumb, Escape or reset that changes the zoom. `defaultFocusedId` does not call it.
+- `search` is a case-insensitive substring matched against names.
+  Matches keep their color, everything else turns a neutral gray, and the breadcrumb row shows the match count and the share of the graph's width they cover, counting a match nested in another match once.
+  The host renders the search input.
+- The graph grows with the deepest row in view up to `config.maxHeight` (480px), then scrolls vertically.
+  Only the rows in the scroll viewport are drawn, and only the nodes inside the zoom window, so a 50,000-node tree stays smooth.
+- Memoize `data`: a new reference rebuilds the flattened tree, which takes tens of milliseconds at 50,000 nodes.
+
 ## Sparkline
 
 An axis-less preset over `LineChart` (default, gradient-filled line) or stacked bars via `type: 'bar'`.

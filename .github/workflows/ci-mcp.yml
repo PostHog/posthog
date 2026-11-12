@@ -205,18 +205,6 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: 3.14.7
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            - name: Install uv
-              uses: ./.github/actions/setup-uv
-
-            - name: Install Python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
@@ -243,7 +231,7 @@ jobs:
 
             - name: Check MCP schema is up to date
               run: |
-                  ./bin/hogli build:schema-mcp
+                  (cd services/mcp && pnpm exec tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt schema/tool-inputs.json)
                   if ! git diff --exit-code services/mcp/schema/tool-inputs.json; then
                     echo ""
                     echo "::error::MCP tool-inputs.json is out of date. Run 'hogli build:schema-mcp' and commit the result."
@@ -464,11 +452,6 @@ jobs:
             - name: Install uv
               uses: ./.github/actions/setup-uv
 
-            - name: Install SAML (python3-saml) dependencies
-              shell: bash
-              run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
             - name: Install Python dependencies
               shell: bash
               run: |
@@ -494,6 +477,8 @@ jobs:
                   toolchain: 1.91.1
                   components: cargo
 
+            # feature-flags depends on usage-ingestion-proto, whose build script
+            # compiles .proto files and needs protoc on PATH.
             - name: Install protoc
               uses: ./.github/actions/setup-protoc
 
@@ -506,11 +491,6 @@ jobs:
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
-
-            # feature-flags depends on usage-ingestion-proto, whose build script
-            # compiles .proto files and needs protoc on PATH.
-            - name: Install protoc
-              uses: ./.github/actions/setup-protoc
 
             - name: Build Rust flags service
               working-directory: rust
@@ -565,7 +545,7 @@ jobs:
                   # The history fetch + base-ref fetch above ensure the
                   # full ancestry needed to find the divergence point is available.
                   if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
-                      # Only restore an exact migration/routing match on the hourly lane.
+                      # Compute the exact migration/routing key from the hourly checkout.
                       # A rerun can use an older checkout than the latest master dump.
                       MERGE_BASE=$(git rev-parse HEAD)
                   else
@@ -590,6 +570,10 @@ jobs:
                       exit 0
                   fi
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> "$GITHUB_OUTPUT"
+                  # Old workflow revisions lack the validator, so they must keep exact restores.
+                  if [ "$GITHUB_EVENT_NAME" = "schedule" ] && [ -f .github/scripts/master_schema_cache.py ]; then
+                      echo "snapshot_prefix_key=posthog-schema-master-" >> "$GITHUB_OUTPUT"
+                  fi
                   # Last-resort restore prefix: matches the newest saved dump of any
                   # migration set, for the window where both exact keys miss. Gated on
                   # checkout age (a day) because a re-run of an old run keeps its original
@@ -616,6 +600,7 @@ jobs:
                   fi
 
             - name: Restore schema cache from master
+              id: schema-cache
               if: ${{ steps.schema-key.outputs.key != '' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
@@ -629,6 +614,16 @@ jobs:
                   restore-keys: |
                       ${{ steps.schema-key.outputs.key }}
                       ${{ steps.schema-key.outputs.prefix_key }}
+                      ${{ steps.schema-key.outputs.snapshot_prefix_key }}
+
+            - name: Validate hourly fallback schema
+              if: github.event_name == 'schedule' && steps.schema-cache.outputs.cache-matched-key != '' && steps.schema-cache.outputs.cache-matched-key != steps.schema-key.outputs.migrations_key && steps.schema-cache.outputs.cache-matched-key != steps.schema-key.outputs.key
+              env:
+                  CACHED_KEY: ${{ steps.schema-cache.outputs.cache-matched-key }}
+              run: >-
+                  python .github/scripts/master_schema_cache.py
+                  --repository . --epoch "$SCHEMA_CACHE_EPOCH"
+                  validate --dump schema.sql.gz --cache-key "$CACHED_KEY"
 
             - name: Prime posthog from cached schema
               # No-op on cache miss; manage.py migrate below falls back to a full migrate.

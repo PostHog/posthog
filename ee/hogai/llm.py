@@ -1,4 +1,5 @@
 import ssl
+import time
 import datetime
 from collections.abc import (  # noqa: F401 — Sequence resolves inherited langchain field annotations lazily in this namespace
     AsyncIterator,
@@ -7,7 +8,8 @@ from collections.abc import (  # noqa: F401 — Sequence resolves inherited lang
     Sequence,
 )
 from functools import cache, cached_property
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, NamedTuple, cast
+from uuid import UUID
 
 from django.conf import settings
 
@@ -18,22 +20,24 @@ import anthropic
 import structlog
 from asgiref.sync import sync_to_async
 from langchain_anthropic import ChatAnthropic
-from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
+from langchain_core.callbacks import (
+    AsyncCallbackManagerForLLMRun,
+    BaseCallbackManager,
+    CallbackManagerForLLMRun,
+    Callbacks,
+)
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.outputs import ChatGenerationChunk, ChatResult, LLMResult
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_core.runnables import ensure_config
 from langchain_openai import ChatOpenAI
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler, GenerationMetadata
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from posthog.llm.gateway_client import (
-    AIGatewayConfig,
-    ai_gateway_headers,
-    anthropic_gateway_base_url,
-    resolve_ai_gateway_config,
-)
+from posthog.llm.billing import BILLABLE_AI_PRODUCTS
+from posthog.llm.gateway_client import ai_gateway_headers, anthropic_gateway_base_url, resolve_ai_gateway_config
 from posthog.models import Team, User
 from posthog.settings import CLOUD_DEPLOYMENT
 
@@ -57,7 +61,24 @@ AI_GATEWAY_TIMEOUT = httpx.Timeout(150.0, connect=10.0, write=15.0, pool=5.0)
 """Above the gateway's 120s stream idle close. Nothing heartbeats while the gateway stalls, so every phase is bounded
 to leave the twin time inside the 300s activity heartbeat."""
 
+AI_GATEWAY_TIMEOUT_COOLDOWN_SECONDS = 300.0
+
 AI_GATEWAY_SERVED_KEY = "ai_gateway_served"
+
+AI_GATEWAY_RUNNERLESS_OPENAI_PRODUCTS = frozenset({"pulse"})
+
+AI_GATEWAY_BILLABLE_PRODUCTS = frozenset(
+    {
+        "posthog_ai",
+        "slack_app",
+        "workflows",
+        "hogql_decide",
+        "posthog_code",
+        "alert_investigation_agent",
+        "alert_llm_detector",
+        "surveys",
+    }
+)
 
 PROJECT_ORG_USER_CONTEXT_PROMPT = """
 You are currently in project {{{project_name}}}, which is part of the {{{organization_name}}} organization.
@@ -117,6 +138,72 @@ def _is_provider_billing_block(error: anthropic.APIStatusError) -> bool:
     return detail.get("type") == "billing_error" or any(sig in message for sig in _PROVIDER_BILLING_SIGNATURES)
 
 
+class AIGatewayRoute(NamedTuple):
+    ai_product: str
+    billable: bool
+    trace_id: str | None
+    distinct_id: str | None
+    privacy_mode: bool | None
+    properties: Mapping[str, Any]
+
+
+class MaxCallbackHandler(CallbackHandler):
+    """
+    Skips $ai_generation for gateway-served calls, which the gateway captures. $ai_trace and $ai_span still emit
+    because the AI credits query decides free turns from them.
+    """
+
+    def _capture_generation(
+        self,
+        trace_id: Any,
+        run_id: UUID,
+        run: GenerationMetadata,
+        output: LLMResult | BaseException,
+        parent_run_id: UUID | None = None,
+        include_parent_id: bool = True,
+    ):
+        if is_ai_gateway_served(output):
+            return
+        super()._capture_generation(trace_id, run_id, run, output, parent_run_id, include_parent_id)
+
+    @property
+    def ai_product(self) -> str | None:
+        return (self._properties or {}).get("ai_product")
+
+    @property
+    def trace_id(self) -> str | None:
+        return str(self._trace_id) if self._trace_id is not None else None
+
+    @property
+    def distinct_id(self) -> str | None:
+        return str(self._distinct_id) if self._distinct_id is not None else None
+
+    @property
+    def privacy_mode(self) -> bool:
+        return self._privacy_mode or bool(getattr(self._ph_client, "privacy_mode", False))
+
+    @property
+    def capture_disabled(self) -> bool:
+        return getattr(self._ph_client, "disabled", False) is True
+
+    @property
+    def properties(self) -> Mapping[str, Any]:
+        return self._properties or {}
+
+
+def _posthog_callback_handlers(callbacks: Callbacks) -> list[CallbackHandler]:
+    handlers = callbacks.handlers if isinstance(callbacks, BaseCallbackManager) else callbacks or []
+    return [handler for handler in handlers if isinstance(handler, CallbackHandler)]
+
+
+def _is_unbilled_credit_bucket_denial(error: anthropic.APIStatusError) -> bool:
+    if error.status_code != 402:
+        return False
+    if error.request.headers.get("X-PostHog-Billable") != "false":
+        return False
+    return error.response.headers.get("X-PostHog-Denial", "").startswith("credit_bucket_exhausted")
+
+
 def _carries_output(chunk: ChatGenerationChunk) -> bool:
     """Thinking counts: the user sees it stream. An opening metadata chunk does not."""
     return bool(chunk.message.content) or bool(getattr(chunk.message, "tool_call_chunks", None))
@@ -144,6 +231,8 @@ def _ai_gateway_fallback_reason(error: Exception) -> str | None:
             return "server_error"
         if isinstance(error, anthropic.APIStatusError) and _is_provider_billing_block(error):
             return "provider_billing"
+        if isinstance(error, anthropic.APIStatusError) and _is_unbilled_credit_bucket_denial(error):
+            return "credit_bucket"
     return None
 
 
@@ -289,25 +378,54 @@ class MaxChatMixin(BaseModel):
 
         return new_kwargs
 
-    def _routes_via_ai_gateway(self) -> bool:
+    def _ai_gateway_route(self, kwargs: Mapping[str, Any]) -> AIGatewayRoute | None:
         """Other products keep their capture and billing on the direct path."""
         if self.ai_gateway_fallback is None:
-            return False
-        configurable = ensure_config().get("configurable") or {}
-        return (
-            configurable.get("ai_product") == POSTHOG_AI_PRODUCT
-            and (self.posthog_properties or {}).get("ai_product", POSTHOG_AI_PRODUCT) == POSTHOG_AI_PRODUCT
+            return None
+        posthog_properties = kwargs["metadata"]["posthog_properties"]
+        ai_product = posthog_properties["ai_product"]
+        if ai_product not in AI_GATEWAY_RUNNERLESS_OPENAI_PRODUCTS:
+            configurable = ensure_config().get("configurable") or {}
+            if configurable.get("ai_product") != POSTHOG_AI_PRODUCT:
+                return None
+            if ai_product != POSTHOG_AI_PRODUCT:
+                return None
+        return self._ai_gateway_route_attributed(
+            ai_product=ai_product,
+            billable=posthog_properties["$ai_billable"],
+            handler=None,
         )
 
-    def _with_ai_gateway_headers(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+    def _ai_gateway_route_attributed(
+        self, *, ai_product: str, billable: bool, handler: MaxCallbackHandler | None
+    ) -> AIGatewayRoute:
+        if handler is not None:
+            return AIGatewayRoute(
+                ai_product=ai_product,
+                billable=billable,
+                trace_id=handler.trace_id,
+                distinct_id=handler.distinct_id or self.user.distinct_id,
+                privacy_mode=handler.privacy_mode,
+                properties=handler.properties,
+            )
+        configurable = ensure_config().get("configurable") or {}
+        return AIGatewayRoute(
+            ai_product=ai_product,
+            billable=billable,
+            trace_id=str(configurable["trace_id"]) if configurable.get("trace_id") else None,
+            distinct_id=configurable.get("distinct_id") or self.user.distinct_id,
+            privacy_mode=configurable.get("privacy_mode"),
+            properties={},
+        )
+
+    def _with_ai_gateway_headers(self, kwargs: dict[str, Any], route: AIGatewayRoute) -> dict[str, Any]:
         configurable = ensure_config().get("configurable") or {}
         posthog_properties = kwargs["metadata"]["posthog_properties"]
-        trace_id = str(configurable["trace_id"]) if configurable.get("trace_id") else None
         conversation_id = str(configurable["thread_id"]) if configurable.get("thread_id") else None
         # The gateway strips `$` keys and stamps ai_product itself; team_id names the customer it bills.
         labels = {
             key: str(value)
-            for key, value in posthog_properties.items()
+            for key, value in {**route.properties, **posthog_properties}.items()
             if value is not None and not key.startswith("$") and key != "ai_product"
         }
         if conversation_id:
@@ -317,18 +435,18 @@ class MaxChatMixin(BaseModel):
             labels["ai_support_impersonated"] = "true"
         headers = (
             ai_gateway_headers(
-                ai_product=POSTHOG_AI_PRODUCT,
-                trace_id=trace_id,
+                ai_product=route.ai_product,
+                trace_id=route.trace_id,
                 session_id=conversation_id,
                 properties=labels,
-                distinct_id=configurable.get("distinct_id") or self.user.distinct_id,
+                distinct_id=route.distinct_id,
             )
             or {}
         )
-        if not posthog_properties["$ai_billable"]:
+        if not route.billable:
             headers["X-PostHog-Billable"] = "false"
         # The gateway records prompts and outputs unless asked not to, so an unknown privacy mode redacts too.
-        if configurable.get("privacy_mode") is not False:
+        if route.privacy_mode is not False:
             headers["X-PostHog-Privacy-Mode"] = "true"
         return {**kwargs, "extra_headers": {**(kwargs.get("extra_headers") or {}), **headers}}
 
@@ -510,7 +628,7 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
             "api_key": ai_gateway.api_key,
             "http_client": httpx.Client(trust_env=False, verify=_ai_gateway_ssl_context()),
             "http_async_client": httpx.AsyncClient(trust_env=False, verify=_ai_gateway_ssl_context()),
-            "timeout": AI_GATEWAY_TIMEOUT,
+            "timeout": data.get("timeout") or data.get("request_timeout") or AI_GATEWAY_TIMEOUT,
             "max_retries": 0,
             "ai_gateway_fallback": cls(**data, ai_gateway_fallback=None),
         }
@@ -552,8 +670,8 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
                 messages = self._enrich_messages(messages, project_org_user_variables)
 
         kwargs = self._with_posthog_properties(kwargs)
-        if self._routes_via_ai_gateway():
-            kwargs = self._with_ai_gateway_headers(kwargs)
+        if route := self._ai_gateway_route(kwargs):
+            kwargs = self._with_ai_gateway_headers(kwargs, route)
 
         return super().generate(messages, *args, **kwargs)
 
@@ -571,8 +689,8 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
                 messages = self._enrich_messages(messages, project_org_user_variables)
 
         kwargs = self._with_posthog_properties(kwargs)
-        if self._routes_via_ai_gateway():
-            kwargs = self._with_ai_gateway_headers(kwargs)
+        if route := self._ai_gateway_route(kwargs):
+            kwargs = self._with_ai_gateway_headers(kwargs, route)
 
         return await super().agenerate(messages, *args, **kwargs)
 
@@ -593,24 +711,32 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
 
     ai_gateway_fallback: ChatAnthropic | None = Field(default=None, exclude=True)
 
+    _ai_gateway_timed_out_monotonic: ClassVar[float | None] = None
+
+    @model_validator(mode="before")
     @classmethod
-    def via_ai_gateway(cls, ai_gateway: AIGatewayConfig, **kwargs: Any) -> "MaxChatAnthropic":
-        return cls(
-            **{
-                **kwargs,
-                "anthropic_api_url": anthropic_gateway_base_url(ai_gateway.url),
-                "anthropic_api_key": ai_gateway.api_key,
-                "bypass_proxy": True,
-                # The twin is the retry; an SDK retry doubles the wait before it.
-                "max_retries": 0,
-                "ai_gateway_fallback": cls(**kwargs),
-            }
-        )
+    def _via_ai_gateway(cls, data: Any) -> Any:
+        if not isinstance(data, dict) or "ai_gateway_fallback" in data:
+            return data
+        if data.keys() & {"anthropic_api_url", "base_url", "anthropic_api_key", "api_key"}:
+            return data
+        ai_gateway = resolve_ai_gateway_config()
+        if ai_gateway is None:
+            return data
+        return {
+            **data,
+            "anthropic_api_url": anthropic_gateway_base_url(ai_gateway.url),
+            "anthropic_api_key": ai_gateway.api_key,
+            "bypass_proxy": True,
+            # The twin is the retry; an SDK retry doubles the wait before it.
+            "max_retries": 0,
+            "ai_gateway_fallback": cls(**data, ai_gateway_fallback=None),
+        }
 
     @cached_property
     def _client_params(self) -> dict[str, Any]:
         params = cast(dict[str, Any], ChatAnthropic._client_params.func(self))  # type: ignore[attr-defined]
-        if self.ai_gateway_fallback is not None:
+        if self.ai_gateway_fallback is not None and self.default_request_timeout is None:
             # langchain-anthropic defaults to no timeout, so a stalled gateway would never fall back.
             params["timeout"] = AI_GATEWAY_TIMEOUT
         return params
@@ -654,10 +780,62 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         return kwargs
 
     def get_num_tokens_from_messages(self, messages: list[BaseMessage], tools: Any = None, **kwargs: Any) -> int:
-        # Token counts have no fallback, so a gateway 429 here would fail the turn.
-        if self.ai_gateway_fallback is not None:
-            return self.ai_gateway_fallback.get_num_tokens_from_messages(messages, tools=tools, **kwargs)
-        return super().get_num_tokens_from_messages(messages, tools=tools, **kwargs)
+        fallback = self.ai_gateway_fallback
+        if fallback is None:
+            return super().get_num_tokens_from_messages(messages, tools=tools, **kwargs)
+        if self._ai_gateway_cooling_down():
+            AI_GATEWAY_FALLBACK_COUNTER.labels(reason="timeout_cooldown").inc()
+            return fallback.get_num_tokens_from_messages(messages, tools=tools, **kwargs)
+        try:
+            return super().get_num_tokens_from_messages(
+                messages,
+                tools=tools,
+                **{**kwargs, "extra_headers": {**(kwargs.get("extra_headers") or {}), "X-PostHog-Billable": "false"}},
+            )
+        except Exception as error:
+            reason = _ai_gateway_fallback_reason(error)
+            if reason is None:
+                raise
+            self._record_ai_gateway_fallback(reason, error)
+        return fallback.get_num_tokens_from_messages(messages, tools=tools, **kwargs)
+
+    def _record_ai_gateway_fallback(self, reason: str, error: Exception) -> None:
+        super()._record_ai_gateway_fallback(reason, error)
+        if reason == "timeout":
+            MaxChatAnthropic._ai_gateway_timed_out_monotonic = time.monotonic()
+
+    @staticmethod
+    def _ai_gateway_cooling_down() -> bool:
+        timed_out_monotonic = MaxChatAnthropic._ai_gateway_timed_out_monotonic
+        if timed_out_monotonic is None:
+            return False
+        return time.monotonic() - timed_out_monotonic < AI_GATEWAY_TIMEOUT_COOLDOWN_SECONDS
+
+    def _ai_gateway_route(self, kwargs: Mapping[str, Any]) -> AIGatewayRoute | None:
+        if self.ai_gateway_fallback is None:
+            return None
+        handlers = _posthog_callback_handlers(kwargs.get("callbacks")) + _posthog_callback_handlers(self.callbacks)
+        if not all(isinstance(handler, MaxCallbackHandler) for handler in handlers):
+            return None
+        posthog_properties = kwargs["metadata"]["posthog_properties"]
+        handler = cast(MaxCallbackHandler, handlers[0]) if handlers else None
+        if handler is not None and handler.capture_disabled:
+            return None
+        billable = False
+        if handler is not None:
+            ai_product = handler.ai_product or posthog_properties["ai_product"]
+            if posthog_properties["$ai_billable"]:
+                billable = ai_product in BILLABLE_AI_PRODUCTS
+        else:
+            configurable = ensure_config().get("configurable") or {}
+            ai_product = configurable.get("ai_product") or posthog_properties["ai_product"]
+        if billable:
+            if ai_product not in AI_GATEWAY_BILLABLE_PRODUCTS:
+                return None
+        if self._ai_gateway_cooling_down():
+            AI_GATEWAY_FALLBACK_COUNTER.labels(reason="timeout_cooldown").inc()
+            return None
+        return self._ai_gateway_route_attributed(ai_product=ai_product, billable=billable, handler=handler)
 
     def generate(
         self,
@@ -670,6 +848,8 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
             messages = self._enrich_messages(messages, project_org_user_variables)
 
         kwargs = self._with_posthog_properties(kwargs)
+        if route := self._ai_gateway_route(kwargs):
+            kwargs = self._with_ai_gateway_headers(kwargs, route)
 
         return super().generate(messages, *args, **kwargs)
 
@@ -684,7 +864,7 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
             messages = self._enrich_messages(messages, project_org_user_variables)
 
         kwargs = self._with_posthog_properties(kwargs)
-        if self._routes_via_ai_gateway():
-            kwargs = self._with_ai_gateway_headers(kwargs)
+        if route := self._ai_gateway_route(kwargs):
+            kwargs = self._with_ai_gateway_headers(kwargs, route)
 
         return await super().agenerate(messages, *args, **kwargs)

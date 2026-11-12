@@ -15,6 +15,8 @@ const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
+const { isExcludedFile } = require('./assign-reviewers')
+
 // Anchored to this script's location, not the cwd, so it resolves the same
 // whether the workflow runs `node .github/scripts/…` from the repo root or a
 // test invokes it from elsewhere.
@@ -87,15 +89,28 @@ function pathPatternToRegExp(pattern) {
     return new RegExp(`^${source}${pattern.endsWith('/') ? '' : '$'}`)
 }
 
-function labelsForFiles(files, rules) {
-    const filenames = files.flatMap((file) =>
-        file.status === 'renamed' && file.previous_filename ? [file.filename, file.previous_filename] : [file.filename]
+function changedFilenames(file) {
+    return file.status === 'renamed' && file.previous_filename ? [file.filename, file.previous_filename] : [file.filename]
+}
+
+function pathRuleMatches(rule, files) {
+    const patterns = (rule.paths || []).map(pathPatternToRegExp)
+    const matched = files.filter((file) =>
+        changedFilenames(file).some((filename) => patterns.some((pattern) => pattern.test(filename)))
     )
+    if (rule.minLines === undefined && rule.minFiles === undefined) {
+        return matched.length > 0
+    }
+    const counted = matched.filter((file) => !isExcludedFile(file.filename))
+    const lines = counted.reduce((sum, file) => sum + (file.additions ?? 0) + (file.deletions ?? 0), 0)
+    return lines >= (rule.minLines ?? Infinity) || counted.length >= (rule.minFiles ?? Infinity)
+}
+
+function labelsForFiles(files, rules) {
     const labels = new Set()
 
     for (const rule of rules) {
-        const patterns = (rule.paths || []).map(pathPatternToRegExp)
-        if (patterns.some((pattern) => filenames.some((filename) => pattern.test(filename)))) {
+        if (pathRuleMatches(rule, files)) {
             for (const label of rule.labels || []) {
                 labels.add(label)
             }

@@ -2,6 +2,7 @@ import json
 import base64
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import override_settings
@@ -62,3 +63,22 @@ class TestFlagLegacyOauthIntegrations(BaseTest):
 
         integration.refresh_from_db()
         assert CONFIG_LEGACY_OAUTH_CLIENT not in integration.config
+
+    def test_reads_every_page(self):
+        integrations = [
+            Integration.objects.create(
+                team=self.team,
+                kind="bing-ads",
+                integration_id=f"user-oid-{index}",
+                config={},
+                sensitive_config={"access_token": "token", "id_token": _id_token("old-app-id")},
+            )
+            for index in range(3)
+        ]
+
+        with patch("posthog.management.commands.flag_legacy_oauth_integrations.PAGE_SIZE", 2):
+            call_command("flag_legacy_oauth_integrations")
+
+        for integration in integrations:
+            integration.refresh_from_db()
+            assert integration.config.get(CONFIG_LEGACY_OAUTH_CLIENT) is True

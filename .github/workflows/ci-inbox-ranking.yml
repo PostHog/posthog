@@ -32,6 +32,16 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: |
+                      .github/actions/setup-uv
+                      common
+                      ee
+                      posthog
+                      products
+                      services
+                      tools
+                      packages/owners-yaml
+                      packages/personhog-proto
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -52,13 +62,6 @@ jobs:
             - name: Install uv
               id: setup-uv
               uses: ./.github/actions/setup-uv
-
-            - name: Install SAML (python3-saml) dependencies
-              if: steps.setup-uv.outputs.cache-hit != 'true'
-              run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate*
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install python dependencies with the inbox-ranking group
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --group inbox-ranking
