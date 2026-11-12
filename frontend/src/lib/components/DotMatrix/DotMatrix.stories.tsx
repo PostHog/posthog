@@ -34,6 +34,7 @@ const fixture: DotMatrixProps<Datum> = {
         )
     ),
     rowHeader: { title: 'Account' },
+    aggregateSelection: (cell, selected) => selected.filter((key) => cell.values[key] > 0).length,
     legend: { itemLabel: 'products', valueLabel: 'Users', hint: 'Click a product to filter. Shift-click to add more.' },
 }
 
