@@ -1659,7 +1659,7 @@ class ErrorTrackingIssueTag(BaseModel):
         default=None,
         description=(
             "The tagger that wrote the answer: `jev` for AI, `manual` for a person."
-            " Issue detail sets it, list results do not."
+            " Issue detail sets it, list results send null."
         ),
     )
     value: bool | None = Field(
