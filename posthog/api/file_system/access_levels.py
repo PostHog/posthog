@@ -2,7 +2,7 @@ import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.apps import apps
 from django.core.cache import cache
@@ -409,21 +409,89 @@ def keep_workflow_files_in_scoped_teams(queryset: QuerySet, authenticator: Any) 
 def filter_workflow_files_by_access_level(
     queryset: QuerySet, user_access_control: UserAccessControl, project_id: int
 ) -> QuerySet:
-    rows = list(queryset.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES).values_list("id", "type", "ref", "team_id"))
-    levels = bulk_file_system_access_levels(
-        [
-            FileSystemAccessEntry(entry_type=entry_type, ref=ref, created_by_id=None, team_id=team_id)
-            for _, entry_type, ref, team_id in rows
-        ],
-        user_access_control,
-        project_id,
-    )
-    allowed_ids = [
-        row_id
-        for row_id, entry_type, ref, team_id in rows
-        if levels.get((entry_type, ref, team_id)) not in (None, "none")
-    ]
-    return queryset.exclude(Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) & ~Q(pk__in=allowed_ids))
+    """Hide workflow files the user can't open, as SQL conditions rather than a list of row ids.
+
+    A workflow object's level depends only on its own access control rows and on whether the
+    user created it. So each team needs at most three resolutions: one for objects with rows of
+    their own, which the access control preload bounds by the number of grants, and one each for
+    the creator and non-creator cases of every other object. The listing then pages in SQL and
+    never reads the team's whole set of workflow files.
+    """
+    resource = file_system_resource("hog_flow")
+    registration = get_file_system_registration("hog_flow")
+    team_ids = list(Team.objects.filter(project_id=project_id).values_list("id", flat=True))
+    access_controls_by_team = _user_access_controls_by_team(user_access_control, team_ids)
+    user_id = user_access_control.user.id
+    no_rows = Q(pk__in=[])
+
+    def is_allowed(level: Optional[AccessControlLevel]) -> bool:
+        return level not in (None, "none")
+
+    granted_refs_by_team: dict[int, set[str]] = {}
+    allowed = no_rows
+    for team_id, team_access_control in access_controls_by_team.items():
+        if not team_access_control.has_project_access:
+            continue
+        granted_refs: set[str] = set()
+        for object_id in team_access_control.object_ids_matching([resource], lambda _row: True).get(resource, set()):
+            granted_refs.add(object_id)
+            for entry_type in WORKFLOW_FILE_SYSTEM_TYPES:
+                granted_refs |= file_system_ref_alternate_spellings(entry_type, object_id)
+        granted_refs_by_team[team_id] = granted_refs
+
+        ungranted_object = str(uuid4())
+        levels = team_access_control.bulk_object_access_levels(resource, [(ungranted_object, None)])
+        resource_allowed = is_allowed(levels.get(ungranted_object))
+        levels = team_access_control.bulk_object_access_levels(resource, [(ungranted_object, user_id)])
+        creator_allowed = is_allowed(levels.get(ungranted_object))
+        if not resource_allowed and not creator_allowed:
+            continue
+
+        if registration is None:
+            created_by_user = no_rows
+        else:
+            model = apps.get_model(registration.app_label, registration.model_name)
+            manager = getattr(model, registration.manager_name, model._default_manager)
+            owned_refs = (
+                manager.filter(**{f"{registration.team_field}_id": team_id, "created_by_id": user_id})
+                .annotate(_ref=Cast("pk", CharField()))
+                .values("_ref")
+            )
+            created_by_user = Q(type="hog_flow", ref__in=owned_refs)
+        if resource_allowed and creator_allowed:
+            by_creator = Q()
+        elif resource_allowed:
+            by_creator = ~created_by_user
+        else:
+            by_creator = created_by_user
+        allowed |= Q(team_id=team_id) & ~Q(ref__in=granted_refs) & ~Q(ref="") & Q(ref__isnull=False) & by_creator
+
+    granted = Q()
+    for team_id, granted_refs in granted_refs_by_team.items():
+        if granted_refs:
+            granted |= Q(team_id=team_id, ref__in=granted_refs)
+    if granted:
+        rows = list(
+            queryset.filter(Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) & granted).values_list(
+                "id", "type", "ref", "team_id"
+            )
+        )
+        levels_by_entry = bulk_file_system_access_levels(
+            [
+                FileSystemAccessEntry(entry_type=entry_type, ref=ref, created_by_id=None, team_id=team_id)
+                for _, entry_type, ref, team_id in rows
+            ],
+            user_access_control,
+            project_id,
+        )
+        allowed |= Q(
+            pk__in=[
+                row_id
+                for row_id, entry_type, ref, team_id in rows
+                if is_allowed(levels_by_entry.get((entry_type, ref, team_id)))
+            ]
+        )
+    return queryset.exclude(Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) & ~allowed)
 
 
 def denied_short_id_refs(user_access_control: UserAccessControl, project_id: int) -> dict[tuple[str, int], list[str]]:

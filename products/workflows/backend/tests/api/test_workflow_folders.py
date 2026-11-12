@@ -84,6 +84,55 @@ class TestWorkflowFolders(APIBaseTest):
             )
             self.assertEqual(restored.status_code, 200 if level == "editor" else 400, restored.content)
 
+    @parameterized.expand(
+        [
+            ("object_denied_under_an_open_resource", None, "none", False, True),
+            ("object_shared_under_a_closed_resource", "none", "viewer", True, False),
+        ]
+    )
+    def test_workflow_files_list_by_each_workflow_own_grant(
+        self, _name, resource_level, object_level, granted_visible, other_visible
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        granted = HogFlow.objects.create(team=self.team, name="Synthetic granted", created_by=self.user)
+        other = HogFlow.objects.create(team=self.team, name="Synthetic other", created_by=self.user)
+        for flow, name in ((granted, "Synthetic granted"), (other, "Synthetic other")):
+            create_or_update_file(
+                team=self.team,
+                base_folder="Workflows",
+                name=name,
+                file_type="hog_flow",
+                ref=str(flow.id),
+                href=f"/workflows/{flow.id}",
+                meta={},
+                created_by_id=self.user.id,
+            )
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        if resource_level:
+            create_access_control(
+                team_id=self.team.id,
+                resource="hog_flow",
+                access_level=resource_level,
+                organization_member_id=membership.id,
+            )
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(granted.id),
+            access_level=object_level,
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+
+        rows = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow"}).json()["results"]
+
+        refs = {row["ref"] for row in rows}
+        self.assertEqual((str(granted.id) in refs, str(other.id) in refs), (granted_visible, other_visible), refs)
+
     def test_a_template_creator_downgraded_to_viewer_cannot_delete_or_restore_it_from_the_tree(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -576,9 +625,13 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertNotIn("workflows-list-v2", remote_requests)
 
     @parameterized.expand(
-        [("recents", "file_system/", {"order_by": "-last_viewed_at"}), ("frequent", "file_system/frequent/", {})]
+        [
+            ("recents", "file_system/", {"order_by": "-last_viewed_at"}),
+            ("frequent", "file_system/frequent/", {}),
+            ("one_item_listing", "file_system/", {"type": "message_template", "limit": 1}),
+        ]
     )
-    def test_sidebar_reads_resolve_access_only_for_viewed_template_files(self, _name, path, params) -> None:
+    def test_file_reads_resolve_access_without_reading_every_template_file(self, _name, path, params) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
