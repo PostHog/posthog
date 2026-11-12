@@ -1004,6 +1004,22 @@ describe('Hog Inputs', () => {
             expect(loaded.slack.value).toEqual({ $integration_id: id })
         })
 
+        it("keeps a Slack user token in config out of an undecryptable connection's channel", async () => {
+            const id = 100000000 + team.id
+            await insertIntegration(hub.postgres, team.id, {
+                id,
+                kind: 'slack',
+                config: { team: 'T1', authed_user: { access_token: 'xoxp-user' } },
+                sensitive_config: { access_token: new EncryptedFields('f'.repeat(32)).encrypt('token') },
+            })
+            hogFunction.inputs = { channels: { value: [id] } }
+            hogFunction.inputs_schema = [{ key: 'channels', type: 'integration_multi', required: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.channels).toEqual([{ $integration_id: id, team: 'T1' }])
+        })
+
         it('keeps the other channels of a used integration_multi input but drops the undecryptable secrets', async () => {
             const id = 100000000 + team.id
             await insertUndecryptableIntegration(id)

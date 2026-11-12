@@ -278,7 +278,10 @@ export class HogInputsService {
         // An undecryptable field still holds ciphertext, so never hand out the secrets. The id stays so a
         // per-channel push send can fail just this channel.
         if (decryptFailed) {
-            return markServerResolvedIntegration({ $integration_id: integration.id, ...integration.config })
+            const config = appliesIntegrationCredential(integration.kind)
+                ? publicIntegrationConfig(integration.config, integration.sensitive_config)
+                : integration.config
+            return markServerResolvedIntegration({ $integration_id: integration.id, ...config })
         }
         // The kind decides, because a schema edit can drop `auth` or add a second input on the same connection.
         // A transformation can't fetch, so it never needs the token, only a way to copy it into an event.
