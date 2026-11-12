@@ -739,8 +739,10 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         PlatformAlertDeliveryHold.objects.for_team(team_id).bulk_create(holds, ignore_conflicts=True)
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
-        transaction.on_commit(lambda: record_history(team_id, rows))
+        # The lag goes first, because callbacks run in order and a slow history insert is not
+        # part of the check's completion.
         transaction.on_commit(lambda: _record_completion_lags(due_times))
+        transaction.on_commit(lambda: record_history(team_id, rows))
     return len(configurations)
 
 
