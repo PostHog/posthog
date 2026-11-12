@@ -16,13 +16,13 @@ The stamphog product in [`products/stamphog/`](../../../stamphog/) runs `review_
 
 ## Verdicts
 
-| Verdict  | Meaning                                                                                                            |
-| -------- | ------------------------------------------------------------------------------------------------------------------ |
-| APPROVED | The gates passed and the reviewer found no showstoppers                                                            |
-| REFUSED  | A gate denied the PR (deny-list, size, bot author, pending migration check) or the reviewer found a concrete issue |
-| ESCALATE | Only a human can rule out a showstopper                                                                            |
-| WAIT     | No verdict yet: a reviewer bot or a CI check is pending                                                            |
-| ERROR    | The run could not produce a verdict                                                                                |
+| Verdict  | Meaning                                                                                                     |
+| -------- | ----------------------------------------------------------------------------------------------------------- |
+| APPROVED | The gates passed and the reviewer found no showstoppers                                                     |
+| REFUSED  | A gate denied the PR (deny-list, size, bot author, pending CI check) or the reviewer found a concrete issue |
+| ESCALATE | Only a human can rule out a showstopper                                                                     |
+| WAIT     | No verdict yet: a reviewer bot or a CI check is pending                                                     |
+| ERROR    | The run could not produce a verdict                                                                         |
 
 These are the values of `Pipeline.final_verdict`, which both entrypoints return.
 The nested LLM reviewer does not choose a verdict.
@@ -35,7 +35,7 @@ It reports facts in a fixed schema: the risky territory the diff enters, the rev
 
 Asked for a verdict directly, the model sees the same facts but does not apply this rule reliably, so the rule lives in code.
 
-`WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that the `Migration risk` check had not reported yet.
+`WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that a check named in the policy's `attestations` had not reported yet.
 Neither is a verdict on the PR, so the caller can retry unchanged.
 `ERROR` means the run failed before it could judge the PR: the LLM backend was unreachable through credentials, credit or an outage, the reviewer hit a non-retryable analysis failure such as its turn limit, or `review_pr.py` could not create the worktree for a stacked PR.
 It is never a judgment on the PR.
@@ -391,11 +391,17 @@ Bot authors are never on a team.
 The `stamphog_policy` category cannot carry the key, because a team that may approve policy edits could widen its own exemption.
 Unlike CODEOWNERS, the category only stops stamphog: any human approval still counts on GitHub.
 
-The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe).
-The check is the same signal humans see in the PR's Checks tab.
-See `migration_risk.py` for how the engine reads it.
+A deny category can be lifted by a CI check that the policy names under `attestations`.
+Each entry pins a check name to the GitHub App that publishes it, the categories it may lift, the paths it may lift them for, and optionally companion `sibling_files` and the `publisher_files` the check runs from.
+The check embeds the files it vouches for in a `<!-- stamphog:v1 ... -->` marker in its summary.
+The engine lifts only the listed files that are in the diff and match the entry's paths, by exact path, and only for the entry's categories.
+Those files still count toward every other deny category.
+An entry with `publisher_files` accepts only a result that pins those files to blob shas, and only while the default branch still holds every blob the result pins, so a proof made by an older publisher or under older rules lifts nothing.
+The shipped default names no attestation.
+This repository's `.stamphog/policy.yml` names `Migration risk` for the `migrations` category.
+The engine knows nothing about what a check proves. See `attestations.py` for the marker contract and the proof conditions.
 
-If the check hasn't reported yet, `review_local.py` returns `WAIT` rather than a verdict, because its caller can retry on the next push.
+If a check that could lift every deny hasn't reported yet, `review_local.py` returns `WAIT` rather than a verdict, because its caller can retry on the next push.
 `review_pr.py` has no such caller and returns `REFUSED` instead.
 The deny-list only matched because the engine could not tell a safe migration from a risky one, so a refusal would be a verdict on a race with CI rather than on the PR.
 A retry against the now-classified head commit reviews it properly.

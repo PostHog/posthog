@@ -836,13 +836,6 @@ class TestExperimentService(APIBaseTest):
                 {"type": "primary"},
                 "Legacy shared metrics can't be added to an experiment: Unlinkable Metric",
             ),
-            (
-                "quantile_with_breakdown_override",
-                False,
-                {**_QUANTILE_METRIC, "uuid": "quantile-uuid"},
-                {"type": "primary", "breakdowns": [{"property": "$browser"}]},
-                "Invalid saved metric at index 0: breakdowns are not supported for percentile metrics",
-            ),
         ]
     )
     def test_create_experiment_rejects_unlinkable_saved_metric(
@@ -1147,6 +1140,10 @@ class TestExperimentService(APIBaseTest):
             ),
             ("valid_quantile", _QUANTILE_METRIC),
             (
+                "valid_quantile_with_breakdown",
+                {**_QUANTILE_METRIC, "breakdownFilter": {"breakdowns": [{"property": "$browser"}]}},
+            ),
+            (
                 "valid_quantile_numerical_event_property",
                 {
                     **_QUANTILE_METRIC,
@@ -1229,16 +1226,6 @@ class TestExperimentService(APIBaseTest):
                     }
                 ],
                 "percentile metrics need a numeric event property",
-            ),
-            (
-                "quantile_with_breakdown",
-                [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdowns": [{"property": "$browser"}]}}],
-                "breakdowns are not supported for percentile metrics",
-            ),
-            (
-                "quantile_with_single_field_breakdown",
-                [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdown": "$browser"}}],
-                "breakdowns are not supported for percentile metrics",
             ),
             (
                 "quantile_with_data_warehouse_source",

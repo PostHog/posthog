@@ -1,12 +1,16 @@
-{# One console block. `block` is a Notice, Table, Output, Paging or Secret from posthog/admin/console/tools.py. #}
+{# One console block. `block` is a Notice, Table, Output, Paging, Stats, Links, Filters or Secret from posthog/admin/console/tools.py. #}
 {% if block.kind == "notice" %}
-    <p class="m-0 max-w-3xl text-muted-foreground">
-        {{ block.text }}
-        {% if block.href %}
-            <a class="text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
-               href="{{ block.href }}">{{ block.link_text }}</a>
-        {% endif %}
-    </p>
+    {% if block.tone %}
+        {% include "admin_console/_callout.html" with notice=block %}
+    {% else %}
+        <p class="m-0 max-w-3xl text-muted-foreground">
+            {{ block.text }}
+            {% if block.href %}
+                <a class="text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
+                   href="{{ block.href }}">{{ block.link_text }}</a>
+            {% endif %}
+        </p>
+    {% endif %}
 {% elif block.kind == "table" %}
     {% include "admin_console/_table.html" with table=block %}
 {% elif block.kind == "output" %}
@@ -41,4 +45,10 @@
     </section>
 {% elif block.kind == "paging" %}
     {% include "admin_console/_paging.html" with paging=block %}
+{% elif block.kind == "stats" %}
+    {% include "admin_console/_stats.html" with stats=block %}
+{% elif block.kind == "links" %}
+    {% include "admin_console/_links.html" with links=block %}
+{% elif block.kind == "filters" %}
+    {% include "admin_console/_filters.html" with filters=block %}
 {% endif %}

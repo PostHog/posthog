@@ -749,6 +749,20 @@ class AEOPromptSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "30/hour"
 
 
+# The AEO keyword report and modifiers recompute their numbers from every answered check in the window
+# on each request, matching each keyword against each answer text in Postgres or scanning every search in
+# Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this
+# team bucket bounds how often a browser or a script can start that work. The two endpoints share it.
+class AEOKeywordReportBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_keyword_report_burst"
+    rate = "30/minute"
+
+
+class AEOKeywordReportSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_keyword_report_sustained"
+    rate = "300/hour"
+
+
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
 # call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
 # — and its primary caller is the session-authenticated replay/experiment UI, which the
