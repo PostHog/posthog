@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const createSignedCommit = vi.fn();
@@ -23,8 +26,11 @@ const { signedCommitTool } = await import("./signed-commit");
 
 describe("signed-commit tool handler", () => {
   const savedSandbox = process.env.IS_SANDBOX;
+  let scratch: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    delete process.env.IS_SANDBOX;
+    scratch = await mkdtemp(path.join(tmpdir(), "signed-commit-cwd-"));
     createSignedCommit.mockReset();
     reportSignedCommitActivity.mockReset();
     createSignedCommit.mockResolvedValue({
@@ -36,7 +42,8 @@ describe("signed-commit tool handler", () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await rm(scratch, { recursive: true, force: true });
     if (savedSandbox === undefined) {
       delete process.env.IS_SANDBOX;
     } else {
@@ -51,6 +58,51 @@ describe("signed-commit tool handler", () => {
     );
     const [ctx] = createSignedCommit.mock.calls[0];
     expect(ctx.cwd).toBe("/tmp/workspace/repos/posthog/code");
+  });
+
+  it("commits in the only clone when the session cwd is not a checkout", async () => {
+    const clone = path.join(scratch, "repos", "PostHog", "posthog");
+    await mkdir(path.join(clone, ".git"), { recursive: true });
+
+    await signedCommitTool.handler(
+      { cwd: scratch, token: "ghs_x" },
+      { message: "chore: bump" },
+    );
+
+    const [ctx] = createSignedCommit.mock.calls[0];
+    expect(ctx.cwd).toBe(clone);
+  });
+
+  it("refuses to guess between several clones", async () => {
+    const first = path.join(scratch, "repos", "PostHog", "posthog");
+    const second = path.join(scratch, "repos", "PostHog", "grafana-dashboards");
+    await mkdir(path.join(first, ".git"), { recursive: true });
+    await mkdir(path.join(second, ".git"), { recursive: true });
+
+    const result = await signedCommitTool.handler(
+      { cwd: scratch, token: "ghs_x" },
+      { message: "chore: bump" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain(first);
+    expect(result.content[0].text).toContain(second);
+    expect(createSignedCommit).not.toHaveBeenCalled();
+  });
+
+  it("keeps the session cwd when it is itself a checkout", async () => {
+    await mkdir(path.join(scratch, ".git"), { recursive: true });
+    await mkdir(path.join(scratch, "repos", "PostHog", "posthog", ".git"), {
+      recursive: true,
+    });
+
+    await signedCommitTool.handler(
+      { cwd: scratch, token: "ghs_x" },
+      { message: "chore: bump" },
+    );
+
+    const [ctx] = createSignedCommit.mock.calls[0];
+    expect(ctx.cwd).toBe(scratch);
   });
 
   it("uses an absolute args.cwd verbatim so a sibling clone is reachable", async () => {
