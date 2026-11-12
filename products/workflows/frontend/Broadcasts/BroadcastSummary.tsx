@@ -31,6 +31,7 @@ import { broadcastPerformanceLogic } from './broadcastPerformanceLogic'
 import { BroadcastPushPerformance } from './BroadcastPushPerformance'
 import { BroadcastPushPreview } from './BroadcastPushPreview'
 import { canStillBeSending } from './broadcastRunAudience'
+import { BroadcastRunNotSent } from './BroadcastRunNotSent'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSendingLogic } from './broadcastSendingLogic'
 import { broadcastSentLogic } from './broadcastSentLogic'
@@ -43,7 +44,7 @@ import { ComposerDraftFeedback } from './ComposerDraftFeedback'
 import { QuillBroadcastActionsMenu } from './QuillBroadcastActionsMenu'
 
 /**
- * The recipients of one run. Each run binds its own broadcastSentLogic (keyed on the run id), so
+ * The recipients of one run, sent and not sent. Each run binds its own broadcastSentLogic (keyed on the run id), so
  * expanding a second run loads that run's sends instead of replacing the first one's.
  */
 function RunRecipients({
@@ -68,6 +69,7 @@ function RunRecipients({
                 <BroadcastRunAudience runId={runId} runStartedAt={runCreatedAt} channel={channel} />
             ) : null}
             <BindLogic logic={broadcastSentLogic} props={{ id: workflowId || 'new', parentRunId: runId, runCreatedAt }}>
+                <BroadcastRunNotSent />
                 <RunRecipientsTable
                     workflowId={workflowId}
                     runFinished={runFinished && !audience?.stillSending}
