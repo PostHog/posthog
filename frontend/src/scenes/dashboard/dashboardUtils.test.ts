@@ -751,4 +751,17 @@ describe('TileLoads', () => {
         expect(removeListener).toHaveBeenCalledTimes(1)
         expect(tileLoads.cancel([2]).tiles).toEqual([])
     })
+
+    it('leaves a released tile out of a later cancel of its load', () => {
+        const tileLoads = new TileLoads<string>()
+        const batch = tileLoads.start([1, 2, 3], new AbortController().signal, 'batch')
+
+        batch.release(1)
+
+        expect(tileLoads.cancel([2]).tiles).toEqual([
+            { tileId: 2, refresh: 'batch' },
+            { tileId: 3, refresh: 'batch' },
+        ])
+        expect(tileLoads.cancel([1]).tiles).toEqual([])
+    })
 })

@@ -7442,6 +7442,18 @@ snapshots:
         hash: v1.k794b7964.cc566593cb0936c5d24208ff74b57e8bba9a2ced69c3681866d8eca8f16455ab.FwjyCsf9RAF1BUiLAwMQupAd8h155meJk8NMtc8jSoA
     products-dashboards-insight-result-menu--quill--light:
         hash: v1.k794b7964.5a7cac6c8a112183e617a69e799ed58d4bd187af3d8ac35750e5cb78f964a392.VgE6PFRvRq35suijVUkowWUz07-O-SrU-a9Fe3rsMeA
+    products-dashboards-query-sharing-debug--before-refresh--dark:
+        hash: v1.k794b7964.e7246f8dd33f861ae816e59e57bf2aabaf5a8c75feb217a659e35e47752b38e4.LsHtAb7n4fhLen5GC9635NhhWmMm0afGWhQFk90DQbA
+    products-dashboards-query-sharing-debug--before-refresh--light:
+        hash: v1.k794b7964.72c665791a32a94e57b134e474a4f63117b658c50d4a3ed8a817bb083c8c46bb.zVI2ZZaFkdX_YfLCTMUqLuIV48f2krYdXJ2Q38ocPfQ
+    products-dashboards-query-sharing-debug--partial-with-fallback--dark:
+        hash: v1.k794b7964.f571f2481dbbf7c2961162f8332aa0e5c7cef8105508665a5b37a3de4f4a5753.iyqXMT6nKkEourY94zm3jGYpfuSfSpJt7k-ao0eo1yA
+    products-dashboards-query-sharing-debug--partial-with-fallback--light:
+        hash: v1.k794b7964.c2783dcae9569b068b55447c4d66eef538f3efba5d5cc57530f0ce8f784dbfdd.pI9EbzNeFRzU0II9lSRAjiTkaQ2o60o8_JbpLTQ_9s4
+    products-dashboards-query-sharing-debug--shared-and-cached--dark:
+        hash: v1.k794b7964.041394c6333484e109d888809cb1d03d34ffe1fd565b40bd07695e56b91b6873.-tGidyIlUe7CEy19v75ljGpukLcv-oEvEgjTRb5Huvc
+    products-dashboards-query-sharing-debug--shared-and-cached--light:
+        hash: v1.k794b7964.01e6fd787d5477a2b2cb88561b764a39bf3e64439a8562c81e62baf0bbeed60c.fGwQwhbSIIx8wcS86oPBUOm_Wq_onEUNSHlr5c1E8Qw
     products-dashboards-templates-dashboard-template-copy--default--dark:
         hash: v1.k794b7964.e441fc2d991020695739b9173c39b836a71364c4f3404dcf65f174a109bc919f.xvms_5gbih7s0W9qBwflXMTvNGiKVncitN72D6PQvv4
     products-dashboards-templates-dashboard-template-copy--default--light:

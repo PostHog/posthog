@@ -1,5 +1,6 @@
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextvars import ContextVar
 from datetime import datetime
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
@@ -1258,6 +1259,20 @@ class HogQLQueryExecutor:
             capture_exception(e, {"team_id": self.team.pk})
             return False
 
+    def _add_view_freshness_warnings(self) -> None:
+        if not self.context or not self.context.materialized_saved_query_ids:
+            return
+        try:
+            warnings = data_modeling_api.view_freshness_warnings(
+                self.team.pk, self.context.materialized_saved_query_ids, now=timezone.now()
+            )
+        except Exception as e:
+            # A freshness lookup must never fail the query whose results it annotates.
+            capture_exception(e, {"team_id": self.team.pk})
+            return
+        for saved_query_id, warning in warnings.items():
+            self.context.add_data_warehouse_sync_warning(saved_query_id, warning)
+
     def _with_fresh_database(
         self, query: Union[str, ast.SelectQuery, ast.SelectSetQuery] | None
     ) -> "HogQLQueryExecutor":
@@ -1293,6 +1308,7 @@ class HogQLQueryExecutor:
             # failure. The warning is often the actual explanation for the query error (e.g. a
             # FAILED warehouse sync left the table unreadable); throwing it away when execution
             # raises would hide the most useful signal.
+            self._add_view_freshness_warnings()
             if self.context and self.context.data_warehouse_sync_warnings:
                 record_warnings(self.context.data_warehouse_sync_warnings.values())
 
@@ -1341,6 +1357,11 @@ class HogQLQueryExecutor:
         ]
 
 
+hogql_execution_override: ContextVar[Callable[[HogQLQueryExecutor], HogQLQueryResponse] | None] = ContextVar(
+    "hogql_execution_override", default=None
+)
+
+
 def _restriction_key(restricted: set[RestrictedProperty] | None) -> tuple[str, ...] | None:
     return tuple(sorted(repr(prop) for prop in restricted)) if restricted is not None else None
 
@@ -1353,4 +1374,6 @@ def _names_a_missing_column(error: Exception) -> bool:
 
 
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:
-    return HogQLQueryExecutor(*args, **kwargs).execute()
+    executor = HogQLQueryExecutor(*args, **kwargs)
+    override = hogql_execution_override.get()
+    return override(executor) if override is not None else executor.execute()

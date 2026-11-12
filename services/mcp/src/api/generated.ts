@@ -33618,6 +33618,57 @@ export namespace Schemas {
       widget?: DashboardPatchWidgetOpenApi;
     }
 
+    /**
+     * * `shared` - Shared
+     * * `separate` - Separate
+     * * `fallback` - Shared attempt failed
+     */
+    export type DashboardSharingOutcomeEnum = typeof DashboardSharingOutcomeEnum[keyof typeof DashboardSharingOutcomeEnum];
+
+
+    export const DashboardSharingOutcomeEnum = {
+      Shared: 'shared',
+      Separate: 'separate',
+      Fallback: 'fallback',
+    } as const;
+
+    export interface DashboardSharingExecutionDebug {
+      /** Execution sharing outcome.
+       *
+       * * `shared` - Shared
+       * * `separate` - Separate
+       * * `fallback` - Shared attempt failed */
+      outcome: DashboardSharingOutcomeEnum;
+      /** Tiles participating in this execution. */
+      tile_ids: number[];
+      /** Sharing rule, or empty for separate execution. */
+      rule: string;
+      /** Why the query ran separately or fell back. */
+      reason: string;
+    }
+
+    export interface DashboardSharingDebug {
+      /** Decisions recorded by this tile's worker. */
+      executions: DashboardSharingExecutionDebug[];
+      /** Whether the per-worker limit of 64 diagnostic records was reached. */
+      truncated: boolean;
+      /** ClickHouse queries measured by this worker, including lookups. */
+      query_count: number;
+      /** ClickHouse rows read, attributed once to the executing worker. */
+      rows_read: number;
+      /** Summed ClickHouse execution time in milliseconds; client round-trip time on older protocols. */
+      duration_ms: number;
+    }
+
+    export interface DashboardQuerySharingEvent {
+      /** SSE event type: tile, complete, or error. */
+      type: string;
+      /** Independently completed dashboard tile. */
+      tile?: DashboardTile;
+      /** Present only when debug is requested. */
+      debug?: DashboardSharingDebug;
+    }
+
     export interface DashboardSubscribeNudgeResponse {
       /** Whether a nudge notification was created. False when one was already sent recently for this user and dashboard, or when in-app notifications are unavailable. */
       created: boolean;
@@ -34929,6 +34980,11 @@ export namespace Schemas {
       requires_column: boolean;
       /** JSON schema the config object is validated against. */
       config_schema: DataQualityCheckTypeConfigSchema;
+    }
+
+    export interface DataQualityFailingCheckCount {
+      /** Enabled checks whose last run reported a failure. */
+      count: number;
     }
 
     /**
@@ -72201,6 +72257,11 @@ export namespace Schemas {
       specificity_rejection?: SpecificityMetadata | null;
     }
 
+    export interface NodeAttentionCount {
+      /** Models whose last serving run failed or whose scheduled runs are suspended, each counted once. */
+      count: number;
+    }
+
     export interface NodePinDelay {
       /** Node id of the downstream view or endpoint. */
       id: string;
@@ -95585,6 +95646,15 @@ export namespace Schemas {
     export interface PauseUntilRequest {
       /** Pause the grouping pipeline until this timestamp (ISO 8601). */
       timestamp: string;
+    }
+
+    export interface PendingReviewCounts {
+      /** Proposed metrics you can see that wait for approval. */
+      metrics: number;
+      /** Proposed joins that wait to be accepted or rejected. */
+      relationships: number;
+      /** Proposed certifications that wait for review. */
+      certifications: number;
     }
 
     export interface PeopleImport {
@@ -132686,6 +132756,56 @@ export namespace Schemas {
     export const DashboardsRunWidgetsRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type DashboardsStreamQueryResultsRetrieveParams = {
+    /**
+     * Cancellation ID for this dashboard refresh batch.
+     */
+    client_query_id: string;
+    /**
+     * Include request-local sharing decisions and measured ClickHouse work in tile events.
+     */
+    debug?: boolean;
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
+    format?: DashboardsStreamQueryResultsRetrieveFormat;
+    /**
+     * Use fresh cached results (blocking), or recalculate (force_blocking).
+     *
+     * * `blocking` - Use fresh cached results
+     * * `force_blocking` - Recalculate
+     * @minLength 1
+     */
+    refresh: DashboardsStreamQueryResultsRetrieveRefresh;
+    /**
+     * Comma-separated insight tile IDs, at most 32.
+     * @minLength 1
+     * @maxLength 512
+     */
+    tile_ids: string;
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
+    };
+
+    export type DashboardsStreamQueryResultsRetrieveFormat = typeof DashboardsStreamQueryResultsRetrieveFormat[keyof typeof DashboardsStreamQueryResultsRetrieveFormat];
+
+
+    export const DashboardsStreamQueryResultsRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsStreamQueryResultsRetrieveRefresh = typeof DashboardsStreamQueryResultsRetrieveRefresh[keyof typeof DashboardsStreamQueryResultsRetrieveRefresh];
+
+
+    export const DashboardsStreamQueryResultsRetrieveRefresh = {
+      Blocking: 'blocking',
+      ForceBlocking: 'force_blocking',
     } as const;
 
     export type DashboardsStreamTilesRetrieveParams = {
