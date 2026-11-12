@@ -26008,8 +26008,8 @@
                     "type": "string"
                 },
                 "source": {
-                    "description": "The tagger that wrote the answer: `jev` for AI, `manual` for a person. Issue detail sets it, list results do not.",
-                    "type": "string"
+                    "description": "The tagger that wrote the answer: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null.",
+                    "type": ["string", "null"]
                 },
                 "value": {
                     "description": "The answer: true for yes, false for no, null when the tagger was unsure.",
