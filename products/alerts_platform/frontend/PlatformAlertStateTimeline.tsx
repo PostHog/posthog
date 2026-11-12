@@ -25,30 +25,37 @@ const MIN_INTERVAL_PX = 2
 const PX_PER_AXIS_LABEL = 64
 const AXIS_HOUR_STEPS = [1, 2, 3, 4, 6, 8, 12] as const
 
-const STATE_LABELS: Record<PlatformAlertStateApi, string> = {
+// Legacy logs alerts also report a pending-resolve state, which platform alerts do not have.
+type TimelineState = PlatformAlertStateApi | 'pending_resolve'
+
+type AlertStateInterval = Omit<PlatformAlertStateIntervalApi, 'state'> & { state: TimelineState }
+
+const STATE_LABELS: Record<TimelineState, string> = {
     [PlatformAlertStateApi.NotFiring]: 'OK',
     [PlatformAlertStateApi.Firing]: 'Firing',
+    pending_resolve: 'Resolving',
     [PlatformAlertStateApi.Errored]: 'Errored',
     [PlatformAlertStateApi.Snoozed]: 'Snoozed',
     [PlatformAlertStateApi.Broken]: 'Broken',
 }
 
-const STATE_BG: Record<PlatformAlertStateApi, string> = {
+const STATE_BG: Record<TimelineState, string> = {
     [PlatformAlertStateApi.NotFiring]: 'bg-success',
     [PlatformAlertStateApi.Firing]: 'bg-danger',
+    pending_resolve: 'bg-warning',
     [PlatformAlertStateApi.Errored]: 'bg-warning',
     [PlatformAlertStateApi.Snoozed]: 'bg-muted',
     [PlatformAlertStateApi.Broken]: 'bg-danger-highlight',
 }
 
-function bgForInterval(state: PlatformAlertStateApi, enabled: boolean): string {
+function bgForInterval(state: TimelineState, enabled: boolean): string {
     if (!enabled) {
         return 'bg-surface-tertiary'
     }
     return STATE_BG[state] ?? 'bg-muted'
 }
 
-function labelForInterval(state: PlatformAlertStateApi, enabled: boolean): string {
+function labelForInterval(state: TimelineState, enabled: boolean): string {
     if (!enabled) {
         return 'Disabled'
     }
@@ -62,7 +69,7 @@ interface HoverState {
 }
 
 export interface PlatformAlertStateTimelineProps {
-    timeline: readonly PlatformAlertStateIntervalApi[] | undefined
+    timeline: readonly AlertStateInterval[] | undefined
     className?: string
     // Render a time axis below the bar — HH:mm labels at a responsive hour granularity,
     // falling back to "24h ago" / "Now" when the bar is too narrow for multiple labels.
