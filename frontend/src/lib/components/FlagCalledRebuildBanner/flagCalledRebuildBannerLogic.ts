@@ -63,7 +63,7 @@ export const flagCalledRebuildBannerLogic = kea<flagCalledRebuildBannerLogicType
         reportBannerShown: (artifactType: FlagCalledArtifactType) => ({ artifactType }),
     }),
     selectors({
-        // On mode 0 the cohort criteria editor warns about each criterion instead.
+        // On mode 0 only the cohort criteria editor warns, once for each criterion.
         bannersEnabled: [
             (s) => [s.currentTeam, s.featureFlags],
             (currentTeam: TeamPublicType | TeamType | null, featureFlags: FeatureFlagsSet): boolean =>
