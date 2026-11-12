@@ -14,7 +14,12 @@ import {
 } from '../types'
 import { throwIfDeadlinePassed } from '../utils/deadline'
 import { EncryptedFields } from '../utils/encryption-utils'
-import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
+import {
+    HogConfigurationError,
+    isHogLimitError,
+    isHogVMErrorKind,
+    withBytecodeContract,
+} from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
 import {
     INTEGRATION_REF_KEY,
@@ -581,6 +586,10 @@ for (const reason of [...LIQUID_LIMIT_REASONS.map(([, reason]) => reason), 'data
 
 const liquidFailureReason = (message: string, kind: HogVMErrorKind): string =>
     LIQUID_LIMIT_REASONS.find(([text]) => message.includes(text))?.[1] ?? kind
+
+// Only the time limit can pass on another attempt. The other limits fail the same way every time.
+export const isLiquidRenderTimeout = (error: unknown): boolean =>
+    error instanceof Error && isHogLimitError(error) && liquidFailureReason(error.message, 'limit') === 'time'
 
 /**
  * A parse error or a refused filter fails the template on every event. Any other render error is

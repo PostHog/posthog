@@ -16,7 +16,7 @@ issue-spiking notification. Issue-created is capped per team per hour (see
 
 `modes/processing/ledger.rs` counts a team's batch of exceptions per issue in one script call and returns the recent counts.
 Rules that limit or alert on exceptions decide from that result, so they do not need Redis keys of their own.
-No pipeline stage calls the ledger yet.
+The adaptive ingestion stage is its first caller.
 
 The caller chooses the windows.
 A window is a number of fixed buckets of one width, for example 12 buckets of 5 minutes or 24 buckets of one hour.
@@ -29,10 +29,50 @@ Buckets follow the processing clock, not the event timestamp.
 `<width>` is the bucket width in seconds, and `<bucket>` is the Unix time divided by the width.
 The `{team_id}` hash tag keeps all the keys of a team in one slot.
 The number of fields minus one is the number of issues with an exception in the bucket.
+A window can also keep the team total only, in which case its buckets hold the `_n` field alone.
 
 A rolling count is the sum of the buckets inside the window, plus the bucket before them weighted by the share of it that the window still covers.
 For that reason the ledger stores one bucket more than the window holds.
 The estimate assumes that the events of that oldest bucket were spread evenly.
+
+## Adaptive ingestion (processing mode)
+
+Adaptive ingestion marks the exceptions of a spike. It runs in shadow mode only: it never drops or samples an exception.
+It is off by default.
+A project is included when `ADAPTIVE_INGESTION_MODE=shadow` and its `adaptive_ingestion_enabled` setting is true.
+
+The stage runs after the manual rate limits and counts the exceptions they admit, through the shared counters above.
+It compares rolling counts with the project's typical day: the median of the days that had exceptions among the previous 29 UTC days.
+A project has no typical day, and so no lines, until 14 of those days had exceptions.
+A typical day is never taken below 1,000 exceptions a month.
+
+| Line | An exception is over it when |
+| --- | --- |
+| Issue | its issue's rolling hour is above 12 typical hours and holds 20 exceptions or more, or its issue's rolling 24 hours is above 2 typical days |
+| Project | the project's rolling 24 hours is above 3 typical days |
+
+Within a batch, only the exceptions that arrive after a line is crossed are over it.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `ADAPTIVE_INGESTION_MODE` | `off` | Set to `shadow` to record what the lines say. |
+| `ADAPTIVE_INGESTION_ISSUE_HOUR_MULTIPLE` | `12` | Issue line, in typical hours per rolling hour. |
+| `ADAPTIVE_INGESTION_ISSUE_DAY_MULTIPLE` | `2` | Issue line, in typical days per rolling 24 hours. |
+| `ADAPTIVE_INGESTION_PROJECT_DAY_MULTIPLE` | `3` | Project line, in typical days per rolling 24 hours. |
+
+Each exception of an included project that has a typical day gets these properties.
+The lines are not stored on the exception: a query applies any threshold to the ratios.
+Cymbal removes incoming properties with the `$adaptive_ingestion_` prefix, so only processing sets them.
+
+| Property | Value |
+| --- | --- |
+| `$adaptive_ingestion_typical_day` | the typical day |
+| `$adaptive_ingestion_issue_hour_ratio` | the issue's rolling hour divided by the typical hour |
+| `$adaptive_ingestion_issue_day_ratio` | the issue's rolling 24 hours divided by the typical day |
+| `$adaptive_ingestion_project_day_ratio` | the project's rolling 24 hours divided by the typical day |
+
+When the counters fail, the exception is kept and gets no property.
+`cymbal_adaptive_ingestion_events_total` counts exceptions by outcome: `seen`, `over_issue_line`, `over_project_line`, `no_baseline`, and `error`.
 
 ## Issue-created rate limit (notifications mode)
 
