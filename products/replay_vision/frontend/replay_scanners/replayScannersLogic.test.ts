@@ -341,14 +341,29 @@ describe('replayScannersLogic', () => {
             })
         })
 
-        it('a persisted toggle completes without a success toast', async () => {
+        it('a persisted toggle takes the saved reason and completes without a success toast', async () => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team/vision/scanners/:id/': () => [
+                        200,
+                        { id: 'a', enabled: false, disabled_reason: 'manual' },
+                    ],
+                },
+            })
             const successToast = jest.spyOn(lemonToast, 'success')
-            logic.actions.loadScannersSuccess(scanners, scanners.length)
+            logic.actions.loadScannersSuccess(
+                [{ ...scanners[0], disabled_reason: 'free_credits_used' }, ...scanners.slice(1)],
+                scanners.length
+            )
 
             await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
                 'toggleScannerEnabledDone',
             ])
 
+            expect(logic.values.scanners.find((s) => s.id === 'a')).toMatchObject({
+                enabled: false,
+                disabled_reason: 'manual',
+            })
             expect(successToast).not.toHaveBeenCalled()
             expect(logic.values.togglingIds).toEqual([])
         })

@@ -9,6 +9,28 @@
  */
 import * as zod from 'zod'
 
+export const conversationsIntercomImportsCreateBodyRegionDefault = `us`
+export const conversationsIntercomImportsCreateBodyAccessTokenMax = 500
+
+export const ConversationsIntercomImportsCreateBody = /* @__PURE__ */ zod.object({
+    region: zod
+        .enum(['us', 'eu', 'au'])
+        .default(conversationsIntercomImportsCreateBodyRegionDefault)
+        .describe(
+            'Region where the Intercom workspace is hosted: us, eu, or au.\n\n\* `us` - United States\n\* `eu` - Europe\n\* `au` - Australia'
+        ),
+    access_token: zod
+        .string()
+        .max(conversationsIntercomImportsCreateBodyAccessTokenMax)
+        .describe('Intercom access token with permission to read conversations and contacts.'),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.'
+        ),
+})
+
 export const conversationsMacrosCreateBodyNameMax = 200
 
 export const conversationsMacrosCreateBodyShortcutMax = 50

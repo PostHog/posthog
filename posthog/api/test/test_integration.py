@@ -8621,7 +8621,7 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
 class TestIntegrationMembershipPermissions(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # A plain project member can add integrations and manage only Google accounts they connected.
+        # A plain project member can add integrations and manage only the personal integrations they connected.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -8647,12 +8647,17 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert Integration.objects.filter(id=integration.id).exists()
 
-    def test_member_can_delete_own_google_calendar_integration(self) -> None:
+    @parameterized.expand(
+        [
+            ("google_calendar", Integration.IntegrationKind.GOOGLE_CALENDAR, "google-user-1", {}),
+            ("posthog_connection", "posthog", "EU:member", {"region": "EU"}),
+        ]
+    )
+    def test_member_can_delete_own_personal_integration(
+        self, _name: str, kind: str, integration_id: str, config: dict[str, Any]
+    ) -> None:
         integration = Integration.objects.create(
-            team=self.team,
-            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
-            integration_id="google-user-1",
-            created_by=self.user,
+            team=self.team, kind=kind, integration_id=integration_id, config=config, created_by=self.user
         )
 
         response = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
@@ -8660,18 +8665,25 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
         assert not Integration.objects.filter(id=integration.id).exists()
 
-    def test_member_cannot_delete_another_members_google_calendar_integration(self) -> None:
-        creator = User.objects.create_and_join(self.organization, "calendar-owner@example.com", "test")
+    @parameterized.expand(
+        [
+            # Another member's Google account is visible to the team but only its creator can remove it.
+            ("google_calendar", Integration.IntegrationKind.GOOGLE_CALENDAR, {}, status.HTTP_403_FORBIDDEN),
+            # Another member's PostHog connection is hidden from everyone but its creator.
+            ("posthog_connection", "posthog", {"region": "EU"}, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_member_cannot_delete_another_members_personal_integration(
+        self, _name: str, kind: str, config: dict[str, Any], expected_status: int
+    ) -> None:
+        creator = User.objects.create_and_join(self.organization, "integration-owner@example.com", "test")
         integration = Integration.objects.create(
-            team=self.team,
-            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
-            integration_id="google-user-2",
-            created_by=creator,
+            team=self.team, kind=kind, integration_id="other-member", config=config, created_by=creator
         )
 
         response = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert response.status_code == expected_status, response.content
         assert Integration.objects.filter(id=integration.id).exists()
 
     @override_settings(

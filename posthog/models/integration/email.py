@@ -20,6 +20,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import email_domain
 from posthog.integrations.contracts import IntegrationConflict, IntegrationPatch, IntegrationRecord
+from posthog.integrations.lifecycle import register_delete_hook, sdk_runs_hooks
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -336,14 +337,20 @@ class EmailIntegration:
 
 @receiver(models.signals.post_delete, sender=model.Integration)
 def clear_default_email_sender_on_integration_delete(sender: Any, instance: model.Integration, **kwargs: Any) -> None:
-    if instance.kind != "email":
+    # The SDK calls the hook itself. This receiver is for the deletes that do not use the SDK, such as a team delete.
+    if not sdk_runs_hooks():
+        clear_default_email_sender_of_integration(instance)
+
+
+def clear_default_email_sender_of_integration(row: IntegrationRecord) -> None:
+    if row.kind != "email":
         return
 
     from products.workflows.backend.facade.api import (
         clear_default_email_sender,  # noqa: PLC0415 — keeps the workflows facade off the model import path
     )
 
-    clear_default_email_sender(instance.team_id, instance.id)
+    clear_default_email_sender(row.team_id, row.id)
 
 
 @receiver(models.signals.post_delete, sender=model.Integration)
@@ -352,9 +359,15 @@ def cleanup_ses_identity_on_integration_delete(sender: Any, instance: model.Inte
     # also cleaned up when integrations die via cascade, e.g. project or org deletion.
     # Leaving the identity behind permanently blocks the domain for every other
     # organization via the foreign-tenant guard in SESProvider.create_email_domain.
-    if instance.kind != "email" or instance.config.get("provider") != "ses":
+    # The SDK calls the hook itself, so this receiver is only for the deletes that do not use the SDK.
+    if not sdk_runs_hooks():
+        cleanup_ses_identity_of_integration(instance)
+
+
+def cleanup_ses_identity_of_integration(row: IntegrationRecord) -> None:
+    if row.kind != "email" or row.config.get("provider") != "ses":
         return
-    domain = instance.config.get("domain")
+    domain = row.config.get("domain")
     if not domain:
         return
 
@@ -363,3 +376,7 @@ def cleanup_ses_identity_on_integration_delete(sender: Any, instance: model.Inte
     )
 
     transaction.on_commit(lambda: delete_ses_identity_if_unused.delay(domain))
+
+
+register_delete_hook(clear_default_email_sender_of_integration)
+register_delete_hook(cleanup_ses_identity_of_integration)

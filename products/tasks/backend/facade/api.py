@@ -238,6 +238,7 @@ from products.tasks.backend.task_profiles import (
     USER,
     WIZARD,
 )
+from products.tasks.backend.task_run_sync import collect_status_mismatches, sync_task_pr_urls
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
@@ -329,6 +330,7 @@ __all__ = [
     "readonly_github_integration_id",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
+    "collect_task_status_mismatches",
     "compute_repository_readiness",
     "create_and_run_task",
     "get_owner_origin_latest_run",
@@ -1361,8 +1363,8 @@ def normalize_verified_pull_request_urls_batch(
     rows = TaskRun.objects.filter(team_id=team_id, state__has_key="verified_pr_urls").order_by("id")
     if after is not None:
         rows = rows.filter(id__gt=after)
-    batch = list(rows.values_list("id", "state")[:limit])
-    for run_id, state in batch:
+    batch = list(rows.values_list("id", "task_id", "state")[:limit])
+    for run_id, task_id, state in batch:
         verified = state.get("verified_pr_urls") if isinstance(state, dict) else None
         if normalize_verified_pull_request_urls(verified) == verified:
             continue
@@ -1373,6 +1375,7 @@ def normalize_verified_pull_request_urls_batch(
             )
 
         TaskRun.mutate_state_atomic(run_id, normalize)
+        sync_task_pr_urls(task_id)
     return batch[-1][0] if len(batch) == limit else None
 
 
@@ -2070,6 +2073,15 @@ def collect_task_run_state_metrics(
             with_status=True,
         ),
     )
+
+
+def collect_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
+    return [
+        contracts.TaskStatusMismatchRow(
+            stored_status=row.stored_status or "none", derived_status=row.derived_status, count=row.count
+        )
+        for row in collect_status_mismatches()
+    ]
 
 
 # --- Writes ---
@@ -8563,7 +8575,10 @@ def create_task(
         enforce_self_driving_free_trial(team, report_id=signal_report_id)
     if refuse_without_repository and signal_report is not None:
         _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
-        raise ValidationError({"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED})
+        raise ValidationError(
+            {"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED},
+            code="report_implementation_repository_unresolved",
+        )
 
     if signal_report is not None and signal_report_task_relationship in (None, "implementation"):
         from products.signals.backend.facade.github_optional import (  # noqa: PLC0415 - keeps the signals model graph out of tasks facade initialization
@@ -8571,22 +8586,22 @@ def create_task(
             pilot_repository_integration_id,
         )
 
-        if github_optional_pilot_enabled(team_id):
-            integration_id = (
-                pilot_repository_integration_id(team_id, validated_data["repository"])
-                if validated_data.get("repository")
-                else None
+        integration_id = (
+            pilot_repository_integration_id(team_id, validated_data["repository"])
+            if validated_data.get("repository")
+            else None
+        )
+        repository_integration = (
+            _team_github_integration_or_none(team_id, integration_id) if integration_id is not None else None
+        )
+        if repository_integration is not None:
+            validated_data["github_integration"] = repository_integration
+        elif github_optional_pilot_enabled(team_id):
+            raise ValidationError(
+                {
+                    "repository": "Connect or repair GitHub access to the selected repository before creating a pull request."
+                }
             )
-            pilot_integration = (
-                _team_github_integration_or_none(team_id, integration_id) if integration_id is not None else None
-            )
-            if pilot_integration is None:
-                raise ValidationError(
-                    {
-                        "repository": "Connect or repair GitHub access to the selected repository before creating a pull request."
-                    }
-                )
-            validated_data["github_integration"] = pilot_integration
 
     if signal_report_id and signal_report_task_relationship in (None, "implementation"):
         if repository := validated_data.get("repository"):

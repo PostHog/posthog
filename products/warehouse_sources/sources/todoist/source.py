@@ -92,8 +92,6 @@ You can find your personal API token in [Todoist's integration settings](https:/
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Todoist's v1 REST endpoints expose no server-side timestamp filter, so every endpoint is
-        # full refresh (empty INCREMENTAL_FIELDS) — no genuine incremental/append mode to offer.
         return build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,
@@ -128,4 +126,6 @@ You can find your personal API token in [Todoist's integration settings](https:/
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
