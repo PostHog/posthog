@@ -1345,6 +1345,75 @@ describe('CDP API', () => {
         expect(allLogText).toContain('***REDACTED***')
     })
 
+    it('returns only the next step id from a branch step test run', async () => {
+        const SECRET_TOKEN = 'fake-branch-next-step-value-xyz'
+        const ALWAYS_TRUE_BYTECODE = ['_H', 1, 29]
+
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-cdp-api-flow-branch-fetch',
+            name: 'Flow branch fetch',
+            code: `fetch(inputs.url, { 'method': 'POST', 'headers': { 'Authorization': f'Bearer {inputs.access_token}' } })`,
+            inputs_schema: [
+                { key: 'url', type: 'string', label: 'URL', secret: false, required: true },
+                { key: 'access_token', type: 'string', label: 'Access token', secret: true, required: true },
+            ],
+        })
+
+        const res = await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+            .send({
+                globals,
+                mock_async_functions: true,
+                current_action_id: 'branch_node',
+                configuration: {
+                    name: 'Flow with a branch before a fetch',
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            config: { type: 'event', filters: {} },
+                        },
+                        {
+                            id: 'branch_node',
+                            name: 'Branch',
+                            type: 'conditional_branch',
+                            config: { conditions: [{ filters: { bytecode: ALWAYS_TRUE_BYTECODE } }] },
+                            output_variable: { key: 'next_step', result_path: 'conditionResult.nextAction.id' },
+                        },
+                        {
+                            id: 'fetch_node',
+                            name: 'Fetch',
+                            type: 'function',
+                            config: {
+                                template_id: 'template-cdp-api-flow-branch-fetch',
+                                inputs: {
+                                    url: { value: 'https://example.com/hook' },
+                                    access_token: { value: SECRET_TOKEN },
+                                },
+                            },
+                        },
+                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                    ],
+                    edges: [
+                        { from: 'trigger_node', to: 'branch_node', type: 'continue' },
+                        { from: 'branch_node', to: 'fetch_node', type: 'branch', index: 0 },
+                        { from: 'branch_node', to: 'exit_node', type: 'continue' },
+                        { from: 'fetch_node', to: 'exit_node', type: 'continue' },
+                    ],
+                },
+            })
+
+        expect(res.status).toEqual(200)
+        expect(res.body).toMatchObject({
+            status: 'success',
+            nextActionId: 'fetch_node',
+            execResult: { conditionResult: { nextAction: { id: 'fetch_node' } } },
+            variables: { next_step: 'fetch_node' },
+        })
+        expect(JSON.stringify(res.body)).not.toContain(SECRET_TOKEN)
+    })
+
     it.each([
         ['real', false, ['https://example.com']],
         ['mocked', true, []],
