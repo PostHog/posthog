@@ -30,14 +30,23 @@ export const FIXED_NAME_ASSET_GROUPS = [
     {
         reason:
             'Hashless copies of hashed entry points, written by createHashlessEntrypoints in ' +
-            'common/esbuilder/utils.mjs as a load fallback. The app loads the hashed name.',
+            'common/esbuilder/utils.mjs as a load fallback. The app loads the hashed name. For the web workers ' +
+            '(lib/utils/createWorker.ts), the fixed name serves tabs from a build before the hashed names, and ' +
+            'is the fallback when a deployment that serves /static/ from the image has dropped an old hashed file.',
         entries: [
+            'decompressionWorker.js',
+            'elkWorker.js',
             'exporter.js',
             'exporterSharedChunkAnchors.js',
+            'hogqlParserWorker.js',
             'index.js',
             'infrastructure-admin.js',
+            'monacoEditorWorker.js',
+            'monacoJsonWorker.js',
+            'monacoTsWorker.js',
             'render-query.js',
             'sharedChunkAnchors.js',
+            'terminalWorker.js',
         ],
     },
     {
@@ -56,15 +65,6 @@ export const FIXED_NAME_ASSET_GROUPS = [
         reason:
             'DEBT: code the app loads at runtime by a fixed name, so a long-open tab can get a newer file than its JS. ' +
             'Each entry waits to be pinned to its content-hashed name. This group must shrink to zero; never add to it.',
-        entries: [
-            'decompressionWorker.js',
-            'elkWorker.js',
-            'hogqlParserWorker.js',
-            'monacoEditorWorker.js',
-            'monacoJsonWorker.js',
-            'monacoTsWorker.js',
-            'snappy_bg.wasm',
-            'terminalWorker.js',
-        ],
+        entries: ['snappy_bg.wasm'],
     },
 ]
