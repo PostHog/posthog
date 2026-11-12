@@ -263,7 +263,7 @@ def uploadable_document_types(documents: list[contracts.StaffLegalDocument]) -> 
 
 def upload_signed_document_as_staff(upload: contracts.StaffSignedDocumentUpload, pdf: IO[bytes]) -> StaffUploadOutcome:
     try:
-        logic.create_signed_document_from_upload(
+        document = logic.create_signed_document_from_upload(
             organization_id=upload.organization_id,
             created_by_id=upload.created_by_id,
             document_type=upload.document_type,
@@ -276,6 +276,8 @@ def upload_signed_document_as_staff(upload: contracts.StaffSignedDocumentUpload,
         return StaffUploadOutcome.ALREADY_EXISTS
     except logic.SignedPdfUploadFailed:
         return StaffUploadOutcome.STORAGE_FAILED
+    # A signed BAA turns AI processing and AI training off, the same as one signed through PandaDoc.
+    logic.apply_baa_signed_side_effects(document)
     return StaffUploadOutcome.STORED
 
 

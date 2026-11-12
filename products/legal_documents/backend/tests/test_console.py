@@ -112,6 +112,19 @@ class TestLegalDocumentsConsolePanel(BaseTest):
         assert mock_storage.write_stream.call_args.kwargs["extras"] == {"ContentType": "application/pdf"}
 
     @patch(f"{_LOGIC}.object_storage")
+    def test_upload_of_a_baa_opts_the_organization_out_of_ai(self, _mock_storage: MagicMock) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.is_ai_training_opted_in = True
+        self.organization.save()
+
+        response = self._post("upload-signed-document", {**self._upload_data(_pdf()), "document_type": "BAA"})
+
+        assert response.status_code == 302
+        self.organization.refresh_from_db()
+        assert self.organization.is_ai_data_processing_approved is False
+        assert self.organization.is_ai_training_opted_in is False
+
+    @patch(f"{_LOGIC}.object_storage")
     def test_upload_storage_failure_saves_no_row(self, mock_storage: MagicMock) -> None:
         mock_storage.write_stream.side_effect = RuntimeError("s3 unreachable")
 

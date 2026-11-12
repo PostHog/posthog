@@ -77,7 +77,7 @@ def _upload_form(document_types: list[str]) -> type[forms.Form]:
         document_type = forms.ChoiceField(choices=[(document_type, document_type) for document_type in document_types])
         company_name = forms.CharField(max_length=255)
         company_address = forms.CharField(max_length=512)
-        representative_email = forms.EmailField()
+        representative_email = forms.EmailField(max_length=254)
         signed_pdf = forms.FileField(
             label="Signed PDF",
             widget=forms.FileInput(attrs={"accept": ".pdf"}),
@@ -209,7 +209,8 @@ class LegalDocumentsPanel(Panel):
                     handler=upload_signed_document,
                     form_class=_upload_form(uploadable),
                     description="For a document signed outside PandaDoc, such as a counter-signed MSA. Saves it as "
-                    "signed, and the customer can download the PDF.",
+                    "signed, and the customer can download the PDF. A BAA also turns off AI data processing and "
+                    "AI training for the organization.",
                 )
             )
         if refetchable:
