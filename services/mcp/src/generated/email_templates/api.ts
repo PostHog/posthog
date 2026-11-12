@@ -29,7 +29,7 @@ export const MessagingSendEmailCreateHeader = () => zod.object({
         ),
 })
 
-export const messagingSendEmailCreateBodyTemplateKeyMax = 400
+export const messagingSendEmailCreateBodyTemplateKeyMax = 256
 
 export const messagingSendEmailCreateBodyTemplateKeyRegExp = new RegExp('^[a-zA-Z0-9_-]+$')
 export const messagingSendEmailCreateBodyDistinctIdMax = 400
@@ -46,7 +46,7 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
         .optional()
         .describe(
-            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
+            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most 256 characters. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
         ),
     distinct_id: zod
         .string()
@@ -91,9 +91,23 @@ export const MessagingTemplatesListParams = () => zod.object({
         ),
 })
 
+export const messagingTemplatesListQueryBasicDefault = false
+
 export const MessagingTemplatesListQueryParams = () => zod.object({
+    basic: zod
+        .boolean()
+        .default(messagingTemplatesListQueryBasicDefault)
+        .describe(
+            'With true, leave out `content` and `draft_content` from each template, for lists that show names and metadata only. `has_draft` still says whether a draft exists.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    transactional: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.'
+        ),
 })
 
 export const MessagingTemplatesCreateParams = () => zod.object({

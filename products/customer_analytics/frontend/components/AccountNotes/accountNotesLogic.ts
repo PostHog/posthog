@@ -7,8 +7,6 @@ import { PaginationManual, Sorting, lemonToast } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { tagsModel } from '~/models/tagsModel'
-
 import { accountNotesList, accountsList } from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountNoteApi,
@@ -679,7 +677,6 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
             lemonToast.error('Failed to load account notes')
         },
         updateNoteTagsSuccess: ({ updatedNoteTags }) => {
-            tagsModel.findMounted()?.actions.loadTags()
             posthog.capture(AccountsEvents.NoteUpdated, {
                 notebook_short_id: updatedNoteTags?.short_id,
                 fields: ['tags'],

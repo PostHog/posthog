@@ -43,6 +43,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
+from products.data_modeling.backend.facade.contracts import PlanFloorRefusalError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.cohort_scheduling import (
     MINUTES_PER_WEEK,
     ScheduleReconcilePlan,
@@ -55,8 +56,6 @@ from products.data_modeling.backend.logic.freshness import (
     SCHEDULABLE_BUCKETS,
     ClampedCadence,
     InvalidTarget,
-    PlanFloorRefusalError,
-    UnsupportedFrequencyTargetError,
     format_cadence,
     validate_declared_target,
     validate_pin,

@@ -7,6 +7,70 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AttachmentUploadFileApi {
+    /**
+     * SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it.
+     * @pattern ^[0-9a-f]{64}$
+     */
+    sha256: string
+    /**
+     * Size of the file in bytes.
+     * @minimum 1
+     */
+    size: number
+}
+
+export interface AttachmentUploadsRequestApi {
+    /**
+     * The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.
+     * @minItems 1
+     * @maxItems 10
+     */
+    files: AttachmentUploadFileApi[]
+}
+
+/**
+ * * `present` - Present
+ * * `upload` - Upload
+ */
+export type AttachmentUploadStatusEnumApi =
+    (typeof AttachmentUploadStatusEnumApi)[keyof typeof AttachmentUploadStatusEnumApi]
+
+export const AttachmentUploadStatusEnumApi = {
+    Present: 'present',
+    Upload: 'upload',
+} as const
+
+/**
+ * For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256.
+ */
+export type AttachmentUploadSlotApiHeaders = { [key: string]: string }
+
+export interface AttachmentUploadSlotApi {
+    /** SHA-256 of the file, as sent. */
+    sha256: string
+    /** `present` when PostHog already has the file and nothing needs uploading, `upload` when the file must be uploaded to `url` before the send.
+     *
+     * * `present` - Present
+     * * `upload` - Upload */
+    status: AttachmentUploadStatusEnumApi
+    /** For a `present` file: when PostHog deletes it unless a send uses it before then. */
+    expires_at?: string
+    /** For an `upload` file: where to send the file's bytes, without your PostHog API key. */
+    url?: string
+    /** For an `upload` file: the HTTP method, `PUT`. */
+    method?: string
+    /** For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256. */
+    headers?: AttachmentUploadSlotApiHeaders
+    /** For an `upload` file: when `url` stops accepting the upload. */
+    url_expires_at?: string
+}
+
+export interface AttachmentUploadsResponseApi {
+    /** One answer per requested file, in request order. */
+    files: AttachmentUploadSlotApi[]
+}
+
 /**
  * * `queued` - Queued
  * * `failed` - Failed
@@ -90,12 +154,15 @@ export type SendEmailApiMessageData = { [key: string]: unknown }
 
 export interface EmailAttachmentApi {
     /**
+     * SHA-256 of a file uploaded through `POST /api/projects/{project_id}/messaging/attachments/uploads/`, as 64 lowercase hex characters.
+     * @pattern ^[0-9a-f]{64}$
+     */
+    sha256: string
+    /**
      * File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.
      * @maxLength 255
      */
     filename: string
-    /** The file's bytes as standard base64, without line breaks. */
-    content: string
     /**
      * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
      * @maxLength 78
@@ -116,8 +183,8 @@ export interface SendEmailApi {
     /** ID of the email template to send. The template must be made transactional first. Send either `template_id` or `template_key`. */
     template_id?: string
     /**
-     * Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.
-     * @maxLength 400
+     * Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most 256 characters. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.
+     * @maxLength 256
      * @pattern ^[a-zA-Z0-9_-]+$
      */
     template_key?: string
@@ -143,7 +210,7 @@ export interface SendEmailApi {
     /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
     bcc?: string | string[] | null
     /**
-     * Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
+     * Files attached to the email your code rendered: up to 10, each uploaded first through `POST /api/projects/{project_id}/messaging/attachments/uploads/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
      * @maxItems 10
      * @nullable
      */
@@ -881,6 +948,8 @@ export interface MessageTemplateApi {
     readonly transactional_hog_flow_id: string | null
     /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
     draft_content?: MessageTemplateContentApi | null
+    /** Whether the template has unpublished edits in `draft_content`. */
+    readonly has_draft: boolean
 }
 
 export interface PaginatedMessageTemplateListApi {
@@ -933,6 +1002,8 @@ export interface PatchedMessageTemplateApi {
     readonly transactional_hog_flow_id?: string | null
     /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
     draft_content?: MessageTemplateContentApi | null
+    /** Whether the template has unpublished edits in `draft_content`. */
+    readonly has_draft?: boolean
 }
 
 /**
@@ -1022,6 +1093,86 @@ export interface SendTransactionalEmailApi {
     message_data?: SendTransactionalEmailApiMessageData
     /** Who the email is for, used to attribute engagement events. */
     identifiers?: TransactionalEmailIdentifiersApi
+}
+
+/**
+ * * `manual` - Manual
+ * * `detected` - Detected from GitHub
+ */
+export type CodeEmailSourceOriginEnumApi =
+    (typeof CodeEmailSourceOriginEnumApi)[keyof typeof CodeEmailSourceOriginEnumApi]
+
+export const CodeEmailSourceOriginEnumApi = {
+    Manual: 'manual',
+    Detected: 'detected',
+} as const
+
+export interface CodeEmailApi {
+    /** The code email's ID. */
+    id: string
+    /** The `template_key` your code sends under. Each key is one email. */
+    key: string
+    /** The hidden workflow that sends this key's emails. */
+    hog_flow_id: string
+    /** What the email is for. Empty when nobody added one. */
+    description: string
+    /** Tags for organizing transactional emails. */
+    tags: string[]
+    /** True when PostHog keeps no copy of each sent email's body and doesn't track link clicks. */
+    sensitive: boolean
+    /**
+     * A link to the file in your repository that sends this email. Null when unlinked.
+     * @nullable
+     */
+    source_url: string | null
+    /** How `source_url` was set: `manual` when a person linked or unlinked it, `detected` when PostHog found the file in a connected GitHub repository. Setting `source_url` makes it `manual`. Null when no link was ever set or cleared.
+     *
+     * * `manual` - Manual
+     * * `detected` - Detected from GitHub */
+    readonly source_origin: CodeEmailSourceOriginEnumApi | null
+    /** When your code first sent under this key. */
+    created_at: string
+    /**
+     * Your access level to this email's workflow, such as `viewer` or `editor`. Editing the description, the tags or the source file needs `editor`.
+     * @nullable
+     */
+    user_access_level: string | null
+}
+
+export interface PatchedCodeEmailUpdateApi {
+    /**
+     * What the email is for.
+     * @maxLength 1000
+     */
+    description?: string
+    /**
+     * Tags for organizing transactional emails. Replaces the current tags. Send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
+    /** A link to the file in your repository that sends this email, such as a GitHub or GitLab file link. Must start with http:// or https://. Send null or an empty string to unlink it. */
+    source_url?: string | null
+}
+
+export interface CodeEmailSourceCandidateApi {
+    /** The repository that holds the file, as `owner/name`. */
+    repository: string
+    /** The file's path in the repository. */
+    path: string
+    /** The line that holds the key: the first one next to an email send call, otherwise the first match. */
+    line: number
+    /** A link to that line on the repository's default branch. Send it as `source_url` to link the file. */
+    url: string
+    /** True when the key is within five lines of an email send call, so the file most likely sends it. */
+    call_site: boolean
+}
+
+export interface CodeEmailSourceCandidatesApi {
+    /** One entry per file in the project's connected GitHub repositories that holds the key exactly, files with a send call first. Test, fixture and build files are left out. Empty when nothing matched or the project has no GitHub integration. */
+    candidates: CodeEmailSourceCandidateApi[]
+    /** False when part of the search did not finish, such as a repository GitHub could not search or a file it could not read, so a file may be missing from `candidates`. */
+    complete: boolean
 }
 
 export interface TransactionalEmailLogEntryApi {
@@ -1358,6 +1509,10 @@ export type MessagingSuppressionsSuppressionsRetrieveParams = {
 
 export type MessagingTemplatesListParams = {
     /**
+     * With true, leave out `content` and `draft_content` from each template, for lists that show names and metadata only. `has_draft` still says whether a draft exists.
+     */
+    basic?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1365,6 +1520,11 @@ export type MessagingTemplatesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.
+     * @nullable
+     */
+    transactional?: boolean | null
 }
 
 export type TransactionalEmailLogListParams = {

@@ -724,6 +724,31 @@ class LlmsTxtFetchSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
+# A metric catalog search can embed its query through the shared embedding worker, which spends model
+# provider budget on every call. The project-global pair skips session-authenticated requests, so this
+# team bucket caps browser and agent callers alike. An agent makes a few searches per question.
+class MetricSearchBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_search_burst"
+    rate = "60/minute"
+
+
+class MetricSearchSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_search_sustained"
+    rate = "1200/hour"
+
+
+# A metric write that changes its name, description or unit schedules an embedding call, so writes get
+# the same kind of team bucket. Setting up a catalog creates a few dozen metrics at a time.
+class MetricWriteBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_write_burst"
+    rate = "60/minute"
+
+
+class MetricWriteSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_write_sustained"
+    rate = "600/hour"
+
+
 # Site discovery can fetch several small public resources per request and holds the web worker for
 # the complete chain. The project-wide API throttles do not cover session-authenticated requests,
 # so this separate team bucket also limits browser callers.
@@ -747,6 +772,20 @@ class AEOPromptSuggestionsBurstRateThrottle(_TeamBucketRateThrottle):
 class AEOPromptSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_prompt_suggestions_sustained"
     rate = "30/hour"
+
+
+# The AEO keyword report and modifiers recompute their numbers from every answered check in the window
+# on each request, matching each keyword against each answer text in Postgres or scanning every search in
+# Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this
+# team bucket bounds how often a browser or a script can start that work. The two endpoints share it.
+class AEOKeywordReportBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_keyword_report_burst"
+    rate = "30/minute"
+
+
+class AEOKeywordReportSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_keyword_report_sustained"
+    rate = "300/hour"
 
 
 # The batch session-context endpoint computes experiment context for up to 20 recordings per

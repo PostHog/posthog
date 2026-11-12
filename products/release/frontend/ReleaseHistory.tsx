@@ -18,6 +18,7 @@ const KIND_TYPE: Partial<Record<ReleaseEvent['kind'], string>> = {
     flag: 'feature_flag',
     experiment: 'experiment',
     early_access: 'early_access_feature',
+    broadcast: 'broadcasts',
 }
 
 function EventIcon({ kind }: { kind: ReleaseEvent['kind'] }): JSX.Element {

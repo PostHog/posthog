@@ -17,14 +17,20 @@ from django.db.models import OuterRef, Q, QuerySet, Subquery
 
 from posthog.dataclasses import frozen
 
-from products.data_modeling.backend.facade.contracts import SavedQueryNodeState, SavedQuerySchedule, SuspensionMarker
+from products.data_modeling.backend.facade.contracts import (
+    NodeIdentity,
+    SavedQueryFrequencyBounds,
+    SavedQueryNodeState,
+    SavedQuerySchedule,
+    SuspensionMarker,
+    TargetBounds,
+    TargetOption,
+)
 from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
     ClampedCadence,
     InvalidTarget,
-    TargetBounds,
-    TargetOption,
     all_source_floor_bounds,
     all_source_floors,
     ancestors_of,
@@ -60,19 +66,6 @@ _ORIGIN_KEY = "origin"
 _WAREHOUSE_TABLE_ID_KEY = "warehouse_table_id"
 _ORIGIN_POSTHOG = "posthog"
 _ORIGIN_WAREHOUSE = "warehouse"
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class NodeIdentity:
-    """What a node is in access-control terms, so a caller can decide whether to name it.
-
-    All three empty means the node predates the origin stamp, and a caller that redacts should
-    treat it as withheld rather than guess.
-    """
-
-    saved_query_id: str | None  # views, materialized views and endpoints, under `warehouse_view`
-    warehouse_table_id: str | None  # imported source tables, under `warehouse_table`
-    is_posthog_table: bool  # `events`, `persons` and friends, readable by anyone on the project
 
 
 def parse_warehouse_table_id(properties: Mapping[str, Any] | None) -> uuid.UUID | None:
@@ -444,19 +437,6 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         managed_node_ids=managed_node_ids,
         stand_ins=stand_ins,
     )
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class SavedQueryFrequencyBounds:
-    """A saved query's selectable cadences, plus what a caller needs to name the blockers."""
-
-    bounds: TargetBounds
-    names: dict[str, str]  # node id -> display name, covering every blocker the bounds reference
-    identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
-    best_effort_source_ids: set[str]  # upstream sources with no schedule, so the floor is a guess
-    max_data_age: timedelta
-    speeds_up: dict[timedelta, set[str]]  # cadence -> upstream nodes that would run more often if this were set to it
-    pinned: bool
 
 
 def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:

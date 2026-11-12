@@ -276,6 +276,8 @@ def clean_varying_query_parts(query, replace_all_numbers):
             r""""uuid" \1 ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
             query,
         )
+        # A JSON containment filter on an id, such as '{"insight_id": 4}'::jsonb.
+        query = re.sub(r"('\{\"\w+_id\": )\d+(\}'::jsonb)", r"\g<1>99999\2", query)
         query = re.sub(r"'[0-9a-f]{32}'::uuid", r"'00000000000000000000000000000000'::uuid", query)
         query = re.sub(r"'[0-9a-f-]{36}'::uuid", r"'00000000-0000-0000-0000-000000000000'::uuid", query)
         query = re.sub(
@@ -962,15 +964,22 @@ def _selective_flush(db_name: str, *, reset_sequences: bool) -> None:
         )
         # Re-list tables on every flush: tests can create or drop tables (schema
         # migration tests, warehouse DDL), so a cached list goes stale in both
-        # dangerous directions. The catalog query costs ~1ms.
+        # dangerous directions. A table that holds a row has at least one page on
+        # disk, so tables with a zero-length main fork are skipped without probing:
+        # most of the schema is never written in a given test process, and probing
+        # every table dominated the cost of the flush. Partitioned parents have no
+        # storage of their own; their rows are found through their partitions.
         cursor.execute(
             """
-            SELECT tablename
-            FROM pg_tables
-            WHERE schemaname = 'public'
-              AND tablename NOT LIKE 'pg\\_%'
-              AND tablename NOT LIKE '\\_sqlx\\_%'
-              AND tablename NOT LIKE '\\_persons\\_migrations%'
+            SELECT c.relname
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind = 'r'
+              AND c.relname NOT LIKE 'pg\\_%'
+              AND c.relname NOT LIKE '\\_sqlx\\_%'
+              AND c.relname NOT LIKE '\\_persons\\_migrations%'
+              AND pg_relation_size(c.oid) > 0
             """
         )
         tables = [name for (name,) in cursor.fetchall() if name not in _SELECTIVE_FLUSH_PRESERVED_TABLES]
@@ -2186,7 +2195,7 @@ def _kafka_tables_for_tests() -> list[str]:
     ]
 
 
-def reset_clickhouse_database() -> None:
+def reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = ()) -> None:
     # Dropping tables below removes their materialized columns behind the metadata cache's back,
     # so drop the cached entries with them (mutations via materialize()/drop_column() self-invalidate).
     try:
@@ -2339,6 +2348,14 @@ def reset_clickhouse_database() -> None:
         ]
     )
 
+    if materialized_event_properties:
+        from ee.clickhouse.materialized_columns.columns import (
+            materialize,  # noqa: PLC0415 — keeps the ee dep optional, like the other ee imports in this module
+        )
+
+        for property_name in materialized_event_properties:
+            materialize("events", property_name)
+
     managed_tables = {
         match.group(1)
         for statement in (*drop_views_and_dictionaries, *drop_and_truncate_tables, *create_tables)
@@ -2351,6 +2368,7 @@ def reset_clickhouse_database() -> None:
         schema=state.schema,
         row_counts=row_counts,
         mutation_counts={table: count for table, count in state.mutation_counts.items() if table in row_counts},
+        materialized_event_properties=materialized_event_properties,
     )
     _mark_clickhouse_reset()
 
@@ -2402,6 +2420,7 @@ class _ClickhouseResetBaseline:
     schema: tuple[frozenset[tuple[str, str]], int, int]
     row_counts: dict[str, int]
     mutation_counts: dict[str, int]
+    materialized_event_properties: tuple[str, ...]
 
 
 _clickhouse_reset_baseline: _ClickhouseResetBaseline | None = None
@@ -2418,10 +2437,10 @@ def _read_clickhouse_table_state() -> _ClickhouseTableState:
     )
 
 
-def _truncate_clickhouse_tables_if_schema_unchanged() -> bool:
+def _truncate_clickhouse_tables_if_schema_unchanged(materialized_event_properties: tuple[str, ...]) -> bool:
     global _clickhouse_reset_baseline
     baseline = _clickhouse_reset_baseline
-    if baseline is None:
+    if baseline is None or baseline.materialized_event_properties != materialized_event_properties:
         return False
     state = _read_clickhouse_table_state()
     if state.schema != baseline.schema:
@@ -2453,18 +2472,21 @@ def _mark_clickhouse_reset() -> None:
     _clickhouse_checkouts_at_last_reset = _clickhouse_pool_checkouts
 
 
-def truncate_or_reset_clickhouse_database() -> None:
-    if not _truncate_clickhouse_tables_if_schema_unchanged():
-        reset_clickhouse_database()
+def truncate_or_reset_clickhouse_database(materialized_event_properties: tuple[str, ...] = ()) -> None:
+    if not _truncate_clickhouse_tables_if_schema_unchanged(materialized_event_properties):
+        reset_clickhouse_database(materialized_event_properties)
 
 
-def reset_clickhouse_database_if_dirty() -> None:
+def reset_clickhouse_database_if_dirty(materialized_event_properties: tuple[str, ...] = ()) -> None:
     """Reset ClickHouse only if something has checked out a ClickHouse client since
     the last reset finished; with zero checkouts the state cannot have changed and
     the reset would be a no-op costing dozens of DDL statements."""
-    if _clickhouse_pool_checkouts == _clickhouse_checkouts_at_last_reset:
+    baseline = _clickhouse_reset_baseline
+    if _clickhouse_pool_checkouts == _clickhouse_checkouts_at_last_reset and (
+        baseline is None or baseline.materialized_event_properties == materialized_event_properties
+    ):
         return
-    truncate_or_reset_clickhouse_database()
+    truncate_or_reset_clickhouse_database(materialized_event_properties)
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):
@@ -2473,13 +2495,15 @@ class ClickhouseDestroyTablesMixin(BaseTest):
     Use this mixin to make sure you completely destroy the tables between tests.
     """
 
+    clickhouse_reset_materialized_event_properties: tuple[str, ...] = ()
+
     def setUp(self):
         super().setUp()
-        reset_clickhouse_database_if_dirty()
+        reset_clickhouse_database_if_dirty(self.clickhouse_reset_materialized_event_properties)
 
     def tearDown(self):
         super().tearDown()
-        reset_clickhouse_database_if_dirty()
+        reset_clickhouse_database_if_dirty(self.clickhouse_reset_materialized_event_properties)
 
 
 def skip_clickhouse_query_snapshots(fn: Callable) -> Callable:

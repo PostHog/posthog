@@ -12126,14 +12126,14 @@ Note: Full v1 path list read out of the embedded ReadMe OAS on the reference pag
 
 ## Teamcity — gaps
 
-Today (8): `agents`, `build_types`, `builds`, `changes`, `problem_occurrences`, `projects`, `test_occurrences`, `vcs_roots`
+Today (10): `agents`, `build_statistics`, `build_types`, `builds`, `changes`, `problem_occurrences`, `projects`, `test_occurrences`, `users`, `vcs_roots`
 
 Diffed against: <https://teamcity.jetbrains.com/app/rest/swagger.json>
 
-- [ ] `tests` — test lookup table resolving the test IDs carried by test_occurrences we already sync (high)
-- [ ] `problems` — problem lookup table resolving the problem IDs carried by problem_occurrences we already sync (high)
-- [ ] `users` — user lookup resolving build triggeredBy, change authors and investigation assignees (high)
-- [ ] `builds/{buildLocator}/statistics` — per-build metric values (duration, queue time, artifact size, coverage) — TeamCity's headline build metrics, not present on the build object (high)
+- ~~`tests` — test lookup table resolving the test IDs carried by test_occurrences we already sync (high)~~ — skipped: `/tests` has no list-all locator (only `id:`, `name:`, or currently failing/muted tests of a project), and `test_occurrences` already carries each test's id and name
+- ~~`problems` — problem lookup table resolving the problem IDs carried by problem_occurrences we already sync (high)~~ — skipped: `/problems` has no list-all locator (only `id:` or currently failing/muted problems of a project), and `problem_occurrences` already carries each problem's id, type and identity
+- [x] `users` — user lookup resolving build triggeredBy, change authors and investigation assignees (high). Added as `users` (full refresh, off by default: it needs the global View user profile permission)
+- [x] `builds/{buildLocator}/statistics` — per-build metric values (duration, queue time, artifact size, coverage) — TeamCity's headline build metrics, not present on the build object (high). Added as `build_statistics` (fan-out over finished builds, incremental on the build finish date)
 - [ ] `investigations` — who owns each failing build/test and its state — failure-ownership analysis (medium)
 - [ ] `mutes` — muted tests/problems, required to compute a truthful failure rate from test_occurrences (medium)
 - [ ] `agentPools` — lookup grouping agents we already sync into pools for capacity analysis (medium)
@@ -12188,14 +12188,15 @@ Note: The official complete Markdown export embeds the version 2 OpenAPI specifi
 
 ## Teamwork — gaps
 
-Today (9): `comments`, `companies`, `milestones`, `people`, `projects`, `tags`, `tasklists`, `tasks`, `timelogs`
+Today (12): `comments`, `companies`, `milestones`, `people`, `project_categories`, `projects`, `tags`, `tasklists`, `tasks`, `timelogs`, `workflow_stages`, `workflows`
 
 Diffed against: <https://apidocs.teamwork.com/api/oas/download?slug=teamwork&api_version=v3>
 
-- [ ] `workflows/{workflowId}/stages.json` — board stage lookup resolving the stage each task sits in — no funnel or cycle-time analysis without it (high)
-- [ ] `people/utilization.json` — Teamwork's headline billable-utilization metric, not derivable from raw timelogs alone (high)
-- [ ] `reporting/financial/data.json (and /totals.json)` — project profitability, cost and revenue — the core financial fact table (high)
-- [ ] `projectcategories.json` — category lookup for the projects we already sync (high)
+- [x] `workflows/{workflowId}/stages.json` — board stage lookup resolving the stage each task sits in — no funnel or cycle-time analysis without it (high) → `workflow_stages` (full refresh, fan-out over `workflows`)
+- ~~`people/utilization.json` — Teamwork's headline billable-utilization metric, not derivable from raw timelogs alone (high)~~ — skipped: a report computed over a caller-chosen date range, grouping and user filters, whose default body is an undocumented legacy shape, not a record list
+- ~~`reporting/financial/data.json (and /totals.json)` — project profitability, cost and revenue — the core financial fact table (high)~~ — skipped: a report builder whose rows and metrics depend on a caller-chosen `groupBy` chain and `metrics` list, with no stable row identity; `totals.json` is one summary object
+- [x] `projectcategories.json` — category lookup for the projects we already sync (high) → `project_categories` (full refresh, single page)
+- [x] `workflows.json` — the workflow (board) list that `workflow_stages` fans out over (medium) → `workflows` (full refresh)
 - [ ] `expenses.json (v1)` — non-time project costs, required for accurate project margin (medium)
 - [ ] `invoices.json (v1)` — billed amounts per project, joins timelogs to revenue (medium)
 - [ ] `timesheets.json` — submitted/approved timesheet state on top of raw timelogs (medium)
@@ -12223,10 +12224,10 @@ Today (7): `AmdDetailRecords`, `ConferenceDetailRecords`, `ConferenceParticipant
 
 Diffed against: <https://raw.githubusercontent.com/team-telnyx/openapi/master/openapi/spec3.json>
 
-- [ ] `/phone_numbers` — lookup resolving the numbers that appear on every messaging, voice and verify detail record (high)
-- [ ] `/messaging_profiles` — lookup resolving the messaging_profile_id carried by MessagingDetailRecords (high)
-- [ ] `/connections (also /credential_connections, /ip_connections)` — lookup resolving the connection_id on voice/conference detail records (high)
-- [ ] `/conferences` — conference metadata lookup for ConferenceDetailRecords and ConferenceParticipantDetailRecords (high)
+- [x] `/phone_numbers` — lookup resolving the numbers that appear on every messaging, voice and verify detail record (high)
+- [x] `/messaging_profiles` — lookup resolving the messaging_profile_id carried by MessagingDetailRecords (high)
+- [x] `/connections (also /credential_connections, /ip_connections)` — lookup resolving the connection_id on voice/conference detail records (high)
+- [x] `/conferences` — conference metadata lookup for ConferenceDetailRecords and ConferenceParticipantDetailRecords (high)
 - [ ] `/messaging_profile_metrics` — Telnyx's headline delivery/throughput metric per profile (high)
 - [ ] `/charges_summary and /charges_breakdown` — account spend by product — turns usage records into cost analysis (high)
 - [ ] `/verify_profiles` — lookup resolving the verify profile on VerifyDetailRecords (medium)
@@ -12315,14 +12316,14 @@ Note: The official documentation bundle embeds both version 2.0.1 OpenAPI specif
 
 ## TerraformCloud — gaps
 
-Today (6): `organizations`, `projects`, `runs`, `state_versions`, `teams`, `workspaces`
+Today (10): `applies`, `assessment_results`, `organizations`, `plans`, `projects`, `runs`, `state_versions`, `teams`, `workspace_resources`, `workspaces`
 
 Diffed against: <https://developer.hashicorp.com/terraform/cloud-docs/api-docs>
 
-- [ ] `applies (/applies/{id}, run relationship)` — resource additions/changes/destructions actually applied per run — the core outcome metric for every synced run (high)
-- [ ] `plans (/plans/{id}, run relationship)` — planned resource adds/changes/destroys and plan status, needed to measure drift and change volume (high)
-- [ ] `workspace-resources (/workspaces/{id}/resources)` — the managed resource inventory per workspace; without it you can count runs but not what they manage (high)
-- [ ] `assessment-results (/assessment-results/{id})` — health assessment / drift detection results, HCP Terraform's headline workspace-health metric (high)
+- [x] `applies (/applies/{id}, run relationship)` — resource additions/changes/destructions actually applied per run — the core outcome metric for every synced run (high)
+- [x] `plans (/plans/{id}, run relationship)` — planned resource adds/changes/destroys and plan status, needed to measure drift and change volume (high)
+- [x] `workspace-resources (/workspaces/{id}/resources)` — the managed resource inventory per workspace; without it you can count runs but not what they manage (high)
+- [x] `assessment-results (/assessment-results/{id})` — health assessment / drift detection results, HCP Terraform's headline workspace-health metric (high)
 - [ ] `policy-evaluations and policy-set-outcomes (/runs/{id}/policy-evaluations)` — Sentinel/OPA pass-fail per run, the governance reporting use case (medium)
 - [ ] `cost-estimates (/cost-estimates/{id})` — prior and proposed monthly cost delta per run, the FinOps use case (medium)
 - [ ] `state-version-outputs (/state-versions/{id}/outputs)` — outputs of the state versions already synced, the queryable payload of a state version (medium)
@@ -12396,10 +12397,10 @@ Today (9): `collections`, `courses`, `enrollments`, `groups`, `instructors`, `or
 
 Diffed against: <https://developers.thinkific.com/openapi/thinkific-admin-api-v1.yaml>
 
-- [ ] `GET /coupons (+ /coupons/{id})` — the actual discount codes; promotions are synced but the coupons they attach to are not, so redemption analysis is impossible (high)
-- [ ] `GET /courses/{id}/chapters (+ /chapters/{id})` — curriculum structure under each synced course, the lookup needed to interpret any lesson-level progress (high)
-- [ ] `GET /chapters/{id}/contents (+ /contents/{id})` — lesson-level records, the finest grain of course content and the join target for completion analysis (high)
-- [ ] `GET /course_reviews (+ /course_reviews/{id})` — student ratings and review text per course, a headline course-quality metric (high)
+- [x] `GET /coupons (+ /coupons/{id})` — the actual discount codes; promotions are synced but the coupons they attach to are not, so redemption analysis is impossible (high)
+- [x] `GET /courses/{id}/chapters (+ /chapters/{id})` — curriculum structure under each synced course, the lookup needed to interpret any lesson-level progress (high)
+- [x] `GET /chapters/{id}/contents (+ /contents/{id})` — lesson-level records, the finest grain of course content and the join target for completion analysis (high)
+- [x] `GET /course_reviews (+ /course_reviews/{id})` — student ratings and review text per course, a headline course-quality metric (high)
 - [ ] `GET /collections/{id}/products (+ /collection_memberships/{id})` — join table linking the synced collections to the synced products (medium)
 - [ ] `GET /custom_profile_field_definitions` — lookup decoding the custom profile fields carried on user records (medium)
 - [ ] `GET /bundles/{id}/courses` — bundle-to-course mapping, needed to attribute bundle revenue to individual courses (medium)
