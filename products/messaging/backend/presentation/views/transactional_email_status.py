@@ -102,8 +102,6 @@ class RescheduleEmailSerializer(serializers.Serializer):
             )
         return attrs
 
-    # drf-spectacular marks every PATCH body partial, which would make `scheduled_at` optional in the schema. A move
-    # always needs a time, so this serializer is never partial.
     @property
     def partial(self) -> bool:
         return False
@@ -147,9 +145,6 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return [TRANSACTIONAL_EMAIL_SEND_SCOPE if self.action in MANAGE_ACTIONS else TRANSACTIONAL_EMAIL_STATUS_SCOPE]
 
     def get_throttles(self) -> list[BaseThrottle]:
-        # Only a project secret API key can call, and the email read buckets count those. A cancel counts there and
-        # not against the send budget, so a caller that sent up to its limit can still stop what it sent. Any other
-        # caller gets the default API throttles on its way to a 401.
         if not is_authenticated_via_project_secret_api_key(self.request):
             return super().get_throttles()
         return transactional_email_read_throttles()
@@ -257,7 +252,6 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             requested_at = serializer.validated_data["scheduled_at"]
             report["lead_time_bucket"] = lead_time_bucket(requested_at)
             if report["lead_time_bucket"] != "now":
-                # Moving an email to now needs no flag, so turning the flag off still lets callers flush what waits.
                 try:
                     require_scheduled_sends(
                         self.team,
@@ -351,8 +345,6 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
 
 def _require_project_secret_api_key(request: Request) -> None:
-    # The routing mixin adds session and personal API key authentication to every route. These routes serve the
-    # server that sent the email, so only its project secret API key can call them.
     if not is_authenticated_via_project_secret_api_key(request):
         raise exceptions.NotAuthenticated()
 

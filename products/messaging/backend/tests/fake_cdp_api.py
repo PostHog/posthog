@@ -21,7 +21,6 @@ RECIPIENT_ADDRESS_PATTERN = re.compile(
     r"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$"
 )
 
-# The audience the CDP service checks, written out so a change to the Django minter fails the manage tests.
 CDP_MANAGE_AUDIENCE = "posthog:workflows:manage_transactional_email"
 
 Issues = list[dict[str, Any]]
@@ -202,7 +201,6 @@ class FakeCdpApi:
     received: list[dict[str, Any]] = field(default_factory=list)
     queued: list[dict[str, Any]] = field(default_factory=list)
     replies: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # The jobs of emails a worker hasn't finished with, by team and message ID: `waiting`, `claimed` or `canceled`.
     jobs: dict[tuple[int, str], str] = field(default_factory=dict)
     scheduled_for: dict[str, datetime] = field(default_factory=dict)
 
