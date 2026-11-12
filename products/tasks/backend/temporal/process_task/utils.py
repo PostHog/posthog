@@ -1347,7 +1347,8 @@ def resolve_user_github_integration_for_task(
     allow_refresh: bool = False,
 ) -> UserGitHubIntegration | None:
     """Resolve the UserIntegration that should author a task's GitHub writes."""
-    if task.github_access_limit == GithubAccess.NONE:
+    # A GitLab task never holds GitHub credentials, so code from its project cannot read them.
+    if task.github_access_limit == GithubAccess.NONE or task.repository_integration_id is not None:
         return None
     user = actor_user or task.created_by
     if user is None:
@@ -2115,6 +2116,8 @@ def upgrade_run_to_user_authorship(
     if actor_user is None:
         return None
     task = task_run.task
+    if task.repository_integration_id is not None:
+        return None
     if not is_user_authorable(task.origin_product, task.stored_profile):
         return None
     # Promotion is only for the creator. A thread participant's connection would retarget a run

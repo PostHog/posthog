@@ -85,7 +85,11 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     capture_modal_output_if_debug,
     summarize_modal_output,
 )
-from products.tasks.backend.logic.services.sandbox import build_bundled_skills_clear_command, redact_sandbox_command
+from products.tasks.backend.logic.services.sandbox import (
+    build_bundled_skills_clear_command,
+    redact_sandbox_command,
+    sandbox_repo_path,
+)
 from products.tasks.backend.logic.services.task_filesystem import (
     TASK_FILESYSTEM_SCRIPT,
     TASK_FILESYSTEM_VERSION,
@@ -1738,8 +1742,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         if not self._is_running_cached():
             raise RuntimeError(f"Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        repo_path = sandbox_repo_path(repository)
 
         result = self.execute(f"cd {shlex.quote(repo_path)} && git status --porcelain")
         is_clean = not result.stdout.strip()
