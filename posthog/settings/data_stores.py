@@ -793,6 +793,11 @@ CACHES["task_artifact_preview"] = {
     "LOCATION": REDIS_URL,
 }
 
+CACHES["transactional_email_cancel_marks"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Destination replay claims must read what they wrote: a replica that still serves an
 # expired or released claim would let a second sender queue the same replay.
 CACHES["cdp_invocation_replay"] = {
@@ -901,6 +906,7 @@ if TEST:
     CACHES["cohort_dependencies"] = CACHES["default"]
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
+    CACHES["transactional_email_cancel_marks"] = CACHES["default"]
     CACHES["cdp_invocation_replay"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
     CACHES["warehouse_destination_connect"] = CACHES["default"]

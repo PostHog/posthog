@@ -416,7 +416,8 @@ class TestManageScheduledEmails(EmailsApiTestBase):
         self._job("waiting")
 
         with patch(
-            "products.messaging.backend.services.scheduled_emails.cache.set", side_effect=ConnectionError("down")
+            "products.messaging.backend.services.scheduled_emails._cancel_marks.set",
+            side_effect=ConnectionError("down"),
         ):
             response = self._cancel(mock_post)
 
@@ -427,7 +428,8 @@ class TestManageScheduledEmails(EmailsApiTestBase):
         self._status_rows([("canceled", 60, "")])
 
         with patch(
-            "products.messaging.backend.services.scheduled_emails.cache.get", side_effect=ConnectionError("down")
+            "products.messaging.backend.services.scheduled_emails._cancel_marks.get",
+            side_effect=ConnectionError("down"),
         ):
             response = self._cancel(mock_post)
 
