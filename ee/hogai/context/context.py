@@ -30,7 +30,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
-from products.notebooks.backend.facade import api as notebooks_facade
 from products.notebooks.backend.facade.widgets import reusable_widget_catalog_context
 from products.product_analytics.backend.facade.api import viewable_saved_queries
 
@@ -382,12 +381,7 @@ class AssistantContextManager(AssistantContextMixin):
         if ui_context.notebooks:
             from ee.hogai.context.notebook.context import NotebookContext
 
-            # Flag lookups read `user.organization`; keep them off the event loop and skip them
-            # when no notebook needs inline authoring guidance.
-            sql_v2_enabled = False
             has_inline_notebook = any(nb.markdown_with_insertion_placeholder for nb in ui_context.notebooks)
-            if has_inline_notebook:
-                sql_v2_enabled = await database_sync_to_async(notebooks_facade.is_sql_v2_enabled)(self._user)
             notebook_texts = []
             reusable_catalog = (
                 await database_sync_to_async(reusable_widget_catalog_context)(team_id=self._team.id, user=self._user)
@@ -398,7 +392,7 @@ class AssistantContextManager(AssistantContextMixin):
                 notebook_texts.append(reusable_catalog)
             for nb in ui_context.notebooks:
                 if nb.markdown_with_insertion_placeholder:
-                    notebook_texts.append(self._format_markdown_notebook_context(nb, sql_v2_enabled=sql_v2_enabled))
+                    notebook_texts.append(self._format_markdown_notebook_context(nb))
                     continue
 
                 ctx = await NotebookContext.from_short_id(self._team, nb.id)
@@ -456,7 +450,7 @@ class AssistantContextManager(AssistantContextMixin):
             )
         return None
 
-    def _format_markdown_notebook_context(self, notebook: MaxNotebookContext, *, sql_v2_enabled: bool) -> str:
+    def _format_markdown_notebook_context(self, notebook: MaxNotebookContext) -> str:
         title = _sanitize_inline_prompt_value(notebook.name or f"Notebook {notebook.id}")
         inline_request_id = _sanitize_inline_prompt_value(notebook.insertion_placeholder_block_id or "unknown")
         response_marker = _sanitize_inline_prompt_value(notebook.insertion_placeholder_marker or "Thinking...")
@@ -504,7 +498,7 @@ class AssistantContextManager(AssistantContextMixin):
                     "- The user may ask you to change selected text, nearby content, or the entire notebook. "
                     "Preserve unrelated content only when the request's scope is local."
                 ),
-                cell_guidance_prompt(sql_v2_enabled=sql_v2_enabled),
+                cell_guidance_prompt(),
                 (
                     "When the current user asks you to change broad notebook content, use notebook tools against "
                     "the current notebook instead of explaining how the user could do it. "

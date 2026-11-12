@@ -330,16 +330,17 @@ CHECKS_ONLY: Final = f"kind IN ({', '.join(repr(kind) for kind in _CHECK_KINDS)}
 # keeps the checks that moved the alert and the newest check, so a page of alerts that check every
 # minute returns a few rows each rather than a day of them.
 _HISTORY_SQL = f"""
-SELECT configuration_id, occurred_at, previous_state, state, error_message, is_latest
+SELECT configuration_id, occurred_at, previous_state, state, error_message, is_latest, grouping_key
 FROM (
-    SELECT configuration_id, occurred_at, previous_state, state, error_message,
+    SELECT configuration_id, occurred_at, previous_state, state, error_message, grouping_key,
            occurred_at = max(occurred_at) OVER (PARTITION BY configuration_id) AS is_latest
     FROM (
-        SELECT configuration_id, alert_id, evaluation_key, occurred_at, previous_state, state, error_message
+        SELECT configuration_id, alert_id, evaluation_key, occurred_at, previous_state, state, error_message,
+               grouping_key
         FROM {PLATFORM_ALERT_EVENTS_TABLE}
         WHERE team_id = %(team_id)s
           AND configuration_id IN %(configuration_ids)s
-          AND grouping_key = ''
+          AND (%(all_groups)s OR grouping_key = '')
           AND {CHECKS_ONLY}
           AND occurred_at >= %(since)s
           AND occurred_at < %(until)s
@@ -353,12 +354,17 @@ ORDER BY configuration_id, occurred_at
 
 
 def history(
-    team_id: int, configuration_ids: Collection[UUID], *, since: datetime, until: datetime
+    team_id: int,
+    configuration_ids: Collection[UUID],
+    *,
+    since: datetime,
+    until: datetime,
+    all_groups: bool = False,
 ) -> dict[UUID, PlatformAlertHistory]:
     """Each configuration's state changes and last check in `[since, until)`, in one query.
 
-    Only the ungrouped instance is read, because a source that shows one state per alert has no
-    groups. A configuration with no check in the window is left out.
+    Only the ungrouped instance is read unless `all_groups`, because a source that shows one state
+    per alert has no groups. A configuration with no check in the window is left out.
 
     Raises on a ClickHouse failure, because only the caller knows what it can show instead.
     """
@@ -369,18 +375,27 @@ def history(
     # `sync_execute` picks for request traffic.
     rows = sync_execute(
         _HISTORY_SQL,
-        {"team_id": team_id, "configuration_ids": list(configuration_ids), "since": since, "until": until},
+        {
+            "team_id": team_id,
+            "configuration_ids": list(configuration_ids),
+            "since": since,
+            "until": until,
+            "all_groups": all_groups,
+        },
         team_id=team_id,
+        settings={**_READ_BUDGET, **_HISTORY_ROW_BUDGET},
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
     )
     changes: dict[UUID, list[PlatformStateChange]] = {}
     latest: dict[UUID, tuple[datetime, str]] = {}
-    for configuration_id, occurred_at, previous_state, state, error_message, is_latest in rows:
+    for configuration_id, occurred_at, previous_state, state, error_message, is_latest, grouping_key in rows:
         if previous_state != state:
             changes.setdefault(configuration_id, []).append(
                 PlatformStateChange(
                     occurred_at=occurred_at,
                     previous_state=PlatformAlertState(previous_state),
                     state=PlatformAlertState(state),
+                    grouping_key=grouping_key,
                 )
             )
         if is_latest:
@@ -398,6 +413,14 @@ def history(
 # A source reads these to fill in a page it can show without them, so a stalled query gives up
 # rather than holding the request.
 _READ_BUDGET: Final = {"max_execution_time": 5}
+# The client's default socket timeout is effectively unbounded, so a stalled connection would hold the
+# request past the execution budget.
+READ_SOCKET_TIMEOUT_SECONDS: Final = 10
+# A grouped alert that flaps returns a row per group per change, so the read holds a row ceiling and
+# fails rather than load an unbounded result into the web worker. Its callers show the page without it.
+_HISTORY_ROW_BUDGET: Final = {"max_result_rows": 50_000, "result_overflow_mode": "throw"}
+# The earliest time a read that keeps all history passes as its lower bound.
+_EPOCH: Final = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _microseconds(moment: datetime) -> str:
@@ -410,14 +433,14 @@ def _microseconds(moment: datetime) -> str:
 # matching check, so one query answers both the page and the count a paginated list needs.
 _NOTABLE_CHECKS_SQL = f"""
 SELECT occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms,
-       error_message, count() OVER () AS total
+       error_message, grouping_key, count() OVER () AS total
 FROM (
     SELECT alert_id, evaluation_key, occurred_at, previous_state, state, value, condition_snapshot,
-           query_duration_ms, error_message
+           query_duration_ms, error_message, grouping_key
     FROM {PLATFORM_ALERT_EVENTS_TABLE}
     WHERE team_id = %(team_id)s
       AND configuration_id = %(configuration_id)s
-      AND grouping_key = ''
+      AND (%(all_groups)s OR grouping_key = '')
       AND {CHECKS_ONLY}
       AND occurred_at >= %(since)s
       AND (previous_state != state OR error_message != '')
@@ -429,19 +452,29 @@ LIMIT %(limit)s
 """
 
 
-def notable_checks(team_id: int, configuration_id: UUID, *, since: datetime, limit: int) -> PlatformCheckEventPage:
+def notable_checks(
+    team_id: int, configuration_id: UUID, *, since: datetime, limit: int, all_groups: bool = False
+) -> PlatformCheckEventPage:
     """The newest `limit` checks since `since` that moved the configuration's state or failed.
 
     A check that confirmed the state it found is left out, because a source that lists events
-    shows what changed. Only the ungrouped instance is read, as in `history`.
+    shows what changed. Only the ungrouped instance is read unless `all_groups`, as in `history`.
 
     Raises on a ClickHouse failure, because only the caller knows what it can show instead.
     """
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
     rows = sync_execute(
         _NOTABLE_CHECKS_SQL,
-        {"team_id": team_id, "configuration_id": configuration_id, "since": since, "limit": limit},
+        {
+            "team_id": team_id,
+            "configuration_id": configuration_id,
+            "since": since,
+            "limit": limit,
+            "all_groups": all_groups,
+        },
         team_id=team_id,
+        settings=_READ_BUDGET,
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
     )
     return PlatformCheckEventPage(
         events=tuple(
@@ -454,8 +487,9 @@ def notable_checks(team_id: int, configuration_id: UUID, *, since: datetime, lim
                 condition=_snapshot(condition_snapshot),
                 query_duration_ms=query_duration_ms,
                 error_message=error_message or None,
+                grouping_key=grouping_key,
             )
-            for occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms, error_message, _ in rows
+            for occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms, error_message, grouping_key, _ in rows
         ),
         total=rows[0][-1] if rows else 0,
     )
@@ -526,12 +560,24 @@ def check_page(
         "limit": limit,
         "offset": offset,
     }
-    rows = sync_execute(_CHECKS_SQL, parameters, team_id=team_id, settings=_READ_BUDGET)
+    rows = sync_execute(
+        _CHECKS_SQL,
+        parameters,
+        team_id=team_id,
+        settings=_READ_BUDGET,
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
+    )
     if rows:
         total = rows[0][5]
     elif offset:
         # A page past the end has no row to carry the window's count, so it is counted on its own.
-        total = sync_execute(_CHECK_COUNT_SQL, parameters, team_id=team_id, settings=_READ_BUDGET)[0][0]
+        total = sync_execute(
+            _CHECK_COUNT_SQL,
+            parameters,
+            team_id=team_id,
+            settings=_READ_BUDGET,
+            send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
+        )[0][0]
     else:
         total = 0
     return PlatformCheckPage(
@@ -599,6 +645,7 @@ def checks_with_detail(
         },
         team_id=team_id,
         settings=_READ_BUDGET,
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
     )
     checks: dict[UUID, list[PlatformCheckEntry]] = {}
     for configuration_id, occurred_at, evaluation_key, state, value, error_message, source_detail in rows:
@@ -615,16 +662,18 @@ SELECT configuration_id, max(occurred_at), argMax(tuple(value), (occurred_at, ev
 FROM {PLATFORM_ALERT_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND configuration_id IN %(configuration_ids)s
-  AND grouping_key = ''
+  AND (%(all_groups)s OR grouping_key = '')
   AND {CHECKS_ONLY}
 GROUP BY configuration_id
 """
 
 
-def last_checks(team_id: int, configuration_ids: Collection[UUID]) -> dict[UUID, PlatformLastCheck]:
+def last_checks(
+    team_id: int, configuration_ids: Collection[UUID], *, all_groups: bool = False
+) -> dict[UUID, PlatformLastCheck]:
     """Each configuration's newest check across its whole history, in one query.
 
-    Only the ungrouped instance is read, as in `history`. A configuration with no check is left out.
+    Only the ungrouped instance is read unless `all_groups`, as in `history`. A configuration with no check is left out.
     Raises on a ClickHouse failure, because only the caller knows what it can show instead.
     """
     if not configuration_ids:
@@ -633,9 +682,10 @@ def last_checks(team_id: int, configuration_ids: Collection[UUID]) -> dict[UUID,
     # Not `_execute`, for the same reason as `history`.
     rows = sync_execute(
         _LAST_CHECKS_SQL,
-        {"team_id": team_id, "configuration_ids": list(configuration_ids)},
+        {"team_id": team_id, "configuration_ids": list(configuration_ids), "all_groups": all_groups},
         team_id=team_id,
         settings=_READ_BUDGET,
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
     )
     return {
         configuration_id: PlatformLastCheck(checked_at=checked_at, value=value)
@@ -652,6 +702,7 @@ FROM (
       AND configuration_id = %(configuration_id)s
       AND alert_id = %(alert_id)s
       AND kind IN %(kinds)s
+      AND occurred_at >= %(since)s
     ORDER BY occurred_at, evaluation_key
     LIMIT 1 BY evaluation_key
 )
@@ -672,10 +723,15 @@ WHERE team_id = %(team_id)s
 
 
 def control_changes(
-    team_id: int, configuration_id: UUID, *, kinds: Collection[ControlChangeKind], limit: int
+    team_id: int,
+    configuration_id: UUID,
+    *,
+    kinds: Collection[ControlChangeKind],
+    limit: int,
+    since: datetime | None = None,
 ) -> PlatformControlChangePage:
-    """The newest `limit` control-plane changes of `kinds` to a configuration, across its kept history,
-    and when the oldest kept change of any kind happened.
+    """The newest `limit` control-plane changes of `kinds` to a configuration, since `since` or across its
+    kept history, and when the oldest kept change of any kind happened.
 
     Raises on a ClickHouse failure, because only the caller knows what it can show instead.
     """
@@ -687,13 +743,20 @@ def control_changes(
         {**parameters, "kinds": [kind.value for kind in ControlChangeKind]},
         team_id=team_id,
         settings=_READ_BUDGET,
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
     )
     rows = (
         sync_execute(
             _CONTROL_CHANGES_SQL,
-            {**parameters, "kinds": [kind.value for kind in kinds], "limit": limit},
+            {
+                **parameters,
+                "kinds": [kind.value for kind in kinds],
+                "limit": limit,
+                "since": since or _EPOCH,
+            },
             team_id=team_id,
             settings=_READ_BUDGET,
+            send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
         )
         if kinds and kept
         else []
@@ -762,6 +825,7 @@ def control_history(
         },
         team_id=team_id,
         settings=_READ_BUDGET,
+        send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
     )
     return {
         configuration_id: PlatformControlHistory(
