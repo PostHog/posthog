@@ -29,8 +29,6 @@ from products.messaging.backend.models.message_suppression import MessageSuppres
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.messaging.backend.provider_imports import runs
-
 from products.messaging.backend.provider_imports import resend, runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
