@@ -1335,7 +1335,7 @@ Veracode,api_id api_secret region,,,,,veracode
 Vercel,access_token team_id,,,,,vercel
 Vespa,,,,,,vespa
 Vimeo,access_token,,,,,vimeo
-Virtuous,,,,,,virtuous
+Virtuous,api_key,,,,,virtuous
 VismaEconomic,,,,,,visma-economic
 Vitally,secret_token region,,,,,vitally
 Vonage,,,,,,vonage
