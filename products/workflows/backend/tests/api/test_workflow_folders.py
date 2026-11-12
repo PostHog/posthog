@@ -1284,12 +1284,13 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("file_system_scopes_only", ["file_system:read", "file_system:write"], 403, 404),
-            ("with_write_scope", ["file_system:write", "hog_flow:write"], 200, 200),
+            ("file_system_scopes_only", ["file_system:read", "file_system:write"], False, 403, 404),
+            ("file_system_scopes_only_for_an_unknown_id", ["file_system:read", "file_system:write"], True, 403, 404),
+            ("with_write_scope", ["file_system:write", "hog_flow:write"], False, 200, 200),
         ]
     )
     def test_tree_restore_of_a_template_needs_the_workflow_write_scope(
-        self, _name: str, scopes: list[str], restore_status: int, template_status: int
+        self, _name: str, scopes: list[str], unknown_id: bool, restore_status: int, template_status: int
     ) -> None:
         template_id = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
@@ -1304,7 +1305,7 @@ class TestWorkflowFolders(APIBaseTest):
 
         restored = self.client.post(
             f"{files_url}undo_delete/",
-            {"items": [{"type": "message_template", "ref": template_id}]},
+            {"items": [{"type": "message_template", "ref": str(DENIED_FLOW_ID) if unknown_id else template_id}]},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {key}",
         )

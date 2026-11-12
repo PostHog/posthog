@@ -456,6 +456,11 @@ def tokenize_search(search: str) -> list[str]:
             return search.split()
 
 
+# The scopes a token needs to place, unlink or restore a workflow or template file, and to add a shortcut to one.
+WORKFLOW_FILE_WRITE_SCOPES = ["file_system:write", "hog_flow:write"]
+WORKFLOW_SHORTCUT_WRITE_SCOPES = ["file_system:write", "hog_flow:read"]
+
+
 @dataclass(frozen=True)
 class WorkflowFileTarget:
     """A workflow or template file row as it will be after a write."""
@@ -646,8 +651,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # A shortcut only points at the object, so it needs the access to open it. Any other row places or
         # unlinks the object itself, so it needs the access to change it.
         missing_scopes = {
-            False: scopes_caller_lacks(self.request, ["file_system:write", "hog_flow:write"]),
-            True: scopes_caller_lacks(self.request, ["file_system:write", "hog_flow:read"]),
+            False: scopes_caller_lacks(self.request, WORKFLOW_FILE_WRITE_SCOPES),
+            True: scopes_caller_lacks(self.request, WORKFLOW_SHORTCUT_WRITE_SCOPES),
         }
         scoped_team_ids = get_authenticator_scoped_team_ids(self.request.successful_authenticator)
         for target in ordered:
@@ -1473,6 +1478,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # requests naming the same objects in opposite order would each hold one and block on the
         # other. Sorting means every request takes those locks in the same order instead.
         items = sorted(serializer.validated_data["items"], key=lambda item: (item["type"], item["ref"]))
+        # Check the scopes before any object is read, so a token that lacks them gets the same answer whether or
+        # not the workflow or template it names exists.
+        if any(item["type"] in WORKFLOW_FILE_SYSTEM_TYPES for item in items) and (
+            missing := scopes_caller_lacks(request, WORKFLOW_FILE_WRITE_SCOPES)
+        ):
+            raise InsufficientScope(missing)
         undo_results: list[dict[str, str]] = []
         refs_by_type: dict[tuple[int, str], set[str]] = {}
         for item in items:
