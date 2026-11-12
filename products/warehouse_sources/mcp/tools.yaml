@@ -899,6 +899,25 @@ tools:
             Fivetran API key in PostHog; never ask for the key in the chat. Once the user confirms, find the new
             migration with 'warehouse-migrations-list' and wait for 'warehouse-migration-get' to report status 'ready'.
         feature_flag: warehouse-migration-import
+    warehouse-migration-cost-estimate:
+        operation: warehouse_migrations_cost_estimate_create
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Estimate the PostHog cost of a Fivetran migration
+        description: >
+            Estimate the rows PostHog syncs each month for a Fivetran migration, and their cost at PostHog's list price,
+            per connection and in total. Fivetran's API has no row counts, so pass the monthly active rows the user
+            reported in 'usage': the rows 'usage_query' returns from the Fivetran Platform Connector tables in their
+            warehouse, or one number per connection from the Usage tab in Fivetran. Call it with an empty 'usage' first
+            to get 'usage_query'. Pass the table choices the user confirmed as 'table_overrides', each with its
+            'item_id', so the estimate prices the tables apply creates. Each item has a 'confidence': 'reported',
+            'estimated' (read its 'notes'), or 'unknown' (nothing reported, so no rows and no cost). The price ignores
+            discounts, credits and rows the project already syncs. Syncs in a source's first 'free_first_sync_days' days
+            are free.
+        feature_flag: warehouse-migration-import
     warehouse-migration-get:
         operation: warehouse_migrations_retrieve
         enabled: true

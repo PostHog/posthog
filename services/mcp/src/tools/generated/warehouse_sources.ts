@@ -1184,6 +1184,38 @@ const warehouseMigrationConnectLink = (): ToolBase<
     },
 })
 
+const WarehouseMigrationCostEstimateSchema = () => {
+    const WarehouseMigrationsCostEstimateCreateBody = orvalSchemas.WarehouseMigrationsCostEstimateCreateBody()
+    const WarehouseMigrationsCostEstimateCreateParams = orvalSchemas.WarehouseMigrationsCostEstimateCreateParams()
+    return WarehouseMigrationsCostEstimateCreateParams.omit({ project_id: true }).extend(
+        WarehouseMigrationsCostEstimateCreateBody.shape
+    )
+}
+
+const warehouseMigrationCostEstimate = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationCostEstimateSchema>,
+    Schemas.WarehouseMigrationCostEstimate
+> => ({
+    name: 'warehouse-migration-cost-estimate',
+    schema: WarehouseMigrationCostEstimateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationCostEstimateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.usage !== undefined) {
+            body['usage'] = params.usage
+        }
+        if (params.table_overrides !== undefined) {
+            body['table_overrides'] = params.table_overrides
+        }
+        const result = await context.api.request<Schemas.WarehouseMigrationCostEstimate>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/cost_estimate/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WarehouseMigrationGetSchema = () => {
     const WarehouseMigrationsRetrieveParams = orvalSchemas.WarehouseMigrationsRetrieveParams()
     return WarehouseMigrationsRetrieveParams.omit({ project_id: true })
@@ -1493,6 +1525,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-webhook-info-retrieve': externalDataSourcesWebhookInfoRetrieve,
     'external-data-sources-wizard': externalDataSourcesWizard,
     'warehouse-migration-connect-link': warehouseMigrationConnectLink,
+    'warehouse-migration-cost-estimate': warehouseMigrationCostEstimate,
     'warehouse-migration-get': warehouseMigrationGet,
     'warehouse-migration-item-apply': warehouseMigrationItemApply,
     'warehouse-migration-item-skip': warehouseMigrationItemSkip,

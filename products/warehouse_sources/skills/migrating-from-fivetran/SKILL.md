@@ -4,8 +4,8 @@ description: >
   Move a user's Fivetran connectors into PostHog data warehouse sources. Use when the user says "migrate from
   Fivetran", "import my Fivetran setup", "replace Fivetran with PostHog", or asks what of their Fivetran account
   PostHog can take over. Reads the Fivetran account with a read-only key or through the user's Fivetran MCP server,
-  reports which connections move as they are, which move with caveats, and which PostHog cannot take yet, then
-  creates the PostHog sources one at a time while the user enters only the secrets.
+  reports which connections move as they are, which move with caveats, which PostHog cannot take yet, and what the
+  move costs in PostHog, then creates the PostHog sources one at a time while the user enters only the secrets.
 ---
 
 # Migrating from Fivetran
@@ -23,6 +23,7 @@ surprised halfway through.
 | `warehouse-migrations-list`              | Find the migration the user just started, newest first                                           |
 | `warehouse-migration-get`                | Status of the read, and counts per verdict                                                       |
 | `warehouse-migration-items-list`         | One item per Fivetran connection: verdict, caveats, and the planned source type                  |
+| `warehouse-migration-cost-estimate`      | Monthly rows and cost in PostHog, per connection and in total, from usage the user reports       |
 | `data-warehouse-source-connect-link`     | Link where the user enters the secret for one item; pass `migration_item_id` to prefill the rest |
 | `data-warehouse-stored-credentials-list` | Find the credential the user just stored                                                         |
 | `warehouse-migration-item-apply`         | Create the planned source from an item and a stored credential                                   |
@@ -107,6 +108,32 @@ project yet. Tell the user that and stop.
    `posthog_table` leaves it out. `vendor_table` is a planned table's `proposal.schemas[].vendor_table` (a database
    names it `schema.table`), or a name from `unmatched_tables`. End the report with the credentials the user needs,
    one line per connection.
+
+   **Cost.** Offer an estimate of what the kept connections cost in PostHog. If the user declines, skip this. Fivetran's
+   API returns no row counts, so the user supplies monthly active rows (MAR). Call `warehouse-migration-cost-estimate`
+   with an empty `usage` to get `usage_query`, then offer two ways and let the user pick:
+   - Run `usage_query` on the Fivetran Platform Connector's `INCREMENTAL_MAR` table in their warehouse, and paste the
+     result back. Replace `<fivetran_platform_schema>` with the schema that connector writes to, and ask the user when
+     you do not know it. On BigQuery, write the date filter as `DATE_SUB(DATE_TRUNC(CURRENT_DATE(), MONTH), INTERVAL 3
+MONTH)` and `DATE_TRUNC(CURRENT_DATE(), MONTH)`. If you have a tool that queries that warehouse, such as a
+     Snowflake or BigQuery MCP server the user connected, you may run the query yourself after the user agrees. Run
+     only that read-only query. The Fivetran MCP cannot run it, because it only calls Fivetran's REST API.
+   - Give the monthly MAR of each connection from the Usage tab in Fivetran.
+
+   Send the numbers as `usage`: one entry per row of the query result, or one per connection without `table_name`.
+   When the query returns more than a few hundred rows, or more than 10,000, which the tool refuses, roll it up per
+   connection: drop `schema_name` and `table_name` from the `SELECT` and the `GROUP BY`. The estimate is then
+   `estimated`. Send everything in one call, because the price of each call follows its own total. Pass the table
+   choices the user confirmed as `table_overrides`, each with its `item_id`, so the estimate prices the tables apply
+   creates. Ask for the estimate again after the user changes them.
+
+   Read out the total rows and cost per month, then each connection's rows, cost and `confidence`. Read the `notes` of
+   every `estimated` connection. For an `unknown` one, say no usage was reported and give no number. If
+   `monthly_cost_usd` is null, PostHog could not read its prices: give the rows only and say the price is unavailable.
+   Say that syncs in a source's first `free_first_sync_days` days are free, so the first full sync usually costs
+   nothing, and that the price is PostHog's list price without discounts, credits or rows the project already syncs.
+   Check every `unmatched_usage` entry with the user. Its name matched no connection, or matched two in different
+   destinations: send it again with the `destination_id` from the query.
 
 3. **Ask one decision at a time.** A decision that changes the result blocks the step it belongs to: where the data
    goes, which table pairs hold, which connections move. Ask one such question, wait for the answer, then ask the
