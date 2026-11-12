@@ -7,7 +7,6 @@ const STILL_SENDING_WINDOW_DAYS = 7
 export const RUN_AUDIENCE_METRICS = [
     'triggered',
     'email_sent',
-    'email_failed',
     'failed',
     'email_opted_out',
     'email_suppressed',
@@ -56,8 +55,8 @@ export function getRunAudience(
     const suppressed = count('email_suppressed')
     const skippedAtCap = count('message_frequency_capped')
     const noEmail = count('email_missing_recipient') + count('email_bounce_prevented')
-    // A send that errors can record both metrics for one person.
-    const failed = Math.max(count('email_failed'), count('failed'))
+    // Only step failures: `email_failed` also counts rejects that SES reports after the send.
+    const failed = count('failed')
     const filteredOut = count('filtered')
     const exitedEarly = count('early_exit')
     const unfinished = Math.max(

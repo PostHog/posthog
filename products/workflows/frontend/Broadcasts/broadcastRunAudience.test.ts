@@ -40,6 +40,13 @@ describe('broadcastRunAudience', () => {
             stillSending: false,
         },
         {
+            name: 'rejects reported after the send, while others are still queued',
+            totals: { triggered: 100, email_sent: 90, email_failed: 10 },
+            now: soon,
+            text: '100 in audience: 90 sent, 10 still to send',
+            stillSending: true,
+        },
+        {
             name: 'a send slowed by a sending limit',
             totals: { triggered: 100, email_sent: 40 },
             now: soon,
@@ -55,6 +62,7 @@ describe('broadcastRunAudience', () => {
                 message_frequency_capped: 5,
                 email_missing_recipient: 3,
                 email_bounce_prevented: 1,
+                failed: 1,
                 email_failed: 1,
             },
             now: soon,
