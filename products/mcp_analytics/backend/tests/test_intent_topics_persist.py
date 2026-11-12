@@ -106,8 +106,8 @@ class TestApplyFit(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     def test_saves_the_pca_basis_on_the_run_and_exposes_vectors(self) -> None:
         match = MatchResult(reused={0: str(self.recent.pk)}, created=[1], unmatched_topics=[str(self.stale.pk)])
         apply_fit(self.team, run=self.refit_run, fit=_fit(), match=match, now=NOW)
-        finish_run(self.refit_run, status=MCPIntentClusteringRun.Status.SUCCEEDED, n_topics=2)
 
+        # Published with the registry, while the run is still labeling.
         basis = latest_pca_basis(self.team)
         assert basis is not None
         assert basis.pc1 == _unit(0).tolist() and basis.pc2 == _unit(1).tolist()
@@ -199,5 +199,5 @@ class TestRunBookkeeping(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
         assert (run.status, run.error_message, run.n_intents) == ("failed", "boom", 5)
         assert run.finished_at is not None
 
-    def test_latest_pca_basis_is_none_without_a_succeeded_refit(self) -> None:
+    def test_latest_pca_basis_is_none_without_a_published_fit(self) -> None:
         assert latest_pca_basis(self.team) is None
