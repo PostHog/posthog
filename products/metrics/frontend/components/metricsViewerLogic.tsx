@@ -220,6 +220,8 @@ export interface MetricsAnomalyBadge {
 }
 
 export const DEFAULT_DATE_FROM = '-1h'
+// Mirrors the backend's MAX_QUERY_SPAN, which rejects a wider range with a 400.
+const MAX_QUERY_SPAN_DAYS = 31
 // Kept off the persisted node: a saved query with no `display` renders as a line chart anyway.
 export const DEFAULT_DISPLAY_TYPE: MetricsDisplayType = 'line'
 export const DEFAULT_REDUCER: MetricsReducer = 'last'
@@ -554,6 +556,7 @@ export interface metricsViewerLogicValues {
     chartSeries: MetricsChartSeries[]
     correlationServices: string[]
     dateFrom: string | null
+    dateRangeError: string | null
     dateTo: string | null
     displayType: MetricsDisplayType
     filterGroup: UniversalFiltersGroup
@@ -922,6 +925,7 @@ export interface metricsViewerLogicMeta {
             dateTo: string | null,
             timezone: string
         ) => Record<string, string>
+        dateRangeError: (dateFrom: string | null, dateTo: string | null, timezone: string) => string | null
         chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
         hasResults: (queryResults: _MetricSeriesApi[]) => boolean
         seriesCapReached: (viewerClauses: MetricsViewerClause[], queryResults: _MetricSeriesApi[]) => boolean
@@ -1529,7 +1533,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             [] as MetricsViewerSeries[],
             {
                 fetchQueryResults: async (_, breakpoint) => {
-                    if (!canViewMetrics()) {
+                    if (!canViewMetrics() || values.dateRangeError) {
                         return []
                     }
                     if (values.language !== 'builder') {
@@ -1947,6 +1951,16 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 const from = resolveDate(dateFrom, timezone)
                 const to = resolveDate(dateTo, timezone)
                 return { ...(from ? { dateFrom: from } : {}), ...(to ? { dateTo: to } : {}) }
+            },
+        ],
+        dateRangeError: [
+            (s) => [s.dateFrom, s.dateTo, s.timezone],
+            (dateFrom: string | null, dateTo: string | null, timezone: string): string | null => {
+                const from = resolveDate(dateFrom, timezone)
+                const to = resolveDate(dateTo, timezone) ?? dayjs().toISOString()
+                return from && dayjs(to).diff(dayjs(from), 'day', true) > MAX_QUERY_SPAN_DAYS
+                    ? `Metrics can only be queried over ${MAX_QUERY_SPAN_DAYS} days or less. Pick a shorter date range.`
+                    : null
             },
         ],
         // All series rendered as chart lines (a group-by query returns one series per label combination).

@@ -450,6 +450,33 @@ describe('metricsViewerLogic', () => {
         expect(requestBody.query).not.toHaveProperty('formula')
     })
 
+    // The backend rejects a span over 31 days with a 400 that error tracking reports, so the
+    // viewer must explain the limit instead of sending a query that cannot succeed.
+    it.each([
+        { language: 'builder', dateFrom: '-7w', sent: false },
+        { language: 'builder', dateFrom: '-4w', sent: true },
+        { language: 'promql', dateFrom: '-7w', sent: false },
+        { language: 'promql', dateFrom: '-4w', sent: true },
+    ])('$language query with dateFrom $dateFrom is sent: $sent', async ({ language, dateFrom, sent }) => {
+        jest.mocked(performQuery).mockReset().mockResolvedValue({ results: [] })
+        if (language === 'promql') {
+            logic.actions.applyQuery({ kind: NodeKind.MetricsQuery, clauses: [], language, promql: 'sum(up)' })
+        } else {
+            logic.actions.setMetricName('requests_total')
+        }
+        logic.actions.setDateFrom(dateFrom)
+
+        await expectLogic(logic, () => {
+            logic.actions.fetchQueryResults({})
+        }).toDispatchActions(['fetchQueryResultsSuccess'])
+
+        const request = language === 'promql' ? performQuery : metricsQueryCreate
+        expect(jest.mocked(request).mock.calls.length > 0).toBe(sent)
+        expect(logic.values.dateRangeError).toBe(
+            sent ? null : 'Metrics can only be queried over 31 days or less. Pick a shorter date range.'
+        )
+    })
+
     it('runs a PromQL query through the query runner and charts its series', async () => {
         jest.mocked(performQuery).mockResolvedValue({
             results: [

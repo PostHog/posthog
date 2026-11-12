@@ -96,6 +96,7 @@ export function MetricsViewerChart(): JSX.Element {
         histogramQueryNode,
         refreshCount,
         queryError,
+        dateRangeError,
         hasResults,
         queryLoading,
         chartSeries,
@@ -123,6 +124,13 @@ export function MetricsViewerChart(): JSX.Element {
                         {language === 'builder'
                             ? 'Pick a metric to see its time series.'
                             : 'Run a query to see results.'}
+                    </div>
+                ) : dateRangeError ? (
+                    // Before the heatmap: its histogram query would hit the same span limit.
+                    <div className="h-full flex items-center justify-center">
+                        <LemonBanner type="error" className="w-full max-w-md">
+                            {dateRangeError}
+                        </LemonBanner>
                     </div>
                 ) : isHeatmap && histogramQueryNode ? (
                     // The heatmap runs its own histogram query, so it mounts the histogram
