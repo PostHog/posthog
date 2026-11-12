@@ -203,7 +203,7 @@ def _list_repository_ids(session: requests.Session, headers: dict[str, str], log
 
 
 def _rows_for_page(
-    endpoint: str, repository_id: int, items: list[dict[str, Any]], watermark: int | None
+    embedded_collection_key: str | None, repository_id: int, items: list[dict[str, Any]], watermark: int | None
 ) -> tuple[list[dict[str, Any]], bool]:
     """Shape one fan-out page into rows, returning ``(rows, reached_watermark)``.
 
@@ -213,13 +213,13 @@ def _rows_for_page(
     rows: list[dict[str, Any]] = []
     reached_watermark = False
 
-    if endpoint == "jobs":
+    if embedded_collection_key is not None:
         for build in items:
             if watermark is not None and build["id"] <= watermark:
                 reached_watermark = True
                 break
-            for job in build.get("jobs") or []:
-                rows.append({**_strip_meta(job), "build_id": build["id"], "repository_id": repository_id})
+            for embedded in build.get(embedded_collection_key) or []:
+                rows.append({**_strip_meta(embedded), "build_id": build["id"], "repository_id": repository_id})
         return rows, reached_watermark
 
     for item in items:
@@ -300,7 +300,7 @@ def get_rows(
             resource=f"{endpoint} of repository {repository_id}",
             start_path=start_path,
         ):
-            rows, reached_watermark = _rows_for_page(endpoint, repository_id, items, watermark)
+            rows, reached_watermark = _rows_for_page(config.embedded_collection_key, repository_id, items, watermark)
             if rows:
                 yield rows
             if reached_watermark:
