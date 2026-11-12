@@ -109,7 +109,7 @@ def _current_attribute(node: dict[str, Any]) -> dict[str, Any] | None:
     """The attribute check in an `attribute_change` rule, which is how Customer.io stores "attribute is X".
 
     Its `to` filter is the check on the current value, and its `from` filter repeats it, inverted. A rule with any
-    other filters, or with a time window, is one this can't read as a plain attribute check.
+    other filters, a time window or a count above one is a rule this can't read as a plain attribute check.
     """
     event = node.get("event")
     if not isinstance(event, dict) or event.get("type") != "attribute_change":
@@ -117,7 +117,9 @@ def _current_attribute(node: dict[str, Any]) -> dict[str, Any] | None:
     field = event.get("name")
     filters = event.get("filters")
     leaves = filters.get("and") if isinstance(filters, dict) else None
-    if not isinstance(field, str) or not field or not isinstance(leaves, list) or node.get("within") not in (0, None):
+    if not isinstance(field, str) or not field or not isinstance(leaves, list):
+        return None
+    if node.get("within") not in (0, None) or node.get("times") not in (1, None):
         return None
     to = [leaf for leaf in leaves if isinstance(leaf, dict) and leaf.get("field") == "to"]
     # Without the mirrored `from` it may be a change rule, so both must be there.

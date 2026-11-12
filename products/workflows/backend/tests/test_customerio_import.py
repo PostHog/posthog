@@ -581,6 +581,11 @@ class TestCustomerioConditions(SimpleTestCase):
                 ["plan changed to trial"],
             ),
             (
+                "an attribute that changed more than once",
+                {"and": [{**_attribute_rule({"field": "plan", "value": "trial"}), "times": 3}]},
+                ["plan changed to trial"],
+            ),
+            (
                 "an attribute change within a time window",
                 {"and": [{**_attribute_rule({"field": "plan", "value": "trial"}), "within": 604800}]},
                 ["plan changed to trial"],
