@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo, MockSignature } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
@@ -850,9 +850,9 @@ describe('workflowLogic auto-save', () => {
                 ...(draft ? { draft, draft_updated_at: '2026-05-01T00:01:00.000Z' } : {}),
             })
 
-        const mountLoaded = async (): Promise<void> => {
+        const mountLoaded = async (id = WORKFLOW_ID): Promise<void> => {
             initKeaTests()
-            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic = workflowLogic({ id })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
         }
@@ -882,20 +882,30 @@ describe('workflowLogic auto-save', () => {
                 reason: /^You don't have sufficient permissions for this workflow\. Your access level \(viewer\)/,
             },
             {
-                case: 'a workflow served without an access level',
+                case: 'a workflow served without an access level to a project viewer',
                 served: { user_access_level: undefined },
-                reason: /^You don't have sufficient permissions for this workflow\. Your access level \(none\)/,
+                projectAccess: AccessControlLevel.Viewer,
+                reason: /^You don't have sufficient permissions for this workflow\. Your access level \(viewer\)/,
             },
             { case: 'a disabled workflow', served: { status: 'draft' as const }, reason: /^Must enable workflow/ },
             { case: 'unsaved edits', served: {}, edit: true, reason: /^Save changes first$/ },
-        ])('blocks the trigger for $case', async ({ served, edit, reason }) => {
-            useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': { ...activeWorkflow(), ...served } } })
-            await mountLoaded()
-            if (edit) {
-                logic.actions.setWorkflowValue('name', 'Unsaved edit')
-            }
+        ])('blocks the trigger for $case', async ({ served, projectAccess, edit, reason }) => {
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                resource_access_control: { [AccessControlResourceType.Workflow]: projectAccess },
+            } as AppContext
+            try {
+                useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': { ...activeWorkflow(), ...served } } })
+                await mountLoaded()
+                if (edit) {
+                    logic.actions.setWorkflowValue('name', 'Unsaved edit')
+                }
 
-            expect(logic.values.manualTriggerDisabledReason).toMatch(reason)
+                expect(logic.values.manualTriggerDisabledReason).toMatch(reason)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
         })
 
         it.each([
@@ -940,10 +950,7 @@ describe('workflowLogic auto-save', () => {
                     },
                 },
             })
-            initKeaTests()
-            logic = workflowLogic({ id })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            await mountLoaded(id)
             showToasts()
 
             await expectLogic(logic, () => {

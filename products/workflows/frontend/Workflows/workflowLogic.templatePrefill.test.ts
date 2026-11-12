@@ -121,7 +121,7 @@ describe('workflowLogic pages opened from a link or a template', () => {
         })
         const logic = workflowLogic({ id: 'new', ...props })
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
 
         const { id, name, status, version } = logic.values.workflow
         expect({ id, name, status, version }).toEqual({ ...expected, status: 'draft' })
@@ -140,7 +140,7 @@ describe('workflowLogic pages opened from a link or a template', () => {
         const logics = opened.map((props) => workflowLogic(props))
         for (const logic of logics) {
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            await expectLogic(logic).toFinishAllListeners()
         }
         logics[0].actions.setWorkflowValue('name', 'Renamed a')
 

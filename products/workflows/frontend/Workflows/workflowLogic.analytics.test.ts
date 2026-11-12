@@ -7,33 +7,18 @@ jest.unmock('posthog-js')
 
 const INGESTION_HOST = 'https://ingest.example.com'
 
+type SentEvent = { event: string; properties: Record<string, any> }
+
 describe('workflowLogic analytics', () => {
-    const sentEvents: { event: string; properties: Record<string, any> }[] = []
-    let posthog: typeof import('posthog-js').default
+    const sentEvents: SentEvent[] = []
     let initKeaTests: typeof import('~/test/init').initKeaTests
     let expectLogic: typeof import('kea-test-utils').expectLogic
     let workflowLogic: typeof import('./workflowLogic').workflowLogic
     let emailPrefill: typeof import('./workflowEmailPrefill')
 
     beforeAll(async () => {
-        // posthog-js keeps the fetch it finds at import, so a fresh copy has to load after this ingestion fake.
-        const mockedApi = globalThis.fetch
-        globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
-            if (!String(url).startsWith(INGESTION_HOST)) {
-                return mockedApi(url, init)
-            }
-            sentEvents.push(...JSON.parse(String(init?.body)).batch)
-            return new Response('{"status":1}', { status: 200 })
-        }) as typeof fetch
         jest.resetModules()
-        posthog = (await import('posthog-js')).default
-        initKeaTests = (await import('~/test/init')).initKeaTests
-        expectLogic = (await import('kea-test-utils')).expectLogic
-        workflowLogic = (await import('./workflowLogic')).workflowLogic
-        emailPrefill = await import('./workflowEmailPrefill')
-    })
-
-    beforeEach(() => {
+        const posthog = (await import('posthog-js')).default
         posthog.init('phc_example', {
             api_host: INGESTION_HOST,
             persistence: 'memory',
@@ -43,6 +28,13 @@ describe('workflowLogic analytics', () => {
             autocapture: false,
             capture_pageview: false,
         })
+        initKeaTests = (await import('~/test/init')).initKeaTests
+        expectLogic = (await import('kea-test-utils')).expectLogic
+        workflowLogic = (await import('./workflowLogic')).workflowLogic
+        emailPrefill = await import('./workflowEmailPrefill')
+    })
+
+    beforeEach(() => {
         initKeaTests()
     })
 
@@ -55,9 +47,20 @@ describe('workflowLogic analytics', () => {
         const draft = new Promise((resolve) => {
             respond = resolve
         })
+        let draftRequested: () => void = () => {}
+        const requested = new Promise<void>((resolve) => {
+            draftRequested = resolve
+        })
         useMocks({
             post: {
-                '/api/projects/:team_id/workflow_email_drafts/': () => draft.then((body) => [200, body]),
+                [`${INGESTION_HOST}/e/`]: async ({ request }: MockResolverInfo) => {
+                    sentEvents.push(...((await request.json()) as { batch: SentEvent[] }).batch)
+                    return [200, { status: 1 }]
+                },
+                '/api/projects/:team_id/workflow_email_drafts/': () => {
+                    draftRequested()
+                    return draft.then((body) => [200, body])
+                },
                 '/api/environments/:team_id/hog_flows/': async ({ request }: MockResolverInfo) => [
                     201,
                     { ...((await request.json()) as HogFlow), id: 'wf-created' },
@@ -74,7 +77,7 @@ describe('workflowLogic analytics', () => {
             draftSource: JSON.stringify({ source: 'error_tracking', source_id: 'issue-1' }),
         })
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess', 'loadAiEmailDraft'])
+        await requested
         if (act === 'type') {
             const typed = { subject: 'Typed by me', paragraphs: ['Template body'] }
             logic.actions.setWorkflowValue(
@@ -82,14 +85,12 @@ describe('workflowLogic analytics', () => {
                 emailPrefill.withPrefilledEmail(logic.values.workflow, typed).actions
             )
         } else if (act === 'save') {
-            await expectLogic(logic, () => logic.actions.saveWorkflow(logic.values.workflow)).toDispatchActions([
-                'saveWorkflowSuccess',
-            ])
+            await logic.asyncActions.saveWorkflow(logic.values.workflow)
         }
         sentEvents.length = 0
 
         respond({ subject: 'Written by AI', preheader: '', html: '<p>AI</p>', text: 'AI', generated_by: 'ai' })
-        await expectLogic(logic).toDispatchActions(['loadAiEmailDraftSuccess']).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(sentEvents.filter(({ event }) => event === 'email draft prefilled').map((e) => e.properties)).toEqual([
             expect.objectContaining({
