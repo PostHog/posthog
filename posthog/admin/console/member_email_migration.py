@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime
 
 from django.contrib.admin.models import CHANGE, LogEntry
@@ -134,14 +135,7 @@ class MemberEmailMigration:
                 continue
             skip_reason = self._change_email(change.user.pk, change.current_email, change.new_email, changed_by, reason)
             if skip_reason is not None:
-                results.append(
-                    MemberEmailChange(
-                        current_email=change.current_email,
-                        new_email=change.new_email,
-                        user=change.user,
-                        skip_reason=skip_reason,
-                    )
-                )
+                results.append(dataclasses.replace(change, skip_reason=skip_reason))
                 continue
             if change.user.pending_email:
                 email_verification_code_verifier.invalidate(change.user)
