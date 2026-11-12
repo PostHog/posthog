@@ -749,6 +749,42 @@ class TestWorkflowFolders(APIBaseTest):
             [response.json() for response in placements], [{"path": "Campaigns/Synthetic email"}, {"path": None}]
         )
 
+    @parameterized.expand([("create", "post"), ("update", "patch")])
+    def test_filing_a_template_into_a_folder_needs_editor_access_to_the_workflow_resource(self, _name, method) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        template_id = self.client.post(
+            templates_url, {"name": "Synthetic email", "type": "email"}, format="json"
+        ).json()["id"]
+        FileSystem.objects.filter(team=self.team, type="message_template").delete()
+        unrelated = HogFlow.objects.create(team=self.team, name="Synthetic unrelated", created_by=self.user)
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level="viewer", organization_member_id=membership.id
+        )
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(unrelated.id),
+            access_level="editor",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+
+        url = templates_url if method == "post" else f"{templates_url}{template_id}/"
+        payload = {
+            "_create_in_folder": "Campaigns",
+            **({"name": "Synthetic new", "type": "email"} if method == "post" else {}),
+        }
+        response = getattr(self.client, method)(url, payload, format="json")
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertFalse(FileSystem.objects.filter(team=self.team, path__startswith="Campaigns").exists())
+
     @parameterized.expand([("resource_viewer", "viewer", 200), ("only_an_unrelated_workflow_grant", "none", 404)])
     def test_a_template_placement_needs_workflow_access_to_the_resource(self, _name, resource_level, status) -> None:
         self.organization.available_product_features = [

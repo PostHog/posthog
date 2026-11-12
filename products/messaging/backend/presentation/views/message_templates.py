@@ -994,6 +994,18 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             return
         require_workflow_editor(self.team_id, hog_flow_id, self.user_access_control)
 
+    def _require_filing_access(self, fields: dict[str, Any]) -> None:
+        # Filing places the template's file in the project tree, which needs editor access to the workflow
+        # resource. The action check alone also passes with an editor grant to one unrelated workflow.
+        if "_create_in_folder" not in fields or is_authenticated_via_project_secret_api_key(self.request):
+            return
+        if self.user_access_control and not self.user_access_control.check_access_level_for_resource(
+            "hog_flow", "editor"
+        ):
+            raise exceptions.PermissionDenied(
+                "You need editor access to workflows to file this template. Ask a project admin to grant it."
+            )
+
     def _require_workflow_create(self) -> None:
         if is_authenticated_via_project_secret_api_key(self.request):
             return
@@ -1133,6 +1145,7 @@ class MessageTemplatesViewSet(
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        self._require_filing_access(serializer.validated_data)
         with self._resolve_files_flag(serializer.validated_data, request.user.id):
             template = create_template(self.team_id, request.user.id, serializer.validated_data)
         # report_user_action injects source and MCP-client properties from the request, so a create from the
@@ -1163,6 +1176,7 @@ class MessageTemplatesViewSet(
         serializer = self.get_serializer(self._with_creators([template])[0], data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         fields = serializer.validated_data
+        self._require_filing_access(fields)
         if fields.keys() == {"draft_content"}:
             # Sends never read the draft, so it skips the sendability check and the workflow sync. It is still an edit
             # of the transactional email, so it needs the same workflow access as a publish.
