@@ -480,9 +480,13 @@ class TestWorkflowFolders(APIBaseTest):
         template_after_delete = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/")
         self.client.delete(f"{files_url}{entry['id']}/")
         self.client.force_login(creator)
-        restored = self.client.post(
-            f"{files_url}undo_delete/", {"items": [{"type": "message_template", "ref": template["id"]}]}, format="json"
-        )
+        with patch("posthog.models.file_system.constants._evaluate_workflows_list_v2") as flag_evaluation:
+            restored = self.client.post(
+                f"{files_url}undo_delete/",
+                {"items": [{"type": "message_template", "ref": template["id"], "path": "Restored/Creator email"}]},
+                format="json",
+            )
+        self.assertEqual(flag_evaluation.call_count, 0)
         self.client.force_login(self.user)
         template_after_restore = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/")
 
