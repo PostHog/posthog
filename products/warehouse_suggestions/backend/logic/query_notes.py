@@ -38,6 +38,7 @@ NOTE_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestion
 MAX_NOTES = 3
 MAX_VIEW_NAME_CHARS = 60
 MIN_SECONDS_WORTH_NAMING = 60
+MIN_BYTES_WORTH_NAMING = 10**9
 ACCEPT_TOOL = "warehouse-suggestions-accept"
 DISMISS_TOOL = "warehouse-suggestions-dismiss"
 CONFIRMED_ACTION_PREPARE_SUFFIX = "-prepare"
@@ -144,6 +145,8 @@ def materialize_summary(payload: MaterializePayload, view_name: str) -> str:
         f"Materializing `{view_name}` would save {_materialize_saving(payload)} a month (estimated).",
         _freshness(payload, cadence),
     ]
+    if -payload.saves_bytes_per_month >= MIN_BYTES_WORTH_NAMING:
+        sentences.append(f"It would also scan about {_about_bytes(-payload.saves_bytes_per_month)} more a month.")
     if payload.read_seconds is not None:
         sentences.append(f"Reading it takes about {_about_duration(payload.read_seconds)} today.")
     return " ".join(sentences)
@@ -165,13 +168,14 @@ def _unmaterialize_saving(payload: UnmaterializePayload) -> str:
 
 
 def _materialize_saving(payload: MaterializePayload) -> str:
+    estimate_word = "at least" if payload.measurement_capped else "about"
     if payload.main_saving == WarehouseSuggestionMainSaving.WAITING and payload.waiting_seconds_saved_per_month:
-        return f"people about {_about_duration(payload.waiting_seconds_saved_per_month)} of waiting"
+        return f"people {estimate_word} {_about_duration(payload.waiting_seconds_saved_per_month)} of waiting"
     if payload.main_saving == WarehouseSuggestionMainSaving.BACKGROUND and payload.background_seconds_saved_per_month:
-        return f"about {_about_duration(payload.background_seconds_saved_per_month)} of background work"
+        return f"{estimate_word} {_about_duration(payload.background_seconds_saved_per_month)} of background work"
     if payload.main_saving == WarehouseSuggestionMainSaving.SCANNED:
-        return f"about {_about_bytes(payload.saves_bytes_per_month)} of scanning"
-    return f"about {_about_duration(payload.saves_seconds_per_month)} of query time"
+        return f"{estimate_word} {_about_bytes(payload.saves_bytes_per_month)} of scanning"
+    return f"{estimate_word} {_about_duration(payload.saves_seconds_per_month)} of query time"
 
 
 def _freshness(payload: MaterializePayload, cadence: str) -> str:

@@ -37,6 +37,8 @@ const MAIN_SAVING_LABELS: Record<MainSavingKind, string> = {
     background: 'less background work',
     scanned: 'less scanned',
 }
+const APPROXIMATE_PREFIX = '~'
+const AT_LEAST_PREFIX = 'at least '
 export const UNKNOWN_SOURCES_CAVEAT = 'Some sources have no sync schedule, so their age is unknown.'
 
 export interface SavingHighlight {
@@ -229,7 +231,8 @@ export function materializeHighlight(payload: WarehouseSuggestionMaterializePayl
     }
     return headlineHighlight(
         main,
-        MAIN_SAVING_KINDS.filter((kind) => kind !== main.kind).map((kind) => perMonth(notes[kind]))
+        MAIN_SAVING_KINDS.filter((kind) => kind !== main.kind).map((kind) => perMonth(notes[kind])),
+        payload.measurement_capped ? AT_LEAST_PREFIX : APPROXIMATE_PREFIX
     )
 }
 
@@ -306,11 +309,15 @@ function timeOrBytes(saving: MonthlySaving, timeKind: MainSavingKind): MainSavin
     return savesTime(saving) ? { kind: timeKind, amount: saving.seconds } : { kind: 'scanned', amount: saving.bytes }
 }
 
-function headlineHighlight(main: MainSaving, notes: (string | null)[]): SavingHighlight {
+function headlineHighlight(
+    main: MainSaving,
+    notes: (string | null)[],
+    prefix: string = APPROXIMATE_PREFIX
+): SavingHighlight {
     const amount = main.kind === 'scanned' ? humanizeBytes(main.amount) : spokenDuration(main.amount, 1)
     const label = MAIN_SAVING_LABELS[main.kind]
     return {
-        amount: `~${amount}`,
+        amount: `${prefix}${amount}`,
         detail: label,
         narrowLabel: `${label} a month`,
         tooltip: notes.filter(isNotNil),
@@ -337,7 +344,10 @@ function changeText(seconds: number, noun: string): string | null {
 }
 
 function scannedText(bytes: number): string | null {
-    return bytes >= MIN_BYTES_WORTH_NAMING ? `~${humanizeBytes(bytes)} less scanned` : null
+    if (Math.abs(bytes) < MIN_BYTES_WORTH_NAMING) {
+        return null
+    }
+    return `~${humanizeBytes(Math.abs(bytes))} ${bytes > 0 ? 'less' : 'more'} scanned`
 }
 
 export function savingSentence(saving: MonthlySaving): string {

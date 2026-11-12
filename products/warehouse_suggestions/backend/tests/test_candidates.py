@@ -788,6 +788,7 @@ class TestMaterializeRecomputedUpstream(SimpleTestCase):
             draft.payload.waiting_seconds_saved_per_month,
             draft.payload.background_seconds_saved_per_month,
             draft.payload.main_saving,
+            draft.payload.measurement_capped,
         ) == (
             HOUR.total_seconds(),
             2,
@@ -795,4 +796,5 @@ class TestMaterializeRecomputedUpstream(SimpleTestCase):
             0,
             draft.payload.saves_seconds_per_month,
             WarehouseSuggestionMainSaving.BACKGROUND,
+            unfinished is not None,
         )

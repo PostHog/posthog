@@ -80,6 +80,7 @@ class MaterializePayloadFields:
     background_seconds_saved_per_month: float | None = None
     main_saving: WarehouseSuggestionMainSaving | None = None
     read_seconds: float | None = None
+    measurement_capped: bool = False
 
 
 @frozen

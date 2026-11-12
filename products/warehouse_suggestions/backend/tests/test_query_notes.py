@@ -65,6 +65,16 @@ class TestMaterializeSummary(SimpleTestCase):
                 "would save about 3.2 TB of scanning a month (estimated)",
             ),
             ("older payload", {"main_saving": None}, "would save about 40 minutes of query time a month (estimated)"),
+            (
+                "capped measurement",
+                {"measurement_capped": True},
+                "would save people at least 40 minutes of waiting a month (estimated)",
+            ),
+            (
+                "extra scanning",
+                {"saves_bytes_per_month": -21.0 * 10**9},
+                "It would also scan about 21.0 GB more a month.",
+            ),
             ("known freshness", {"freshness_today_seconds": 3600}, "so its data would be up to 2 hours old"),
             (
                 "unknown sources",
