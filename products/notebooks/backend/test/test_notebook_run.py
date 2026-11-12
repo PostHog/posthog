@@ -9,8 +9,9 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
+from posthog.models import PersonalAPIKey
 from posthog.models.scoping import team_scope
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.notebook_run import node_run_request_for, plan_notebook_cells
@@ -22,6 +23,8 @@ from products.notebooks.backend.temporal.notebook_run import (
     read_notebook_run_status_activity,
 )
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput, dispatch_sql_v2_run_activity
+from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 _RUN_CELLS = (
     '<SQLV2 nodeId="s1" code="select 1" returnVariable="first" />\n\n'
@@ -232,6 +235,59 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert request.code == "select 1"
         assert str(request.connection_id) == "018e0e7a-9999-8888-7777-666666666666"
         assert request.send_raw_query is True
+
+    @parameterized.expand([("browser_session", False, 200), ("project_restricted_api_key", True, 400)])
+    def test_raw_cells_on_the_organization_warehouse_grant_need_a_browser_session(
+        self, mock_start: MagicMock, _flag: MagicMock, _name: str, token: bool, expected_status: int
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id="managed-source",
+            connection_id="managed-connection",
+            destination_id="managed-destination",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "duckgres_service",
+                "lifecycle_generation": 1,
+            },
+            job_inputs={},
+        )
+        notebook = Notebook.objects.create(
+            team=self.team,
+            short_id="nbrunraw",
+            content=markdown_content(
+                f'<SQLV2 nodeId="s1" code="select 1" returnVariable="first" '
+                f'connectionId="{source.id}" sendRawQuery={{true}} />\n'
+            ),
+        )
+        headers = {}
+        if token:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="project-restricted notebook run",
+                user=self.user,
+                secure_value=hash_key_value(value),
+                scopes=["notebook:write", "query:read"],
+                scoped_teams=[self.team.pk],
+            )
+            headers["Authorization"] = f"Bearer {value}"
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/runs/", data={}, format="json", headers=headers
+        )
+
+        assert response.status_code == expected_status, response.json()
+        with team_scope(self.team.id):
+            assert NotebookRun.objects.filter(notebook=notebook).exists() is not token
+        if token:
+            assert "browser session" in response.json()["detail"]
+            mock_start.assert_not_called()
 
     def test_status_reports_every_planned_cell_and_the_one_in_flight(self, _start, _flag) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]

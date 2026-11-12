@@ -1352,16 +1352,45 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestManagedTrinoRawQuery(APIBaseTest):
+    def _organization_credential_source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            source_id="managed-source",
+            connection_id="managed-connection",
+            destination_id="managed-destination",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "duckgres_service",
+                "lifecycle_generation": 1,
+            },
+            job_inputs={},
+        )
+
     @parameterized.expand(
         [
-            ("member", OrganizationMembership.Level.MEMBER, False, 200),
-            ("admin", OrganizationMembership.Level.ADMIN, False, 200),
-            ("owner", OrganizationMembership.Level.OWNER, False, 200),
-            ("restricted_api_key", OrganizationMembership.Level.ADMIN, True, 400),
+            ("member", OrganizationMembership.Level.MEMBER, False, "execution_target", 200),
+            ("admin", OrganizationMembership.Level.ADMIN, False, "execution_target", 200),
+            ("owner", OrganizationMembership.Level.OWNER, False, "execution_target", 200),
+            ("restricted_api_key", OrganizationMembership.Level.ADMIN, True, "execution_target", 400),
+            ("member_trino_connection", OrganizationMembership.Level.MEMBER, False, "trino_connection", 200),
+            ("restricted_api_key_trino_connection", OrganizationMembership.Level.ADMIN, True, "trino_connection", 400),
+            (
+                "restricted_api_key_duckgres_connection",
+                OrganizationMembership.Level.ADMIN,
+                True,
+                "duckgres_connection",
+                400,
+            ),
         ]
     )
-    def test_raw_trino_execution_requires_a_project_browser_session(
-        self, _name: str, membership_level: int, token: bool, expected_status: int
+    def test_raw_managed_warehouse_execution_requires_a_project_browser_session(
+        self, _name: str, membership_level: int, token: bool, route: str, expected_status: int
     ) -> None:
         self.organization_membership.level = membership_level
         self.organization_membership.save()
@@ -1376,29 +1405,32 @@ class TestManagedTrinoRawQuery(APIBaseTest):
                 scoped_teams=[self.team.pk],
             )
             headers["Authorization"] = f"Bearer {value}"
+        query: dict[str, object] = {"kind": "HogQLQuery", "query": "SELECT 1", "sendRawQuery": True}
+        if route == "execution_target":
+            query["executionTarget"] = "managed_trino"
+        else:
+            query["connectionId"] = str(self._organization_credential_source().id)
+        result = HogQLQueryResponse(results=[[1]], columns=["value"], types=[["value", "Int64"]])
         with (
-            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("posthoganalytics.feature_enabled", return_value=route != "duckgres_connection"),
             patch(
-                "posthog.hogql_queries.hogql_query_runner.execute_managed_trino_query",
-                return_value=HogQLQueryResponse(results=[[1]], columns=["value"], types=[["value", "Int64"]]),
-            ) as execute,
+                "posthog.hogql_queries.hogql_query_runner.execute_managed_trino_query", return_value=result
+            ) as execute_on_target,
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.execute_hogql_query", return_value=result
+            ) as execute_on_connection,
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/query/",
-                {
-                    "query": {
-                        "kind": "HogQLQuery",
-                        "query": "SELECT 1",
-                        "executionTarget": "managed_trino",
-                        "sendRawQuery": True,
-                    }
-                },
+                {"query": query},
                 format="json",
                 headers=headers,
             )
+        execute = execute_on_target if route == "execution_target" else execute_on_connection
         self.assertEqual(response.status_code, expected_status, response.content)
         if expected_status == 200:
             self.assertEqual(response.json()["results"], [[1]])
+            execute.assert_called_once()
         else:
             self.assertIn("browser session", response.json()["detail"])
             execute.assert_not_called()

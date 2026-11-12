@@ -31,6 +31,7 @@ from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.direct_connection import get_direct_connection_source
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.pagination import offset_page_links
@@ -2148,7 +2149,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     trigger=classify_request_source(request)[0],
                     include_prepared_insights=include_prepared_insights,
                 )
-        except (NotebookRunNothingToRun, NotebookCellLimitExceeded) as e:
+        except (NotebookRunNothingToRun, NotebookCellLimitExceeded, ExposedHogQLError) as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunAlreadyRunning as e:
             # 409, not 429: a conflict with the notebook's state rather than a rate — the same
