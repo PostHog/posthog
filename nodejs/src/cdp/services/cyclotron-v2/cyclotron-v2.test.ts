@@ -7,6 +7,7 @@ import { IngestionOutput } from '~/common/outputs/ingestion-output'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { IngestionOutputMessage } from '~/common/outputs/types'
 import { parseJSON } from '~/common/utils/json-parse'
+import { sleep } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import {
@@ -30,7 +31,7 @@ import {
     CyclotronV2DequeuedJob,
     CyclotronV2JobInit,
 } from './types'
-import { CyclotronV2Worker, sleep } from './worker'
+import { CyclotronV2Worker } from './worker'
 import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
@@ -224,6 +225,74 @@ async function loopErrorCountForQueue(queue: string): Promise<number> {
     const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_consumer_loop_errors_total')
     const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
     return line ? Number(line.trim().split(' ').pop()) : 0
+}
+
+async function pollCountForQueue(queue: string, outcome: string): Promise<number> {
+    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_polls_total')
+    const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`) && l.includes(`outcome="${outcome}"`))
+    return line ? Number(line.trim().split(' ').pop()) : 0
+}
+
+function useFakeClockWithRealIo(): void {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'performance'] })
+}
+
+async function waitForWorkerToSettle(what: string, condition: () => Promise<boolean>): Promise<void> {
+    const deadline = performance.now() + 2_000
+    while (!(await condition())) {
+        if (performance.now() > deadline) {
+            throw new Error(`timed out waiting for ${what}`)
+        }
+        await new Promise((resolve) => setImmediate(resolve))
+    }
+    await new Promise((resolve) => setImmediate(resolve))
+}
+
+async function emptyPollIntervals(
+    worker: CyclotronV2Worker,
+    queue: string,
+    intervals: number,
+    afterEmptyPoll: (pollNumber: number) => Promise<unknown> = () => Promise.resolve()
+): Promise<number[]> {
+    return pollIntervals(worker, () => pollCountForQueue(queue, 'empty'), intervals, afterEmptyPoll)
+}
+
+async function pollIntervals(
+    worker: CyclotronV2Worker,
+    polls: () => Promise<number>,
+    intervals: number,
+    afterPoll: (pollNumber: number) => Promise<unknown> = () => Promise.resolve()
+): Promise<number[]> {
+    const pollsBefore = await polls()
+    const pollTimes: number[] = []
+    useFakeClockWithRealIo()
+    try {
+        await worker.connect(async () => {})
+        while (pollTimes.length <= intervals) {
+            if (pollTimes.length > 0) {
+                jest.advanceTimersToNextTimer()
+            }
+            const pollNumber = pollTimes.length + 1
+            await waitForWorkerToSettle(`poll ${pollNumber}`, async () => (await polls()) - pollsBefore >= pollNumber)
+            pollTimes.push(Date.now())
+            await afterPoll(pollNumber)
+        }
+    } finally {
+        await worker.disconnect()
+        jest.useRealTimers()
+    }
+    return pollTimes.slice(1).map((time, i) => time - pollTimes[i])
+}
+
+async function holdDueJobLocked(manager: CyclotronV2Manager, queue: string): Promise<() => Promise<void>> {
+    const id = await manager.createJob({ teamId: 1, queueName: queue })
+    const client = await assertPool.connect()
+    await client.query('BEGIN')
+    await client.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+    return async () => {
+        await client.query('ROLLBACK')
+        client.release()
+    }
 }
 
 async function churnCountForQueue(queue: string): Promise<number> {
@@ -1242,6 +1311,152 @@ describe('Cyclotron V2', () => {
             expect((await loopErrorCountForQueue(queue)) - before).toBe(1)
         })
 
+        const rateLimitedWorker = (
+            queue: string,
+            overrides?: Record<string, unknown>,
+            batchLimit: CyclotronV2BatchLimit | undefined = undefined
+        ): CyclotronV2Worker =>
+            new CyclotronV2RateLimitedWorker(
+                { pool: { dbUrl: DB_URL }, queueName: queue, batchMaxSize: 100, pollDelayMs: 10, ...overrides },
+                () => Promise.resolve(batchLimit)
+            )
+
+        it.each([
+            ['the plain worker', 'backoff-plain', createWorker, { pollDelayMaxMs: 80 }, false, [10, 20, 40, 80, 80]],
+            [
+                'the rate-limited worker',
+                'backoff-limited',
+                rateLimitedWorker,
+                { pollDelayMaxMs: 80 },
+                false,
+                [10, 20, 40, 80, 80],
+            ],
+            [
+                'the rate-limited worker while another worker holds the visible job',
+                'backoff-limited-locked',
+                rateLimitedWorker,
+                { pollDelayMaxMs: 80 },
+                true,
+                [10, 20, 40, 80, 80],
+            ],
+            ['the plain worker without a cap', 'backoff-plain-default', createWorker, {}, false, [10, 10, 10]],
+            [
+                'the plain worker with a cap that is not a number',
+                'backoff-plain-nan',
+                createWorker,
+                { pollDelayMaxMs: NaN },
+                false,
+                [10, 10, 10],
+            ],
+            [
+                'the rate-limited worker without a cap',
+                'backoff-limited-default',
+                rateLimitedWorker,
+                {},
+                false,
+                [10, 10, 10],
+            ],
+        ])(
+            'spaces the empty polls of %s',
+            async (_name, queue, makeWorker, overrides, lockVisibleJob, expectedIntervals) => {
+                const releaseLock = lockVisibleJob ? await holdDueJobLocked(manager, queue) : null
+                try {
+                    const intervals = await emptyPollIntervals(
+                        makeWorker(queue, overrides),
+                        queue,
+                        expectedIntervals.length
+                    )
+
+                    expect(intervals).toEqual(expectedIntervals)
+                } finally {
+                    await releaseLock?.()
+                }
+            }
+        )
+
+        it.each([
+            ['the plain worker', 'backoff-errors-plain', createWorker],
+            ['the rate-limited worker', 'backoff-errors-limited', rateLimitedWorker],
+        ])('spaces the failed polls of %s', async (_name, queue, makeWorker) => {
+            const missingTable = `${DB_URL}?options=${encodeURIComponent('-c search_path=no_such_schema')}`
+
+            const intervals = await pollIntervals(
+                makeWorker(queue, { pollDelayMaxMs: 80, pool: { dbUrl: missingTable } }),
+                () => loopErrorCountForQueue(queue),
+                5
+            )
+
+            expect(intervals).toEqual([10, 20, 40, 80, 80])
+        })
+
+        it.each([
+            ['the plain worker', 'backoff-reset-plain', createWorker],
+            ['the rate-limited worker', 'backoff-reset-limited', rateLimitedWorker],
+        ])('polls at the base delay again after %s gets a job', async (_name, queue, makeWorker) => {
+            const jobPollsBefore = await pollCountForQueue(queue, 'jobs')
+
+            const intervals = await emptyPollIntervals(makeWorker(queue, { pollDelayMaxMs: 80 }), queue, 5, (poll) =>
+                poll === 4
+                    ? manager.createJob({ teamId: 1, queueName: queue, scheduled: new Date(Date.now() - 60_000) })
+                    : Promise.resolve()
+            )
+
+            expect(intervals).toEqual([10, 20, 40, 80, 10])
+            expect((await pollCountForQueue(queue, 'jobs')) - jobPollsBefore).toBe(1)
+        })
+
+        it.each([
+            [
+                'an idle sleep',
+                'stop-idle',
+                'empty',
+                false,
+                (queue: string) => createWorker(queue, { pollDelayMs: 10_000 }),
+            ],
+            [
+                'a throttled sleep',
+                'stop-throttled',
+                'throttled',
+                true,
+                (queue: string) => rateLimitedWorker(queue, {}, { limit: 0, sleepMs: 10_000 }),
+            ],
+        ])('stops without waiting out %s', async (_name, queue, outcome, seedJob, makeWorker) => {
+            if (seedJob) {
+                await manager.createJob({ teamId: 1, queueName: queue })
+            }
+            const pollsBefore = await pollCountForQueue(queue, outcome)
+            const worker = makeWorker(queue)
+            useFakeClockWithRealIo()
+            try {
+                await worker.connect(async () => {})
+                await waitForWorkerToSettle(
+                    `a ${outcome} poll`,
+                    async () => (await pollCountForQueue(queue, outcome)) > pollsBefore
+                )
+
+                let stopped = false
+                const stopping = worker.stopConsuming().then(() => {
+                    stopped = true
+                })
+                await waitForWorkerToSettle('stopConsuming to return', () => Promise.resolve(stopped))
+                await stopping
+            } finally {
+                await worker.disconnect()
+                jest.useRealTimers()
+            }
+        })
+
+        it('rejects a delay cap that would fail the heartbeat health check', () => {
+            expect(() => createWorker(QUEUE, { pollDelayMaxMs: 20_000, heartbeatTimeoutMs: 30_000 })).toThrow(
+                'pollDelayMaxMs'
+            )
+        })
+
+        it('keeps accepting a long fixed poll delay when backoff is off', async () => {
+            const worker = createWorker(QUEUE, { pollDelayMs: 20_000, heartbeatTimeoutMs: 30_000 })
+            await worker.disconnect()
+        })
+
         // Both dequeue paths bump transition_count for the whole batch in one UPDATE, so an
         // unclamped increment on a saturated row aborts the statement and stops every job on
         // the queue, not just the saturated one. 'email' selects the fair path, a separate
@@ -1629,22 +1844,6 @@ describe('Cyclotron V2', () => {
                 const jobs = await dequeueOneBatch(worker)
 
                 expect(jobs).toHaveLength(5)
-            })
-
-            it('exits promptly when stopConsuming is called during a throttled sleep', async () => {
-                // eslint-disable-next-line @typescript-eslint/require-await
-                const worker = createRateLimitedWorker(async () => ({ limit: 0, sleepMs: 100 }))
-
-                await worker.connect(async () => {})
-                // Let the loop reach the sleep branch.
-                await new Promise((resolve) => setTimeout(resolve, 50))
-
-                const stopStarted = Date.now()
-                await worker.stopConsuming()
-                const stopDuration = Date.now() - stopStarted
-
-                // At most one sleepMs (100ms) + small overhead — never indefinite.
-                expect(stopDuration).toBeLessThan(300)
             })
 
             it('keeps looping after the hook rejects', async () => {
