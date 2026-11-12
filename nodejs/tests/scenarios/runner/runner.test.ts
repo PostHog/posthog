@@ -131,7 +131,13 @@ describe('runner', () => {
 
     it.each<[string, boolean, AbortSignal, RegExp]>([
         ['when a seed insert waits on a table lock', true, NEVER_ABORTED, /statement timeout/],
-        ['when the run was interrupted before seeding', false, AbortSignal.abort(), /aborted/],
+        ['when the run was interrupted before seeding', false, AbortSignal.abort(), /seeding was interrupted/],
+        [
+            'when the run was interrupted before seeding without a reason',
+            false,
+            AbortSignal.abort(null),
+            /seeding was interrupted/,
+        ],
     ])(
         'stops seeding without a fixture %s',
         async (_story, lockOrganizations, signal, statusReason) => {

@@ -131,13 +131,19 @@ function destroyConnections(postgres: PostgresRouter): void {
 
 class SeedingCutShort extends Error {}
 
+function messageOf(error: unknown): string {
+    return error instanceof Error ? error.message : String(error)
+}
+
 async function seedWithin(
     loaded: LoadedCard,
     seedingUrl: string,
     signal: AbortSignal,
     withinMs: number
 ): Promise<SeedState> {
-    signal.throwIfAborted()
+    if (signal.aborted) {
+        throw new Error('seeding was interrupted')
+    }
     const deadline = AbortSignal.timeout(withinMs)
     const stop = AbortSignal.any([signal, deadline])
     const postgres = new PostgresRouter(
@@ -210,7 +216,7 @@ export function createRunner(
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
                 await environment.reset(profile.settings).catch((error: unknown) => {
                     restartRequired = new Error(
-                        `The reset before run ${runId} failed and stopped the environment: ${(error as Error).message}. Restart the runner, then run the card again.`
+                        `The reset before run ${runId} failed and stopped the environment: ${messageOf(error)}. Restart the runner, then run the card again.`
                     )
                     throw error
                 })
@@ -239,7 +245,7 @@ export function createRunner(
                 outcome = {
                     ...outcome,
                     status: 'invalid',
-                    statusReason: `the run stopped: ${(error as Error).message}`,
+                    statusReason: `the run stopped: ${messageOf(error)}`,
                 }
             } finally {
                 await stopHealth?.()
@@ -249,7 +255,7 @@ export function createRunner(
                     restartRequired = new Error(
                         `The load producer of run ${runId} did not disconnect and may still send its buffered messages into this card. Restart the runner, then run the card again.`
                     )
-                    const failed = `the load producer did not disconnect: ${(error as Error).message}`
+                    const failed = `the load producer did not disconnect: ${messageOf(error)}`
                     outcome = {
                         ...outcome,
                         status: 'invalid',
@@ -279,7 +285,7 @@ export function createRunner(
                 return {
                     ...result,
                     status: 'invalid',
-                    statusReason: `${result.statusReason}; the evidence could not be written: ${(error as Error).message}`,
+                    statusReason: `${result.statusReason}; the evidence could not be written: ${messageOf(error)}`,
                 }
             }
         },
