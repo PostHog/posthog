@@ -31,11 +31,10 @@ import { QuillSelectedRecordingsBar } from 'scenes/session-recordings/playlist/Q
 import { QuillSessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/QuillSessionRecordingsPlaylistTroubleshooting'
 import { QuillUnusableEventsWarning } from 'scenes/session-recordings/playlist/QuillUnusableEventsWarning'
 import { ReplayFilterBar } from 'scenes/session-recordings/playlist/ReplayFilterBar'
-import { isFeedReplayLayout, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { ReplayListHeader } from 'scenes/session-recordings/playlist/ReplayListHeader'
 import { SelectedRecordingsBar } from 'scenes/session-recordings/playlist/SelectedRecordingsBar'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
-import { SessionRecordingPreviewCompact } from 'scenes/session-recordings/playlist/SessionRecordingPreviewCompact'
 import { SessionRecordingPreviewFeed } from 'scenes/session-recordings/playlist/SessionRecordingPreviewFeed'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistSettings'
@@ -94,7 +93,6 @@ export function Playlist({
 }: PlaylistProps): JSX.Element {
     const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
     const newLayout = watchLayout && isNewReplayLayout(replayLayout)
-    const feedLayout = newLayout && isFeedReplayLayout(replayLayout)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
     const collapseButton = (
         <LemonButton
@@ -163,10 +161,8 @@ export function Playlist({
     }
 
     const renderRow = ({ item, isActive }: { item: SessionRecordingType; isActive: boolean }): JSX.Element =>
-        feedLayout ? (
+        newLayout ? (
             <SessionRecordingPreviewFeed recording={item} isActive={isActive} selectable={selectMode} />
-        ) : newLayout ? (
-            <SessionRecordingPreviewCompact recording={item} isActive={isActive} selectable={selectMode} />
         ) : (
             <SessionRecordingPreview recording={item} isActive={isActive} selectable />
         )

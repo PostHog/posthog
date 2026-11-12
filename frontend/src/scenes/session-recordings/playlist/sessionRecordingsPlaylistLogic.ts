@@ -4,6 +4,7 @@ import {
     actions,
     afterMount,
     connect,
+    events,
     getContext,
     kea,
     key,
@@ -28,7 +29,7 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import { isActionFilter, isEventFilter, isEventPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { getCurrentTeamId, getCurrentUserId } from 'lib/utils/getAppContext'
 import { isString } from 'lib/utils/guards'
 import { localStorageSlot } from 'lib/utils/localStorageSlot'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
@@ -36,12 +37,16 @@ import { toParams } from 'lib/utils/url'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
+import { UI_CONFIGURATION_VERSION } from '~/layout/uiCustomizationLogic'
 import {
     NodeKind,
     RecordingOrder,
     RecordingsQuery,
     RecordingsQueryResponse,
+    SessionReplayListConfiguration,
+    UserUIConfiguration,
     VALID_RECORDING_ORDERS,
 } from '~/queries/schema/schema-general'
 import {
@@ -222,9 +227,32 @@ const memoizeListResponse = (memoKey: string, response: RecordingsQueryResponse,
 
 export const clearMemoizedListResponses = (): void => landedListResponses().clear()
 
+// Reducers call getDefaultFilters, so it reads this browser copy: reading userLogic there calls
+// store.getState(), which Redux forbids while a reducer runs. The mount and the toggle keep it current.
+export const accountFilterTestAccountsStorage = localStorageSlot(
+    () => `${getCurrentUserId()}__replay_filter_test_accounts`,
+    z.boolean()
+)
+
 const getDefaultFilterTestAccounts = (): boolean => {
-    const stored = localStorage.getItem('default_filter_test_accounts')
-    return stored === 'true'
+    return accountFilterTestAccountsStorage.get() ?? localStorage.getItem('default_filter_test_accounts') === 'true'
+}
+
+const getAccountFilterTestAccounts = (): boolean | undefined => {
+    const saved = userLogic.findMounted()?.values.user?.ui_configuration?.session_replay?.filter_test_accounts
+    return typeof saved === 'boolean' ? saved : undefined
+}
+
+// The server replaces ui_configuration wholesale, so the patch keeps every other setting in it.
+export function withSessionReplayListPatch(
+    configuration: UserUIConfiguration | null,
+    patch: Partial<SessionReplayListConfiguration>
+): UserUIConfiguration {
+    return {
+        version: UI_CONFIGURATION_VERSION,
+        ...configuration,
+        session_replay: { ...configuration?.session_replay, ...patch },
+    }
 }
 
 // Keyed per team so a sort preference does not leak across accounts.
@@ -349,7 +377,9 @@ export function overviewPropertyFilterType(
 }
 
 export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
-    if (!filters || typeof filters !== 'object') {
+    // Other scenes put an array of property filters in the same `filters` search param (e.g. web
+    // analytics). An array passes every field check below, so adopting it would rewrite that scene's URL.
+    if (!filters || typeof filters !== 'object' || Array.isArray(filters)) {
         return false
     }
 
@@ -629,6 +659,34 @@ const getResetFilters = (props: SessionRecordingPlaylistLogicProps): RecordingUn
     return props.resetToCallerFilters && props.filters
         ? applyFilterUpdate(defaults, props.filters, props.pinnedFilters)
         : defaults
+}
+
+const getMountOwnedFilters = (
+    props: SessionRecordingPlaylistLogicProps,
+    rehydratedFilters: RecordingUniversalFilters,
+    viewerFilterKeys: string[]
+): Partial<RecordingUniversalFilters> | null => {
+    const ownedFilters: Partial<RecordingUniversalFilters> = {}
+    const accountFilterTestAccounts = getAccountFilterTestAccounts()
+    if (accountFilterTestAccounts !== undefined && props.filters?.filter_test_accounts === undefined) {
+        ownedFilters.filter_test_accounts = accountFilterTestAccounts
+    }
+    if (!props.filters && !props.pinnedFilters) {
+        return accountFilterTestAccounts !== undefined ? ownedFilters : null
+    }
+    const callerFilters: Partial<RecordingUniversalFilters> = { ...props.filters }
+    for (const viewerKey of viewerFilterKeys) {
+        delete callerFilters[viewerKey as keyof RecordingUniversalFilters]
+    }
+    if (props.pinnedFilters) {
+        // Pinned filters are the caller's either way, so they merge over whichever group
+        // survived above.
+        callerFilters.filter_group = mergePinnedFilters(
+            callerFilters.filter_group ?? rehydratedFilters.filter_group,
+            props.pinnedFilters
+        )
+    }
+    return { ...ownedFilters, ...callerFilters }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -2640,6 +2698,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }
     }),
 
+    events(() => ({
+        beforeMount: () => {
+            const accountFilterTestAccounts = getAccountFilterTestAccounts()
+            if (accountFilterTestAccounts !== undefined) {
+                accountFilterTestAccountsStorage.set(accountFilterTestAccounts)
+            }
+        },
+    })),
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
     afterMount(({ actions, props, values }) => {
         if (props.onlyPinned) {
@@ -2688,23 +2754,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         // issue the one load. A key the viewer set themselves stays theirs, so a scoped list opens
         // scoped without dropping the range or the property they chose. This sits after the URL
         // branch, so a shared link still wins.
-        if (props.filters || props.pinnedFilters) {
-            const callerFilters: Partial<RecordingUniversalFilters> = { ...props.filters }
-            for (const viewerKey of values.viewerFilterKeys) {
-                delete callerFilters[viewerKey as keyof RecordingUniversalFilters]
-            }
-            if (props.pinnedFilters) {
-                // Pinned filters are the caller's either way, so they merge over whichever group
-                // survived above.
-                callerFilters.filter_group = mergePinnedFilters(
-                    callerFilters.filter_group ?? values.filters.filter_group,
-                    props.pinnedFilters
-                )
-            }
-            if (!equal(applyFilterUpdate(values.filters, callerFilters, props.pinnedFilters), values.filters)) {
-                actions.setFilters(callerFilters, false)
-                return
-            }
+        const ownedFilters = getMountOwnedFilters(props, values.filters, values.viewerFilterKeys)
+        if (
+            ownedFilters &&
+            !equal(applyFilterUpdate(values.filters, ownedFilters, props.pinnedFilters), values.filters)
+        ) {
+            actions.setFilters(ownedFilters, false)
+            return
         }
 
         actions.loadSessionRecordings()

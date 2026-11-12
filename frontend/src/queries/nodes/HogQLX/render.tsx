@@ -3,14 +3,13 @@ import React from 'react'
 import { IconAI } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { BrandMarkLabel } from 'lib/components/BrandMark/BrandMarkLabel'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { ExplainCSPViolationButton } from 'lib/components/LLMButton/ExplainCSPViolationButton'
 import { Sparkline } from 'lib/components/Sparkline'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 import { LightErrorBoundary } from '~/layout/ErrorBoundary/ErrorBoundary'
-
-import { BrandMarkLabel } from 'products/mcp_analytics/frontend/components/BrandMarkLabel'
 
 import { imageDimension, imageSource } from './image'
 

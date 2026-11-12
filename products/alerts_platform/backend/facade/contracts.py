@@ -419,14 +419,16 @@ class PlatformHandback:
 
 @frozen
 class PlatformAlertRuntime:
-    """Where an alert the platform owns stands, and how it splits into instances, for a source whose
-    API still shows the alert."""
+    """Where an alert the platform owns stands, and the settings only its copy stores, for a source
+    whose API still shows the alert."""
 
     state: PlatformAlertState
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
     grouping: Grouping
+    labels: dict[str, str]
+    annotations: dict[str, str]
 
 
 @frozen
@@ -436,6 +438,8 @@ class PlatformStateChange:
     occurred_at: datetime
     previous_state: PlatformAlertState
     state: PlatformAlertState
+    # The group whose state moved. Empty for an alert that does not group.
+    grouping_key: str = ""
 
 
 @frozen
@@ -497,6 +501,8 @@ class PlatformCheckEvent:
     condition: dict[str, Any]
     query_duration_ms: int | None
     error_message: str | None
+    # The group the check moved. Empty for an alert that does not group.
+    grouping_key: str = ""
 
 
 @frozen
@@ -505,6 +511,84 @@ class PlatformCheckEventPage:
 
     events: tuple[PlatformCheckEvent, ...]
     total: int
+
+
+class ControlChangeKind(StrEnum):
+    """A change a person made to an alert the platform owns, recorded in its history beside the checks.
+
+    Stored in the history row's `kind` column, but not an `AlertEventKind`: nothing is announced for
+    it, and every reader of checks leaves it out.
+    """
+
+    ENABLE = "enable"
+    DISABLE = "disable"
+    SNOOZE = "snooze"
+    UNSNOOZE = "unsnooze"
+    RESET = "reset"
+    CONFIG_CHANGE = "config_change"
+
+
+@frozen
+class PlatformControlChange:
+    """One control-plane change of an alert the platform owns, with its state either side of it.
+
+    The states are the whole alert's as a source shows it, so a snooze in force reads as SNOOZED.
+    """
+
+    occurred_at: datetime
+    evaluation_key: str
+    kind: ControlChangeKind
+    previous_state: PlatformAlertState
+    state: PlatformAlertState
+
+
+@frozen
+class PlatformControlChangePage:
+    """The newest control-plane changes of an alert, how many there are in all, and when the oldest
+    one still kept happened, of any kind, or None when there is none."""
+
+    changes: tuple[PlatformControlChange, ...]
+    total: int
+    oldest_at: datetime | None
+
+
+@frozen
+class PlatformControlHistory:
+    """An alert's control-plane changes in one window, oldest first, with what a timeline needs from
+    before it: when the oldest kept change of any kind happened, and the newest enable or disable
+    before the window, or None when there is none."""
+
+    changes: tuple[PlatformControlChange, ...]
+    oldest_at: datetime
+    toggle_before: ControlChangeKind | None
+
+
+@frozen
+class StateInterval:
+    """A stretch of an alert's recent past with one state and one enabled setting, as alert lists draw it."""
+
+    start: datetime
+    end: datetime
+    state: PlatformAlertState
+    enabled: bool
+
+
+@frozen
+class PlatformAlertListHistory:
+    """What an alert list shows of each configuration's checks, keyed by configuration id."""
+
+    last_checks: dict[UUID, PlatformLastCheck]
+    # State changes across every group.
+    histories: dict[UUID, PlatformAlertHistory]
+    controls: dict[UUID, PlatformControlHistory]
+
+
+@frozen
+class PlatformAlertEvents:
+    """A configuration's notable checks across every group and its control-plane changes, newest first."""
+
+    checks: PlatformCheckEventPage
+    changes: PlatformControlChangePage
 
 
 class SkipReason(StrEnum):
@@ -983,6 +1067,34 @@ class PlatformAlertSnapshot:
 
 
 @frozen
+class NativeConfigurationMatch:
+    """One alert of a kind with no source row, as a source's list filters, sorts and pages it beside
+    its own rows before it reads the page with `list_configurations`."""
+
+    id: UUID
+    created_at: datetime
+    created_by_id: int | None
+    source_config: dict[str, Any]
+    # Set when the list was searched: whether the name contains the term, and the trigram rank
+    # that orders matches, on the same scale a source's own searched rows have.
+    is_exact: bool | None = None
+    search_score: float | None = None
+
+
+@frozen
+class EnabledNativeConfiguration:
+    """One enabled alert of a kind with no source row, with what a source's own readers of its
+    enabled alerts need, such as the insight an insight alert watches."""
+
+    id: UUID
+    team_id: int
+    name: str
+    created_at: datetime
+    created_by_id: int | None
+    source_config: dict[str, Any]
+
+
+@frozen
 class PlatformAlertConfigurationView:
     """One configuration and its instances, as a reader outside this product sees them.
 
@@ -1044,6 +1156,8 @@ class PlatformAlertConfigurationEdit:
     cooldown_minutes: int
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
+    # Only a native create reads it, because an edit never moves the schedule. None takes the kind's default.
+    check_interval_minutes: int | None = None
 
 
 class InvalidPlatformAlertEdit(ValueError):
@@ -1137,14 +1251,34 @@ class SourceAdmission(Protocol):
     ) -> None: ...
 
 
-class NativeAlertRemoveDestinations(Protocol):
-    """Removes the destinations of an alert that is about to be deleted.
+class NativeEditGuard(Protocol):
+    """Refuses an edit to an alert with no source row that only the source's own API may make.
 
-    The alert's open incidents are closed before this runs, while the destinations their resolves go
-    to still exist. It runs in the delete's transaction, so a delete that fails keeps them.
+    The source's API checks some settings against data the platform cannot see, such as the query
+    an alert reads. For an alert with a source row, `mirror` refuses an edit to them. An alert with
+    no source row has no mirror, so this refuses it. It runs in the edit's transaction, after the
+    edit is validated, and raises `InvalidPlatformAlertEdit`. An edit the source's API made, which
+    has passed those checks, skips it.
     """
 
-    def __call__(self, *, team_id: int, configuration_id: UUID) -> None: ...
+    def __call__(
+        self,
+        *,
+        team_id: int,
+        current: PlatformAlertConfigurationEdit,
+        edit: PlatformAlertConfigurationEdit,
+        check_interval_minutes: int,
+    ) -> None: ...
+
+
+class NativeAlertRemoveDestinations(Protocol):
+    """Removes the destinations of an alert the platform owns that is about to be deleted, with a
+    source row or without one. `alert_id` is the id they match on, the alert's public id.
+
+    It runs in the delete's transaction, so a delete that fails keeps them.
+    """
+
+    def __call__(self, *, team_id: int, alert_id: UUID) -> None: ...
 
 
 @frozen
@@ -1156,10 +1290,13 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
+    # Each cadence a create may choose, with the calendar unit it repeats on, since a month is not a fixed
+    # number of minutes. None for a kind with one fixed cadence.
+    check_intervals: Mapping[int, str | None] | None = None
     # The most alerts of the kind a team can have, or None for no cap.
     max_per_team: int | None = None
-    # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
-    # destinations are `AlertDestination` rows from the start, which go with the configuration.
+    # Removes the HogFunction destinations of any deleted alert the platform owns. None for a kind
+    # whose destinations are `AlertDestination` rows, which go with the configuration.
     remove_destinations: NativeAlertRemoveDestinations | None = None
     # False for a kind whose alerts without a source row the platform deletes but does not create
     # yet. The API then neither publishes nor accepts a create of the kind.
@@ -1168,6 +1305,18 @@ class NativeAlertLifecycle:
     @property
     def platform_destinations(self) -> bool:
         return self.remove_destinations is None
+
+
+@frozen
+class ActivitySource:
+    """What an alert watches in its source's product, named on its activity log entries so the entry
+    can link there after the alert is gone."""
+
+    id: str
+    name: str
+
+
+ActivitySourceLookup = Callable[[int, Mapping[str, Any]], ActivitySource | None]
 
 
 @frozen
@@ -1200,6 +1349,8 @@ class SourceConfigSpec:
     native: NativeAlertLifecycle | None = None
     # For a kind with both `create` and `native`: whether a team's new alert gets no source row.
     native_create: Callable[[int], bool] | None = None
+    # For a kind with `native`: what `mirror` refuses for an alert with a source row.
+    native_edit_guard: NativeEditGuard | None = None
     # A PostHog feature flag a project needs, beside `platform-alerts`, to create alerts of this kind.
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
@@ -1211,6 +1362,8 @@ class SourceConfigSpec:
     # `source_config` keys an edit keeps the stored value of when it leaves them out. A stored config
     # without one predates it, so an edit that fills it in does not end the alert's firings.
     kept_source_config_keys: frozenset[str] = frozenset()
+    # What an alert watches, by team and `source_config`, for its activity log entries.
+    activity_source: ActivitySourceLookup | None = None
 
     @property
     def creatable(self) -> bool:
@@ -1324,6 +1477,8 @@ class AlertDestinationData(TypedDict):
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]
     email_addresses: NotRequired[list[str]]
+    # Users rather than addresses, so a send reaches each one's current address, and only while they have access.
+    email_user_ids: NotRequired[list[int]]
     in_app_user_ids: NotRequired[list[int]]
     # What an in-app notification is about, so the inbox applies its access rules for that resource.
     in_app_resource_type: NotRequired[str]
@@ -1510,6 +1665,12 @@ class AlertDelivery:
     at: str  # ISO-8601 timestamp
 
 
+class LiveHogFunctionLookup(Protocol):
+    """Which of these HogFunctions still exist, enabled or not. The product that owns them registers it."""
+
+    def __call__(self, *, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]: ...
+
+
 class DestinationResolver(Protocol):
     """The lookup the product that owns destinations registers for native delivery."""
 
@@ -1600,6 +1761,36 @@ class SourceRecipients(Protocol):
     """
 
     def __call__(self, *, team_id: int, configuration_id: UUID) -> list[str]: ...
+
+
+class SubscriberAccess(Protocol):
+    """Which of these users may still hear about an alert, by the source's own access rules.
+
+    The platform has already kept only users who can view the alert's project. The source adds what
+    only it knows, such as access to the insight an insight alert watches.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: UUID, user_ids: Collection[int]) -> Collection[int]: ...
+
+
+class SourceAlertCreator(Protocol):
+    """The id of the user who created an alert, read from the source's own row.
+
+    `alert_id` is the alert's public id, the source row's id. Returns None for an alert with no
+    such row or no recorded creator.
+    """
+
+    def __call__(self, *, team_id: int, alert_id: UUID) -> int | None: ...
+
+
+class SourceAlertViewer(Protocol):
+    """Whether a user may still see an alert, by the access rules the source applies to its alerts.
+
+    `alert_id` is the alert's public id, the source row's id. Returns False for an alert with no
+    such row. The caller has already checked that the user can access the project.
+    """
+
+    def __call__(self, *, team_id: int, alert_id: UUID, user_id: int) -> bool: ...
 
 
 @frozen

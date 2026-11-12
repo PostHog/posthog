@@ -2,6 +2,8 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.query_log_archive import (
     DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    LEGACY_QUERY_LOG_ARCHIVE_VIEWS,
+    LEGACY_QUERY_LOG_ARCHIVE_WRITE_TABLES,
     QUERY_LOG_ARCHIVE_DATA_TABLE,
     QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL,
     QUERY_LOG_ARCHIVE_V3_MV_SQL,
@@ -25,34 +27,19 @@ ALL_ROLES = [
     NodeRole.OPS,
 ]
 
-# Write path of earlier generations. A stack that ran part of the old migration chain can still have
-# these objects. None of them stores data, so they are dropped. The data tables of those generations
-# (sharded_query_log_archive, query_log_archive_v2) stay, and the operator decides when to drop them.
-# The cloud clusters do not run this cleanup: posthog-cloud-infra owns their archive objects, and the
-# v3 objects take over some of these names there.
-LEGACY_VIEWS = [
-    "query_log_archive_mv",
-    "sharded_query_log_archive_mv",
-    "dist_query_log_archive_mv",
-    "ops_query_log_archive_mv",
-    "daily_aggregated_query_log_archive",
-]
-LEGACY_WRITE_TABLES = [
-    "writable_query_log_archive",
-    "writable_sharded_query_log_archive",
-    "query_log_archive_buffer",
-]
-
 operations = [
     *(
         []
         if run_mode().is_deployed_cloud
         else [
             # Drop the views first, so that no MV writes into a table this migration drops.
-            *[run_sql_with_exceptions(f"DROP TABLE IF EXISTS {view}", node_roles=ALL_ROLES) for view in LEGACY_VIEWS],
+            *[
+                run_sql_with_exceptions(f"DROP TABLE IF EXISTS {view}", node_roles=ALL_ROLES)
+                for view in LEGACY_QUERY_LOG_ARCHIVE_VIEWS
+            ],
             *[
                 run_sql_with_exceptions(f"DROP TABLE IF EXISTS {table}", node_roles=ALL_ROLES)
-                for table in LEGACY_WRITE_TABLES
+                for table in LEGACY_QUERY_LOG_ARCHIVE_WRITE_TABLES
             ],
         ]
     ),

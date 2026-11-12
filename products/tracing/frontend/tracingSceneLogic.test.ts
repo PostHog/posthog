@@ -236,9 +236,29 @@ describe('tracingSceneLogic', () => {
         expect(logic.values.displayMode).toBe('spans')
     })
 
+    it('opens a tab=alerts deep link only behind both alerts flags', () => {
+        // The traces flag alone is not enough: the API also needs platform-alerts.
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES]: true })
+        mountAt({ tab: 'alerts' })
+        expect(logic.values.activeSceneTab).toBe('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.PLATFORM_ALERTS]: true,
+            [FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES]: true,
+        })
+        router.actions.push('/tracing', { tab: 'alerts' })
+        expect(logic.values.activeSceneTab).toBe('alerts')
+        expect(logic.values.availableSceneTabs).toEqual(['viewer', 'sql', 'alerts'])
+
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        expect(logic.values.activeSceneTab).toBe('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+    })
+
     it('restores the SQL tab from a deep link without dropping the filter params', () => {
         mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })
-        expect(logic.values.sceneTab).toBe('sql')
+        expect(logic.values.activeSceneTab).toBe('sql')
         expect(router.values.searchParams).toMatchObject({ tab: 'sql', serviceNames: ['checkout'] })
 
         logic.actions.selectSceneTab('viewer')

@@ -158,6 +158,15 @@ def owned_alert_destinations_qs(
     return functions.filter(template_id__in=SPEC_BY_TEMPLATE_ID) if known_templates_only else functions
 
 
+def live_hog_function_ids(*, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The named HogFunctions that are not deleted, whatever their filters say."""
+    return frozenset(
+        HogFunction.objects.filter(team_id=team_id, id__in=list(hog_function_ids), deleted=False).values_list(
+            "id", flat=True
+        )
+    )
+
+
 def owned_alert_destination_ids(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
 ) -> frozenset[UUID]:

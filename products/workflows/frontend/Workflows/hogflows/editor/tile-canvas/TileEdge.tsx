@@ -18,7 +18,7 @@ import { edgeLabelText, type TileEdgeType } from './tileCanvasNodes'
 export function TileEdge({ data }: EdgeProps<TileEdgeType>): JSX.Element | null {
     const routed = data?.routed
     const [hovered, setHovered] = useState(false)
-    const { dropTargetEdgeKey } = useValues(tileCanvasLogic)
+    const { dropTargetEdgeKey, isViewOnly } = useValues(tileCanvasLogic)
     if (!data || !routed) {
         return null
     }
@@ -67,7 +67,7 @@ export function TileEdge({ data }: EdgeProps<TileEdgeType>): JSX.Element | null 
                         {shortLabel(label)}
                     </div>
                 )}
-                {edge.insertEdge && (
+                {edge.insertEdge && !isViewOnly && (
                     <QuickAddButton
                         edge={edge.insertEdge}
                         revealed={hovered}

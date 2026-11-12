@@ -21,6 +21,7 @@ import {
     isAccountRelationshipPropertyFilter,
     isBehavioralPropertyFilter,
     isGroupCardFilterKey,
+    isHogQLPropertyFilter,
     propertyFilterTypeToPropertyDefinitionType,
 } from '../utils'
 import { GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
@@ -103,6 +104,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             groupTypeIndex !== undefined &&
             groupKeys.length === 1
 
+        const fullLabel = !children && isHogQLPropertyFilter(item) ? item.key : label
         const groupCard = showGroupCard ? (
             <GroupKeyFilterTooltip
                 groupTypeIndex={groupTypeIndex as GroupTypeIndex}
@@ -121,7 +123,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                     wraps={wraps}
                     tooltip={
                         groupCard ??
-                        (displayLabel !== label ? <span className="ph-no-capture">{label}</span> : undefined)
+                        (displayLabel !== fullLabel ? <span className="ph-no-capture">{fullLabel}</span> : undefined)
                     }
                     onClick={onClick}
                     onClose={onClose}
@@ -166,7 +168,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                 {...buttonRoleProps}
             >
                 <PropertyFilterIcon type={item.type} />
-                <span className="PropertyFilterButton-content" title={showGroupCard ? undefined : label}>
+                <span className="PropertyFilterButton-content" title={showGroupCard ? undefined : fullLabel}>
                     {displayLabel}
                 </span>
                 {closable &&

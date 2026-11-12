@@ -9943,9 +9943,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.31.2"
+version = "0.31.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1df9645bfd8f65a9b2609c0a1c4d66c413907625ee1d6a1f66ddf30b203f5c5"
+checksum = "c193cc8361451fa68c1c2586350a9987f38dd82183f0484ea3376585c964fa8c"
 dependencies = [
  "backtrace",
  "brotli 9.1.1",
@@ -11210,6 +11210,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "replay-parquet-sink-v4"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
+ "aws-smithy-http-client",
+ "axum 0.7.9",
+ "bytes",
+ "chrono",
+ "common-kafka",
+ "envconfig",
+ "futures",
+ "lifecycle",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "parquet",
+ "rand 0.8.8",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "replay-recorder-v4"
 version = "0.1.0"
 dependencies = [
@@ -11224,6 +11251,7 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.23.1",
  "brotlic",
+ "brotlic-sys",
  "capture",
  "chrono",
  "common-alloc",
@@ -11240,6 +11268,7 @@ dependencies = [
  "rand 0.8.8",
  "rdkafka",
  "replay-core-v4",
+ "replay-parquet-sink-v4",
  "serde",
  "serde_json",
  "sqlx",

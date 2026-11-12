@@ -12,6 +12,7 @@ import {
     HogFunctionType,
     IntegrationType,
 } from '../types'
+import { throwIfDeadlinePassed } from '../utils/deadline'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
@@ -51,6 +52,8 @@ const accessTokenPlaceholderBase = (integrationId: number): string => `${ACCESS_
 
 const signedAccessTokenPlaceholder = (base: string, signature: string): string => `${base}_${signature.slice(0, 32)}`
 
+export type BuildInputsOptions = { recipientIdentifier?: (email: string) => string | Promise<string> }
+
 export class HogInputsService {
     constructor(
         private integrationManager: IntegrationManagerService,
@@ -62,7 +65,9 @@ export class HogInputsService {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>,
-        preferencesTokenSource?: PreferencesTokenSource
+        preferencesTokenSource?: PreferencesTokenSource,
+        signal?: AbortSignal,
+        { recipientIdentifier = (email: string) => email }: BuildInputsOptions = {}
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -83,7 +88,7 @@ export class HogInputsService {
         }
 
         // One budget for the whole invocation, so many small liquid leaves cannot add up to a stall.
-        const liquidBudget = new LiquidRenderBudget()
+        const liquidBudget = new LiquidRenderBudget(signal)
 
         // Build a lookup of schema types for rendering and post-render coercion
         const schemaTypes: Record<string, string> = {}
@@ -92,6 +97,7 @@ export class HogInputsService {
         }
 
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
+            throwIfDeadlinePassed(signal)
             const templating = input.templating ?? 'hog'
 
             if (templating === 'liquid') {
@@ -108,12 +114,22 @@ export class HogInputsService {
                     : hogFunction.template_id === NATIVE_PUSH_TEMPLATE_ID
                       ? new Set([key])
                       : undefined
-                return formatLiquidInput(value, newGlobals, key, liquidBudget, plainTextKeys)
+                try {
+                    const rendered = formatLiquidInput(value, newGlobals, key, liquidBudget, plainTextKeys)
+                    throwIfDeadlinePassed(signal)
+                    return rendered
+                } catch (error) {
+                    throwIfDeadlinePassed(signal)
+                    throw error
+                }
             }
             if (templating === 'hog' && input?.bytecode) {
                 try {
-                    return await formatHogInput(input.bytecode, newGlobals, key)
+                    return await formatHogInput(input.bytecode, newGlobals, key, signal)
                 } catch (error) {
+                    if (error === signal?.reason) {
+                        throw error
+                    }
                     throw withBytecodeContract(error, input.bytecode_contract)
                 }
             }
@@ -132,7 +148,11 @@ export class HogInputsService {
             // If we have an email value then we template it out to get the email address
             const emailValue = await _formatInput(emailInput, emailInputSchema.key)
             if (emailValue?.to?.email) {
-                const recipient = { team_id: hogFunction.team_id, identifier: emailValue.to.email }
+                const identifier = recipientIdentifier(emailValue.to.email)
+                const recipient = {
+                    team_id: hogFunction.team_id,
+                    identifier: typeof identifier === 'string' ? identifier : await identifier,
+                }
                 newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl(
                     recipient,
                     preferencesTokenSource
@@ -172,11 +192,20 @@ export class HogInputsService {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>,
-        preferencesTokenSource?: PreferencesTokenSource
+        preferencesTokenSource?: PreferencesTokenSource,
+        signal?: AbortSignal,
+        options?: BuildInputsOptions
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return {
             ...globals,
-            inputs: await this.buildInputs(hogFunction, globals, additionalInputs, preferencesTokenSource),
+            inputs: await this.buildInputs(
+                hogFunction,
+                globals,
+                additionalInputs,
+                preferencesTokenSource,
+                signal,
+                options
+            ),
         }
     }
 
@@ -230,7 +259,8 @@ export class HogInputsService {
     // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
     private resolveIntegration(
         integration: IntegrationType | null | undefined,
-        teamId: HogFunctionType['team_id']
+        teamId: HogFunctionType['team_id'],
+        decryptFailed = false
     ): Record<string, any> | null {
         if (!integration || integration.team_id !== teamId) {
             return null
@@ -243,6 +273,11 @@ export class HogInputsService {
         }
         if (isWarehouseSourceIntegration(integration)) {
             return null
+        }
+        // An undecryptable field still holds ciphertext, so never hand out the secrets. The id stays so a
+        // per-channel push send can fail just this channel.
+        if (decryptFailed) {
+            return markServerResolvedIntegration({ $integration_id: integration.id, ...integration.config })
         }
         return markServerResolvedIntegration({
             $integration_id: integration.id,
@@ -293,6 +328,7 @@ export class HogInputsService {
                 .map((ref) => ref[INTEGRATION_REF_KEY])
         )
         const integrations = await this.integrationManager.getMany(ids)
+        const decryptFailures = await this.integrationManager.getDecryptFailures(ids)
 
         // An empty value would reach the third party as a request with no credentials, so a reference that
         // does not resolve fails the invocation.
@@ -303,6 +339,9 @@ export class HogInputsService {
             const resolved = isTrustedRef(key, value)
                 ? this.resolveIntegration(integrations[value[INTEGRATION_REF_KEY]], hogFunction.team_id)
                 : null
+            if (resolved && (decryptFailures[value[INTEGRATION_REF_KEY]]?.length ?? 0) > 0) {
+                throw new HogConfigurationError(decryptIntegrationMessage(key))
+            }
             if (!resolved) {
                 throw new HogConfigurationError(
                     `The integration for input '${key}' could not be loaded. It may have been deleted. Select a connected integration for this input.`
@@ -360,10 +399,11 @@ export class HogInputsService {
         }
 
         const integrations = await this.integrationManager.getMany(allIds)
+        const decryptFailures = await this.integrationManager.getDecryptFailures(allIds)
         const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
         const resolveIntegration = (id: number): Record<string, any> | null =>
-            this.resolveIntegration(integrations[id], hogFunction.team_id)
+            this.resolveIntegration(integrations[id], hogFunction.team_id, (decryptFailures[id]?.length ?? 0) > 0)
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
             // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
@@ -375,6 +415,9 @@ export class HogInputsService {
             }
             if (isUsed && isWarehouseSourceIntegration(integrations[id])) {
                 throw new HogConfigurationError(warehouseIntegrationMessage(key))
+            }
+            if (isUsed && (decryptFailures[id]?.length ?? 0) > 0) {
+                throw new HogConfigurationError(decryptIntegrationMessage(key))
             }
             returnInputs[key] = { value: resolveIntegration(id) }
         })
@@ -450,10 +493,14 @@ const isWarehouseSourceIntegration = (integration: { config?: unknown } | null |
 const warehouseIntegrationMessage = (key: string): string =>
     `The integration for input '${key}' can't be used as a function input. Select a different integration for this input.`
 
+const decryptIntegrationMessage = (key: string): string =>
+    `The integration for input '${key}' could not be decrypted. Reconnect the integration.`
+
 export const formatHogInput = async (
     bytecode: any,
     globals: HogFunctionInvocationGlobalsWithInputs,
-    key?: string
+    key?: string,
+    signal?: AbortSignal
 ): Promise<any> => {
     // Similar to how we generate the bytecode by iterating over the values,
     // here we iterate over the object and replace the bytecode with the actual values
@@ -464,7 +511,7 @@ export const formatHogInput = async (
     }
 
     if (Array.isArray(bytecode) && (bytecode[0] === '_h' || bytecode[0] === '_H')) {
-        const { execResult: result, error } = await execHog(bytecode, { globals })
+        const { execResult: result, error } = await execHog(bytecode, { globals }, signal)
         if (!result || error) {
             throw error ?? result?.error
         }
@@ -485,12 +532,12 @@ export const formatHogInput = async (
     }
 
     if (Array.isArray(bytecode)) {
-        return await Promise.all(bytecode.map((item) => formatHogInput(item, globals, key)))
+        return await Promise.all(bytecode.map((item) => formatHogInput(item, globals, key, signal)))
     } else if (typeof bytecode === 'object' && bytecode !== null) {
         let ret: Record<string, any> = {}
 
         if (bytecode[EXTEND_OBJECT_KEY]) {
-            const res = await formatHogInput(bytecode[EXTEND_OBJECT_KEY], globals, key)
+            const res = await formatHogInput(bytecode[EXTEND_OBJECT_KEY], globals, key, signal)
             if (res && typeof res === 'object') {
                 ret = {
                     ...res,
@@ -503,7 +550,7 @@ export const formatHogInput = async (
                 if (subkey === EXTEND_OBJECT_KEY) {
                     return
                 }
-                ret[subkey] = await formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey)
+                ret[subkey] = await formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey, signal)
             })
         )
 
@@ -575,6 +622,7 @@ export const formatLiquidInput = (
     }
 
     if (typeof value === 'string') {
+        budget.throwIfDeadlinePassed()
         try {
             return LiquidRenderer.renderWithHogFunctionGlobals(value, globals, budget, {
                 escapeHtml: !isPlainTextKey(key, plainTextKeys),

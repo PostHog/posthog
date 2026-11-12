@@ -1875,6 +1875,7 @@ class FileSystemSearchTab(BaseModel):
     flag: str | None = None
     href: str
     name: str
+    requiredFlags: list[str] | None = Field(default=None, description="Flags that must all be on to show the tab.")
     searchKeywords: list[str] | None = None
 
 
@@ -3475,6 +3476,19 @@ class SessionReplayBlock(BaseModel):
     type: Literal["session_replay"] = "session_replay"
 
 
+class SessionReplayListConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filter_test_accounts: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a new recordings list opens with internal and test users filtered"
+            " out. An absent value falls back to the legacy browser preference."
+        ),
+    )
+
+
 class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3660,6 +3674,7 @@ class UserBasicType(BaseModel):
 
 class UserUIConfiguration(BaseModel):
     analytics_list: AnalyticsListDisplayConfiguration | None = None
+    session_replay: SessionReplayListConfiguration | None = None
     sql_editor: SQLEditorConfiguration | None = None
     ticket_sidebar: TicketSidebarConfiguration | None = None
     version: int = Field(
@@ -6252,6 +6267,10 @@ class FileSystemImport(BaseModel):
         description=("Display label override — when set, shown in the nav instead of the last segment of `path`"),
     )
     flag: str | None = None
+    hiddenWhenFlags: list[str] | None = Field(
+        default=None,
+        description="Flags that hide the item when every one of them is on.",
+    )
     href: str | None = Field(default=None, description="Object's URL")
     iconColor: list[str] | None = Field(default=None, description="Color of the icon")
     iconType: FileSystemIconType | None = None

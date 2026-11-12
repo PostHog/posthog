@@ -80,6 +80,7 @@ class WizardWorkerProvisionRequest:
 @frozen
 class GitRepositoryCloneRequest:
     sandbox_id: str
+    team_id: int
     github_integration_id: int
     repository: str
     branch: str | None = None
@@ -181,7 +182,7 @@ def _start_cpu_billing_sampler(sandbox: SandboxBase) -> None:
 def clone_repository(request: GitRepositoryCloneRequest) -> str:
     sandbox = get_sandbox_class().get_by_id(request.sandbox_id)
     with wizard_span("wizard.repository.credentials"):
-        github_token = get_github_token(request.github_integration_id) or ""
+        github_token = get_github_token(request.team_id, request.github_integration_id) or ""
     with wizard_span("wizard.repository.clone") as span:
         clone_result = sandbox.clone_repository(
             request.repository, github_token=github_token, shallow=True, branch=request.branch

@@ -13,13 +13,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTracesNodesRetrieve } from '../../generated/api'
-import {
-    decodeIdSegment,
-    makeEvaluationResults,
-    makeFeedback,
-    makeNodeDetail,
-    makeTraceResource,
-} from './adapter/testFixtures'
+import { decodeIdSegment, makeEvaluationResults, makeFeedback, makeNodeDetail, makeTraceResource } from './testFixtures'
 import { TraceDrawerHost } from './TraceDrawerHost'
 import type { TraceDrawerListId } from './traceDrawerLists'
 import { traceDrawerLogic } from './traceDrawerLogic'

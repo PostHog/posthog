@@ -1229,6 +1229,9 @@ database "posthog" {
     column "sending_domain" {
       type = "LowCardinality(String)"
     }
+    column "scheduled_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -7528,6 +7531,9 @@ database "posthog" {
     column "mat_metadata_loggedIn" {
       type = "Nullable(Bool)"
     }
+    column "channel_type" {
+      type = "LowCardinality(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -8218,6 +8224,9 @@ database "posthog" {
     }
     column "mat_metadata_loggedIn" {
       type = "Nullable(Bool)"
+    }
+    column "channel_type" {
+      type = "LowCardinality(String)"
     }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
