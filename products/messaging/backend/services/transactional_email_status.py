@@ -5,15 +5,19 @@ The send API writes `queued` or `scheduled`, a cancel `canceled`, the email work
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
-from products.messaging.backend.facade.contracts import EmailSendStatus, EmailStatus
-from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_READ_DAYS, EMAIL_STATUS_TABLE
+from products.messaging.backend.facade.contracts import EmailSendStatus, EmailStatus, ScheduledEmail, ScheduledEmailPage
+from products.messaging.backend.models.email_status_sql import (
+    EMAIL_STATUS_EVENTS_TABLE,
+    EMAIL_STATUS_READ_DAYS,
+    EMAIL_STATUS_TABLE,
+)
 
 # The Node API stamps the send's ID with its own clock, which can run ahead of this one.
 _CLOCK_SKEW = timedelta(minutes=5)
@@ -73,4 +77,56 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
         created_at=created_at,
         status_at=status_at,
         reason=reason or None,
+    )
+
+
+# A send waits at most 30 days after it was queued, so an email that still waits was queued within that time.
+_LONGEST_WAIT = timedelta(days=30)
+# Only scheduled rows carry `scheduled_at`, and a reschedule writes a new one. The latest row of a message says
+# whether it still waits: a cancel or a send outranks every scheduled row.
+_SCHEDULED_EMAILS_QUERY = f"""
+SELECT toString(message_id) AS id, argMax(recipient, version), argMax(scheduled_at, version) AS due, any(created_at)
+FROM {EMAIL_STATUS_EVENTS_TABLE}
+WHERE team_id = %(team_id)s
+  AND created_at >= %(start)s
+  AND (created_at, message_id) IN (
+      SELECT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE}
+      WHERE team_id = %(team_id)s AND created_at >= %(start)s AND status = 'scheduled'
+  )
+GROUP BY message_id
+HAVING argMax(status, version) = 'scheduled' AND due > %(now)s {{after}}
+ORDER BY due, id
+LIMIT %(limit)s
+"""
+
+
+def list_scheduled_emails(team_id: int, *, after: tuple[datetime, str] | None, limit: int) -> ScheduledEmailPage:
+    """The team's emails that wait for their time, soonest first, starting after the `after` email."""
+    now = datetime.now(UTC)
+    params: dict[str, Any] = {
+        "team_id": team_id,
+        "start": now - _LONGEST_WAIT - _CLOCK_SKEW,
+        "now": now,
+        "limit": limit + 1,
+    }
+    if after is not None:
+        params["after_at"], params["after_id"] = after
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+    rows = cast(
+        list,
+        sync_execute(
+            _SCHEDULED_EMAILS_QUERY.format(after="AND (due, id) > (%(after_at)s, %(after_id)s)" if after else ""),
+            params,
+            workload=Workload.OFFLINE,
+            team_id=team_id,
+        ),
+    )
+    emails = tuple(
+        ScheduledEmail(message_id=message_id, to=to, scheduled_at=due, created_at=created_at)
+        for message_id, to, due, created_at in rows[:limit]
+    )
+    has_more = len(rows) > limit
+    return ScheduledEmailPage(
+        results=emails,
+        next_after=(emails[-1].scheduled_at, emails[-1].message_id) if has_more else None,
     )
