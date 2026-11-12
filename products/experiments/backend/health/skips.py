@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Literal
 
 from posthog.dataclasses import frozen
@@ -10,6 +10,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.context import FlagState, HealthContext
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 
 
 @frozen
@@ -33,6 +34,9 @@ NO_FLAG = "The experiment has no feature flag"
 FLAG_DELETED = "The feature flag is deleted"
 NEEDS_VARIANTS = "Runs once the feature flag has variants"
 NEEDS_SPLIT_VARIANTS = "Needs two or more variants in the split"
+# The run exposed several variants, but the split that the test compares against serves one of them now.
+SPLIT_NOW_ONE_VARIANT = "The split now serves one variant, so the split of the run isn't tested"
+REPORTED_BY_FLAG_STATE = "A variant has 100% of the split, which the flag state check reports"
 SPLIT_ASSIGNS_NOBODY = "The split assigns nobody, because every release condition sets a variant override"
 SPLIT_CHANGED_AFTER_END = "The variant split changed after the experiment ended, so it can't be compared with the run"
 NEEDS_EXPOSURES = "Runs once enough users are exposed"
@@ -53,6 +57,13 @@ def no_calculated_metric(ctx: HealthContext) -> CheckSkip:
     if ctx.primary_metric_count + ctx.secondary_metric_count:
         return not_applicable("Runs once the experiment has a metric in the current format")
     return not_applicable("Runs once the experiment has a metric")
+
+
+def fewer_than_two_in_split(exposed_variant_keys: Collection[str]) -> CheckSkip:
+    """Why a check that compares the variants of the split doesn't look when the split serves fewer than two. When the
+    run exposed two or more, a variant got the whole split after launch, so the run's split goes untested."""
+    exposed = [key for key in exposed_variant_keys if key != MULTIPLE_VARIANT_KEY]
+    return not_applicable(SPLIT_NOW_ONE_VARIANT if len(exposed) > 1 else NEEDS_SPLIT_VARIANTS)
 
 
 def flag_to_check(ctx: HealthContext, *, before_launch: bool) -> FlagState | CheckSkip:

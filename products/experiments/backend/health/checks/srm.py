@@ -41,12 +41,12 @@ from products.experiments.backend.health.context import (
 from products.experiments.backend.health.pinned_share import pinned_variant_keys
 from products.experiments.backend.health.skips import (
     NEEDS_EXPOSURES,
-    NEEDS_SPLIT_VARIANTS,
     RUNS_AFTER_LAUNCH,
     SPLIT_ASSIGNS_NOBODY,
     SPLIT_CHANGED_AFTER_END,
     CheckOutcome,
     CheckValues,
+    fewer_than_two_in_split,
     not_applicable,
 )
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
@@ -181,7 +181,7 @@ def srm(ctx: HealthContext) -> CheckOutcome:
         # The exposure query compares only the variants with a share of the split that the analysis keeps, so after
         # a variant ships there is nothing to compare however many users are exposed.
         if len(_variants_in_split(ctx)) < 2:
-            return not_applicable(NEEDS_SPLIT_VARIANTS)
+            return fewer_than_two_in_split(exposures.total_exposures)
         return not_applicable(NEEDS_EXPOSURES)
     if p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE:
         return None

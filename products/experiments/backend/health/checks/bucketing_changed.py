@@ -23,6 +23,7 @@ from products.experiments.backend.health.checks.change_wording import (
     RESET_EFFECT,
     duration,
     suggested_start,
+    suggested_start_at,
     the_change,
 )
 from products.experiments.backend.health.checks.flag_change_findings import (
@@ -86,12 +87,14 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
         last_at = format_change_time(effect.last.changed_at, history.team_timezone)
         set_back = f"{changed} changed on {first_at} and {_was(effect)} set back on {last_at}."
         if few is not None:
+            move_start = leave_out(history, effect, few)
             return _finding(
                 history,
                 effect,
                 severity=ExperimentHealthFindingSeverity.INFO,
                 title=_TITLE,
-                sentences=[set_back, exposed_when(history, effect, few), *leave_out(history, effect, few)],
+                sentences=[set_back, exposed_when(history, effect, few), *move_start],
+                moves_start_date=bool(move_start),
             )
         return _finding(
             history,
@@ -106,6 +109,7 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
                 "reset the experiment.",
                 RESET_EFFECT,
             ],
+            moves_start_date=True,
         )
 
     title = _KEY_TITLE if effect.shape == BucketingChangeShape.KEY_CHANGED else _TITLE
@@ -125,6 +129,7 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
             ],
         )
     if few is not None:
+        move_start = leave_out(history, effect, few)
         return _finding(
             history,
             effect,
@@ -133,9 +138,10 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
             sentences=[
                 *what_changed,
                 exposed_when(history, effect, few),
-                *leave_out(history, effect, few),
+                *move_start,
                 *_key_state(effect),
             ],
+            moves_start_date=bool(move_start),
         )
     start_at = suggested_start(effect.last.changed_at, history.team_timezone)
     return _finding(
@@ -150,6 +156,7 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
             f"Reset the experiment, or move its start date to {start_at}.",
             RESET_EFFECT,
         ],
+        moves_start_date=True,
     )
 
 
@@ -258,7 +265,10 @@ def _finding(
     severity: ExperimentHealthFindingSeverity,
     title: str,
     sentences: list[str],
+    moves_start_date: bool = False,
 ) -> ExperimentHealthFinding:
+    """`moves_start_date` when the sentences move the start date past the last change, so the button and the text
+    agree."""
     return change_finding(
         history,
         effect,
@@ -270,6 +280,7 @@ def _finding(
         sentences=sentences,
         kind_evidence=_kind_evidence(effect),
         diagnostic_ref="A6",
+        suggested_start_date=suggested_start_at(effect.last.changed_at) if moves_start_date else None,
     )
 
 

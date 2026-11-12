@@ -15,7 +15,6 @@ from products.experiments.backend.health.checks.forced_variant import assigns_no
 from products.experiments.backend.health.context import ExposureTotals, HealthContext
 from products.experiments.backend.health.skips import (
     NEEDS_EXPOSURES,
-    NEEDS_SPLIT_VARIANTS,
     NO_FLAG,
     NOT_AFTER_END,
     RUNS_AFTER_LAUNCH,
@@ -23,11 +22,13 @@ from products.experiments.backend.health.skips import (
     CheckOutcome,
     CheckSkip,
     CheckValues,
+    fewer_than_two_in_split,
     not_applicable,
 )
 from products.feature_flags.backend.facade.edits import FlagVariant
 
 MULTIPLE_VARIANT_KEY = "$multiple"
+EVEN_SPLIT = "Runs when the variant shares differ by more than 1 point"
 
 # `$multiple` share above this triggers the warning. Below this, the asymmetric-
 # exclusion effect on arm means is too small to matter in practice.
@@ -55,9 +56,9 @@ def _multiple_variant_share(
         and variant.key not in excluded_variant_keys
     ]
     if len(compared) < 2:
-        return not_applicable(NEEDS_SPLIT_VARIANTS)
+        return fewer_than_two_in_split(total_exposures)
     if max(compared) - min(compared) <= 1:
-        return not_applicable("Runs when the variant split is uneven")
+        return not_applicable(EVEN_SPLIT)
     total_observed = sum(total_exposures.values())
     if total_observed <= 0:
         return not_applicable(NEEDS_EXPOSURES)

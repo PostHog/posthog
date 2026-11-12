@@ -147,7 +147,7 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
     elif ctx.has_ended:
         if (
             flag.active
-            and _has_multiple_variants_active(flag)
+            and _serves_multiple_variants(flag)
             and not zero_rollout
             and not single_variant_shipped
             and ctx.ended_at is not None
@@ -157,7 +157,7 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
         # The draft state is also reached again when resetting experiment measurements.
         if _running_others(ctx):
             return not_applicable(OTHER_EXPERIMENT_DECIDES)
-        if flag.active and _has_multiple_variants_active(flag) and not zero_rollout:
+        if flag.active and _serves_multiple_variants(flag) and not zero_rollout:
             # Info, because a flag turned on to test the variants before launch is the usual path.
             return _finding(
                 code=ExperimentHealthFindingCode.FLAG_LIVE_BEFORE_LAUNCH,
@@ -423,9 +423,17 @@ def _has_zero_rollout(flag: FlagState) -> bool:
     return bool(flag.release_groups) and all(group.rollout_percentage == 0 for group in flag.release_groups)
 
 
-def _has_multiple_variants_active(flag: FlagState) -> bool:
-    # A variant without a rollout percentage counts as active, as on the flag itself.
-    return sum(1 for variant in flag.variants if variant.rollout_percentage != 0) > 1
+def _serves_multiple_variants(flag: FlagState) -> bool:
+    """Whether the flag can give users more than one variant. A variant override replaces the split for the users its
+    release condition matches, so the split counts only when a condition that includes users has no override."""
+    conditions = flag.reachable_conditions
+    served: set[str | None] = {
+        condition.pinned_variant for condition in conditions if condition.pinned_variant is not None
+    }
+    if not conditions or any(condition.pinned_variant is None for condition in conditions):
+        # A variant without a rollout percentage counts as active, as on the flag itself.
+        served |= {variant.key for variant in flag.variants if variant.rollout_percentage != 0}
+    return len(served) > 1
 
 
 def is_single_variant_shipped(flag: FlagState) -> bool:

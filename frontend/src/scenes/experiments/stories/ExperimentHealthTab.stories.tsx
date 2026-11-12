@@ -76,7 +76,7 @@ const EXPOSURE_CHECKS: Check[] = [
     {
         ...passed('bias_risk_multiple_excluded', 'Bias from an uneven split'),
         status: 'not_applicable',
-        reason: 'Runs when the variant split is uneven',
+        reason: 'Runs when the variant shares differ by more than 1 point',
     },
     passed('multiple_variants_share', 'Users exposed to multiple variants'),
 ]

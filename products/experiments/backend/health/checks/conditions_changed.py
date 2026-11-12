@@ -21,13 +21,20 @@ were exposed before the last change, a warning by that grade is info, because so
 override that is still in place is the forced-variant check's to report, so it is not reported here.
 """
 
+from datetime import datetime
+
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
 )
-from products.experiments.backend.health.checks.change_wording import RESET_EFFECT, suggested_start, the_change
+from products.experiments.backend.health.checks.change_wording import (
+    RESET_EFFECT,
+    suggested_start,
+    suggested_start_at,
+    the_change,
+)
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
     change_rows,
@@ -205,6 +212,7 @@ def _rollout_reduced(
     history: FlagHistory, effect: ConditionsNetEffect, lowered: tuple[LoweredRollout, ...]
 ) -> ExperimentHealthFinding:
     subject = "it no longer serves" if len(lowered) == 1 else "these conditions no longer serve"
+    last_lowered_at = max(rollout.lowered_at for rollout in lowered)
     return _finding(
         history,
         effect,
@@ -214,8 +222,9 @@ def _rollout_reduced(
             _lowered(lowered, history.team_timezone),
             f"Users {subject} get no variant, or the variant of a later condition.",
             "Their exposures stay in the results, and their later events still count for the variant they got first.",
-            count_only_after(max(rollout.lowered_at for rollout in lowered), history.team_timezone),
+            count_only_after(last_lowered_at, history.team_timezone),
         ],
+        start_after=last_lowered_at,
     )
 
 
@@ -291,6 +300,7 @@ def _override_removed(
     what_changed = [_removed(override, history.team_timezone) for override in removed]
     few = few_exposed_units(history, ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS)
     if severity == ExperimentHealthFindingSeverity.WARNING and few is not None:
+        move_start = leave_out(history, effect, few)
         return _finding(
             history,
             effect,
@@ -300,11 +310,12 @@ def _override_removed(
             sentences=[
                 *what_changed,
                 exposed_when(history, effect, few),
-                *leave_out(history, effect, few),
+                *move_start,
                 *_measured(grade, removed),
             ],
             grade=grade,
             diagnostic_ref="A7",
+            start_after=effect.last.changed_at if move_start else None,
         )
     last_changed_at = max(override.restored_at or override.removed_at for override in removed)
     return _finding(
@@ -323,6 +334,7 @@ def _override_removed(
         ],
         grade=grade,
         diagnostic_ref="A7",
+        start_after=last_changed_at,
     )
 
 
@@ -407,7 +419,9 @@ def _finding(
     severity: ExperimentHealthFindingSeverity = ExperimentHealthFindingSeverity.INFO,
     grade: PinnedShareGrade | None = None,
     diagnostic_ref: str = "A6",
+    start_after: datetime | None = None,
 ) -> ExperimentHealthFinding:
+    """`start_after` is the change that the sentences move the start date past, so the button and the text agree."""
     return change_finding(
         history,
         effect,
@@ -420,6 +434,7 @@ def _finding(
         kind_evidence={**_kind_evidence(effect), **(grade.evidence() if grade is not None else {})},
         diagnostic_ref=diagnostic_ref,
         reason=grade.finding_reason if grade is not None else None,
+        suggested_start_date=suggested_start_at(start_after) if start_after is not None else None,
     )
 
 

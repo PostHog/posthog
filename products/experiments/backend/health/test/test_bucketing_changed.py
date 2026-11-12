@@ -266,7 +266,15 @@ class TestBucketingChangedMidRun(TestCase):
         self.assertEqual(finding.code, ExperimentHealthFindingCode.BUCKETING_CHANGED_MID_RUN)
         self.assertEqual((finding.subcode, finding.severity, finding.title), expected)
         self.assertEqual(finding.detail, expected_detail)
-        self.assertEqual(finding.actions, (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,))
+        names_start_date = "start date to" in finding.detail
+        self.assertEqual(
+            finding.actions,
+            (
+                *((ExperimentHealthFindingActionKind.MOVE_START_DATE,) if names_start_date else ()),
+                ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,
+            ),
+        )
+        self.assertEqual("suggested_start_date" in finding.evidence, names_start_date)
 
     @parameterized.expand(
         [

@@ -96,16 +96,19 @@ class PinnedShareGrade:
 
     def evidence(self) -> dict[str, str | int | float | None]:
         evidence: dict[str, str | int | float | None] = {}
-        if self.measurement is not None:
-            remotely_evaluated_share = self.measurement.remotely_evaluated_share
+        if self.measurement is None:
+            return evidence
+        remotely_evaluated_share = self.measurement.remotely_evaluated_share
+        evidence["remotely_evaluated_share"] = (
+            None if remotely_evaluated_share is None else round(remotely_evaluated_share, 4)
+        )
+        # Without a share, the counts cover only the calls that the flag service saw, so a reader would take a part
+        # for the whole. They appear only beside the share that they measure.
+        if self.share is not None:
             evidence["most_pinned_variant"] = self.measurement.most_pinned_variant
             evidence["pinned_people"] = self.measurement.pinned_people
             evidence["variant_people"] = round(self.measurement.variant_people)
             evidence["matched_people"] = self.measurement.matched_people
-            evidence["remotely_evaluated_share"] = (
-                None if remotely_evaluated_share is None else round(remotely_evaluated_share, 4)
-            )
-        if self.share is not None:
             evidence["pinned_share"] = round(self.share, 4)
         return evidence
 

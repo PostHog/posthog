@@ -173,7 +173,7 @@ export const ExperimentExposureQueryResponseSchema = z.object({
 })
 
 export type ExperimentExposureQueryResponse = z.infer<typeof ExperimentExposureQueryResponseSchema> &
-    Pick<Schemas.ExperimentExposureQueryResponse, 'health_findings' | 'health_checks'>
+    Pick<Schemas.ExperimentExposureQueryResponse, 'health_findings' | 'health_checks' | 'sample_ratio_mismatch'>
 
 type HealthFinding = Schemas.ExperimentHealthFinding | Schemas.ExperimentExposureHealthFinding
 type HealthCheck = Schemas.ExperimentHealthCheckResult | Schemas.ExperimentExposureHealthCheck
@@ -185,7 +185,10 @@ export type ExperimentHealthDetails = {
     not_run: string[]
 }
 
-type ExposureCounts = Omit<ExperimentExposureQueryResponse, 'health_findings' | 'health_checks'>
+type ExposureCounts = Pick<
+    ExperimentExposureQueryResponse,
+    'total_exposures' | 'sample_ratio_mismatch' | 'timeseries' | 'date_range'
+>
 
 export type ExperimentHealthOverview = {
     summary: string
@@ -475,12 +478,14 @@ export function overviewHealth(details: ExperimentHealthDetails): ExperimentHeal
     }
 }
 
+// The query response also carries its cache and scan metadata, which an agent can't act on.
 function exposureCounts({
-    health_findings: _findings,
-    health_checks: _checks,
-    ...counts
+    total_exposures,
+    sample_ratio_mismatch,
+    timeseries,
+    date_range,
 }: ExperimentExposureQueryResponse): ExposureCounts {
-    return counts
+    return { total_exposures, sample_ratio_mismatch, timeseries, date_range }
 }
 
 export function transformExperimentHealth(

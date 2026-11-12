@@ -58,6 +58,15 @@ ZERO_ROLLOUT_SHIPPED_VARIANT = {
         "variants": [{"key": "control", "rollout_percentage": 0}, {"key": "test", "rollout_percentage": 100}]
     },
 }
+EMAIL_FILTER = {"key": "email", "value": "x", "type": "person"}
+# The only release condition that includes users sets the override "test", so the split serves nobody.
+FORCED_TEST_ONLY = {
+    **MULTIVARIANT,
+    "groups": [
+        {"properties": [EMAIL_FILTER], "rollout_percentage": 100, "variant": "test"},
+        {"properties": [], "rollout_percentage": 0},
+    ],
+}
 SHIPPED_TO_SOME = {
     "groups": [{"properties": [{"key": "email", "value": "x", "type": "person"}], "rollout_percentage": 100}],
     "multivariate": SHIPPED_VARIANT["multivariate"],
@@ -240,6 +249,30 @@ class TestFlagState(TestCase):
             (
                 "draft_flag_distributing_variants",
                 _context(DRAFT, active=True, filters=MULTIVARIANT),
+                (
+                    ExperimentHealthFindingCode.FLAG_LIVE_BEFORE_LAUNCH,
+                    "not_started_but_multiple_variants_rolled_out",
+                    None,
+                ),
+            ),
+            (
+                "draft_flag_forces_one_variant_on_its_only_open_set",
+                _context(DRAFT, active=True, filters=FORCED_TEST_ONLY),
+                None,
+            ),
+            (
+                "draft_flag_forces_different_variants_by_set",
+                _context(
+                    DRAFT,
+                    active=True,
+                    filters={
+                        **MULTIVARIANT,
+                        "groups": [
+                            {"properties": [EMAIL_FILTER], "rollout_percentage": 100, "variant": "control"},
+                            {"properties": [], "rollout_percentage": 100, "variant": "test"},
+                        ],
+                    },
+                ),
                 (
                     ExperimentHealthFindingCode.FLAG_LIVE_BEFORE_LAUNCH,
                     "not_started_but_multiple_variants_rolled_out",

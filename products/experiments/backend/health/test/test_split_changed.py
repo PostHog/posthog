@@ -38,6 +38,7 @@ from products.experiments.backend.health.skips import (
     NEEDS_VARIANTS,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
+    REPORTED_BY_FLAG_STATE,
     SPLIT_CHANGED_AFTER_END,
     CheckSkip,
     not_applicable,
@@ -335,7 +336,7 @@ class TestSplitChangedMidRun(TestCase):
                     "to": "control 80% / test 20%",
                     "exposed_before_change": None,
                     "seconds_after_start": 11040,
-                    "units_exposed_before_last_change": None,
+                    "min_units_exposed_before_last_change": None,
                     "suggested_start_date": "2026-09-12T13:04:00+00:00",
                 },
             ),
@@ -351,7 +352,7 @@ class TestSplitChangedMidRun(TestCase):
                     "to": "control 80% / test 20%",
                     "exposed_before_change": True,
                     "seconds_after_start": 11085,
-                    "units_exposed_before_last_change": None,
+                    "min_units_exposed_before_last_change": None,
                     "suggested_start_date": "2026-09-12T13:05:00+00:00",
                 },
             ),
@@ -367,7 +368,7 @@ class TestSplitChangedMidRun(TestCase):
                     "to": "control 80% / test 20%",
                     "exposed_before_change": True,
                     "seconds_after_start": 11040,
-                    "units_exposed_before_last_change": None,
+                    "min_units_exposed_before_last_change": None,
                     "suggested_start_date": "2026-09-12T13:21:00+00:00",
                 },
             ),
@@ -383,7 +384,7 @@ class TestSplitChangedMidRun(TestCase):
                     "to": "control 80% / test 20%",
                     "exposed_before_change": True,
                     "seconds_after_start": 11040,
-                    "units_exposed_before_last_change": 4,
+                    "min_units_exposed_before_last_change": 4,
                     "suggested_start_date": "2026-09-12T13:04:00+00:00",
                 },
             ),
@@ -538,7 +539,7 @@ class TestSplitChangedMidRun(TestCase):
     ) -> None:
         shipped = flag_state(ctx)
 
-        self.assertIsNone(split_changed_mid_run(ctx))
+        self.assertEqual(split_changed_mid_run(ctx), not_applicable(REPORTED_BY_FLAG_STATE))
         assert isinstance(shipped, ExperimentHealthFinding)
         self.assertEqual(shipped.code, ExperimentHealthFindingCode.VARIANT_SHIPPED_WHILE_RUNNING)
         self.assertEqual(

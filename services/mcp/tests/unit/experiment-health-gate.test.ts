@@ -20,7 +20,10 @@ describe('experiment health gate', () => {
         kind: 'ExperimentExposureQuery',
         timeseries: [],
         total_exposures: {},
+        sample_ratio_mismatch: null,
         date_range: { date_from: '2026-01-01T00:00:00Z', date_to: null },
+        cache_key: 'cache_2_abc',
+        query_scan: { duration_ms: 377, rows_read: 17137270 },
         health_findings: [],
         health_checks: [{ key: 'srm', name: 'Sample ratio mismatch', reason: null, status: 'passed' }],
     }
@@ -227,15 +230,15 @@ describe('experiment health gate', () => {
         expect(getHealth).toHaveBeenCalledTimes(readsHealth ? 1 : 0)
     })
 
-    it('experiment-health-get returns the exposure counts without their health fields', async () => {
+    it('experiment-health-get returns only the documented exposure fields', async () => {
         vi.mocked(isFeatureFlagEnabled).mockResolvedValue(false)
 
         const result = await getHealthHandler(buildContext(vi.fn(), exposureOk, vi.fn()), { id: 7 })
 
         expect(result.exposures).toEqual({
-            kind: 'ExperimentExposureQuery',
             timeseries: [],
             total_exposures: {},
+            sample_ratio_mismatch: null,
             date_range: { date_from: '2026-01-01T00:00:00Z', date_to: null },
         })
     })
