@@ -136,6 +136,9 @@ def _client_config(api_key: str, environment: str) -> ClientConfig:
         # The `x-api-key` header must never follow a redirect to another host.
         "allowed_hosts": [],
         "allow_redirects": False,
+        # License rows carry each license key under `key`, a name the sample scrubber leaves as is,
+        # so keep Creem bodies out of HTTP sample capture.
+        "capture": False,
     }
 
 

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
@@ -19,7 +19,7 @@ from products.warehouse_sources.sources.sdk.testing import (
 )
 
 
-def _driver(environment: str = "production") -> SourceDriver:
+def _driver(environment: Literal["production", "test"] = "production") -> SourceDriver:
     return SourceDriver(CreemSource(), CreemSourceConfig(api_key="creem_test_key", environment=environment))
 
 
@@ -36,7 +36,7 @@ class TestPageNumberListings:
         ("environment", "origin"),
         [("production", "https://api.creem.io"), ("test", "https://test-api.creem.io")],
     )
-    def test_walks_next_page_to_the_last_page(self, environment: str, origin: str) -> None:
+    def test_walks_next_page_to_the_last_page(self, environment: Literal["production", "test"], origin: str) -> None:
         result = _driver(environment).run(
             "Products",
             [_page(["p1"], 2), _page(["p2"], 3), _page(["p3"], None)],
@@ -49,6 +49,8 @@ class TestPageNumberListings:
         assert result.params("page_number") == ["1", "2", "3"]
         assert result.params("page_size") == ["50", "50", "50"]
         assert result.saved_states == [CreemResumeConfig(page_number=2), CreemResumeConfig(page_number=3)]
+        # License keys arrive under `key`, which the sample scrubber keeps, so no Creem body may be sampled.
+        assert result.session_options and all(options.get("capture") is False for options in result.session_options)
 
     @pytest.mark.parametrize(
         ("script", "expected_pages"),
