@@ -136,6 +136,15 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         "no_markdown_data_table": OfflineScorer(kind="boolean", version=UUID("01a15a27-69b4-7bc0-b6f6-b366acc272b2")),
         "chart_from_typed_query": OfflineScorer(kind="boolean", version=UUID("01a16420-8c66-7f91-9939-997516aafc3b")),
         "chart_shown": OfflineScorer(kind="boolean", version=UUID("01a16420-30a5-770e-a4f3-16ff4f7dcb84")),
+        "explained_chart": OfflineScorer(kind="boolean", version=UUID("01a1ab86-00ad-778e-bdb5-fc4e7775649e")),
+        "explain_chart_ends_investigation": OfflineScorer(
+            kind="boolean", version=UUID("01a1ab86-00ad-778e-bdb5-fc4f6a96c459")
+        ),
+        "explained_saved_insight": OfflineScorer(kind="boolean", version=UUID("01a1ab86-00ad-778e-bdb5-fc50a4e1df43")),
+        "no_notebook_created": OfflineScorer(kind="boolean", version=UUID("01a1ab86-00ad-778e-bdb5-fc5127e04e09")),
+        "brief_reply_after_explanation": OfflineScorer(
+            kind="boolean", version=UUID("01a1ab86-00ad-778e-bdb5-fc52af5464b0")
+        ),
         "answer_from_typed_query": OfflineScorer(kind="boolean", version=UUID("01a15a27-4bce-7e6c-b3ef-34d292489b30")),
         "answer_tool_not_execute_sql": OfflineScorer(
             kind="boolean", version=UUID("01a15581-3926-7c14-a907-e994586bd216")
