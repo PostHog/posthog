@@ -21,8 +21,8 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from ..db import READER_DB, WRITER_DB
-from ..facade.enums import RunStatus
-from ..models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot
+from ..facade.enums import BaselineApprovalState, RunStatus
+from ..models import Artifact, BaselineApproval, BaselineEntry, QuarantinedIdentifier, Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage, StoryIndexStorage
 from . import artifact_store, run_queries, story_index
 
@@ -114,6 +114,15 @@ WHERE a.id = ANY(%(artifact_ids)s::uuid[])
       WHERE s.team_id = a.team_id AND r.repo_id = a.repo_id AND s.baseline_hash = a.content_hash
   )
   AND NOT EXISTS (SELECT 1 FROM visual_review_artifact t WHERE t.thumbnail_id = a.id)
+  AND NOT EXISTS (
+      SELECT 1 FROM visual_review_baselineentry e
+      WHERE e.team_id = a.team_id AND e.repo_id = a.repo_id AND e.content_hash = a.content_hash
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM visual_review_baselineapproval p
+      WHERE p.team_id = a.team_id AND p.repo_id = a.repo_id AND p.state = %(open_state)s
+        AND a.content_hash IN (p.content_hash, p.ledger_base_hash, p.effective_base_hash)
+  )
 RETURNING a.id, a.storage_path
 """
 
@@ -285,6 +294,14 @@ class RetentionSweep:
 
     def _unreferenced_artifact_ids(self, limit: int) -> list[UUID]:
         snapshots = self._snapshots()
+        ledger_entries = (
+            BaselineEntry.objects.for_team(self.team_id, canonical=True).using(WRITER_DB).filter(repo_id=self.repo.id)
+        )
+        open_approvals = (
+            BaselineApproval.objects.for_team(self.team_id, canonical=True)
+            .using(WRITER_DB)
+            .filter(repo_id=self.repo.id, state=BaselineApprovalState.OPEN)
+        )
         return list(
             self._artifacts()
             .filter(created_at__lt=self.now - timedelta(days=ARTIFACT_ORPHAN_GRACE_DAYS))
@@ -301,6 +318,18 @@ class RetentionSweep:
                 # That artifact's delete leaves the thumbnail unreferenced, and
                 # the next sweep collects it.
                 ~Exists(self._artifacts().filter(thumbnail_id=OuterRef("id"))),
+                # Ledger entries and open approvals name the baselines of runs that do not exist
+                # yet, so these images can outlive every run that rendered them. An entry's
+                # previous hash is the hash of an older entry, or, after a re-seed, a baseline
+                # that was dropped on purpose, so it holds nothing.
+                ~Exists(ledger_entries.filter(content_hash=OuterRef("content_hash"))),
+                ~Exists(
+                    open_approvals.filter(
+                        Q(content_hash=OuterRef("content_hash"))
+                        | Q(ledger_base_hash=OuterRef("content_hash"))
+                        | Q(effective_base_hash=OuterRef("content_hash"))
+                    )
+                ),
             )
             .values_list("id", flat=True)[:limit]
         )
@@ -310,7 +339,11 @@ class RetentionSweep:
             artifact_store.lock_artifact_registry(self.repo.id)
             cursor.execute(
                 _DELETE_ARTIFACTS_SQL,
-                {"artifact_ids": [str(artifact_id) for artifact_id in artifact_ids], "team_id": self.team_id},
+                {
+                    "artifact_ids": [str(artifact_id) for artifact_id in artifact_ids],
+                    "team_id": self.team_id,
+                    "open_state": BaselineApprovalState.OPEN.value,
+                },
             )
             return [(row[0], row[1]) for row in cursor.fetchall()]
 
