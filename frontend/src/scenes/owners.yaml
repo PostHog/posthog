@@ -59,6 +59,8 @@ rules:
       owners: team-web-analytics
     - match: '/max/'
       owners: team-surfaces
+    - match: '/settings/aiSubscriptions.test.ts'
+      owners: team-surfaces
     # The topic list the AI homepage renders, so growth reviews it alongside Max.
     - match: '/max/suggestionTopics.tsx'
       owners: [team-surfaces, team-growth]
