@@ -753,6 +753,10 @@ class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
 
 
+class SandboxSenderUnavailable(Exception):
+    pass
+
+
 class TransactionalEmailSenderRequired(Exception):
     """The project has several verified email senders and no default, so the send has to name one."""
 
