@@ -37,6 +37,7 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     id: 'configuration-1',
     name: 'Errors per service',
     enabled: true,
+    alert_kind: 'threshold',
     source_kind: 'logs',
     source_config: {},
     check_interval_minutes: 1,
