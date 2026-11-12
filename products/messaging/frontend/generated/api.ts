@@ -17,6 +17,7 @@ import type {
     BulkAddOptOutsResultApi,
     BulkRemoveSuppressionsRequestApi,
     BulkRemoveSuppressionsResponseApi,
+    CanceledEmailApi,
     CodeEmailApi,
     CodeEmailSourceCandidatesApi,
     EmailStatusApi,
@@ -40,11 +41,13 @@ import type {
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
+    PatchedRescheduleEmailApi,
     PatchedSupabaseAuthEmailSettingsUpdateApi,
     PreferencesLinkApi,
     ProviderImportRunApi,
     RemoveOptOutRequestApi,
     RemoveSuppressionRequestApi,
+    RescheduledEmailApi,
     SendEmailApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
@@ -119,6 +122,47 @@ export const messagingEmailsRetrieve = async (
     return apiMutator<EmailStatusApi>(getMessagingEmailsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMessagingEmailsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/emails/${id}/`
+}
+
+/**
+ * Change when an email goes out, before PostHog starts sending it, by the `message_id` that the send returned. A time that already passed sends it now. Needs a project secret API key with the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Move a scheduled email
+ */
+export const messagingEmailsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedRescheduleEmailApi?: PatchedRescheduleEmailApi,
+    options?: RequestInit
+): Promise<RescheduledEmailApi> => {
+    return apiMutator<RescheduledEmailApi>(getMessagingEmailsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedRescheduleEmailApi),
+    })
+}
+
+export const getMessagingEmailsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/emails/${id}/cancel/`
+}
+
+/**
+ * Cancel an email before PostHog starts sending it, by the `message_id` that the send returned. A repeat cancel answers 200 too. Needs a project secret API key with the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Cancel a scheduled email
+ */
+export const messagingEmailsCancelCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CanceledEmailApi> => {
+    return apiMutator<CanceledEmailApi>(getMessagingEmailsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
