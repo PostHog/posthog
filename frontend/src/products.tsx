@@ -622,6 +622,7 @@ export const productRedirects: Record<
         combineUrl(urls.visualReviewRuns(), searchParams, hashParams).url,
     '/visual_review/*': ({ _ }, searchParams, hashParams): string =>
         combineUrl(`/visual-review/${_}`, searchParams, hashParams).url,
+    '/elt': (_params, searchParams, hashParams) => combineUrl(urls.etlOverview(), searchParams, hashParams).url,
 }
 
 /** This const is auto-generated, as is the whole file */

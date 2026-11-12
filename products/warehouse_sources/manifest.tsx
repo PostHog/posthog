@@ -3,6 +3,8 @@
  *
  * Defines scenes, routes, URLs, and navigation for this product.
  */
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -24,7 +26,10 @@ export const manifest: ProductManifest = {
     routes: {
         '/etl': ['PipelineOverview', 'pipelineOverview'],
     },
-    redirects: {},
+    redirects: {
+        // ELT is the product name, so people guess /elt for the scene at /etl.
+        '/elt': (_params, searchParams, hashParams) => combineUrl(urls.etlOverview(), searchParams, hashParams).url,
+    },
     urls: {
         etlOverview: (): string => '/etl',
     },
