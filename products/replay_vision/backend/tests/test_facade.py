@@ -15,6 +15,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.experiments.backend.facade.testing import access_filter_hiding_experiment
 from products.replay_vision.backend.facade.api import (
     ObservationRequestRejected,
     WorkflowInlineScan,
@@ -247,7 +248,7 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
 
         with patch(
             "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is type(experiment) else qs,
+            side_effect=access_filter_hiding_experiment(experiment.id),
         ):
             started = self._start(scanner_id=scanner.id, inline=None)
 

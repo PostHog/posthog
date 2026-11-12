@@ -37,7 +37,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import access_filter_hiding_experiment
 from products.replay_vision.backend.api.scanners import HighlightFeedQuerySerializer, ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -4112,7 +4112,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
 
         with patch(
             "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+            side_effect=access_filter_hiding_experiment(experiment.id),
         ):
             resp = self.client.get(f"{self.search_url}?q=anything")
 
@@ -4132,7 +4132,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
 
         with patch(
             "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+            side_effect=access_filter_hiding_experiment(experiment.id),
         ):
             scoped = self.client.get(f"{self.search_url}?q=anything&scanner_id={denied.id}")
             cross = self.client.get(f"{self.search_url}?q=anything")
@@ -5464,7 +5464,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         # The restricted rows are the newest, so the access gate has to run before the filler's limit.
         with patch(
             "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+            side_effect=access_filter_hiding_experiment(experiment.id),
         ):
             resp = self.client.get(self.feed_url)
         self.assertEqual(
@@ -5486,7 +5486,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         # The restricted picks outscore the open ones, so a page of two holds them unless the picks drop them first.
         with patch(
             "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+            side_effect=access_filter_hiding_experiment(experiment.id),
         ):
             resp = self.client.get(self.feed_url, {"limit": 2})
         self.assertEqual(
@@ -5507,7 +5507,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         # The second page reads the same build as the first, so access has to be checked again on the page itself.
         with patch(
             "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+            side_effect=access_filter_hiding_experiment(experiment.id),
         ):
             second = self.client.get(self.feed_url, {"limit": 5, "offset": 1, "as_of": first["as_of"]}).json()
         self.assertEqual(second["results"], [])

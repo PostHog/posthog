@@ -8,6 +8,7 @@ creates the feature flag from a key and validates the metrics, and the outside s
 flag they made themselves.
 """
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -91,6 +92,16 @@ def update_experiment(*, team_id: int, experiment_id: int, **fields: Any) -> Non
 def delete_experiment(*, team_id: int, experiment_id: int) -> None:
     """Remove the experiment row, which fires the delete signals."""
     Experiment.objects.get(team_id=team_id, id=experiment_id).delete()
+
+
+def access_filter_hiding_experiment(experiment_id: int) -> Callable[..., Any]:
+    """A `side_effect` for a patched `UserAccessControl.filter_queryset_by_access_level` that drops this
+    experiment from experiment querysets and passes every other queryset through unchanged."""
+
+    def filter_queryset(queryset: Any, **_: Any) -> Any:
+        return queryset.exclude(pk=experiment_id) if queryset.model is Experiment else queryset
+
+    return filter_queryset
 
 
 def create_holdout(

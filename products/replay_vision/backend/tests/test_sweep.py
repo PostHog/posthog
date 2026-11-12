@@ -23,6 +23,7 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
     _stuck_key,
 )
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -77,7 +78,12 @@ from products.replay_vision.backend.temporal.sweep_types import (
     InFlightApplyCounts,
     SweepScannerInputs,
 )
-from products.replay_vision.backend.tests.helpers import create_experiment, seed_scanner_spend, snapshot_for
+from products.replay_vision.backend.tests.helpers import (
+    create_experiment,
+    seed_scanner_spend,
+    snapshot_for,
+    update_experiment,
+)
 
 # Every scanner built below runs on this model, so its price sets what one observation draws.
 _OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
@@ -202,18 +208,20 @@ class TestFindScannerCandidatesActivity:
         experiment = create_experiment(scanner.team, "over-flag", launched=True, variants=["control", "test"])
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         scanner.save()
+        fields: dict[str, Any] = {}
         if state == "paused":
-            experiment.feature_flag.active = False
-            experiment.feature_flag.save()
+            flag = FeatureFlag.objects.get(id=experiment.feature_flag_id)
+            flag.active = False
+            flag.save()
         elif state == "ended":
             # Ended before the scanner's watermark, so the run is already swept to its end.
-            experiment.end_date = timezone.now() - dt.timedelta(days=1)
+            fields["end_date"] = timezone.now() - dt.timedelta(days=1)
         elif state == "archived":
             # No end date: no known end to sweep up to, so it stops like a pause.
-            experiment.archived = True
+            fields["archived"] = True
         else:
-            experiment.deleted = True
-        experiment.save()
+            fields["deleted"] = True
+        update_experiment(experiment, **fields)
 
         with (
             _patched_queries() as (fast_query, deep_query),
@@ -245,8 +253,7 @@ class TestFindScannerCandidatesActivity:
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         scanner.save()
         if cause == "deleted_experiment":
-            experiment.deleted = True
-            experiment.save()
+            update_experiment(experiment, deleted=True)
         else:
             Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)
         inputs = FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -281,8 +288,7 @@ class TestFindScannerCandidatesActivity:
         )
         scanner.created_by = User.objects.create_and_join(scanner.team.organization, "sweeper@example.com", None)
         experiment = create_experiment(scanner.team, "ended-flag", launched=True, variants=["control", "test"])
-        experiment.end_date = end
-        experiment.save()
+        update_experiment(experiment, end_date=end)
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         scanner.save()
 
@@ -302,8 +308,7 @@ class TestFindScannerCandidatesActivity:
         # flipping them off on deploy would change scanners that exist today.
         scanner = _make_scanner(experiment_targeting=None)
         experiment = create_experiment(scanner.team, "legacy-flag", launched=True, variants=["control", "test"])
-        experiment.end_date = timezone.now()
-        experiment.save()
+        update_experiment(experiment, end_date=timezone.now())
         ReplayScanner.objects.filter(pk=scanner.pk).update(
             experiment_targeting={"experiment_id": experiment.id, "variant": None, "variants": None}
         )
