@@ -184,12 +184,15 @@ class TestResendImport(BaseTest):
 
         assert not ProviderImportRun.objects.for_team(self.team.id).exists()
 
-    def test_a_rate_limit_waits_as_long_as_resend_says(self) -> None:
-        self.resend.failures["/suppressions"] = [(429, {"retry-after": "7"})]
+    @parameterized.expand([("rate_limit", 429, {"retry-after": "7"}, 7.0), ("server_error", 503, {}, 2.0)])
+    def test_a_passing_failure_waits_and_the_step_completes(
+        self, _name: str, status: int, headers: dict[str, str], waited: float
+    ) -> None:
+        self.resend.failures["/suppressions"] = [(status, headers)]
 
         run = self._run(["suppressions"])
 
-        assert 7.0 in [call.args[0] for call in self.sleep.call_args_list]
+        assert waited in [call.args[0] for call in self.sleep.call_args_list]
         assert run.status == "completed"
 
     def test_a_retry_after_an_outage_continues_from_the_saved_page(self) -> None:

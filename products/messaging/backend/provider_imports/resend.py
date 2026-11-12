@@ -48,7 +48,7 @@ from products.messaging.backend.services.resend_client import (
     ResendRateLimited,
 )
 
-# The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit.
+# The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit or retry.
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
 MISSING_KEY_MESSAGE = "Enter your Resend API key. PostHog doesn't keep it between imports."
 EXPIRED_KEY_MESSAGE = "PostHog deleted the Resend API key when this import ended. Start a new import."
@@ -139,7 +139,9 @@ class ResendImportProvider(ImportProvider):
             raise ImportCredentialsMissing(MISSING_KEY_MESSAGE)
         if not api_key.isascii():
             raise ImportCredentialsInvalid(INVALID_KEY_MESSAGE)
-        client = ResendClient(api_key, timeout=CREDENTIAL_CHECK_TIMEOUT_SECONDS, max_rate_limit_waits=0)
+        client = ResendClient(
+            api_key, timeout=CREDENTIAL_CHECK_TIMEOUT_SECONDS, max_rate_limit_waits=0, max_transient_retries=0
+        )
         with _translated_errors():
             client.check_access()
         return ImportCredentials(api_key=api_key)
