@@ -132,20 +132,14 @@ function pickStoredAddress(
     return spellings.includes(recipient.trim()) ? recipient.trim() : { reason: 'ambiguous_member' }
 }
 
-async function queryPrimaryBeforeDeadline<Row extends QueryResultRow>(
+export async function queryPrimaryBeforeDeadline<Row extends QueryResultRow>(
     db: PostgresRouter,
     text: string,
     values: unknown[],
-    timeoutMs: number
+    timeoutMs: number,
+    tag: string = 'sandbox-email-authorization'
 ): Promise<Row[]> {
-    const { rows } = await queryBeforeDeadline<Row>(
-        db,
-        PostgresUse.COMMON_WRITE,
-        text,
-        values,
-        timeoutMs,
-        'sandbox-email-authorization'
-    )
+    const { rows } = await queryBeforeDeadline<Row>(db, PostgresUse.COMMON_WRITE, text, values, timeoutMs, tag)
     return rows
 }
 

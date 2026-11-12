@@ -1036,6 +1036,13 @@ def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
     return expr if isinstance(expr, ast.Constant) and isinstance(expr.value, str) else None
 
 
+def _boolean_constant_text(expr: ast.Expr) -> ast.Constant | None:
+    """The text a property holds for a boolean constant, or None for any other expression."""
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, bool):
+        return _const("true" if expr.value else "false")
+    return None
+
+
 def _column_constant_type(source: MaterializedPropertySource) -> ast.ConstantType:
     """The backing column's physical ClickHouse type as a ConstantType; an untyped column is the string default."""
     return constant_type_from_runtime_type(parse_sql_runtime_type(source.column_type or "String"))
@@ -1979,7 +1986,37 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
         return _call("isNotNull", [_json_subcolumn_value_expr(field_type, [first_key], source=source)])
 
+    def _boolean_constant_as_text(self, node: ast.CompareOperation) -> ast.CompareOperation:
+        """`<text property> = true` on the JSON events table, with the constant as the text the property holds.
+
+        ClickHouse cannot compare text with a boolean, so the query would fail. The legacy table compares the constant
+        as 'true' or 'false' for the keys it keeps in a property-group map, and every later rewrite here already
+        handles a text constant, so the constant becomes that text before any of them runs.
+        """
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            if (text := _boolean_constant_text(node.right)) and self._reads_json_text(node.left):
+                return replace(node, right=text)
+            if (text := _boolean_constant_text(node.left)) and self._reads_json_text(node.right):
+                return replace(node, left=text)
+        return node
+
+    def _reads_json_text(self, expr: ast.Expr) -> bool:
+        """Whether `expr` is a single-key property of the JSON events table that HogQL reads as text."""
+        single = self._property_operand(expr)
+        if single is None:
+            return False
+        field_type, property_name = single
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
+        property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
+        return (
+            source is not None
+            and source.kind == "json_subcolumn"
+            # A Boolean or Numeric property definition converts the read, and ClickHouse compares that with a boolean.
+            and isinstance(property_type.resolve_constant_type(self.context), ast.StringType)
+        )
+
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        node = self._boolean_constant_as_text(node)
         if self._in_grouped_clause:
             return super().visit_compare_operation(node)
 

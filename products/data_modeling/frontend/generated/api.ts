@@ -18,10 +18,12 @@ import type {
     LineageResponseApi,
     ModelUsageApi,
     NodeApi,
+    NodeAttentionCountApi,
     NodeFrequencyBoundsApi,
     NodeResumeApi,
     NodeRunApi,
     NodeRunResponseApi,
+    NodeWatchingApi,
     PaginatedEdgeSummaryListApi,
     PaginatedNodeListApi,
     PatchedEdgeApi,
@@ -316,6 +318,59 @@ export const dataModelingNodesRunCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(nodeRunApi),
+    })
+}
+
+export const getDataModelingNodesUnwatchCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/unwatch/`
+}
+
+/**
+ * Stop getting failure notifications for this node, including the ones you get as its creator.
+ */
+export const dataModelingNodesUnwatchCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<NodeWatchingApi> => {
+    return apiMutator<NodeWatchingApi>(getDataModelingNodesUnwatchCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getDataModelingNodesWatchCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/watch/`
+}
+
+/**
+ * Get failure notifications for this node. Watching a node you already watch changes nothing.
+ */
+export const dataModelingNodesWatchCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<NodeWatchingApi> => {
+    return apiMutator<NodeWatchingApi>(getDataModelingNodesWatchCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getDataModelingNodesAttentionCountRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_modeling_nodes/attention_count/`
+}
+
+/**
+ * How many of the models the list shows have failed their last run or are suspended.
+ */
+export const dataModelingNodesAttentionCountRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<NodeAttentionCountApi> => {
+    return apiMutator<NodeAttentionCountApi>(getDataModelingNodesAttentionCountRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

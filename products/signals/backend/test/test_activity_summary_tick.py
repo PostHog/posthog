@@ -417,7 +417,10 @@ class TestActivitySummaryQueue(BaseTest):
         config = self._config(
             rebuild_before=NOW - datetime.timedelta(days=2, hours=12), rebuild_budget_share=share, max_org_share=1
         )
-        assert self._select(config) == [
+        with patch("products.signals.backend.activity_summary.queue.MIN_PROMPT_VERSION", PROMPT_VERSION):
+            selected = self._select(config)
+
+        assert selected == [
             *[(self.team.id, before_rebuild.id), (self.team.id, old_version.id)][:rebuilds],
             (self.team.id, busy.id),
         ]
