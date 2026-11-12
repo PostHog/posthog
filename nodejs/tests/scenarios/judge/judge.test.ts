@@ -3,7 +3,8 @@ import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { internalFetch } from '~/common/utils/request'
 
-import { ProviderEdge, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
+import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
+import { atLeastOnce } from './invariants'
 import { JournalEntry, Judge, createJudge } from './judge'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
@@ -214,6 +215,31 @@ describe('judge', () => {
         const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {})
 
         expect(result).toMatchObject({ name: 'at_least_once', ...expected })
+    })
+
+    it.each<[string, number, boolean]>([
+        ['a status fetch does not retry', 400, true],
+        ['a request timeout, which fetch retries', 408, false],
+        ['too many requests, which fetch retries', 429, false],
+        ['a server error, which fetch retries', 503, false],
+    ])('at_least_once for a webhook whose only attempt a fault answered with %s', (_story, status, passed) => {
+        const webhook: TruthRecord = {
+            seq: 1,
+            at: new Date().toISOString(),
+            kind: 'webhook',
+            status,
+            fault: 'dest.status',
+            unitId: UNIT,
+            actionId: 'webhook',
+            detail: {},
+        }
+
+        const result = atLeastOnce.check(
+            { journal: [{ ...offered(), expect: { deliveries: ['webhook'] } }], truth: [webhook] },
+            undefined
+        )
+
+        expect(result.passed).toBe(passed)
     })
 
     it.each<[string, () => Judge]>([

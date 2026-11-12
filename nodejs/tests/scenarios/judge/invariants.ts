@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { RETRIABLE_STATUS_CODES } from '~/cdp/utils/cdp-fetch'
+
 import type { Definition } from '../cards/definitions'
 import type { TruthRecord } from '../provider-edge'
 import type { InvariantResult, JournalEntry } from './judge'
@@ -21,9 +23,14 @@ const isAccepted = (status: number): boolean => status >= 200 && status < 300
 const isNotRetriedByTheEmailService = ({ status, detail }: TruthRecord): boolean =>
     status >= 400 && status < 500 && !ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES.includes(detail.errorType ?? '')
 
+const isNotRetriedByFetch = (status: number): boolean => status >= 400 && !RETRIABLE_STATUS_CODES.includes(status)
+
 function endedByTerminalFault(records: TruthRecord[]): boolean {
     const last = records.at(-1)
-    return last?.fault !== undefined && isNotRetriedByTheEmailService(last)
+    if (last?.fault === undefined) {
+        return false
+    }
+    return last.kind === 'webhook' ? isNotRetriedByFetch(last.status) : isNotRetriedByTheEmailService(last)
 }
 
 type DeliveryRecord = TruthRecord & { unitId: string; actionId: string }
