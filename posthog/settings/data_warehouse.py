@@ -14,6 +14,9 @@ DATAWAREHOUSE_BUCKET_DOMAIN = os.getenv("DATAWAREHOUSE_BUCKET_DOMAIN", "objectst
 DATAWAREHOUSE_BUCKET = os.getenv("DATAWAREHOUSE_BUCKET", "data-warehouse")
 BUCKET_URL = os.getenv("BUCKET_URL", "s3://data-warehouse")
 BUCKET_PATH = os.getenv("BUCKET_PATH", "data-warehouse")
+# S3 location of the Parquet copies that Trino writes for ClickHouse to read, as org_<id>/team_<id>/... under this URL.
+# Empty turns the copy off.
+DATA_MODELING_TRINO_OUTPUT_BUCKET_URL = os.getenv("DATA_MODELING_TRINO_OUTPUT_BUCKET_URL", "")
 
 # The computed "am I a local dev setup?" signal. General dev-mode checks (is_dev_mode() and
 # friends: DuckLake shadow execution, MCP localhost scopes, dev middleware) must read THIS,
