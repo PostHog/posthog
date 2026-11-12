@@ -312,6 +312,14 @@ class TestManageScheduledEmails(EmailsApiTestBase):
             assert response.json() == {"id": self.message_id, "status": "canceled"}
         assert self.cdp.jobs.get((self.team.id, self.message_id)) == expected_job
 
+    def test_a_cancel_right_after_the_send_asks_for_a_retry_until_its_status_lands(self, mock_post, _flag):
+        self.message_id = self._message_id(datetime.now(UTC) - timedelta(seconds=10))
+
+        response = self._cancel(mock_post)
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+        assert response.json()["code"] == "delivery_unavailable"
+
     @parameterized.expand(
         [
             ("to_a_later_time", "waiting", "2026-06-17T09:30:00+02:00", status.HTTP_200_OK, "2026-06-17T07:30:00Z"),
