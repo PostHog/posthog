@@ -1,4 +1,4 @@
-import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+import { createInMemoryJobQueue, createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
@@ -124,15 +124,17 @@ describe('SourceWebhooksConsumer', () => {
         let mockExecuteSpy: jest.SpyInstance
         let mockQueueInvocationsSpy: jest.SpyInstance
         let mockQueueHogflowInvocationsSpy: jest.SpyInstance
+        let hogflowQueue: ReturnType<typeof createInMemoryJobQueue>
 
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
+            hogflowQueue = createInMemoryJobQueue()
             api = new CdpApi(
                 hub,
                 { ...createCdpConsumerDeps(hub), idempotencyValkey },
                 {
                     hogQueue: createMockJobQueue(),
-                    hogflowQueue: createMockJobQueue(),
+                    hogflowQueue,
                 }
             )
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutorAsync'], 'execute')
@@ -207,10 +209,7 @@ describe('SourceWebhooksConsumer', () => {
             const res = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
             return res.map((x) => x.value) as any[]
         }
-        const getQueuedHogFlowIds = (): string[] =>
-            mockQueueHogflowInvocationsSpy.mock.calls.flatMap(([invocations]) =>
-                invocations.map((invocation: { functionId: string }) => invocation.functionId)
-            )
+        const getQueuedHogFlowIds = (): string[] => hogflowQueue.queued.map((invocation) => invocation.functionId)
 
         describe('hog function processing', () => {
             it('should 404 if the hog function does not exist', async () => {
