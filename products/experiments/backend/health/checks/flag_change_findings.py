@@ -3,6 +3,7 @@ What the findings about flag changes after launch share besides their words, and
 the reader can't view. Pure functions, no I/O: `health/exposure_gate.py` loads the changes and the exposure answers.
 """
 
+import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Protocol
@@ -13,6 +14,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
+    ExperimentHealthRowValue,
     ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.bucketing_changes import GroupTypeNames, describe_bucketing_value
@@ -53,6 +55,10 @@ from products.feature_flags.backend.facade.edits import (
 # pinned: the subcode of a flag history that was not checked against the exposures. The page sends it as
 # `finding_subcode` on the health finding events.
 NOT_CHECKED = "not_checked"
+
+# The most characters of saved release conditions that the rows of one check carry, so that the health response
+# stays small for API and MCP readers. One save of a flag that targets a long list of IDs can be larger.
+MAX_SAVED_CONDITIONS_LENGTH = 20_000
 
 EvidenceValue = str | int | float | bool | None
 
@@ -114,14 +120,41 @@ def change_rows(ctx: HealthContext, kind: type[FlagChange]) -> CheckRows:
     history = changes_to_check(ctx)
     if isinstance(history, CheckSkip):
         return ()
+    changes = history.of_kind(kind)
+    saved = _saved_conditions(changes)
     return tuple(
         {
             ExperimentHealthValueKey.CHANGED_AT: change.changed_at.astimezone(UTC).isoformat(),
             **_described(change, history.group_type_names),
+            **saved[index],
             ExperimentHealthValueKey.BEFORE_EXPOSURE: _before_exposure(history, change.changed_at),
         }
-        for change in history.of_kind(kind)
+        for index, change in enumerate(changes)
     )
+
+
+def _saved_conditions(
+    changes: Sequence[FlagChange],
+) -> list[dict[ExperimentHealthValueKey, ExperimentHealthRowValue]]:
+    """The release conditions as saved, per release-condition change, up to MAX_SAVED_CONDITIONS_LENGTH. When they
+    don't all fit, the latest changes keep theirs, because the findings' next steps start from the last change."""
+    remaining = MAX_SAVED_CONDITIONS_LENGTH
+    saved: list[dict[ExperimentHealthValueKey, ExperimentHealthRowValue]] = [{} for _ in changes]
+    for index in reversed(range(len(changes))):
+        change = changes[index]
+        if not isinstance(change, ConditionsChange):
+            continue
+        before, after = change.before_filters, change.after_filters
+        length = len(json.dumps([before, after], default=str))
+        # The flag page's diff needs both sides. With only the after side, it would show every condition as added.
+        fits = before is not None and after is not None and length <= remaining
+        if fits:
+            remaining -= length
+        saved[index] = {
+            ExperimentHealthValueKey.BEFORE_FILTERS: before if fits else None,
+            ExperimentHealthValueKey.AFTER_FILTERS: after if fits else None,
+        }
+    return saved
 
 
 # The settings as the flag page labels them.

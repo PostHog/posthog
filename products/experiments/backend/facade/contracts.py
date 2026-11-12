@@ -384,8 +384,8 @@ class ExperimentHealthCheckStatus(LabeledStrEnum):
 class ExperimentHealthValueKey(LabeledStrEnum):
     # API callers read these keys in a check's `values` and its `rule`. The suffix gives the unit: `_count` is a
     # count, `_percentage` is on the 0-100 scale, `_hours` is hours and `_at` is an ISO 8601 time in UTC. A key without a
-    # unit suffix is a setting or a state, as a string or a boolean. A key means the same thing in every check, so two
-    # values that differ in meaning get two keys.
+    # unit suffix is a setting or a state, as a string or a boolean, and in a row also an object. A key means the same
+    # thing in every check, so two values that differ in meaning get two keys.
     EXPOSED_COUNT = (
         "exposed_count",
         "Users or groups exposed since launch, as the exposure criteria count them, including those exposed to "
@@ -508,6 +508,16 @@ class ExperimentHealthValueKey(LabeledStrEnum):
     )
     BEFORE = "before", "What a change of the feature flag changed, as it was before the change, in words"
     AFTER = "after", "What a change of the feature flag changed, as it was after the change, in words"
+    BEFORE_FILTERS = (
+        "before_filters",
+        "The feature flag's release conditions before a change, as the flag stores them: an object with the groups "
+        "and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's "
+        "rows. The flag's history shows them in full",
+    )
+    AFTER_FILTERS = (
+        "after_filters",
+        "The feature flag's release conditions after a change, as the flag stores them, like before_filters",
+    )
     FLAG_SERVICE_CALL_PERCENTAGE = (
         "flag_service_call_percentage",
         "Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service "
@@ -546,6 +556,8 @@ class ExperimentHealthValueKey(LabeledStrEnum):
 
 
 ExperimentHealthValue = str | int | float | bool | None
+# A row can also hold a feature flag's release conditions as the flag stores them, which is a JSON object.
+ExperimentHealthRowValue = ExperimentHealthValue | Mapping[str, object]
 
 
 class ExperimentHealthRuleSide(LabeledStrEnum):
@@ -590,7 +602,7 @@ class ExperimentHealthCheckResult:
     values: Mapping[ExperimentHealthValueKey, ExperimentHealthValue]
     rule: ExperimentHealthCheckRule | None
     # What the check read per variant, metric or flag change, with the same keys as `values`.
-    rows: tuple[Mapping[ExperimentHealthValueKey, ExperimentHealthValue], ...]
+    rows: tuple[Mapping[ExperimentHealthValueKey, ExperimentHealthRowValue], ...]
 
 
 @frozen

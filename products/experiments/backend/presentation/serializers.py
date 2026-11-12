@@ -232,6 +232,35 @@ class ExperimentHealthCheckValuesField(serializers.DictField):
     pass
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {
+            "oneOf": [
+                {"type": "string"},
+                {"type": "number"},
+                {"type": "boolean"},
+                {
+                    "type": "object",
+                    "description": (
+                        "A feature flag's release conditions as the flag stores them, in before_filters and "
+                        "after_filters."
+                    ),
+                    "properties": {
+                        "groups": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                        "aggregation_group_type_index": {"type": "integer", "nullable": True},
+                    },
+                    "required": ["groups", "aggregation_group_type_index"],
+                },
+            ],
+            "nullable": True,
+        },
+    }
+)
+class ExperimentHealthCheckRowField(serializers.DictField):
+    pass
+
+
 class ExperimentHealthFindingSerializer(serializers.Serializer):
     code = serializers.ChoiceField(
         choices=ExperimentHealthFindingCode.choices,
@@ -367,11 +396,12 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
         ),
     )
     rows = serializers.ListField(
-        child=ExperimentHealthCheckValuesField(),
+        child=ExperimentHealthCheckRowField(),
         help_text=(
             "What the check read per variant, metric or feature flag change, one object each, with the keys and "
             "units of `values`. For example, the significance check gives each variant's difference and the smallest "
-            "difference its sample can detect. Empty when the check reads no such list."
+            "difference its sample can detect. A release condition change also gives the conditions as the flag "
+            "stores them, in before_filters and after_filters. Empty when the check reads no such list."
         ),
     )
 

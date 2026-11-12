@@ -1,6 +1,8 @@
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
+import type { FeatureFlagFilters } from '~/types'
+
 import type { ExperimentHealthCheckResultApiRowsItem } from '../generated/api.schemas'
 import { formatHealthPercentage, formatHours } from './healthCheckValues'
 import type { HealthPanelCheck } from './healthPanelChecks'
@@ -16,9 +18,22 @@ export interface HealthRowsColumn {
     align?: 'right'
 }
 
+/** A release condition change with the conditions as the flag saved them, for the flag page's diff. */
+export interface HealthConditionsChange {
+    changedAt: string
+    before: FeatureFlagFilters
+    after: FeatureFlagFilters
+}
+
+export interface HealthRowsRow {
+    cells: Record<string, HealthRowCell>
+    /** What the row shows when it expands. Absent when the server sent no saved conditions for it. */
+    conditionsChange?: HealthConditionsChange
+}
+
 export interface HealthRowsTable {
     columns: HealthRowsColumn[]
-    rows: Record<string, HealthRowCell>[]
+    rows: HealthRowsRow[]
 }
 
 /** A significant variant's difference against the smallest difference its sample can reliably detect. */
@@ -42,6 +57,21 @@ function numberOf(row: HealthRow, key: string): number | null {
 function stringOf(row: HealthRow, key: string): string | null {
     const value = row[key]
     return typeof value === 'string' ? value : null
+}
+
+function filtersOf(row: HealthRow, key: string): FeatureFlagFilters | null {
+    const value = row[key]
+    // The server sends the groups as the flag stores them, so their shape is the flag's, not a generated type.
+    return typeof value === 'object' && value !== null && Array.isArray(value.groups)
+        ? (value as FeatureFlagFilters)
+        : null
+}
+
+function conditionsChangeOf(row: HealthRow): HealthConditionsChange | undefined {
+    const changedAt = stringOf(row, 'changed_at')
+    const before = filtersOf(row, 'before_filters')
+    const after = filtersOf(row, 'after_filters')
+    return changedAt && before && after ? { changedAt, before, after } : undefined
 }
 
 function count(row: HealthRow, key: string): HealthRowCell {
@@ -71,10 +101,12 @@ function significanceTable(rows: HealthRow[]): HealthRowsTable {
             { key: 'significant', title: 'Significant', align: 'right' },
         ],
         rows: rows.map((row) => ({
-            variant: { variant: stringOf(row, 'variant') ?? '' },
-            difference: text(percentage(numberOf(row, 'difference_percentage'), true)),
-            detectable: text(percentage(numberOf(row, 'detectable_difference_percentage'))),
-            significant: text(row.significant === true ? 'Yes' : 'No'),
+            cells: {
+                variant: { variant: stringOf(row, 'variant') ?? '' },
+                difference: text(percentage(numberOf(row, 'difference_percentage'), true)),
+                detectable: text(percentage(numberOf(row, 'detectable_difference_percentage'))),
+                significant: text(row.significant === true ? 'Yes' : 'No'),
+            },
         })),
     }
 }
@@ -88,10 +120,12 @@ function forcedTable(rows: HealthRow[], units: string): HealthRowsTable {
             { key: 'share', title: 'Share forced', align: 'right' },
         ],
         rows: rows.map((row) => ({
-            variant: { variant: stringOf(row, 'variant') ?? '' },
-            matched: count(row, 'variant_matched_count'),
-            forced: count(row, 'forced_count'),
-            share: text(percentage(numberOf(row, 'forced_percentage'))),
+            cells: {
+                variant: { variant: stringOf(row, 'variant') ?? '' },
+                matched: count(row, 'variant_matched_count'),
+                forced: count(row, 'forced_count'),
+                share: text(percentage(numberOf(row, 'forced_percentage'))),
+            },
         })),
     }
 }
@@ -114,9 +148,11 @@ function zeroMetricsTable(rows: HealthRow[], units: string): HealthRowsTable {
         rows: rows.map((row) => {
             const hours = numberOf(row, 'data_hours')
             return {
-                metric: text(metricLabel(row)),
-                samples: count(row, 'sample_count'),
-                data: text(hours === null ? '' : formatHours(hours)),
+                cells: {
+                    metric: text(metricLabel(row)),
+                    samples: count(row, 'sample_count'),
+                    data: text(hours === null ? '' : formatHours(hours)),
+                },
             }
         }),
     }
@@ -144,11 +180,14 @@ function flagChangesTable(rows: HealthRow[], units: string): HealthRowsTable {
             { key: 'effect', title: 'Effect' },
         ],
         rows: rows.map((row) => ({
-            saved: { time: stringOf(row, 'changed_at') ?? '' },
-            ...(namesSetting ? { setting: text(stringOf(row, 'changed_setting') ?? '') } : {}),
-            before: text(stringOf(row, 'before') ?? ''),
-            after: text(stringOf(row, 'after') ?? ''),
-            effect: text(changeEffect(row, units)),
+            cells: {
+                saved: { time: stringOf(row, 'changed_at') ?? '' },
+                ...(namesSetting ? { setting: text(stringOf(row, 'changed_setting') ?? '') } : {}),
+                before: text(stringOf(row, 'before') ?? ''),
+                after: text(stringOf(row, 'after') ?? ''),
+                effect: text(changeEffect(row, units)),
+            },
+            conditionsChange: conditionsChangeOf(row),
         })),
     }
 }
@@ -169,9 +208,11 @@ function metricEventsTable(rows: HealthRow[]): HealthRowsTable {
             { key: 'received', title: 'Received' },
         ],
         rows: rows.map((row) => ({
-            metric: text(metricLabel(row)),
-            event: text(stringOf(row, 'event') ?? ''),
-            received: text(receivedText(row.event_received)),
+            cells: {
+                metric: text(metricLabel(row)),
+                event: text(stringOf(row, 'event') ?? ''),
+                received: text(receivedText(row.event_received)),
+            },
         })),
     }
 }
