@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, _Call, call, patch
 
 from django.conf import settings
 from django.db import connection
@@ -42,7 +42,9 @@ from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_API_FLAG,
 )
 from products.messaging.backend.services import transactional_email
+from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
+from products.messaging.backend.tasks.tasks import detect_code_email_source_task
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
@@ -692,6 +694,36 @@ class TestTransactionalEmail(APIBaseTest):
             "template_key",
             "queued",
         )
+
+    @parameterized.expand(
+        [
+            ("queued", None, True),
+            ("queue_unavailable", ConnectionError("broker unreachable"), True),
+            ("detection_off", None, False),
+        ]
+    )
+    def test_a_new_keys_first_send_queues_source_detection_after_commit(
+        self, mock_post, flag, _capture, _name, queue_error, detection_on
+    ):
+        flag.side_effect = lambda key, *_, **__: detection_on or key != SOURCE_DETECTION_FLAG
+        self._cdp_accepts(mock_post)
+        psak = self._psak_client(["hog_flow:write"])
+
+        def detection_checks() -> list[_Call]:
+            return [check for check in flag.call_args_list if check.args[0] == SOURCE_DETECTION_FLAG]
+
+        with patch.object(detect_code_email_source_task, "apply_async", side_effect=queue_error) as queue:
+            with self.captureOnCommitCallbacks(execute=True):
+                first = psak.post(self.send_email_url, self._code_send(), format="json")
+                assert queue.call_count == 0
+                assert detection_checks() == []
+            with self.captureOnCommitCallbacks(execute=True):
+                second = psak.post(self.send_email_url, self._code_send(), format="json")
+
+        assert first.status_code == second.status_code == status.HTTP_202_ACCEPTED, first.json()
+        assert [check.kwargs["only_evaluate_locally"] for check in detection_checks()] == [True]
+        key = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome")
+        assert queue.call_args_list == ([call(args=(self.team.id, str(key.id)), retry=False)] if detection_on else [])
 
     def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
