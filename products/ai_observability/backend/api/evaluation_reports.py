@@ -538,6 +538,16 @@ class _EvaluationReportStringListField(serializers.JSONField):
     pass
 
 
+class EvaluationReportDestinationSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Destination kind: 'slack' or 'email'.")
+    name = serializers.CharField(help_text="Slack channel name or email address.")
+
+
+@extend_schema_field(EvaluationReportDestinationSerializer(many=True))
+class _EvaluationReportDestinationsField(serializers.JSONField):
+    pass
+
+
 class EvaluationReportRunSerializer(serializers.ModelSerializer):
     content = _EvaluationReportRunContentField(
         read_only=True,
@@ -552,9 +562,12 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Delivery error messages. Empty when all configured deliveries succeeded.",
     )
-    delivery_destinations = _EvaluationReportStringListField(
+    delivery_destinations = _EvaluationReportDestinationsField(
         read_only=True,
-        help_text="Slack channels and email addresses this report was sent to. Empty for reports sent before this was recorded.",
+        help_text=(
+            "Slack channels and email addresses this report was addressed to, including any that failed "
+            "(see delivery_errors). Empty for reports sent before this was recorded."
+        ),
     )
 
     class Meta:

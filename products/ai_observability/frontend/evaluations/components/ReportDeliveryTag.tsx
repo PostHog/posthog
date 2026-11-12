@@ -3,14 +3,18 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { IconSlack } from 'lib/lemon-ui/icons'
 
+import type { EvaluationReportDestinationApi } from '../../generated/api.schemas'
 import type { EvaluationReportRun } from '../types'
 
 // The logo keeps its shape but takes the text color, so it reads as quietly as the email icon.
 const SLACK_ICON_CLASS = '[&_path]:fill-current'
 
-function DestinationIcon({ destination }: { destination: string }): JSX.Element {
-    // Delivery stores Slack channels with a leading "#" and email addresses as they are.
-    return destination.startsWith('#') ? <IconSlack className={SLACK_ICON_CLASS} /> : <IconAtSign />
+function DestinationIcon({ destination }: { destination: EvaluationReportDestinationApi }): JSX.Element {
+    return destination.type === 'slack' ? <IconSlack className={SLACK_ICON_CLASS} /> : <IconAtSign />
+}
+
+function destinationLabel({ type, name }: EvaluationReportDestinationApi): string {
+    return type === 'slack' && !name.startsWith('#') ? `#${name}` : name
 }
 
 function StatusIcon({ icon, tooltip }: { icon: JSX.Element; tooltip: string }): JSX.Element {
@@ -53,17 +57,18 @@ export function ReportDeliveryTag({
     if (destinations.length === 0) {
         return <StatusIcon icon={<IconCheck />} tooltip="Delivered" />
     }
-    const hasSlack = destinations.some((destination) => destination.startsWith('#'))
-    const hasEmail = destinations.some((destination) => !destination.startsWith('#'))
+    const labels = destinations.map(destinationLabel)
+    const hasSlack = destinations.some((destination) => destination.type === 'slack')
+    const hasEmail = destinations.some((destination) => destination.type === 'email')
     return (
         <Tooltip
             title={
                 <div className="flex flex-col gap-1">
                     <span className="font-semibold">Sent to</span>
-                    {destinations.map((destination) => (
-                        <span key={destination} className="flex items-center gap-1.5">
+                    {destinations.map((destination, index) => (
+                        <span key={index} className="flex items-center gap-1.5">
                             <DestinationIcon destination={destination} />
-                            {destination}
+                            {labels[index]}
                         </span>
                     ))}
                 </div>
@@ -71,7 +76,7 @@ export function ReportDeliveryTag({
         >
             <span
                 className="inline-flex items-center gap-1.5 text-base text-secondary"
-                aria-label={`Sent to ${destinations.join(', ')}`}
+                aria-label={`Sent to ${labels.join(', ')}`}
             >
                 {hasSlack && <IconSlack className={SLACK_ICON_CLASS} />}
                 {hasEmail && <IconAtSign />}

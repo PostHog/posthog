@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { combineUrl, router } from 'kea-router'
+import { useEffect, useRef } from 'react'
 
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 
@@ -10,7 +11,7 @@ import { cn } from 'lib/utils/css-classes'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { reportText } from '../create/evaluationSummary'
-import { evaluationReportDrawerLogic } from '../evaluationReportDrawerLogic'
+import { REPORT_RUN_PARAM, evaluationReportDrawerLogic } from '../evaluationReportDrawerLogic'
 import { draftFromReport, evaluationReportLogic } from '../evaluationReportLogic'
 import { evaluationReportTracking } from '../evaluationReportTracking'
 import type { EvaluationReportRun } from '../types'
@@ -68,6 +69,7 @@ export function EvaluationReportsTab({
         hasOlderReportRuns,
         configDraft,
         shownDestinations,
+        editingDestinations,
     } = useValues(logic)
     const {
         generateReport,
@@ -80,10 +82,11 @@ export function EvaluationReportsTab({
         setDraftSlackChannelValue,
         addDraftDestination,
         removeDraftDestination,
+        setEditingDestinations,
+        resetDestinationsDraft,
     } = useActions(logic)
     const { openRunId } = useValues(evaluationReportDrawerLogic({ evaluationId }))
     const { openRun } = useActions(evaluationReportDrawerLogic({ evaluationId }))
-    const [editingDestinations, setEditingDestinations] = useState(false)
 
     const tracked = useRef(false)
     useEffect(() => {
@@ -129,6 +132,8 @@ export function EvaluationReportsTab({
 
     const isWriting = generateResultLoading || waitingForNewReportSince !== null
     const savedDraft = activeReport ? draftFromReport(activeReport) : null
+    const slackIncomplete =
+        shownDestinations.includes('slack') && !(configDraft.slackIntegrationId && configDraft.slackChannelValue)
 
     return (
         <div className="@container max-w-6xl flex flex-col gap-4">
@@ -194,10 +199,10 @@ export function EvaluationReportsTab({
                                     type="primary"
                                     size="small"
                                     loading={reportsLoading}
-                                    onClick={() => {
-                                        saveDestinations()
-                                        setEditingDestinations(false)
-                                    }}
+                                    disabledReason={
+                                        slackIncomplete ? 'Pick a Slack channel, or remove Slack.' : undefined
+                                    }
+                                    onClick={() => saveDestinations()}
                                     data-attr="llma-evaluation-report-save-destinations"
                                 >
                                     Save destinations
@@ -205,13 +210,7 @@ export function EvaluationReportsTab({
                                 <LemonButton
                                     type="secondary"
                                     size="small"
-                                    onClick={() => {
-                                        // Restores only the destinations, so other unsaved settings stay as typed.
-                                        setDraftEmailValue(savedDraft.emailValue)
-                                        setDraftSlackIntegrationId(savedDraft.slackIntegrationId)
-                                        setDraftSlackChannelValue(savedDraft.slackChannelValue)
-                                        setEditingDestinations(false)
-                                    }}
+                                    onClick={() => resetDestinationsDraft(activeReport)}
                                 >
                                     Cancel
                                 </LemonButton>
@@ -236,7 +235,8 @@ export function EvaluationReportsTab({
             ) : (
                 <LemonTable
                     dataSource={reportRuns}
-                    loading={reportsLoading || reportRunsLoading}
+                    // Only an empty table shows the loading overlay, which blocks clicks while polling refreshes rows.
+                    loading={(reportsLoading || reportRunsLoading) && reportRuns.length === 0}
                     rowKey="id"
                     onRow={(run) => ({ onClick: () => openRun(run.id, 'reports_tab') })}
                     rowClassName={(run) =>
@@ -255,9 +255,23 @@ export function EvaluationReportsTab({
                                         formatDate="MMM D"
                                         formatTime="HH:mm"
                                     />
-                                    <span className="font-medium truncate max-w-xl" title={run.content?.title}>
+                                    <Link
+                                        className="font-medium truncate max-w-xl text-primary"
+                                        title={run.content?.title}
+                                        to={
+                                            combineUrl(router.values.location.pathname, {
+                                                ...router.values.searchParams,
+                                                [REPORT_RUN_PARAM]: run.id,
+                                            }).url
+                                        }
+                                        onClick={(event) => {
+                                            event.preventDefault()
+                                            event.stopPropagation()
+                                            openRun(run.id, 'reports_tab')
+                                        }}
+                                    >
                                         {run.content?.title || 'Evaluation report'}
-                                    </span>
+                                    </Link>
                                 </div>
                             ),
                         },

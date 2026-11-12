@@ -59,7 +59,7 @@ function reportRun(
     passRate: number,
     previousPassRate: number,
     totalRuns: number,
-    deliveryDestinations: string[]
+    deliveryDestinations: EvaluationReportRun['delivery_destinations']
 ): EvaluationReportRun {
     const passed = Math.round((totalRuns * passRate) / 100)
     return {
@@ -115,9 +115,14 @@ const RUNS = [
         81.4,
         87.6,
         1204,
-        ['#evals', 'team@example.com']
+        [
+            { type: 'slack', name: 'evals' },
+            { type: 'email', name: 'team@example.com' },
+        ]
     ),
-    reportRun('run-2', '2026-11-09T09:00:00.000Z', 'Pass rate steady, two tool timeouts', 87.6, 87.2, 1180, ['#evals']),
+    reportRun('run-2', '2026-11-09T09:00:00.000Z', 'Pass rate steady, two tool timeouts', 87.6, 87.2, 1180, [
+        { type: 'slack', name: 'evals' },
+    ]),
     reportRun('run-1', '2026-11-08T09:00:00.000Z', 'First report for this evaluation', 87.2, 85.0, 960, []),
 ]
 

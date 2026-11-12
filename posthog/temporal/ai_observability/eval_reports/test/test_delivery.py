@@ -497,7 +497,15 @@ class TestDeliverReport(SimpleTestCase):
         deliver_report("report-id", "run-id")
 
         self.assertEqual(run.delivery_status, "partial_failure")
-        self.assertEqual(run.delivery_destinations, ["test@example.com", "other@example.com", "#reports"])
+        self.assertEqual(
+            run.delivery_destinations,
+            [
+                {"type": "email", "name": "test@example.com"},
+                {"type": "email", "name": "other@example.com"},
+                {"type": "slack", "name": "reports"},
+            ],
+        )
+        run.save.assert_called_once_with(update_fields=["delivery_status", "delivery_errors", "delivery_destinations"])
 
     @parameterized.expand([("retryable_raises_for_retry", True), ("config_error_disables_report", False)])
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.disable_undeliverable_report")

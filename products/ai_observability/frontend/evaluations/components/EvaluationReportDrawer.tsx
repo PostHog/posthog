@@ -33,9 +33,18 @@ export function EvaluationReportDrawer({
     onShowResults,
 }: EvaluationReportDrawerProps): JSX.Element | null {
     const logic = evaluationReportDrawerLogic({ evaluationId })
-    const { openRunId, openRun, isSearchingForRun, runLoadFailed, position, previousRun, nextRun, reportRuns } =
-        useValues(logic)
-    const { stepTo, close, retryLoad, openRun: openRunById } = useActions(logic)
+    const {
+        openRunId,
+        openRun,
+        isSearchingForRun,
+        searchPaused,
+        runLoadFailed,
+        position,
+        previousRun,
+        nextRun,
+        reportRuns,
+    } = useValues(logic)
+    const { stepTo, close, retryLoad, searchOlder, openRun: openRunById } = useActions(logic)
     const { searchParams } = useValues(router)
     const traceOpen = !!searchParams.trace
     const { activeReport, generateResultLoading, waitingForNewReportSince } = useValues(
@@ -117,6 +126,13 @@ export function EvaluationReportDrawer({
                     <p className="mb-0">Couldn't load this report.</p>
                     <LemonButton type="secondary" size="small" onClick={retryLoad}>
                         Try again
+                    </LemonButton>
+                </div>
+            ) : searchPaused ? (
+                <div className="flex flex-col items-start gap-2 text-sm">
+                    <p className="mb-0">{`This report is older than the last ${reportRuns.length} reports.`}</p>
+                    <LemonButton type="secondary" size="small" onClick={searchOlder}>
+                        Search older reports
                     </LemonButton>
                 </div>
             ) : isSearchingForRun ? (

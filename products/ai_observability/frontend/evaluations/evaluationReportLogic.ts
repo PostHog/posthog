@@ -73,7 +73,9 @@ export const DEFAULT_WEEKLY_DAYS: ReportScheduleWeekday[] = ['MO']
 export const REPORT_RUNS_PAGE_SIZE = 20
 // A manual report usually lands within a few minutes. The agent activity times out after 11.
 const NEW_REPORT_POLL_INTERVAL_MS = 15_000
-const NEW_REPORT_POLL_TIMEOUT_MS = 11 * 60_000
+// The report workflow's own timeout, so the wait outlasts an agent retry.
+const NEW_REPORT_POLL_TIMEOUT_MS = 30 * 60_000
+const NEW_REPORT_POLL_PAGE_SIZE = 5
 const NEW_REPORT_POLL = 'newReportPoll'
 export const WEEKDAY_OPTIONS: { value: ReportScheduleWeekday; label: string }[] = [
     { value: 'MO', label: 'Mon' },
@@ -314,6 +316,7 @@ export interface evaluationReportLogicValues {
     configError: string | null
     configErrors: ReportConfigErrors
     cooldownMinutes: number
+    editingDestinations: boolean
     generateResult: null
     generateResultLoading: boolean
     hasOlderReportRuns: boolean
@@ -464,6 +467,9 @@ export interface evaluationReportLogicActions {
     removeDraftDestination: (destination: ReportDestination) => {
         destination: ReportDestination
     }
+    resetDestinationsDraft: (report: EvaluationReport) => {
+        report: EvaluationReport
+    }
     resetDraft: () => {
         value: true
     }
@@ -532,6 +538,9 @@ export interface evaluationReportLogicActions {
     }
     setDraftTriggerThreshold: (triggerThreshold: number) => {
         triggerThreshold: number
+    }
+    setEditingDestinations: (editing: boolean) => {
+        editing: boolean
     }
     setHasOlderReportRuns: (hasOlderReportRuns: boolean) => {
         hasOlderReportRuns: boolean
@@ -620,6 +629,8 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         saveDraft: true,
         /** Saves only the destinations, so other unsaved settings on the Configuration tab stay a draft. */
         saveDestinations: true,
+        setEditingDestinations: (editing: boolean) => ({ editing }),
+        resetDestinationsDraft: (report: EvaluationReport) => ({ report }),
 
         setHasOlderReportRuns: (hasOlderReportRuns: boolean) => ({ hasOlderReportRuns }),
         startWaitingForNewReport: (since: string) => ({ since }),
@@ -689,6 +700,15 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 }),
                 seedDraftFromReport: (_, { report }) => draftFromReport(report),
                 resetDraft: () => DEFAULT_CONFIG_DRAFT,
+                resetDestinationsDraft: (state, { report }) => {
+                    const saved = draftFromReport(report)
+                    return {
+                        ...state,
+                        emailValue: saved.emailValue,
+                        slackIntegrationId: saved.slackIntegrationId,
+                        slackChannelValue: saved.slackChannelValue,
+                    }
+                },
                 removeDraftDestination: (state, { destination }) =>
                     destination === 'email'
                         ? { ...state, emailValue: '' }
@@ -735,6 +755,14 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             },
         ],
         // Tracked apart from the values, so clearing an input keeps its destination open while someone types.
+        editingDestinations: [
+            false,
+            {
+                setEditingDestinations: (_, { editing }) => editing,
+                saveReportDestinationsSuccess: () => false,
+                resetDestinationsDraft: () => false,
+            },
+        ],
         shownDestinations: [
             [] as ReportDestination[],
             {
@@ -743,6 +771,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 removeDraftDestination: (state, { destination }) => state.filter((item) => item !== destination),
                 seedDraftFromReport: (_, { report }) => destinationsFromDraft(draftFromReport(report)),
                 resetDraft: () => [],
+                resetDestinationsDraft: (_, { report }) => destinationsFromDraft(draftFromReport(report)),
             },
         ],
     })),
@@ -846,7 +875,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 loadNewestReportRuns: async (reportId: string) => {
                     const teamId = requireCurrentTeamId(values.currentTeamId)
                     const response = await llmAnalyticsEvaluationReportsRunsList(teamId.toString(), reportId, {
-                        limit: REPORT_RUNS_PAGE_SIZE,
+                        limit: NEW_REPORT_POLL_PAGE_SIZE,
                     })
                     const fresh = response?.results ?? []
                     const freshById = new Map(fresh.map((run) => [run.id, run]))
@@ -942,17 +971,22 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         generateReportSuccess: ({ payload: reportId }) => {
             actions.startWaitingForNewReport(values.reportRuns[0]?.created_at ?? '')
             const startedAt = Date.now()
+            // Fetch before the timeout check, so the last tick still looks for the report.
+            const tick = (): void => {
+                if (reportId) {
+                    actions.loadNewestReportRuns(reportId)
+                }
+                if (Date.now() - startedAt > NEW_REPORT_POLL_TIMEOUT_MS) {
+                    actions.stopWaitingForNewReport()
+                    lemonToast.info('The new report is taking longer than usual. Refresh the page later to see it.')
+                }
+            }
             cache.disposables.add(() => {
-                const timer = setInterval(() => {
-                    if (Date.now() - startedAt > NEW_REPORT_POLL_TIMEOUT_MS) {
-                        actions.stopWaitingForNewReport()
-                        lemonToast.info("The new report is taking longer than usual. It'll show here once it's ready.")
-                        return
-                    }
-                    if (reportId) {
-                        actions.loadNewestReportRuns(reportId)
-                    }
-                }, NEW_REPORT_POLL_INTERVAL_MS)
+                // The setup runs again when a hidden tab comes back, so it checks right away instead of a tick later.
+                if (Date.now() - startedAt > NEW_REPORT_POLL_INTERVAL_MS) {
+                    tick()
+                }
+                const timer = setInterval(tick, NEW_REPORT_POLL_INTERVAL_MS)
                 return () => clearInterval(timer)
             }, NEW_REPORT_POLL)
         },

@@ -43602,6 +43602,13 @@ export namespace Schemas {
       reason?: string;
     }
 
+    export interface EvaluationReportDestination {
+      /** Destination kind: 'slack' or 'email'. */
+      type: string;
+      /** Slack channel name or email address. */
+      name: string;
+    }
+
     export type EvaluationReportMetricsOutputConfigOptionsItem = {
       /**
          * Stable category key.
@@ -43837,8 +43844,8 @@ export namespace Schemas {
       readonly delivery_status: EvaluationReportRunDeliveryStatusEnum;
       /** Delivery error messages. Empty when all configured deliveries succeeded. */
       readonly delivery_errors: readonly string[];
-      /** Slack channels and email addresses this report was sent to. Empty for reports sent before this was recorded. */
-      readonly delivery_destinations: readonly string[];
+      /** Slack channels and email addresses this report was addressed to, including any that failed (see delivery_errors). Empty for reports sent before this was recorded. */
+      readonly delivery_destinations: readonly EvaluationReportDestination[];
       /** When this report run was created. */
       readonly created_at: string;
     }

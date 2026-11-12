@@ -137,6 +137,58 @@ describe('evaluationReportDrawerLogic', () => {
         expect(reportLogic.values.configDraft.reportPromptGuidance).toBe('Unsaved guidance')
     })
 
+    it('pauses a linked report search at the cap and resumes on request', async () => {
+        const older = Array.from({ length: 120 }, (_, index) =>
+            run(`old-${index}`, new Date(Date.UTC(2026, 9, 1) - index * 3_600_000).toISOString())
+        )
+        runsPages = { '0': { results: FIRST_PAGE, next: 'more' } }
+        for (let offset = 2; offset < 122; offset += 20) {
+            runsPages[String(offset)] = { results: older.slice(offset - 2, offset + 18), next: 'more' }
+        }
+        router.actions.push(`/project/997/ai-evals/evaluations/${EVALUATION_ID}`, { report_run: 'old-110' })
+        const logic = await mountWithRuns()
+
+        await expectLogic(logic, () => {}).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ searchPaused: true, isSearchingForRun: false })
+        expect(logic.values.reportRuns.length).toBe(102)
+
+        logic.actions.searchOlder()
+        await expectLogic(logic).toDispatchActions(['loadOlderReportRunsSuccess'])
+        await expectLogic(logic, () => {}).toFinishAllListeners()
+        expect(logic.values.openRun?.id).toBe('old-110')
+    })
+
+    it('cancelling the destinations editor brings back the saved destinations', async () => {
+        await mountWithRuns()
+        const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
+
+        reportLogic.actions.setEditingDestinations(true)
+        reportLogic.actions.removeDraftDestination('email')
+        expect(reportLogic.values.shownDestinations).toEqual([])
+
+        reportLogic.actions.resetDestinationsDraft(REPORT)
+        expect(reportLogic.values.shownDestinations).toEqual(['email'])
+        expect(reportLogic.values.configDraft.emailValue).toBe('team@example.com')
+        expect(reportLogic.values.editingDestinations).toBe(false)
+    })
+
+    it('fetches once more and stops when the report never arrives', async () => {
+        await mountWithRuns()
+        const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
+        jest.useFakeTimers()
+        try {
+            reportLogic.actions.generateReport(REPORT.id)
+            await expectLogic(reportLogic).toDispatchActions(['generateReportSuccess'])
+
+            jest.advanceTimersByTime(30 * 60_000 + 15_000)
+            jest.useRealTimers()
+            await expectLogic(reportLogic).toDispatchActions(['loadNewestReportRuns', 'stopWaitingForNewReport'])
+            expect(reportLogic.values.waitingForNewReportSince).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('offers a retry when a page of a linked report fails to load', async () => {
         delete runsPages['2']
         router.actions.push(`/project/997/ai-evals/evaluations/${EVALUATION_ID}`, { report_run: 'run-1' })
