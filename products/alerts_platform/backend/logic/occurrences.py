@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final
 
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 from products.alerts_platform.backend.facade.contracts import (
@@ -131,6 +131,7 @@ class RegistryStore:
             raise
         seen, until = _within_read_limit(seen, since, until)
         with transaction.atomic():
+            _bound_statements()
             locked = cursors.select_for_update().get(id=cursor.id)
             if locked.registered_until != cursor.registered_until:
                 return locked.registered_until or since
@@ -260,16 +261,21 @@ def _record_reappearance(
     rows = PlatformOccurrence.objects.for_team(team_id).filter(source_kind=source.value, identity_key=key)
     row = rows.select_for_update().first()
     if row is None:
-        PlatformOccurrence.objects.for_team(team_id).create(
-            team_id=team_id,
-            source_kind=source.value,
-            identity_key=key,
-            first_seen_at=first_seen_at,
-            reappeared_at=occurred_at,
-            labels=_storable(labels),
-            detail=_storable(detail),
-        )
-        return
+        try:
+            # A savepoint, so a concurrent first insert of the same identity leaves this transaction usable.
+            with transaction.atomic():
+                PlatformOccurrence.objects.for_team(team_id).create(
+                    team_id=team_id,
+                    source_kind=source.value,
+                    identity_key=key,
+                    first_seen_at=first_seen_at,
+                    reappeared_at=occurred_at,
+                    labels=_storable(labels),
+                    detail=_storable(detail),
+                )
+            return
+        except IntegrityError:
+            row = rows.select_for_update().get()
     # Older than the latest return, or than a resolve since, so it is not news.
     if any(moment is not None and occurred_at <= moment for moment in (row.reappeared_at, row.resolved_at)):
         return
