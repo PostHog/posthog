@@ -373,16 +373,16 @@ describe('CohortMembershipSweeper', () => {
     })
 
     it.each([
-        ['it never observed the snapshot it is supposed to have asserted', 'min_snapshot_version = NULL'],
-        ['its watermark capture came back empty', `membership_hwms = '{}'::jsonb`],
+        ['it never observed the snapshot it is supposed to have asserted', 'min_snapshot_version = NULL', 'ready'],
+        ['its watermark capture came back empty', `membership_hwms = '{}'::jsonb`, 'ready'],
         // Offsets from one feed prove nothing about another, so a run that outlived a broker
         // repoint or a topic change must not sweep on the watermarks it captured before it.
-        ['its watermarks came from another cluster', `membership_cluster = 'moved-cluster'`],
-        ['its watermarks came from another topic', `membership_topic = 'moved_topic'`],
+        ['its watermarks came from another cluster', `membership_cluster = 'moved-cluster'`, 'ready'],
+        ['its watermarks came from another topic', `membership_topic = 'moved_topic'`, 'ready'],
         // A reconcile change with no usable version collapses the threshold to the sentinel, so
         // there is no bound to publish a floor at.
-        ['its snapshot carried a change with no usable version', `min_snapshot_version = '-infinity'`],
-    ])('should refuse to sweep a run when %s', async (_label, damage) => {
+        ['its snapshot carried a change with no usable version', `min_snapshot_version = '-infinity'`, 'abandoned'],
+    ])('should refuse to sweep a run when %s', async (_label, damage, status) => {
         watermarks = { 0: 10 }
         await readyRun()
         await insertProgress(0, 10)
@@ -394,6 +394,7 @@ describe('CohortMembershipSweeper', () => {
         expect(await sweeper.runOnce()).toMatchObject({ swept: 0, rowsDeleted: 0 })
         expect(await survivingPersonIds()).toEqual([live, stale].sort((a, b) => a.localeCompare(b)))
         expect(produced).toEqual([])
+        expect(await readSweep()).toMatchObject({ status })
     })
 
     it('should reclaim a sweep whose pod died mid-run, even after the feed moved', async () => {

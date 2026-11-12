@@ -409,9 +409,9 @@ export class CohortMembershipSweeper {
                 break
             }
 
-            // A frozen run passed the gate before its first claim, and its floor may already be in
-            // the log. Checking the gate again would strand its delete after a feed change, which
-            // the gate refuses for good, and a frozen run is never abandoned.
+            // A frozen run passed the gate at its first claim, so its floor may already be on the topic.
+            // After a feed change the gate refuses the run for good, and a frozen run is never abandoned.
+            // Checking the gate again would leave its stale rows undeleted forever.
             if (!run.frozen && !this.gateSatisfied(run, progress)) {
                 result.blocked += 1
                 sweepsGateBlocked.inc()
