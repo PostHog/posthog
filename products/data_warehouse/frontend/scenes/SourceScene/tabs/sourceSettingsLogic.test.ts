@@ -314,44 +314,31 @@ describe('buildBulkEnablePayloads', () => {
 })
 
 describe('live query selection', () => {
-    const rowFilters = [
-        { column: 'id', operator: '=', value: '1' },
-    ] as unknown as ExternalDataSourceSchema['row_filters']
-    const liveSchema = (overrides: Partial<ExternalDataSourceSchema>): ExternalDataSourceSchema =>
-        makeSchema({ source_column_metadata_available: true, ...overrides })
+    const unavailable = { live_query_unavailable_reason: "Tables with row filters can't be queried live" }
 
     it.each([
         ['a synced table is live', { should_sync: true }, true],
         ['a live-only table is live', { live_query_enabled: true }, true],
         ['an unselected table is not live', {}, false],
-        ['a synced table with row filters is not live', { should_sync: true, row_filters: rowFilters }, false],
-        [
-            'a live-only table with masked columns is not live',
-            { live_query_enabled: true, masked_columns: ['email'] },
-            false,
-        ],
-        [
-            'a synced table without column metadata is not live',
-            { should_sync: true, source_column_metadata_available: false },
-            false,
-        ],
+        ['a synced table the backend excludes is not live', { should_sync: true, ...unavailable }, false],
     ])('%s', (_, overrides, expected) => {
-        expect(isQueryableLive(liveSchema(overrides as Partial<ExternalDataSourceSchema>))).toBe(expected)
+        expect(isQueryableLive(makeSchema(overrides as Partial<ExternalDataSourceSchema>))).toBe(expected)
     })
 
     const selection = [
-        liveSchema({ id: 'synced', should_sync: true }),
-        liveSchema({ id: 'filtered', row_filters: rowFilters }),
-        liveSchema({ id: 'masked', masked_columns: ['email'] }),
-        liveSchema({ id: 'no-metadata', source_column_metadata_available: false }),
-        liveSchema({ id: 'off' }),
-        liveSchema({ id: 'on', live_query_enabled: true }),
+        makeSchema({ id: 'synced', should_sync: true }),
+        makeSchema({ id: 'synced-excluded', should_sync: true, ...unavailable }),
+        makeSchema({ id: 'excluded', ...unavailable }),
+        makeSchema({ id: 'off' }),
+        makeSchema({ id: 'on', live_query_enabled: true }),
     ]
 
     it.each([
-        [true, { payloads: [{ id: 'off', live_query_enabled: true }], skipped: 4 }],
-        [false, { payloads: [{ id: 'on', live_query_enabled: false }], skipped: 4 }],
-    ])('enabled=%s skips locked rows and rows already in that state', (enabled, expected) => {
+        // Synced tables are already live, so enabling doesn't count them as skipped.
+        [true, { payloads: [{ id: 'off', live_query_enabled: true }], skipped: 2 }],
+        // Disabling skips the synced table that stays live.
+        [false, { payloads: [{ id: 'on', live_query_enabled: false }], skipped: 1 }],
+    ])('enabled=%s sends only rows that change', (enabled, expected) => {
         expect(buildLiveQueryPayloads(selection, enabled)).toEqual(expected)
     })
 })

@@ -35,7 +35,10 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
-import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
+import {
+    groupTablesBySchema,
+    supportsDirectQuery,
+} from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { sourceTypeLabel } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import {
@@ -45,7 +48,10 @@ import {
 } from 'products/data_warehouse/frontend/shared/sourceFieldFiles'
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import { SYNC_FREQUENCY_ORDER, SyncTypeLabelMap, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
-import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type {
+    ExternalDataSourceBulkUpdateSchemaApi,
+    SourceConfigResponseApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
@@ -112,39 +118,37 @@ export function bulkSyncMethodDisabledReason(
     return undefined
 }
 
-// Mirrors the backend's live catalog: a live query reads the upstream table directly, so it can't
-// apply row filters or masks, and it is built from the stored column metadata. Applies to synced tables too.
-function liveQueryExclusionReason(schema: ExternalDataSourceSchema): string | null {
-    if (schema.row_filters?.length) {
-        return "Tables with row filters can't be queried live, because a live query reads every row"
-    }
-    if (schema.masked_columns?.length) {
-        return "Tables with masked columns can't be queried live, because a live query reads the original values"
-    }
-    if (!schema.source_column_metadata_available) {
-        return 'This table has no column information yet. Run "Pull new schemas", then try again'
-    }
-    return null
+export type LiveQueryUpdate = Required<Pick<ExternalDataSourceBulkUpdateSchemaApi, 'id' | 'live_query_enabled'>>
+
+export function sourceServesLiveQueries(source: ExternalDataSource | null): boolean {
+    return !!source?.direct_query_enabled && supportsDirectQuery(source.source_type)
 }
 
 export function liveQueryDisabledReason(schema: ExternalDataSourceSchema): string | null {
-    return liveQueryExclusionReason(schema) ?? (schema.should_sync ? 'Synced tables can always be queried live' : null)
+    return (
+        schema.live_query_unavailable_reason ?? (schema.should_sync ? 'Synced tables can always be queried live' : null)
+    )
 }
 
 export function isQueryableLive(schema: ExternalDataSourceSchema): boolean {
-    return !liveQueryExclusionReason(schema) && (schema.should_sync || !!schema.live_query_enabled)
+    return !schema.live_query_unavailable_reason && (schema.should_sync || !!schema.live_query_enabled)
 }
 
+// Enabling skips tables that can't be live; disabling skips synced tables, which stay live.
+// Rows already in the requested state are left out of the request and of the skipped count.
 export function buildLiveQueryPayloads(
     schemas: ExternalDataSourceSchema[],
     enabled: boolean
-): { payloads: { id: string; live_query_enabled: boolean }[]; skipped: number } {
-    const editable = schemas.filter((schema) => !liveQueryDisabledReason(schema))
+): { payloads: LiveQueryUpdate[]; skipped: number } {
+    const skipped = enabled
+        ? schemas.filter((schema) => schema.live_query_unavailable_reason)
+        : schemas.filter((schema) => schema.should_sync && isQueryableLive(schema))
     return {
-        payloads: editable
+        payloads: schemas
+            .filter((schema) => !skipped.includes(schema) && !schema.should_sync)
             .filter((schema) => !!schema.live_query_enabled !== enabled)
             .map((schema) => ({ id: schema.id, live_query_enabled: enabled })),
-        skipped: schemas.length - editable.length,
+        skipped: skipped.length,
     }
 }
 
@@ -1099,7 +1103,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
                 let schemas = source.schemas
                 if (showEnabledSchemasOnly) {
-                    schemas = schemas.filter((schema) => schema.should_sync || schema.live_query_enabled)
+                    const servesLiveQueries = sourceServesLiveQueries(source)
+                    schemas = schemas.filter(
+                        (schema) => schema.should_sync || (servesLiveQueries && isQueryableLive(schema))
+                    )
                 }
                 if (schemaNameFilter) {
                     const filter = schemaNameFilter.toLowerCase()
@@ -1434,14 +1441,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
 
         // Saved right away instead of through the debounced queue, so the API's reason for a
         // rejection reaches the user and each row can show that it is saving.
-        const saveLiveQuery = async (
-            payloads: { id: string; live_query_enabled: boolean }[],
-            bulk: boolean
-        ): Promise<boolean> => {
+        // Returns how many rows were sent, or null when the request failed.
+        const saveLiveQuery = async (payloads: LiveQueryUpdate[], bulk: boolean): Promise<number | null> => {
             // Rows already saving are left out, so a double click sends one request.
             const toSave = payloads.filter((payload) => !values.liveQuerySavingIds[payload.id])
             if (toSave.length === 0) {
-                return false
+                return 0
             }
             const ids = toSave.map((payload) => payload.id)
             actions.setLiveQuerySaving(ids, true)
@@ -1457,12 +1462,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     count: toSave.length,
                     bulk,
                 })
-                return true
+                return toSave.length
             } catch (e: any) {
                 // Other tables in the batch may have saved; reload to show what applied.
                 actions.loadSource()
                 lemonToast.error(e?.message || "Can't update live queries at this time")
-                return false
+                return null
             } finally {
                 actions.setLiveQuerySaving(ids, false)
             }
@@ -1475,11 +1480,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             bulkSetLiveQuery: async ({ schemas, enabled }) => {
                 const { payloads, skipped } = buildLiveQueryPayloads(schemas, enabled)
                 const skipNote =
-                    skipped > 0
-                        ? ` Skipped ${pluralize(skipped, 'table', 'tables')} that ${
-                              skipped === 1 ? 'is synced, has' : 'are synced, have'
-                          } row filters or masked columns, or ${skipped === 1 ? 'has' : 'have'} no column information.`
-                        : ''
+                    skipped === 0
+                        ? ''
+                        : enabled
+                          ? ` Skipped ${pluralize(skipped, 'table', 'tables')} that can't be queried live.`
+                          : ` Skipped ${pluralize(skipped, 'synced table', 'synced tables')}, which can always be queried live.`
                 if (payloads.length === 0) {
                     lemonToast.info(
                         skipped > 0
@@ -1490,9 +1495,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     )
                     return
                 }
-                if (await saveLiveQuery(payloads, true)) {
+                const saved = await saveLiveQuery(payloads, true)
+                if (saved) {
                     lemonToast.success(
-                        `${enabled ? 'Enabled' : 'Disabled'} live queries for ${pluralize(payloads.length, 'table', 'tables')}.${skipNote}`
+                        `${enabled ? 'Enabled' : 'Disabled'} live queries for ${pluralize(saved, 'table', 'tables')}.${skipNote}`
                     )
                 }
             },

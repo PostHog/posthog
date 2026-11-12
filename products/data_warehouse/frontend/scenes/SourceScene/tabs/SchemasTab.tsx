@@ -42,10 +42,7 @@ import {
 } from '~/types'
 
 import { failedDestinationFor } from 'products/data_warehouse/frontend/shared/components/destinationFailure'
-import {
-    splitQualifiedTableName,
-    supportsDirectQuery,
-} from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
+import { splitQualifiedTableName } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import {
     SchemaEditorAction,
@@ -74,6 +71,7 @@ import {
     bulkSyncMethodDisabledReason,
     isQueryableLive,
     liveQueryDisabledReason,
+    sourceServesLiveQueries,
     sourceSettingsLogic,
 } from './sourceSettingsLogic'
 
@@ -317,7 +315,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                             </LemonButton>
                         </SchemaEditorAction>
                     )}
-                    {source?.direct_query_enabled && supportsDirectQuery(source.source_type) && (
+                    {sourceServesLiveQueries(source) && (
                         <LemonButton
                             type="secondary"
                             to={urls.sqlEditor({ connectionId: id })}
@@ -502,7 +500,7 @@ function ManagedSchemaTable({
     }, [isLoading, initialLoad])
 
     const isFileUpload = !!onReplaceFile
-    const showLiveQuery = !!source?.direct_query_enabled && supportsDirectQuery(source.source_type)
+    const showLiveQuery = sourceServesLiveQueries(source)
 
     return (
         <LemonTable

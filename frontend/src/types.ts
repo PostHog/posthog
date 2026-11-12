@@ -6758,6 +6758,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     user_access_level?: AccessControlLevel
     /** Queryable live without syncing it. Synced tables are always queryable live. */
     live_query_enabled?: boolean
+    /** Why the table can't be made queryable live, or null when it can. */
+    live_query_unavailable_reason?: string | null
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
