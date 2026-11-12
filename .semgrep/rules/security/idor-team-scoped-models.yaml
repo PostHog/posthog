@@ -69,6 +69,7 @@ rules:
                               |Action
                               |AEOBrand
                               |AEOCitationCheck
+                              |AEOEngineSetting
                               |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
@@ -431,6 +432,7 @@ rules:
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
+                              |SignalSourceFilterState
                               |SignalScoutConfig
                               |SignalScoutRun
                               |SignalScoutEmission
@@ -953,6 +955,7 @@ rules:
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
+                        |SignalSourceFilterState
                         |SignalScoutConfig
                         |SignalScoutRun
                         |SignalScoutEmission
