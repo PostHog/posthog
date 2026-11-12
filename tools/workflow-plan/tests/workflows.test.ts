@@ -91,6 +91,8 @@ const DEPOT_BACKEND = '.depot/workflows/ci-backend.yml'
 const depotBackend = suite(DEPOT_BACKEND, backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
 const deltalite = suite('build-deltalite.yml')
+const storybook = suite('ci-storybook.yml')
+const playwright = suite('ci-e2e-playwright.yml')
 const PINNED_WORKFLOWS = [DEPOT_BACKEND, 'ci-frontend.yml']
 
 interface ReleaseWorkflow {
@@ -402,6 +404,113 @@ const EXPECTATIONS: Expectation[] = [
         {
             results: { frontend_tests: 'cancelled' },
         }
+    ),
+    // vr-skip posts the Visual Review status for a commit that needs no visual run. Without it
+    // that required status never arrives, and no gate job turns red to show it.
+    storybook(
+        {
+            name: 'ready PR without frontend changes',
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'false' } },
+        },
+        { runs: ['vr-skip'], skipped: ['build-storybook', 'vr-setup'] }
+    ),
+    storybook(
+        {
+            name: 'ready PR without frontend changes, report variable unset',
+            jobOutputs: { changes: { frontend: 'false' } },
+        },
+        { skipped: ['vr-skip'] }
+    ),
+    storybook(
+        {
+            name: 'fork PR without frontend changes',
+            github: pullRequest({ fork: true }),
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'false' } },
+        },
+        { skipped: ['vr-skip'] }
+    ),
+    storybook(
+        {
+            name: 'merge queue without frontend changes',
+            github: mergeQueue(),
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'false' } },
+        },
+        { runs: ['vr-skip'] }
+    ),
+    storybook(
+        { name: 'master push', github: push(), vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' } },
+        { skipped: ['vr-skip'] }
+    ),
+    storybook(
+        {
+            name: 'ready PR whose frontend changes select no stories',
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'true' } },
+            steps: { 'select-stories': { classify: { outputs: { should_run: 'false' } } } },
+        },
+        { runs: ['build-storybook', 'select-stories', 'vr-skip'] }
+    ),
+    storybook(
+        {
+            name: 'ready PR whose frontend changes select stories',
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'true' } },
+            steps: { 'select-stories': { classify: { outputs: { should_run: 'true' } } } },
+        },
+        { runs: ['select-stories'], skipped: ['vr-skip'] }
+    ),
+    playwright(
+        {
+            name: 'ready PR that needs no run',
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            steps: { changes: { decide: { outputs: { shouldRun: 'false' } } } },
+        },
+        { runs: ['vr-skip'], skipped: ['playwright'] }
+    ),
+    playwright(
+        {
+            name: 'ready PR that needs no run, report variable unset',
+            steps: { changes: { decide: { outputs: { shouldRun: 'false' } } } },
+        },
+        { skipped: ['vr-skip'] }
+    ),
+    playwright(
+        {
+            name: 'ready PR that needs a run',
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            steps: { changes: { decide: { outputs: { shouldRun: 'true' } } } },
+        },
+        { skipped: ['vr-skip'] }
+    ),
+    playwright(
+        {
+            name: 'fork PR that needs no run',
+            github: pullRequest({ fork: true }),
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            steps: { changes: { decide: { outputs: { shouldRun: 'false' } } } },
+        },
+        { skipped: ['vr-skip'] }
+    ),
+    playwright(
+        {
+            name: 'merge queue that needs no run',
+            github: mergeQueue(),
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            steps: { changes: { decide: { outputs: { shouldRun: 'false' } } } },
+        },
+        { runs: ['vr-skip'] }
+    ),
+    playwright(
+        {
+            name: 'master push that needs no run',
+            github: push(),
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            steps: { changes: { decide: { outputs: { shouldRun: 'false' } } } },
+        },
+        { skipped: ['vr-skip'] }
     ),
     ...RELEASE_WORKFLOWS.flatMap(releaseExpectations),
     deltalite({ name: 'ready PR' }, { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }),
