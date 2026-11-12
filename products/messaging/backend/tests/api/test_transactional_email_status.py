@@ -573,9 +573,21 @@ class TestManageScheduledEmails(EmailsApiTestBase):
                 {"outcome": "invalid_scheduled_at", "lead_time_bucket": "over_30d"},
             ),
             ("move_without_an_offset", "move", "waiting", "2026-06-17T09:00:00", {"outcome": "invalid_request"}),
+            (
+                "move_later_with_the_scheduled_flag_off",
+                "move",
+                "waiting",
+                "2026-06-17T00:00:00Z",
+                {"outcome": "scheduled_sends_off", "lead_time_bucket": "1d_to_3d"},
+                {"workflows-email-from-code"},
+            ),
         ]
     )
-    def test_records_each_call_for_usage(self, mock_post, _flag, _name, call, job, scheduled_at, expected):
+    def test_records_each_call_for_usage(
+        self, mock_post, flag, _name, call, job, scheduled_at, expected, enabled_flags=None
+    ):
+        if enabled_flags is not None:
+            flag.side_effect = lambda key, *args, **kwargs: key in enabled_flags
         self._job(job)
         analytics = FakeAnalytics()
 
