@@ -12,9 +12,11 @@ are the served contract: training (`products/signals/dags/inbox_ranking/training
 (the scoring sweep in this package) build features through the same `build_matrix`, so the model's
 `feature_names` match the serving matrix by construction. The sweep reads the vector at scoring
 time, and reads the latest priority judgment only for a model whose set declares the `priority`
-state column. `report_embeddings_priority_sources` adds the source products of the report's signals,
-and `report_embeddings_priority_ml_features` adds plain report facts to that as one-hot buckets. Only
-experiment families train on these two, and the sweep cannot build them yet.
+state column. `report_embeddings_priority_sources` adds the source products of the report's signals.
+Training reads them as of the moment from the emission log, and the sweep reads the live ones at
+scoring time. Both turn a report's products into columns through the one `source_columns`.
+`report_embeddings_priority_ml_features` adds plain report facts to that as one-hot buckets. Only an
+experiment family trains on it, and the sweep cannot build it yet.
 
 The pair sets (`PairUserHistoryFeatureSet`) build one row per (report, user) for the pair-grain
 experiments: the priority set's columns, then the user's history and reviewer columns.
@@ -53,9 +55,11 @@ EMBEDDING_FEATURE_NAMES = tuple(f"emb_{index}" for index in range(EMBEDDING_DIME
 PRIORITY_COLUMN = "priority"
 PRIORITY_LEVELS = ("P0", "P1", "P2", "P3", "P4")
 
-# The source products of a report's signals, under this key in `extras`: the metadata columns of the
-# dataset dag's `inbox_signal_embeddings` emission log, one row per signal emission, with the moment
-# the emission landed in `SIGNAL_INSERTED_AT_COLUMN`.
+# The source products of a report's signals, under this key in `extras`. As of a moment, it holds the
+# metadata columns of the dataset dag's `inbox_signal_embeddings` emission log, one row per signal
+# emission, with the moment the emission landed in `SIGNAL_INSERTED_AT_COLUMN`. At serving
+# (`as_of=None`), it holds `REPORT_LIVE_SOURCES_COLUMNS`: one row per live signal of a report at
+# scoring time.
 REPORT_SOURCES_EXTRA = "report_sources"
 SIGNAL_INSERTED_AT_COLUMN = "embedding_inserted_at"
 REPORT_SOURCES_COLUMNS = (
@@ -66,6 +70,7 @@ REPORT_SOURCES_COLUMNS = (
     "is_deleted",
     SIGNAL_INSERTED_AT_COLUMN,
 )
+REPORT_LIVE_SOURCES_COLUMNS = ("report_id", "source_product")
 # The report facts the scoring sweep recorded when it first scored each report, under this key in
 # `extras`: the rows of the dataset dag's `inbox_report_scored_facts`, one per report, known from
 # `SCORED_AT_COLUMN`. A report scored before recording began has no row.
@@ -337,20 +342,22 @@ class ReportEmbeddingsPriorityFeatureSet(ReportEmbeddingsFeatureSet):
 
 
 class ReportEmbeddingsPrioritySourcesFeatureSet(ReportEmbeddingsPriorityFeatureSet):
-    """The priority set, then the source products of the report's signals as of the moment.
+    """The priority set, then the source products of the report's signals.
 
     One column per product in `SOURCE_PRODUCTS`, `source_other` for any other or a missing product,
     `source_count` for the number of distinct products, and `has_sources`. The signals come from the
-    `REPORT_SOURCES_EXTRA` side input, an emission log with one row per signal emission. A moment
-    reads only the emissions inserted at or before it, takes the latest emission per
-    (team_id, signal_id), and drops a signal whose latest emission is a retraction. A signal can
-    move to another report when it is regrouped, so the report comes from that latest emission.
+    `REPORT_SOURCES_EXTRA` side input. As of a moment, that is an emission log with one row per
+    signal emission: a moment reads only the emissions inserted at or before it, takes the latest
+    emission per (team_id, signal_id), and drops a signal whose latest emission is a retraction. A
+    signal can move to another report when it is regrouped, so the report comes from that latest
+    emission. At serving (`as_of=None`), the side input already holds the live signals at scoring
+    time. Both paths build the columns through `source_columns`.
 
     The impression labels also carry a `source_products` column, but it holds the value of the
     latest impression, so it can postdate the moment. This set never reads it.
 
-    A report with no live signal at the moment gets zero in every source column, `has_sources`
-    included. `buildable` is the parent's, so this set keeps the same rows as its baseline.
+    A report with no live signal gets zero in every source column, `has_sources` included.
+    `buildable` is the parent's, so this set keeps the same rows as its baseline.
     """
 
     schema_version = 1
@@ -363,32 +370,42 @@ class ReportEmbeddingsPrioritySourcesFeatureSet(ReportEmbeddingsPriorityFeatureS
     def build_matrix(
         self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
     ) -> pd.DataFrame:
-        if as_of is None:
-            raise ValueError(f"the {self.name} feature set reads its sources only as of a moment")
         matrix = super().build_matrix(rows, extras, as_of=as_of)
-        sources = self._sources_as_of(extras[self.extras_keys[1]], rows.index, as_of)
+        signals = extras[self.extras_keys[1]]
+        live = signals if as_of is None else self._live_as_of(signals, as_of)
+        sources = source_columns(live, rows.index)
         for column in SOURCES_GROUP_FEATURE_NAMES:
             matrix[column] = sources[column].to_numpy(dtype=np.float32)
         return matrix
 
     @staticmethod
-    def _sources_as_of(signals: pd.DataFrame, report_ids: pd.Index, as_of: datetime.datetime) -> pd.DataFrame:
+    def _live_as_of(signals: pd.DataFrame, as_of: datetime.datetime) -> pd.DataFrame:
         known = signals.loc[signals[SIGNAL_INSERTED_AT_COLUMN] <= as_of]
         latest = known.sort_values(SIGNAL_INSERTED_AT_COLUMN, kind="stable").drop_duplicates(
             ["team_id", "signal_id"], keep="last"
         )
-        live = latest.loc[~latest["is_deleted"].astype(bool) & latest["report_id"].isin(report_ids)]
-        product = live["source_product"].where(live["source_product"].isin(SOURCE_PRODUCTS), "other")
-        one_hot = (
-            pd.crosstab(live["report_id"], "source_" + product.astype(str))
-            .clip(upper=1)
-            .reindex(index=report_ids, columns=list(SOURCE_FEATURE_NAMES), fill_value=0)
-        )
-        # A missing product counts as one source of its own, so `has_sources` implies a count of 1 or more.
-        distinct = live["source_product"].fillna("").groupby(live["report_id"]).nunique()
-        one_hot["source_count"] = distinct.reindex(report_ids, fill_value=0).to_numpy()
-        one_hot["has_sources"] = (one_hot["source_count"] > 0).astype(int).to_numpy()
-        return one_hot
+        return latest.loc[~latest["is_deleted"].astype(bool)]
+
+
+def source_columns(live: pd.DataFrame, report_ids: pd.Index) -> pd.DataFrame:
+    """`SOURCES_GROUP_FEATURE_NAMES` for each of `report_ids`, from `live`: one row per live signal, with its
+    `report_id` and its `source_product` (null when the signal names none).
+
+    Training and serving both build the source columns here, so the vocabulary and the
+    `source_other` rule cannot differ between them.
+    """
+    live = live.loc[live["report_id"].isin(report_ids)]
+    product = live["source_product"].where(live["source_product"].isin(SOURCE_PRODUCTS), "other")
+    one_hot = (
+        pd.crosstab(live["report_id"], "source_" + product.astype(str))
+        .clip(upper=1)
+        .reindex(index=report_ids, columns=list(SOURCE_FEATURE_NAMES), fill_value=0)
+    )
+    # A missing product counts as one source of its own, so `has_sources` implies a count of 1 or more.
+    distinct = live["source_product"].fillna("").groupby(live["report_id"]).nunique()
+    one_hot["source_count"] = distinct.reindex(report_ids, fill_value=0).to_numpy()
+    one_hot["has_sources"] = (one_hot["source_count"] > 0).astype(int).to_numpy()
+    return one_hot
 
 
 def bucket_names(column: str, edges: Sequence[int]) -> tuple[str, ...]:

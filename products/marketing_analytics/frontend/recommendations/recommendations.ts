@@ -25,7 +25,8 @@ export const RECOMMENDATION_RULE_LABELS: Record<MarketingAnalyticsRecommendation
 }
 
 export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationRule, string> = {
-    budget_constrained: 'Google Ads limits these campaigns by budget and suggests a higher daily budget.',
+    budget_constrained:
+        'Conversions cost no more than the benchmark CPA, but Google Ads limits the campaign by budget and suggests a higher one.',
     brand_leak: 'Campaigns that are not about your brand spend on searches for your brand name.',
     scale_campaign:
         'Conversions cost less than the benchmark CPA, but the campaign loses impressions to budget or ad rank.',
