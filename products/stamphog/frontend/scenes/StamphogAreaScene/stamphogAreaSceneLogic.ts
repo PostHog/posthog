@@ -64,6 +64,7 @@ export interface stamphogAreaSceneLogicValues {
     headline: AreaHeadline
     owner: string
     owners: StamphogRoutingOwnerCountApi[]
+    ownersFailed: boolean
     ownersLoading: boolean
     runDetails: Record<string, StamphogRoutingRunDetailApi>
     runDetailsFailed: Record<string, boolean>
@@ -209,6 +210,14 @@ export const stamphogAreaSceneLogic = kea<stamphogAreaSceneLogicType>([
                 loadRuns: () => false,
                 loadRunsSuccess: () => false,
                 loadRunsFailure: () => true,
+            },
+        ],
+        ownersFailed: [
+            false,
+            {
+                loadOwners: () => false,
+                loadOwnersSuccess: () => false,
+                loadOwnersFailure: () => true,
             },
         ],
         // Keyed by run id, because each expanded row loads its own run's files.
