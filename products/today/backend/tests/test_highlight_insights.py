@@ -39,6 +39,15 @@ def days(values: list[float]) -> list[tuple[date, float]]:
     return [(start + timedelta(days=i), v) for i, v in enumerate(values)]
 
 
+def key_metrics(weeks: list[float] | None) -> list[KeyMetric] | None:
+    if weeks is None:
+        return None
+    return [
+        KeyMetric(key=f"metric{i}", name="Sign-ups", people=False, daily=[], this_week=w, last_week=w, node={})
+        for i, w in enumerate(weeks)
+    ]
+
+
 def insight(series: dict[str, list[tuple[date, float]]], **fields: Any) -> InsightSeries:
     return InsightSeries(
         **{"short_id": "abc", "name": "By browser", "period": "day", "averaged_series": [], "event_name": "", **fields},
@@ -475,12 +484,13 @@ class TestRoutineInsights(BaseTest):
         [
             ("a person without habits", [], [], ["team_fav", "runner_up", "third"]),
             ("a habit that is already popular", ["team_fav"], [], ["runner_up", "third"]),
-            ("habits and a key metric leave one place", ["h1", "h2"], [5.0], ["team_fav"]),
-            ("a key metric without activity keeps no place", ["h1", "h2"], [0.0], ["team_fav", "runner_up"]),
-            ("key metrics still computing keep their places", ["h1", "h2"], None, ["team_fav"]),
             ("habits that fill the row", ["h1", "h2", "h3", "h4"], [], []),
             ("a dashboard habit takes one place", ["dashboard:7"], [], ["team_fav", "runner_up", "third"]),
             ("a habit without data frees its place", ["h1", "h2", "broken"], [], ["team_fav", "runner_up"]),
+            ("key metrics keep no place beside habits", ["h1", "h2"], [5.0, 5.0], ["team_fav", "runner_up"]),
+            ("active key metrics keep places without habits", [], [5.0, 5.0], ["team_fav", "runner_up"]),
+            ("a key metric without activity keeps no place", [], [0.0], ["team_fav", "runner_up", "third"]),
+            ("key metrics still computing keep their places", [], None, ["team_fav", "runner_up"]),
         ]
     )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
@@ -531,26 +541,11 @@ class TestRoutineInsights(BaseTest):
 
         with (
             patch.object(routine, "get_insight_series", side_effect=series),
-            patch.object(
-                routine,
-                "get_key_metrics",
-                return_value=None
-                if key_metric_weeks is None
-                else [
-                    KeyMetric(
-                        key=f"metric{i}",
-                        name="Sign-ups",
-                        people=False,
-                        daily=[],
-                        this_week=weeks,
-                        last_week=weeks,
-                        node={},
-                    )
-                    for i, weeks in enumerate(key_metric_weeks)
-                ],
-            ),
-            patch.object(routine, "get_key_metric_names", return_value={"metric0": "Sign-ups"}),
             patch.object(routine, "dashboard_insights", return_value=growth),
+            patch.object(routine, "get_key_metrics", return_value=key_metrics(key_metric_weeks)),
+            patch.object(
+                routine, "get_key_metric_names", return_value={"metric0": "Sign-ups", "metric1": "Active users"}
+            ),
         ):
             pulse = routine.find(Context(self.team, self.user, TODAY, hidden=frozenset({"insight:ignored"}))).pulse
 
@@ -558,12 +553,8 @@ class TestRoutineInsights(BaseTest):
 
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
     def test_popular_insights_are_not_looked_up_when_key_metrics_fill_the_row(self) -> None:
-        active = [
-            KeyMetric(key=f"metric{i}", name="Sign-ups", people=False, daily=[], this_week=5.0, last_week=5.0, node={})
-            for i in range(4)
-        ]
         with (
-            patch.object(routine, "get_key_metrics", return_value=active),
+            patch.object(routine, "get_key_metrics", return_value=key_metrics([5.0] * 4)),
             patch.object(routine, "_popular_refs", return_value=["team_fav"]) as popular_refs,
         ):
             routine.find(Context(self.team, self.user, TODAY))

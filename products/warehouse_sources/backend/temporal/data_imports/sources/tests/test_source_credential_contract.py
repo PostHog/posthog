@@ -429,6 +429,7 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "Lightfield",
     "Logrocket",
     "Monday",
+    "Moneybird",
     "NewRelic",
     "Nuget",
     "Octolens",

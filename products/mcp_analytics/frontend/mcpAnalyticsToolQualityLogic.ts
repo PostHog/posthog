@@ -100,9 +100,16 @@ export function mcpToolReportUrl(tool: string, dateFilter: DateFilter, interval?
     return combineUrl(urls.mcpAnalyticsTool(tool), mcpToolNavigationParams(dateFilter, interval)).url
 }
 
-// Link back from a tool report to the Tool quality tab, restoring the date filter and interval.
-export function mcpToolQualityUrlWithDates(dateFilter: DateFilter, interval?: IntervalType | null): string {
-    return combineUrl(urls.mcpAnalyticsToolQuality(), mcpToolNavigationParams(dateFilter, interval)).url
+// Link to the Tool quality tab that restores the date filter, the interval and, optionally, a table sort.
+export function mcpToolQualityUrlWithDates(
+    dateFilter: DateFilter,
+    interval?: IntervalType | null,
+    sort?: SortState
+): string {
+    return combineUrl(urls.mcpAnalyticsToolQuality(), {
+        ...mcpToolNavigationParams(dateFilter, interval),
+        ...(sort ? sortSearchParams(sort) : {}),
+    }).url
 }
 
 export type ToolQualityRow = MCPToolQualityRowItem
@@ -145,6 +152,36 @@ export const DEFAULT_CHART_VIEWS: ChartViews = { calls: 'counts', successRate: '
 
 const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 const DEFAULT_SORT: SortState = { column: 'total_calls', direction: 'DESC' }
+
+// A Record so a new sort column fails to compile until the URL parser accepts it.
+const SORT_COLUMNS: Record<ToolQualitySortColumn, true> = {
+    total_calls: true,
+    error_rate_pct: true,
+    p50_duration_ms: true,
+    p95_duration_ms: true,
+    p99_duration_ms: true,
+    users: true,
+    sessions: true,
+    last_seen: true,
+    trend_score: true,
+}
+
+function isDefaultSort(sort: SortState): boolean {
+    return sort.column === DEFAULT_SORT.column && sort.direction === DEFAULT_SORT.direction
+}
+
+// pinned: `sort` and `sort_direction` URL params. The dashboard's slowest-tools card links to them.
+function sortSearchParams(sort: SortState): Record<string, string> {
+    return isDefaultSort(sort) ? {} : { sort: sort.column, sort_direction: sort.direction }
+}
+
+function parseSortParams(searchParams: Record<string, any>): SortState {
+    const { sort, sort_direction } = searchParams
+    if (typeof sort !== 'string' || !Object.hasOwn(SORT_COLUMNS, sort)) {
+        return DEFAULT_SORT
+    }
+    return { column: sort as ToolQualitySortColumn, direction: sort_direction === 'ASC' ? 'ASC' : 'DESC' }
+}
 export const TOOL_QUALITY_PAGE_SIZE = 50
 
 // Pivot per-bucket rows onto the full set of interval buckets spanning the selected window:
@@ -706,6 +743,9 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             } else {
                 delete searchParams.interval
             }
+            delete searchParams.sort
+            delete searchParams.sort_direction
+            Object.assign(searchParams, sortSearchParams(values.toolQualitySort))
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
         return {
@@ -713,6 +753,7 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             setDateFilter: syncUrl,
             setPinnedInterval: syncUrl,
             setSelectedCategories: syncUrl,
+            setToolQualitySort: syncUrl,
         }
     }),
 
@@ -739,6 +780,10 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             const interval = parseIntervalParam(searchParams.interval)
             if (interval !== values.pinnedInterval) {
                 actions.setPinnedInterval(interval)
+            }
+            const sort = parseSortParams(searchParams)
+            if (sort.column !== values.toolQualitySort.column || sort.direction !== values.toolQualitySort.direction) {
+                actions.setToolQualitySort(sort.column, sort.direction)
             }
         },
     })),

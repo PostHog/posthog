@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Pool, QueryResult } from 'pg'
+import { Pool, PoolClient, QueryResult } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -17,6 +17,8 @@ import {
     CyclotronV2CancelJobsOptions,
     CyclotronV2CancelJobsResult,
     CyclotronV2CancelUnclaimedResult,
+    CyclotronV2IdempotentJobInit,
+    CyclotronV2IdempotentOutcome,
     CyclotronV2InFlightCounts,
     CyclotronV2JobInit,
     CyclotronV2JobInitSchema,
@@ -39,7 +41,7 @@ import {
  */
 export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
 
-export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[]): Promise<string[]> {
+export async function allocateEmailDequeueSeqs(pool: Pool | PoolClient, jobTeamIds: number[]): Promise<string[]> {
     const indicesByTeam = new Map<number, number[]>()
     jobTeamIds.forEach((teamId, i) => {
         const indices = indicesByTeam.get(teamId)
@@ -153,6 +155,14 @@ const dbWriteFailureCounter = new Counter({
     name: 'cdp_cyclotron_v2_db_write_failure',
     help: 'Failed Postgres writes to cyclotron_jobs (input already validated), split by kind=logical|transient.',
     labelNames: ['kind'] as const,
+})
+
+export const IDEMPOTENCY_KEY_TTL_MS = 24 * 60 * 60 * 1000
+
+const idempotentInsertsCounter = new Counter({
+    name: 'cdp_cyclotron_v2_idempotent_inserts_total',
+    help: 'Jobs submitted with an idempotency key, by outcome: created queued the job, replayed found the same request already queued, mismatch found the key used for a different request.',
+    labelNames: ['outcome'] as const,
 })
 
 const rescheduleSweptCounter = new Counter({
@@ -391,34 +401,7 @@ export class CyclotronV2Manager {
 
         await this.insertGuard()
 
-        const ids: string[] = []
-        const teamIds: number[] = []
-        const functionIds: (string | null)[] = []
-        const queueNames: string[] = []
-        const priorities: number[] = []
-        const scheduleds: Date[] = []
-        const parentRunIds: (string | null)[] = []
-        const states: (Buffer | null)[] = []
-        const distinctIds: (string | null)[] = []
-        const personIds: (string | null)[] = []
-        const actionIds: (string | null)[] = []
-
-        const now = new Date()
-
-        for (const job of jobs) {
-            const id = job.id ?? uuidv7()
-            ids.push(id)
-            teamIds.push(job.teamId)
-            functionIds.push(job.functionId ?? null)
-            queueNames.push(job.queueName)
-            priorities.push(job.priority ?? 0)
-            scheduleds.push(job.scheduled ?? now)
-            parentRunIds.push(job.parentRunId ?? null)
-            states.push(job.state ?? null)
-            distinctIds.push(job.distinctId ?? null)
-            personIds.push(job.personId ?? null)
-            actionIds.push(job.actionId ?? null)
-        }
+        const ids = jobs.map((job) => job.id ?? uuidv7())
 
         // Fair-dequeue sort key for email-queue jobs. NULL for everything else.
         // Atomically bumps the per-team counter (one UPSERT for the whole batch
@@ -448,48 +431,7 @@ export class CyclotronV2Manager {
         let result: { rows: { id: string }[] }
         try {
             result = await timeEnqueuePhase('insert', 'manager', () =>
-                this.pool.query<{ id: string }>(
-                    `INSERT INTO cyclotron_jobs
-                 (id, team_id, function_id, queue_name, status, priority, scheduled, created,
-                  lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-                  parent_run_id, state, distinct_id, person_id, action_id, dequeue_seq)
-                 SELECT
-                    unnest($1::uuid[]),
-                    unnest($2::int[]),
-                    unnest($3::uuid[]),
-                    unnest($4::text[]),
-                    'available'::CyclotronJobStatus,
-                    unnest($5::smallint[]),
-                    unnest($6::timestamptz[]),
-                    $12::timestamptz,
-                    NULL::uuid,
-                    NULL::timestamptz,
-                    0::smallint,
-                    0::smallint,
-                    $12::timestamptz,
-                    unnest($7::text[]),
-                    unnest($8::bytea[]),
-                    unnest($9::text[]),
-                    unnest($10::text[]),
-                    unnest($11::text[]),
-                    unnest($13::bigint[])
-                 ${upsertClause}`,
-                    [
-                        ids,
-                        teamIds,
-                        functionIds,
-                        queueNames,
-                        priorities,
-                        scheduleds,
-                        parentRunIds,
-                        states,
-                        distinctIds,
-                        personIds,
-                        actionIds,
-                        now,
-                        dequeueSeqs,
-                    ]
-                )
+                this.insertJobRows(this.pool, jobs, ids, dequeueSeqs, upsertClause)
             )
         } catch (err) {
             dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
@@ -505,6 +447,208 @@ export class CyclotronV2Manager {
         }
 
         return ids
+    }
+
+    /** Writes each job and its idempotency key in one transaction, so a failure leaves neither. */
+    async createJobsIdempotently(inputs: CyclotronV2IdempotentJobInit[]): Promise<CyclotronV2IdempotentOutcome[]> {
+        if (inputs.length === 0) {
+            return []
+        }
+
+        // Lowercase to match RETURNING. Sorted so every call locks keys in one order and cannot deadlock.
+        const entries = inputs
+            .map(({ job, fingerprint }) => ({
+                id: job.id.toLowerCase(),
+                job: CyclotronV2JobInitSchema.parse(job),
+                fingerprint,
+            }))
+            .sort((a, b) => (a.id < b.id ? -1 : 1))
+        if (new Set(entries.map((entry) => entry.id)).size < entries.length) {
+            throw new Error('createJobsIdempotently needs unique ids')
+        }
+        if (entries.some((entry) => entry.job.overwriteExisting)) {
+            throw new Error('createJobsIdempotently does not support overwriteExisting')
+        }
+
+        // A repeat queues nothing, so it neither waits on capacity nor takes a fair-dequeue slot.
+        const liveIds = await this.liveIdempotencyKeyIds(entries.map((entry) => entry.id))
+        const fresh = entries.filter((entry) => !liveIds.has(entry.id))
+        if (fresh.length > 0) {
+            await this.insertGuard()
+        }
+
+        // Outside the transaction, so the hot per-team counter row is not locked until commit.
+        const freshSeqs = await this.computeEmailDequeueSeqs(fresh.map((entry) => entry.job))
+        const dequeueSeqs = new Map<string, string>()
+        fresh.forEach((entry, i) => {
+            const dequeueSeq = freshSeqs[i]
+            if (dequeueSeq !== null) {
+                dequeueSeqs.set(entry.id, dequeueSeq)
+            }
+        })
+
+        const now = Date.now()
+        const client = await this.pool.connect()
+        let claimedIds: Set<string>
+        const storedFingerprints = new Map<string, string>()
+        let capacityRefusal: unknown
+        try {
+            await client.query('BEGIN')
+
+            // Reclaims an expired key only once its job is gone, because the job id is a primary key.
+            const claimed = await client.query<{ id: string }>(
+                `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                 SELECT unnest($1::uuid[]), unnest($2::int[]), unnest($3::text[]), unnest($4::timestamptz[])
+                 ON CONFLICT (id) DO UPDATE SET
+                     team_id = EXCLUDED.team_id,
+                     fingerprint = EXCLUDED.fingerprint,
+                     expires_at = EXCLUDED.expires_at,
+                     created_at = NOW()
+                 WHERE cyclotron_idempotency_keys.expires_at <= NOW()
+                     AND NOT EXISTS (SELECT 1 FROM cyclotron_jobs WHERE cyclotron_jobs.id = cyclotron_idempotency_keys.id)
+                 RETURNING id`,
+                [
+                    entries.map((entry) => entry.id),
+                    entries.map((entry) => entry.job.teamId),
+                    entries.map((entry) => entry.fingerprint),
+                    entries.map(
+                        ({ job }) => new Date(Math.max(now, job.scheduled?.getTime() ?? now) + IDEMPOTENCY_KEY_TTL_MS)
+                    ),
+                ]
+            )
+            claimedIds = new Set(claimed.rows.map((row) => row.id))
+
+            const toInsert = entries.filter((entry) => claimedIds.has(entry.id))
+            // A key that expired with its job gone between the read above and this claim skipped the guard.
+            if (fresh.length === 0 && toInsert.length > 0) {
+                // On the claim's own connection: asking the pool for another would wait forever on a full pool.
+                await this.insertGuard(client).catch((err) => {
+                    capacityRefusal = err
+                    throw err
+                })
+            }
+            // Such a key has no slot yet either.
+            const unslotted = toInsert.filter((entry) => entry.job.queueName === 'email' && !dequeueSeqs.has(entry.id))
+            if (unslotted.length > 0) {
+                const lateSeqs = await allocateEmailDequeueSeqs(
+                    client,
+                    unslotted.map((entry) => entry.job.teamId)
+                )
+                unslotted.forEach((entry, k) => dequeueSeqs.set(entry.id, lateSeqs[k]))
+            }
+            if (toInsert.length > 0) {
+                await this.insertJobRows(
+                    client,
+                    toInsert.map((entry) => entry.job),
+                    toInsert.map((entry) => entry.id),
+                    toInsert.map((entry) => dequeueSeqs.get(entry.id) ?? null),
+                    ''
+                )
+            }
+
+            // A fresh snapshot, so this sees keys a concurrent call committed while the claim waited.
+            const unclaimedIds = entries.filter((entry) => !claimedIds.has(entry.id)).map((entry) => entry.id)
+            if (unclaimedIds.length > 0) {
+                const stored = await client.query<{ id: string; fingerprint: string }>(
+                    `SELECT id, fingerprint FROM cyclotron_idempotency_keys WHERE id = ANY($1::uuid[])`,
+                    [unclaimedIds]
+                )
+                for (const { id, fingerprint } of stored.rows) {
+                    storedFingerprints.set(id, fingerprint)
+                }
+            }
+
+            await client.query('COMMIT')
+        } catch (err) {
+            try {
+                await client.query('ROLLBACK')
+            } catch (rollbackErr) {
+                logger.warn('createJobsIdempotently rollback failed', {
+                    error: String(rollbackErr),
+                    originalError: String(err),
+                })
+            }
+            if (err !== capacityRefusal) {
+                dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
+            }
+            throw err
+        } finally {
+            client.release()
+        }
+
+        return inputs.map(({ job, fingerprint }) => {
+            const id = job.id.toLowerCase()
+            const outcome: CyclotronV2IdempotentOutcome = claimedIds.has(id)
+                ? 'created'
+                : storedFingerprints.get(id) === fingerprint
+                  ? 'replayed'
+                  : 'mismatch'
+            idempotentInsertsCounter.labels({ outcome }).inc()
+            return outcome
+        })
+    }
+
+    private insertJobRows(
+        db: Pool | PoolClient,
+        jobs: CyclotronV2JobInit[],
+        ids: string[],
+        dequeueSeqs: (string | null)[],
+        conflictClause: string
+    ): Promise<{ rows: { id: string }[] }> {
+        const now = new Date()
+        return db.query<{ id: string }>(
+            `INSERT INTO cyclotron_jobs
+             (id, team_id, function_id, queue_name, status, priority, scheduled, created,
+              lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
+              parent_run_id, state, distinct_id, person_id, action_id, dequeue_seq)
+             SELECT
+                unnest($1::uuid[]),
+                unnest($2::int[]),
+                unnest($3::uuid[]),
+                unnest($4::text[]),
+                'available'::CyclotronJobStatus,
+                unnest($5::smallint[]),
+                unnest($6::timestamptz[]),
+                $12::timestamptz,
+                NULL::uuid,
+                NULL::timestamptz,
+                0::smallint,
+                0::smallint,
+                $12::timestamptz,
+                unnest($7::text[]),
+                unnest($8::bytea[]),
+                unnest($9::text[]),
+                unnest($10::text[]),
+                unnest($11::text[]),
+                unnest($13::bigint[])
+             ${conflictClause}`,
+            [
+                ids,
+                jobs.map((job) => job.teamId),
+                jobs.map((job) => job.functionId ?? null),
+                jobs.map((job) => job.queueName),
+                jobs.map((job) => job.priority ?? 0),
+                jobs.map((job) => job.scheduled ?? now),
+                jobs.map((job) => job.parentRunId ?? null),
+                jobs.map((job) => job.state ?? null),
+                jobs.map((job) => job.distinctId ?? null),
+                jobs.map((job) => job.personId ?? null),
+                jobs.map((job) => job.actionId ?? null),
+                now,
+                dequeueSeqs,
+            ]
+        )
+    }
+
+    // The claim's own retention rule: a key counts while unexpired or while its job still exists.
+    private async liveIdempotencyKeyIds(ids: string[]): Promise<Set<string>> {
+        const { rows } = await this.pool.query<{ id: string }>(
+            `SELECT k.id FROM cyclotron_idempotency_keys k
+             WHERE k.id = ANY($1::uuid[])
+                 AND (k.expires_at > NOW() OR EXISTS (SELECT 1 FROM cyclotron_jobs WHERE cyclotron_jobs.id = k.id))`,
+            [ids]
+        )
+        return new Set(rows.map((row) => row.id))
     }
 
     private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {
@@ -916,13 +1060,18 @@ export class CyclotronV2Manager {
         await this.pool.end()
     }
 
-    private async insertGuard(): Promise<void> {
-        if (await timeEnqueuePhase('depth_check', 'manager', () => this.isFull())) {
+    private async insertGuard(db: Pool | PoolClient = this.pool): Promise<void> {
+        if (await timeEnqueuePhase('depth_check', 'manager', () => this.isFull(db))) {
             throw new Error(`Cyclotron V2 queue is full (depth limit: ${this.depthLimit})`)
         }
     }
 
-    private isFull(): Promise<boolean> | boolean {
+    private isFull(db: Pool | PoolClient): Promise<boolean> | boolean {
+        // A transaction's own check stays out of the shared cache: a pool-backed check cached there may be waiting
+        // for the very connection the transaction holds.
+        if (db !== this.pool) {
+            return this.queryDepth(db)
+        }
         if (this.backgroundDepthCheck) {
             return this.isFullFromLastDepth()
         }
@@ -930,7 +1079,7 @@ export class CyclotronV2Manager {
             return this.depthCheckPromise
         }
 
-        this.depthCheckPromise = this.queryDepth()
+        this.depthCheckPromise = this.queryDepth(db)
         this.depthCheckExpiresAt = Date.now() + this.depthCheckIntervalMs
         return this.depthCheckPromise
     }
@@ -949,7 +1098,7 @@ export class CyclotronV2Manager {
     private refreshDepth(): Promise<boolean> {
         if (!this.depthRefresh) {
             this.depthCheckExpiresAt = Date.now() + this.depthCheckIntervalMs
-            this.depthRefresh = this.queryDepth(this.depthRefreshSql)
+            this.depthRefresh = this.queryDepth(this.pool, this.depthRefreshSql)
                 .then((full) => {
                     this.lastDepthFull = full
                     return full
@@ -961,9 +1110,9 @@ export class CyclotronV2Manager {
         return this.depthRefresh
     }
 
-    private async queryDepth(sql: string = QUEUE_DEPTH_SQL): Promise<boolean> {
+    private async queryDepth(db: Pool | PoolClient, sql: string = QUEUE_DEPTH_SQL): Promise<boolean> {
         try {
-            const result: QueryResult | QueryResult[] = await this.pool.query(sql)
+            const result: QueryResult | QueryResult[] = await db.query(sql)
             const depth = Array.isArray(result) ? result[result.length - 1] : result
             const count = parseInt(depth.rows[0].count, 10)
             const full = count >= this.depthLimit
