@@ -618,6 +618,13 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
     )
     if standing is None or standing.posted_review_id is None or not standing.head_sha:
         return None
+    # An approval that a CI check made possible depends on that check's result for the approved head.
+    # The new head has no result yet, so the approval does not carry over. Only the worker's own
+    # gate run says whether a check lifted a deny, because the sandbox's report is unauthenticated.
+    # An approval with no such record does not carry over either.
+    attestation = (standing.output or {}).get("gate_attestation")
+    if not isinstance(attestation, dict) or attestation.get("lifted") is not False:
+        return None
 
     approved_pr = (standing.output or {}).get("pr")
     approved_base = (approved_pr or {}).get("base") if isinstance(approved_pr, dict) else None

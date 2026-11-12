@@ -611,7 +611,7 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .optional()
                 .describe(
-                    "Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo."
+                    "Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-30M' (minutes), '-1h', '-7d', '-2w' or '-1m' (months; lowercase m is months, capital M is minutes). Defaults to 24 hours before dateTo."
                 ),
             dateTo: zod
                 .string()
@@ -621,6 +621,54 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 ),
         })
         .describe('The metric query to execute.'),
+})
+
+/**
+ * Create a recording rule. It writes its first result within about a minute.
+ */
+export const metricsRecordingRulesCreateBodyMetricNameMax = 200
+
+export const metricsRecordingRulesCreateBodyQueryMax = 8192
+
+export const metricsRecordingRulesCreateBodyDescriptionDefault = ``
+export const metricsRecordingRulesCreateBodyEnabledDefault = true
+
+export const MetricsRecordingRulesCreateBody = /* @__PURE__ */ zod.object({
+    metric_name: zod
+        .string()
+        .max(metricsRecordingRulesCreateBodyMetricNameMax)
+        .describe(
+            'The metric the rule writes, in the level:metric:operations form, for example job:http_errors:rate5m. It must contain a colon and cannot change after create.'
+        ),
+    query: zod
+        .string()
+        .max(metricsRecordingRulesCreateBodyQueryMax)
+        .describe(
+            "A PromQL expression over this project's metrics that returns an instant vector or a scalar. Each series it returns is written as one series of `metric_name`, with the same labels."
+        ),
+    description: zod
+        .string()
+        .default(metricsRecordingRulesCreateBodyDescriptionDefault)
+        .describe('What the recorded metric means.'),
+    enabled: zod
+        .boolean()
+        .default(metricsRecordingRulesCreateBodyEnabledDefault)
+        .describe('When false, the rule is kept but not evaluated.'),
+})
+
+/**
+ * Change a rule's query, description or enabled state. The metric name cannot change.
+ */
+export const metricsRecordingRulesPartialUpdateBodyQueryMax = 8192
+
+export const MetricsRecordingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(metricsRecordingRulesPartialUpdateBodyQueryMax)
+        .optional()
+        .describe('A new PromQL expression for the rule.'),
+    description: zod.string().optional().describe('What the recorded metric means.'),
+    enabled: zod.boolean().optional().describe('When false, the rule is kept but not evaluated.'),
 })
 
 /**
