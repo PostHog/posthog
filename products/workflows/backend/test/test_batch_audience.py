@@ -1,9 +1,13 @@
+import itertools
+
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.redis import get_client as get_redis_client
 
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
@@ -60,20 +64,43 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("email_dedupe", "email", 10, [1, 3, 4, 5]),
-            ("no_dedupe", None, 10, [1, 2, 3, 4, 5]),
+            ("email_dedupe", "email", 10, 1000, [1, 3, 4, 5]),
+            ("no_dedupe", None, 10, 1000, [1, 2, 3, 4, 5]),
             # The cap cuts the audience in id order, so the resolver's truncation sees the same first persons.
-            ("capped", None, 2, [1, 2]),
+            ("capped", None, 2, 1000, [1, 2]),
+            ("email_dedupe_across_ranges", "email", 10, 1, [1, 3, 4, 5]),
+            ("no_dedupe_across_ranges", None, 10, 1, [1, 2, 3, 4, 5]),
+            ("capped_across_ranges", None, 2, 1, [1, 2]),
+            ("email_dedupe_capped_across_ranges", "email", 2, 1, [1, 3]),
         ]
     )
-    def test_snapshot_query_returns_the_whole_audience_in_id_order(self, _name, dedupe_key, limit, expected_indices):
+    def test_snapshot_query_returns_the_whole_audience_in_id_order(
+        self, _name, dedupe_key, limit, rows_per_chunk, expected_indices
+    ):
         self._create_audience(["Dup@X.com", " dup@x.com ", "b@x.com", None, ""])
 
-        result = get_batch_audience_person_ids_snapshot(
-            self.team, FILTERS, dedupe_key=dedupe_key, limit=limit, settings=bounded_memory_settings()
-        )
+        with override_settings(WORKFLOWS_BATCH_AUDIENCE_SNAPSHOT_ROWS_PER_CHUNK=rows_per_chunk):
+            result = get_batch_audience_person_ids_snapshot(
+                self.team, FILTERS, dedupe_key=dedupe_key, limit=limit, settings=bounded_memory_settings()
+            )
 
         assert result == [_uuid(i) for i in expected_indices]
+
+    def test_snapshot_query_fails_as_a_timeout_when_the_ranges_use_up_the_budget(self):
+        self._create_audience(["a@x.com", "b@x.com", "c@x.com"])
+        query_settings = bounded_memory_settings()
+        query_settings.max_execution_time = 100
+        # The deadline, the boundary query and the first range read the clock at 0s; the second range at 101s.
+        clock = itertools.chain([0.0, 0.0, 0.0], itertools.repeat(101.0))
+
+        with (
+            override_settings(WORKFLOWS_BATCH_AUDIENCE_SNAPSHOT_ROWS_PER_CHUNK=1),
+            patch("products.workflows.backend.services.batch_audience.time.monotonic", side_effect=clock),
+            self.assertRaises(ClickHouseQueryTimeOut),
+        ):
+            get_batch_audience_person_ids_snapshot(
+                self.team, FILTERS, dedupe_key=None, limit=10, settings=query_settings
+            )
 
     def test_audience_without_dedupe_matches_legacy_query(self):
         self._create_audience(["a@x.com", "a@x.com", "b@x.com", None])

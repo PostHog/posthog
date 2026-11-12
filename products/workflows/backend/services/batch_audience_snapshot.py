@@ -28,7 +28,8 @@ from products.workflows.backend.services.batch_audience import (
 
 logger = structlog.get_logger(__name__)
 
-# One scan of the person table for the whole audience; the cohort calculator runs the same shape under this cap.
+# No new range query of an audience starts after this. A range that starts just before it can still run for
+# HOGQL_INCREASED_MAX_EXECUTION_TIME, so one attempt ends within 30 minutes and four fit in the resolver's two-hour wait.
 AUDIENCE_SNAPSHOT_QUERY_TIMEOUT_SECONDS = 1200
 AUDIENCE_SNAPSHOT_WRITE_CHUNK = 5000
 
