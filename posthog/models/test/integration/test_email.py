@@ -118,12 +118,12 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             other.close()
 
     @parameterized.expand(
-        [("new_domain", "first@fresh.example.com", True), ("domain_already_added", "second@held.example.com", False)]
+        [("new_domain", "first@fresh.example.com"), ("domain_already_added", "second@held.example.com")]
     )
     @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_a_new_domain_waits_for_another_new_domain_in_the_same_organization(
-        self, _name, email, waits, mock_create_email_domain, _mock_get_mail_from
+    def test_sender_creation_waits_for_another_in_the_same_organization(
+        self, _name, email, mock_create_email_domain, _mock_get_mail_from
     ):
         create = lambda address: EmailIntegration.create_native_integration(
             {"email": address, "name": "Sender", "provider": "ses"},
@@ -148,12 +148,9 @@ class TestEmailIntegrationDomainValidation(BaseTest):
                 lock_organization_sender_domains(cursor, str(self.organization.id))
             with connection.cursor() as cursor:
                 cursor.execute("SET LOCAL lock_timeout = '200ms'")
-            if waits:
-                with pytest.raises(OperationalError, match="lock timeout"):
-                    create(email)
-                mock_create_email_domain.assert_not_called()
-            else:
-                assert create(email).integration_id == email
+            with pytest.raises(OperationalError, match="lock timeout"):
+                create(email)
+            mock_create_email_domain.assert_not_called()
         finally:
             other.rollback()
             other.close()

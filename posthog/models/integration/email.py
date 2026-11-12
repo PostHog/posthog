@@ -100,6 +100,8 @@ class EmailIntegration:
 
         with connection.cursor() as cursor:
             lock_sender_domain(cursor, domain)
+            # Every create takes it, so a sender deleted meanwhile cannot let a new domain past the cap.
+            lock_organization_sender_domains(cursor, str(organization_id))
 
         if row_writes.creator_accessor("email").exists(team_id, external_id=email_address):
             raise _duplicate_sender_error(email_address)
@@ -114,8 +116,6 @@ class EmailIntegration:
                 )
 
         if not same_domain_integrations.exists():
-            with connection.cursor() as cursor:
-                lock_organization_sender_domains(cursor, str(organization_id))
             _refuse_another_unverified_domain(str(organization_id))
 
         # Create domain in the appropriate provider
