@@ -1036,6 +1036,21 @@ def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
     return expr if isinstance(expr, ast.Constant) and isinstance(expr.value, str) else None
 
 
+def _call_form_comparison(node: ast.Call) -> ast.CompareOperation | None:
+    """The comparison a call such as `equals(properties.x, v)` spells, or None. Only the plain 2-arg form counts."""
+    if (
+        node.name in HOGQL_COMPARISON_MAPPING
+        and len(node.args) == 2
+        and node.params is None
+        and node.distinct is False
+        and node.within_group is None
+        and node.order_by is None
+        and node.filter_expr is None
+    ):
+        return ast.CompareOperation(left=node.args[0], right=node.args[1], op=HOGQL_COMPARISON_MAPPING[node.name])
+    return None
+
+
 def _boolean_constant_text(expr: ast.Expr) -> ast.Constant | None:
     """The text a property holds for a boolean constant, or None for any other expression."""
     if isinstance(expr, ast.Constant) and isinstance(expr.value, bool):
@@ -1467,6 +1482,11 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         if self._in_grouped_clause:
             # Shortcuts can introduce raw columns unavailable after grouping. WindowFunction is a separate node,
             # so its inputs keep the grouped context while ordinary aggregates above read original rows.
+            comparison = _call_form_comparison(node)
+            if comparison is not None:
+                # A boolean constant still becomes text, because that swaps a constant and reads no column.
+                comparison = self._boolean_constant_as_text(comparison)
+                node = replace(node, args=[comparison.left, comparison.right])
             with self._call_arguments(node):
                 return super().visit_call(node)
 
@@ -1537,20 +1557,10 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
         # A comparison written in call form (`equals(properties.x, v)`, `ilike(toString(properties.x), p)`,
         # `in(properties.x, (...))`) is still a comparison: route it through visit_compare_operation so the same rewrites
-        # fire. Otherwise we'd descend into the args and substitute the value, losing the optimization. Only the plain
-        # 2-arg form, no extra params.
-        if (
-            node.name in HOGQL_COMPARISON_MAPPING
-            and len(node.args) == 2
-            and node.params is None
-            and node.distinct is False
-            and node.within_group is None
-            and node.order_by is None
-            and node.filter_expr is None
-        ):
-            return self.visit_compare_operation(
-                ast.CompareOperation(left=node.args[0], right=node.args[1], op=HOGQL_COMPARISON_MAPPING[node.name])
-            )
+        # fire. Otherwise we'd descend into the args and substitute the value, losing the optimization.
+        comparison = _call_form_comparison(node)
+        if comparison is not None:
+            return self.visit_compare_operation(comparison)
 
         return super().visit_call(node)
 

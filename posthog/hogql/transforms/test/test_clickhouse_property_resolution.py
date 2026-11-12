@@ -187,7 +187,8 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
         prepared = prepare_ast_for_printing(
             parse_select(
                 f"SELECT tuple({property_expr} = true, true = {property_expr}, {property_expr} = false, "
-                f"{property_expr} != true) FROM events" + (f" GROUP BY {property_expr}" if grouped else "")
+                f"{property_expr} != true, equals({property_expr}, true)) FROM events"
+                + (f" GROUP BY {property_expr}" if grouped else "")
             ),
             context,
             "clickhouse",
@@ -214,12 +215,12 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
             },
         )
         assert [row[0] for row in rows] == [
-            (1, 1, 0, 0),
-            (1, 1, 0, 0),
-            (0, 0, 1, 1),
-            (0, 0, 1, 1),
-            (0, 0, 0, 1),
-            (0, 0, 0, 1),
+            (1, 1, 0, 0, 1),
+            (1, 1, 0, 0, 1),
+            (0, 0, 1, 1, 0),
+            (0, 0, 1, 1, 0),
+            (0, 0, 0, 1, 0),
+            (0, 0, 0, 1, 0),
         ]
 
     @parameterized.expand(
