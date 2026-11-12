@@ -115,16 +115,19 @@ The note sits between `<!-- posthog:setup:start -->` and `<!-- posthog:setup:end
 ## API tool catalog
 
 `hog api` runs the tools the PostHog MCP server offers, and calls the PostHog API directly with your login.
-The MCP server publishes those tools as data at `https://mcp.posthog.com/cli/catalog.json`, built from the tools it runs, so new tools reach hog without a new release.
+Each PostHog serves those tools as data at `/api/cli/catalog.json`, built from the code it runs, so new tools reach hog without a new release.
 
-- hog downloads the catalog when a `hog api` command runs and the saved copy is more than a day old. `hog api refresh` downloads it at once.
-- The copy lives in `api-catalog.json` in hog's folder. When a download fails, hog keeps that copy, and without one it runs the tools built into it.
-- Each tool in the catalog is a request plan: method, path, where each parameter goes, and how the response is trimmed. hog runs no code from it. Tools that need code, such as response redaction, name a module built into hog, and a plan that names one hog lacks uses the built-in tool.
+- hog downloads the catalog from the host it sends API calls to: `us.posthog.com` or `eu.posthog.com` for PostHog Cloud, or your own instance when it's self-hosted.
+- hog downloads it when a `hog api` command runs and the saved copy is more than a day old. `hog api refresh` downloads it at once.
+- The copy lives in `api-catalog.json` in hog's folder, one per host. When a download fails, hog keeps that copy, and without one it runs the tools built into it. Either way it waits an hour before it tries again.
+- A host that answers 404, such as a self-hosted instance from before the catalog existed, gets the tools built into hog.
+- Each tool in the catalog is a request plan: method, path, where each parameter goes, and how the response is trimmed. hog runs no code from it. Tools that need code, such as response redaction, name a module built into hog and its version, and a plan that names one hog lacks, or another version of it, uses the built-in tool.
 - hog drops any tool whose plan has a field, a parameter place or a step it doesn't know, and keeps its built-in version of that tool. `hog api refresh` lists them, and so does `--debug` on any `hog api` command.
 - A catalog in a format this hog can't read, or one that needs a newer hog, is ignored whole.
-- The catalog describes PostHog Cloud, so a self-hosted host uses the built-in tools. `HOG_API_CATALOG=bundled` does the same anywhere, for a run that must not change between days.
-- The US deploy of the MCP server builds the catalog for both regions. While the EU deploy runs an older version of the API, an EU login can get a tool the EU API doesn't serve yet, and the call fails with a hint to update the tool definitions.
+- `HOG_API_CATALOG=bundled` keeps the built-in tools, for a run that must not change between days.
 - A call that PostHog refuses for an unknown or invalid field, or that reaches a missing endpoint, says the tool definitions may be out of date, and how to get newer ones.
+
+To work on the catalog locally, run hog against your dev stack with `--host http://localhost:8010`. `bin/start-backend` builds the catalog of your checkout when the backend starts, and `pnpm --filter=@posthog/mcp run build:cli:catalog` builds it again after you change a tool.
 
 ## Skills
 

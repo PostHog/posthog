@@ -34,7 +34,7 @@ export default defineCommand({
             const hints: Partial<Record<string, string>> = {
                 needs_newer_hog: 'Update hog to get the newest tools.',
                 pinned: 'Unset HOG_API_CATALOG to download the catalog.',
-                self_hosted: 'Self-hosted PostHog uses the tools built into hog.',
+                not_served: 'Update this PostHog instance to serve the newest tools to hog.',
             }
             throw new HogError(
                 'catalog_not_used',
@@ -83,7 +83,7 @@ export default defineCommand({
             out.report({
                 result: 'The API tool catalog is up to date',
                 status: 'unchanged',
-                effects: [`${result.tools} tools from the MCP server`],
+                effects: [`${result.tools} tools in the downloaded catalog`],
                 warnings: dropped,
             })
             return
@@ -91,7 +91,7 @@ export default defineCommand({
         out.report({
             result: 'Updated the API tool catalog',
             effects: [
-                `${result.tools} tools from the MCP server`,
+                `${result.tools} tools in the downloaded catalog`,
                 ...(result.added.length ? [`New: ${listed(result.added)}`] : []),
                 ...(result.removed.length ? [`Removed: ${listed(result.removed)}`] : []),
             ],
