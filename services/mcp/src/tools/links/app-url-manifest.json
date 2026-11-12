@@ -534,6 +534,11 @@
         "params": [],
         "scope": "project"
     },
+    "customerAnalyticsProductActivity": {
+        "template": "/customer_analytics/product-activity",
+        "params": [],
+        "scope": "project"
+    },
     "customerAnalyticsTasks": {
         "template": "/customer_analytics/tasks",
         "params": [],
@@ -1867,6 +1872,11 @@
     "transactional": {
         "template": "/transactional",
         "params": [],
+        "scope": "project"
+    },
+    "transactionalCodeEmail": {
+        "template": "/transactional/code-emails/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "transactionalEmailLogEntry": {

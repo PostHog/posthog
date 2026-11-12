@@ -36,6 +36,27 @@ export function escapeControls(text: string): string {
     return text.replace(CONTROL, (char) => `\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
 }
 
+export interface Notes {
+    warnings?: readonly string[]
+    notes?: readonly string[]
+}
+
+export interface Report extends Notes {
+    // One line that says whether the command worked, such as "Added 2 skills".
+    result: string
+    // `unchanged`: there was nothing to do. `partial`: only some of the work happened. `failed`: none of it did.
+    status?: 'done' | 'unchanged' | 'partial' | 'failed'
+    // What changed on disk, in PostHog or in an agent's settings, one line each.
+    effects?: readonly string[]
+}
+
+const STATUS_MARKS: Record<NonNullable<Report['status']>, { mark: string; styles: Style[] }> = {
+    done: { mark: '✓', styles: ['green', 'bold'] },
+    unchanged: { mark: '•', styles: ['dim'] },
+    partial: { mark: '!', styles: ['yellow', 'bold'] },
+    failed: { mark: '✗', styles: ['red', 'bold'] },
+}
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/
 
 export class Output {
@@ -53,9 +74,15 @@ export class Output {
         this.runtime.writeStdout(`${text}\n`)
     }
 
-    json(value: unknown): void {
+    // `first` names top-level keys to print before the sorted rest, so a reader that only sees the
+    // start of a long answer, like an agent whose tool output is truncated, still sees them.
+    json(value: unknown, { first = [] }: { first?: readonly string[] } = {}): void {
         const sorted = sortKeys(value)
-        this.line(this.mode.format === 'json' ? JSON.stringify(sorted) : JSON.stringify(sorted, null, 2))
+        const ordered =
+            first.length > 0 && sorted !== null && typeof sorted === 'object' && !Array.isArray(sorted)
+                ? withKeysFirst(sorted as Record<string, unknown>, first)
+                : sorted
+        this.line(this.mode.format === 'json' ? JSON.stringify(ordered) : JSON.stringify(ordered, null, 2))
     }
 
     // One JSON value per line, so a caller can stream and parse the lines one at a time.
@@ -114,6 +141,32 @@ export class Output {
         }
     }
 
+    // A command that changes something reads in one order: the result first, then what changed
+    // because of it, then anything else. A person sees whether it worked before any detail.
+    report({ result, status = 'done', effects = [], ...notes }: Report): void {
+        const { mark, styles } = STATUS_MARKS[status]
+        this.line(`${this.style(mark, ...styles)} ${result}`)
+        for (const effect of effects) {
+            this.line(`  ${effect}`)
+        }
+        this.notes(notes)
+    }
+
+    // Warnings, tips and next steps go after a command's result, apart from it.
+    notes({ warnings = [], notes = [] }: Notes): void {
+        if (warnings.length + notes.length === 0) {
+            return
+        }
+
+        this.line()
+        for (const warning of warnings) {
+            this.line(this.style(warning, 'yellow'))
+        }
+        for (const note of notes) {
+            this.line(note)
+        }
+    }
+
     error(error: HogError): void {
         const { message, hint } = printedFailure(error, this.mode.isCI)
         if (this.mode.format === 'json') {
@@ -158,6 +211,12 @@ function sortKeys(value: unknown): unknown {
         )
     }
     return value
+}
+
+function withKeysFirst(value: Record<string, unknown>, first: readonly string[]): Record<string, unknown> {
+    const leading = first.filter((key) => Object.hasOwn(value, key))
+    const rest = Object.keys(value).filter((key) => !leading.includes(key))
+    return Object.fromEntries([...leading, ...rest].map((key) => [key, value[key]]))
 }
 
 function cellText(value: unknown): string {

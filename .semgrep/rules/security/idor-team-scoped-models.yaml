@@ -69,6 +69,7 @@ rules:
                               |Action
                               |AEOBrand
                               |AEOCitationCheck
+                              |AEOEngineSetting
                               |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
@@ -98,6 +99,9 @@ rules:
                               |AutoresearchRun
                               |AutoresearchSuggestion
                               |AutoresearchTrainingRun
+                              |BaselineApproval
+                              |BaselineCommit
+                              |BaselineEntry
                               |BatchExport
                               |BatchExportBackfill
                               |BatchExportFileDownload
@@ -122,8 +126,10 @@ rules:
                               |ClusteringJob
                               |Cohort
                               |CohortBackfillChunk
+                              |CohortBackfillRefusal
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
+                              |RealtimeCohortRequest
                               |Comment
                               |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
@@ -257,6 +263,7 @@ rules:
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
+                              |HogFlowBatchJobAudienceMember
                               |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
@@ -311,12 +318,15 @@ rules:
                               |MessageRecipientPreference
                               |MessageSuppression
                               |MessageTemplate
+                              |MembershipCleanupCandidate
+                              |MembershipCleanupScan
                               |Metric
                               |MetricDailyQueryCount
                               |MetricRecordingRule
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
+                              |UsageSnapshot
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
                               |MCPCustomHarness
@@ -364,6 +374,8 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |Release
+                              |ReleaseImportState
+                              |ReleaseAutoLinkedFlag
                               |ReplayHighlightFeedEntry
                               |ReplayHighlightFeedState
                               |ReplayObservation
@@ -398,6 +410,7 @@ rules:
                               |SandboxSession
                               |ResourceLink
                               |ScoreDefinition
+                              |ScoreDefinitionInput
                               |SavedHeatmap
                               |HeatmapCaptureConfigVersion
                               |HeatmapCaptureRequest
@@ -431,6 +444,7 @@ rules:
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
+                              |SignalSourceFilterState
                               |SignalScoutConfig
                               |SignalScoutRun
                               |SignalScoutEmission
@@ -505,6 +519,7 @@ rules:
                               |TicketMacro
                               |TicketViewFavorite
                               |ZendeskImportJob
+                              |IntercomImportJob
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
@@ -631,6 +646,9 @@ rules:
                         |AutoresearchRun
                         |AutoresearchSuggestion
                         |AutoresearchTrainingRun
+                        |BaselineApproval
+                        |BaselineCommit
+                        |BaselineEntry
                         |BatchExport
                         |BatchExportBackfill
                         |BatchExportFileDownload
@@ -655,8 +673,10 @@ rules:
                         |ClusteringJob
                         |Cohort
                         |CohortBackfillChunk
+                        |CohortBackfillRefusal
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
+                        |RealtimeCohortRequest
                         |Comment
                         |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
@@ -787,6 +807,7 @@ rules:
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
+                        |HogFlowBatchJobAudienceMember
                         |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
@@ -836,11 +857,14 @@ rules:
                         |MessageRecipientPreference
                         |MessageSuppression
                         |MessageTemplate
+                        |MembershipCleanupCandidate
+                        |MembershipCleanupScan
                         |Metric
                         |MetricDailyQueryCount
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
+                        |UsageSnapshot
                         |MCPAuditEvent
                         |MCPCustomHarness
                         |MCPGatewayServer
@@ -886,6 +910,8 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |Release
+                        |ReleaseImportState
+                        |ReleaseAutoLinkedFlag
                         |ReplayHighlightFeedEntry
                         |ReplayHighlightFeedState
                         |ReplayObservation
@@ -920,6 +946,7 @@ rules:
                         |SandboxSession
                         |ResourceLink
                         |ScoreDefinition
+                        |ScoreDefinitionInput
                         |SavedHeatmap
                         |HeatmapCaptureConfigVersion
                         |HeatmapCaptureRequest
@@ -953,6 +980,7 @@ rules:
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
+                        |SignalSourceFilterState
                         |SignalScoutConfig
                         |SignalScoutRun
                         |SignalScoutEmission
@@ -1026,6 +1054,7 @@ rules:
                         |TicketMacro
                         |TicketViewFavorite
                         |ZendeskImportJob
+                        |IntercomImportJob
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview

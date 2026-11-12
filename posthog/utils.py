@@ -750,10 +750,7 @@ def _build_template_context(
             ).data
         elif request.user.pk:
             user = cast("User", request.user)
-            variant = deferred_app_context_variant(request, user) if template_name == "index.html" else None
-            if variant:
-                posthog_app_context["deferred_app_context_variant"] = variant
-            if variant == "test":
+            if template_name == "index.html" and defers_user_app_context(request):
                 # The page fetches the user's data from `app_context` while its JS loads.
                 posthog_app_context["deferred"] = True
                 posthog_distinct_id = user.distinct_id
@@ -862,39 +859,15 @@ def _build_template_context(
     return context
 
 
-DEFERRED_APP_CONTEXT_FLAG = "deferred-app-context"
 DEFERRED_APP_CONTEXT_PARAM = "deferred_app_context"
 
 
-def deferred_app_context_variant(request: HttpRequest, user: "User") -> Optional[str]:
+def defers_user_app_context(request: HttpRequest) -> bool:
     """
-    The variant of the app page. "test" leaves out the user's data and fetches it from `app_context` instead.
-    None means the user is outside the experiment.
-    The query param wins over the experiment, so a lab run can pick a side and a failed fetch can reload without it.
+    Whether the app page leaves out the user's data. The page then fetches it from `app_context` while its JS loads.
+    `?deferred_app_context=0` keeps the data in the page: the app reloads with it when that fetch fails.
     """
-    param = request.GET.get(DEFERRED_APP_CONTEXT_PARAM)
-    if param is not None:
-        return "test" if param == "1" else "control"
-    try:
-        variant = posthoganalytics.get_feature_flag(
-            DEFERRED_APP_CONTEXT_FLAG,
-            str(user.distinct_id),
-            person_properties={"email": user.email},
-            only_evaluate_locally=True,
-            # The SDK would report every signed-in user, so only the experiment's users are reported below.
-            send_feature_flag_events=False,
-        )
-        if isinstance(variant, str):
-            posthoganalytics.capture(
-                "$feature_flag_called",
-                distinct_id=str(user.distinct_id),
-                properties={"$feature_flag": DEFERRED_APP_CONTEXT_FLAG, "$feature_flag_response": variant},
-            )
-            return variant
-        return None
-    except Exception as e:
-        capture_exception(e)
-        return None
+    return request.GET.get(DEFERRED_APP_CONTEXT_PARAM) != "0"
 
 
 def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Optional[dict[str, Any]]:

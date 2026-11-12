@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this file system.",
+            "type": "string"
+        },
+        "new_path": {
+            "description": "Full new path for the entry, including its own name as the last segment, such as 'Experiments/Q4/Weekly signups'. Missing parent folders are created. Escape a '/' inside a name as '\\/'.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "new_path"],
+    "type": "object"
+}

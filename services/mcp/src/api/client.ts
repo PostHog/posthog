@@ -4,7 +4,9 @@ import { z } from 'zod'
 import { MCP_CLIENT_IP_HEADERS, signedClientIpHeaders } from '@/lib/client-ip-signature'
 import { getUserAgent } from '@/lib/constants'
 import {
+    describeTransportCause,
     ErrorCode,
+    ExperimentNotStartedError,
     formatSafeRequestTarget,
     hasTimeoutCause,
     isTimeoutError,
@@ -84,10 +86,11 @@ function waitUnlessAborted(ms: number, signal: AbortSignal | null | undefined): 
 // safe, so the agent does not have to guess if a write applied.
 const API_REQUEST_TIMEOUT_MS = 2 * 60 * 1000
 
-// Endpoints that run analytics queries can legitimately take minutes, so they keep a
-// wide bound. It still ends a request that never answers.
+// Endpoints that run analytics queries or chains of model calls (manifest drafting) can
+// legitimately take minutes, so they keep a wide bound. It still ends a request that never answers.
 const LONG_RUNNING_API_REQUEST_TIMEOUT_MS = 10 * 60 * 1000
-const LONG_RUNNING_API_PATH = /\/(query|run_insights|mcp_tools\/execute_sql)\/$|\/(max_tools|autoresearch)\//
+const LONG_RUNNING_API_PATH =
+    /\/(query|run_insights|mcp_tools\/execute_sql|external_data_sources\/draft_custom_manifest)\/$|\/(max_tools|autoresearch)\//
 
 function apiRequestTimeoutMs(url: string): number {
     return LONG_RUNNING_API_PATH.test(url.split('?')[0]!) ? LONG_RUNNING_API_REQUEST_TIMEOUT_MS : API_REQUEST_TIMEOUT_MS
@@ -743,7 +746,9 @@ export class ApiClient {
                     isSafeMethod &&
                     transportRetries < TRANSPORT_MAX_RETRIES
                 if (!canRetry) {
-                    console.error(`[API] Transport failure on ${method} ${formatSafeRequestTarget(url)}`)
+                    console.error(
+                        `[API] Transport failure on ${method} ${formatSafeRequestTarget(url)}: ${describeTransportCause(error)}`
+                    )
                     return {
                         success: false,
                         error: new PostHogTransportError({
@@ -760,7 +765,7 @@ export class ApiClient {
                 const delayMs = backoffMs / 2 + Math.random() * (backoffMs / 2)
                 transportRetries++
                 console.warn(
-                    `[API] Transport failure on ${method} ${formatSafeRequestTarget(url)}. Retrying in ${Math.round(delayMs)}ms (attempt ${transportRetries}/${TRANSPORT_MAX_RETRIES})`
+                    `[API] Transport failure on ${method} ${formatSafeRequestTarget(url)}: ${describeTransportCause(error)}. Retrying in ${Math.round(delayMs)}ms (attempt ${transportRetries}/${TRANSPORT_MAX_RETRIES})`
                 )
                 await waitUnlessAborted(delayMs, options?.signal)
                 continue
@@ -1139,6 +1144,19 @@ export class ApiClient {
                 )
             },
 
+            getHealth: async ({
+                experimentId,
+                signal,
+            }: {
+                experimentId: number
+                signal?: AbortSignal
+            }): Promise<Result<Schemas.ExperimentHealth>> => {
+                return this.fetchJson<Schemas.ExperimentHealth>(
+                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/health/`,
+                    { signal }
+                )
+            },
+
             getExposures: async ({
                 experimentId,
                 refresh = false,
@@ -1169,7 +1187,7 @@ export class ApiClient {
                 if (!experiment.start_date) {
                     return {
                         success: false,
-                        error: new Error(
+                        error: new ExperimentNotStartedError(
                             `Experiment "${experiment.name}" has not started yet. Exposure data is only available for started experiments.`
                         ),
                     }

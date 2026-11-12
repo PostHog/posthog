@@ -710,7 +710,13 @@ describe('ApiClient', () => {
             'keeps $transport transport diagnostics value-free without changing the request',
             async ({ transport, attempts }) => {
                 const privateValue = 'private-person@example.com'
-                const send = vi.fn().mockRejectedValue(new TypeError(`Invalid request: ${privateValue}`))
+                const send = vi.fn().mockRejectedValue(
+                    Object.assign(new TypeError(`Invalid request: ${privateValue}`), {
+                        cause: Object.assign(new Error(`connect ECONNREFUSED ${privateValue}`), {
+                            code: 'ECONNREFUSED',
+                        }),
+                    })
+                )
                 vi.stubGlobal('fetch', send)
                 const client = new ApiClient({
                     apiToken: 'phx_test',
@@ -723,8 +729,14 @@ describe('ApiClient', () => {
                         : client.request({ method: 'GET', path, responseType: transport })
                 const error = (await settle(pending)) as PostHogTransportError
                 expect(error).toBeInstanceOf(PostHogTransportError)
-                expect(error).toMatchObject({ attempts, retryable: true, timedOut: false })
+                expect(error).toMatchObject({
+                    attempts,
+                    retryable: true,
+                    timedOut: false,
+                    failure: 'TypeError > Error(ECONNREFUSED)',
+                })
                 expect(error).not.toHaveProperty('cause')
+                expect(error.message).not.toContain('ECONNREFUSED')
                 const diagnostics = JSON.stringify([
                     error.message,
                     vi.mocked(console.warn).mock.calls,
@@ -886,26 +898,27 @@ describe('ApiClient', () => {
             expect(mockFetch).toHaveBeenCalledTimes(2)
         })
 
-        it.each(['/api/environments/17/query/', '/api/environments/17/mcp_tools/execute_sql/'])(
-            'gives a query request to %s more time than the default deadline',
-            async (path) => {
-                stubStalledFetch()
-                const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
-                let settled = false
-                const pending = client
-                    .request({ method: 'POST', path })
-                    .finally(() => {
-                        settled = true
-                    })
-                    .catch((error) => error)
+        it.each([
+            '/api/environments/17/query/',
+            '/api/environments/17/mcp_tools/execute_sql/',
+            '/api/projects/17/external_data_sources/draft_custom_manifest/',
+        ])('gives a long-running request to %s more time than the default deadline', async (path) => {
+            stubStalledFetch()
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+            let settled = false
+            const pending = client
+                .request({ method: 'POST', path })
+                .finally(() => {
+                    settled = true
+                })
+                .catch((error) => error)
 
-                await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
-                expect(settled).toBe(false)
+            await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+            expect(settled).toBe(false)
 
-                await vi.runAllTimersAsync()
-                expect(await pending).toMatchObject({ timedOut: true })
-            }
-        )
+            await vi.runAllTimersAsync()
+            expect(await pending).toMatchObject({ timedOut: true })
+        })
 
         it('ends a request at its own shorter deadline', async () => {
             stubStalledFetch()

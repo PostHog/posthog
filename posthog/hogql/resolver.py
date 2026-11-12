@@ -25,6 +25,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -143,7 +144,7 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
 # re-executed per shard of a distributed outer scan: sharded tables, and tables on another
 # cluster (log_entries is a Distributed over the aux cluster, so a plain IN makes every shard
 # of the outer query issue its own remote read against aux).
-_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, LogEntriesTable)
+_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, FlagEvaluationsTable, LogEntriesTable)
 _GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
@@ -3203,6 +3204,7 @@ class Resolver(CloningVisitor):
             self._record_saved_query_read(database_table.id, is_user_view=type(database_table) is SavedQuery)
         elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
             self._record_saved_query_read(database_table.saved_query_id, is_user_view=True)
+            self.context.materialized_saved_query_ids.add(database_table.saved_query_id)
         elif isinstance(database_table, S3Table) and database_table.table_id is not None:
             self.context.referenced_warehouse_table_ids.add(database_table.table_id)
             self._record_direct_read(database_table.table_id)

@@ -200,6 +200,44 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('loading older pages of only live recordings', () => {
+        const page = (index: number, ongoing: boolean, hasNext: boolean): Record<string, unknown> => ({
+            has_next: hasNext,
+            next_cursor: `cursor-${index}`,
+            results: [{ ...aRecording, id: `recording-${index}`, ongoing }],
+        })
+
+        it.each([
+            { name: 'stops at the cap', watchLayout: true, lastPage: null, requests: 5 },
+            { name: 'stops when there is no next page', watchLayout: true, lastPage: 2, requests: 3 },
+            { name: 'does not continue outside the watch layout', watchLayout: false, lastPage: null, requests: 2 },
+        ])('$name', async ({ watchLayout, lastPage, requests }) => {
+            let served = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings': () => {
+                        const index = served++
+                        return [200, page(index, index > 0, index !== lastPage)]
+                    },
+                },
+            })
+            clearMemoizedListResponses()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_WATCH_LAYOUT]: 'compact' })
+            logic = sessionRecordingsPlaylistLogic({ logicKey: `live-pages-${requests}`, watchLayout })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+            logic.actions.maybeLoadSessionRecordings('older')
+            await expectLogic(logic).toDispatchActions(
+                Array.from({ length: requests - 1 }, () => 'loadSessionRecordingsSuccess')
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(served).toBe(requests)
+        })
+    })
+
     describe('global logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
@@ -820,6 +858,19 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 .toMatchValues({
                     filters: { ...getDefaultFilters(), filter_group: filterGroup },
                 })
+        })
+
+        it("leaves another scene's array of filters in the URL alone", async () => {
+            const webAnalyticsFilters = [
+                { type: 'session', key: '$channel_type', value: 'AI', operator: PropertyOperator.Exact },
+            ]
+
+            await expectLogic(logic, () => {
+                router.actions.push('/web', { filters: webAnalyticsFilters })
+            })
+                .toNotHaveDispatchedActions(['setFilters'])
+                .toMatchValues({ filters: getDefaultFilters() })
+            expect(router.values.searchParams.filters).toEqual(webAnalyticsFilters)
         })
 
         describe('session_ids filter', () => {

@@ -71,6 +71,9 @@ class SignalSourceTableConfig(BaseModel):
     # Optional ORDER BY expression (HogQL) for the fetcher's query, so the `max_records` limit keeps the
     # most important records instead of an arbitrary subset
     order_by: str | None = None
+    # A unique column that breaks ties on the partition field, so a fetch that pages through a window
+    # oldest first resumes after the exact last row instead of skipping rows that share its timestamp
+    cursor_id_field: str | None = None
     # Max records to process per sync
     max_records: int = 1000
     # Set to True when the source stores datetime values as strings (e.g. GitHub JSON fields)
@@ -198,7 +201,10 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.front_conversations import FRONT_CONFIG
     from products.signals.backend.emission.gainsight_px_survey_responses import GAINSIGHT_PX_CONFIG
     from products.signals.backend.emission.gitea_issues import GITEA_CONFIG
+    from products.signals.backend.emission.github_code_scanning_alerts import GITHUB_CODE_SCANNING_ALERTS_CONFIG
+    from products.signals.backend.emission.github_dependabot_alerts import GITHUB_DEPENDABOT_ALERTS_CONFIG
     from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
+    from products.signals.backend.emission.github_secret_scanning_alerts import GITHUB_SECRET_SCANNING_ALERTS_CONFIG
     from products.signals.backend.emission.gitlab_issues import GITLAB_CONFIG
     from products.signals.backend.emission.google_play_console_error_issues import (
         GOOGLE_PLAY_CONSOLE_ERROR_ISSUES_CONFIG,
@@ -271,6 +277,11 @@ def _register_all_emitters() -> None:
 
     register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
     register_signal_source(ExternalDataSourceType.GITHUB, "issues", GITHUB_ISSUES_CONFIG)
+    register_signal_source(ExternalDataSourceType.GITHUB, "dependabot_alerts", GITHUB_DEPENDABOT_ALERTS_CONFIG)
+    register_signal_source(ExternalDataSourceType.GITHUB, "code_scanning_alerts", GITHUB_CODE_SCANNING_ALERTS_CONFIG)
+    register_signal_source(
+        ExternalDataSourceType.GITHUB, "secret_scanning_alerts", GITHUB_SECRET_SCANNING_ALERTS_CONFIG
+    )
     register_signal_source(ExternalDataSourceType.LINEAR, "issues", LINEAR_ISSUES_CONFIG)
     register_signal_source(ExternalDataSourceType.JIRA, "issues", JIRA_ISSUES_CONFIG)
     register_signal_source(ExternalDataSourceType.PGANALYZE, "issues", PGANALYZE_ISSUES_CONFIG)

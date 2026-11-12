@@ -9,8 +9,8 @@ import { Checkbox } from './checkbox'
 import { InputGroup, InputGroupInput } from './input-group'
 import { Kbd } from './kbd'
 import { cn } from './lib/utils'
-import { MenuItemBody } from './menu-item-body'
 import { MenuEmpty } from './menu-empty'
+import { MenuItemBody } from './menu-item-body'
 import { MenuLabel } from './menu-label'
 import { RadioIndicator } from './radio-group'
 import { hasTooltipContent, withTooltip } from './with-tooltip'
@@ -56,16 +56,28 @@ const DropdownMenuTrigger = React.forwardRef<HTMLButtonElement, MenuPrimitive.Tr
 const DropdownMenuContent = React.forwardRef<
     React.ComponentRef<typeof MenuPrimitive.Popup>,
     MenuPrimitive.Popup.Props &
-        Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'> & {
+        Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'> &
+        Pick<MenuPrimitive.Portal.Props, 'container'> & {
             /** Drops the padding and scrolling, for content that lays out and scrolls on its own. */
             flush?: boolean
         }
 >(function DropdownMenuContent(
-    { align = 'start', alignOffset = 0, side = 'bottom', sideOffset = 4, className, anchor, flush, children, ...props },
+    {
+        align = 'start',
+        alignOffset = 0,
+        side = 'bottom',
+        sideOffset = 4,
+        className,
+        anchor,
+        container,
+        flush,
+        children,
+        ...props
+    },
     ref
 ) {
     return (
-        <MenuPrimitive.Portal>
+        <MenuPrimitive.Portal container={container}>
             <MenuPrimitive.Positioner
                 data-quill
                 data-quill-portal="popover"
@@ -281,7 +293,7 @@ const DropdownMenuCheckboxItem = React.forwardRef<
                 data-slot="dropdown-menu-checkbox-item-indicator"
             >
                 <Checkbox size="sm" tabIndex={-1} />
-                <MenuPrimitive.CheckboxItemIndicator className="absolute">
+                <MenuPrimitive.CheckboxItemIndicator className="absolute inset-0 flex items-center justify-center">
                     <Checkbox size="sm" checked tabIndex={-1} />
                 </MenuPrimitive.CheckboxItemIndicator>
             </span>
@@ -326,7 +338,7 @@ const DropdownMenuRadioItem = React.forwardRef<
                 data-slot="dropdown-menu-radio-item-indicator"
             >
                 <RadioIndicator size="sm" />
-                <MenuPrimitive.RadioItemIndicator className="absolute">
+                <MenuPrimitive.RadioItemIndicator className="absolute inset-0 flex items-center justify-center">
                     <RadioIndicator size="sm" checked />
                 </MenuPrimitive.RadioItemIndicator>
             </span>
