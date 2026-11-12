@@ -59,6 +59,7 @@ import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
+import { IntercomImportSection } from 'products/conversations/frontend/scenes/settings/IntercomImportSection'
 import { LearnFromSupportSection } from 'products/conversations/frontend/scenes/settings/LearnFromSupportSection'
 import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
@@ -1701,9 +1702,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'conversations-imports',
                 title: 'Imports',
                 description: 'Import historical support data from external tools into Support.',
-                component: <ZendeskImportSection />,
+                component: (
+                    <>
+                        <ZendeskImportSection />
+                        <IntercomImportSection />
+                    </>
+                ),
                 allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['import', 'zendesk', 'migrate', 'ticket', 'support', 'conversation'],
+                keywords: ['import', 'zendesk', 'intercom', 'migrate', 'ticket', 'support', 'conversation'],
             },
             {
                 id: 'conversations-macros',

@@ -22,6 +22,7 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     extend_schema,
     extend_schema_field,
+    extend_schema_serializer,
     extend_schema_view,
 )
 from rest_framework import exceptions, serializers, status, viewsets
@@ -84,6 +85,7 @@ from products.messaging.backend.facade.transactional_email import (
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
+    EmailTracking,
     FieldNotAccepted,
     MessageTooLarge,
     QueuedEmail,
@@ -107,6 +109,7 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     UPLOAD_ROUTE,
     AddressListField,
     AttachmentListField,
+    EmailTrackingField,
     attachment_size,
     field_not_accepted_refusal,
     refused_attachment,
@@ -534,12 +537,15 @@ CODE_SEND_FIELDS = (
     "from",
     "reply_to",
     "capture_engagement",
+    "tracking",
+    "sensitive",
     *CODE_SEND_EXTRA_FIELDS,
 )
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
 SES_TAG_VALUE_MAX_LENGTH = 256
 
 
+@extend_schema_serializer(deprecate_fields=["capture_engagement"])
 class SendEmailSerializer(TransactionalEmailMessageSerializer):
     template_id = serializers.UUIDField(
         required=False,
@@ -613,9 +619,28 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     )
     capture_engagement = OmittableBooleanField(
         required=False,
-        help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code "
-        "rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned "
+        help_text="Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, "
+        "clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. "
+        "Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned "
         "engagement capture off captures nothing, whatever the send says.",
+    )
+    tracking = EmailTrackingField(
+        required=False,
+        help_text="What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures "
+        "engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object "
+        "sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks "
+        "opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see "
+        "`sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a "
+        "redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open "
+        "tracking. A project whose admin turned engagement capture off captures nothing, whatever the send "
+        "says. The object form needs a JSON body.",
+    )
+    sensitive = OmittableBooleanField(
+        required=False,
+        help_text="Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails "
+        "keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and "
+        "keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. "
+        "It can't be false when the matched template is sensitive.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -667,6 +692,13 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if unknown is not None:
             raise serializers.ValidationError(
                 {unknown: "PostHog doesn't take this field, so it doesn't send the email without it."}
+            )
+        if "tracking" in sent and "capture_engagement" in sent:
+            raise serializers.ValidationError(
+                {
+                    "tracking": "Send either `tracking` or `capture_engagement`. `capture_engagement` is deprecated, "
+                    "so set `tracking.engagement` instead."
+                }
             )
         if "message_data" in sent:
             raise serializers.ValidationError(
@@ -973,7 +1005,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
             ),
-            addressed={"template_id": str(template.id)},
+            usage_properties={"template_id": str(template.id)},
         )
 
     def _queue_send(
@@ -981,7 +1013,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         request: Any,
         send: Callable[[str | None], QueuedEmail],
         *,
-        addressed: dict[str, str],
+        usage_properties: Mapping[str, Any],
         unavailable: Callable[[], exceptions.APIException] = TransactionalEmailUnavailable,
     ) -> Response:
         idempotency_key = request.headers.get("Idempotency-Key")
@@ -1009,9 +1041,9 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             raise unavailable() from None
         finally:
             with transactional_email_stage("usage_event"):
-                self._report_transactional_email_send(request, {**addressed, **outcome})
+                self._report_transactional_email_send(request, {**usage_properties, **outcome})
         if not queued.replayed:
-            self._report_first_code_send_after_commit(request, addressed.get("addressed_by", "template_id"))
+            self._report_first_code_send_after_commit(request, usage_properties.get("addressed_by", "template_id"))
         return Response(
             SendTransactionalEmailResponseSerializer(queued).data,
             status=status.HTTP_202_ACCEPTED,
@@ -1531,7 +1563,10 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             text=data.get("text", ""),
             sender=data.get("from"),
             reply_to=tuple(data.get("reply_to", ())),
-            capture_engagement=data.get("capture_engagement", True),
+            tracking=data["tracking"]
+            if "tracking" in data
+            else EmailTracking(engagement=data.get("capture_engagement", True)),
+            sensitive=data.get("sensitive"),
             cc=tuple(data.get("cc") or ()),
             bcc=tuple(data.get("bcc") or ()),
             attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
@@ -1545,7 +1580,12 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 distinct_id=_distinct_id(data),
                 idempotency_key=idempotency_key,
             ),
-            addressed={"addressed_by": "template_key"},
+            usage_properties={
+                "addressed_by": "template_key",
+                "tracking_opens": email.tracking.opens,
+                "tracking_clicks": email.tracking.clicks,
+                "tracking_engagement": email.tracking.engagement,
+            },
             unavailable=unconfirmed_email_send,
         )
 

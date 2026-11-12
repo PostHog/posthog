@@ -297,6 +297,16 @@ class TestEmailDomainPartialSesState(EmailDomainApiTestCase):
 
         assert (response.status_code, self.is_verified(sender)) == (status.HTTP_200_OK, False)
 
+    def test_verifying_after_ses_gave_up_on_the_mail_from_record_restarts_its_setup(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.world.ses.identities[DOMAIN].mail_from_setup_expired = True
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+
+        response = self.verify(sender)
+
+        assert (response.status_code, self.is_verified(sender)) == (status.HTTP_200_OK, True)
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"feedback.{DOMAIN}"
+
 
 class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
     def test_verifying_a_domain_leaves_other_teams_senders_on_it_untouched(self) -> None:
