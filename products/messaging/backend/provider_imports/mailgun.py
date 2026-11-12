@@ -50,6 +50,7 @@ from products.messaging.backend.provider_imports.mailgun_templates import Conver
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
+    code_email_keys,
     import_categories,
     import_opt_outs,
     import_suppressions,
@@ -854,7 +855,9 @@ def _save_templates(
         for version in template.get("selected", [])
     ]
     # A deleted template counts too: importing again must not bring back one someone deleted.
-    taken = set(MessageTemplate.objects.filter(team_id=context.team_id, key__in=keys).values_list("key", flat=True))
+    taken = set(
+        MessageTemplate.objects.filter(team_id=context.team_id, key__in=keys).values_list("key", flat=True)
+    ) | code_email_keys(context.team_id, keys)
     items: list[ImportItem] = []
     counts: Counter[str] = Counter()
     for template in templates:

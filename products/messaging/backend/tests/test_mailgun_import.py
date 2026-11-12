@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -20,6 +21,7 @@ from products.messaging.backend.models.message_preferences import (
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
+from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.mailgun import MailgunImportProvider
@@ -182,6 +184,13 @@ class TestMailgunImport(BaseTest):
         assert member_calls and all(call["query"]["subscribed"] == "false" for call in member_calls)
         assert next(call for call in member_calls if "acme" in call["path"])["on_behalf_of"] == "sub-acme"
         assert run.progress["mailing_lists"]["counts"]["members"] == 4
+
+    def test_a_key_a_code_email_sends_under_is_left_to_it(self) -> None:
+        TransactionalEmailKey.objects.for_team(self.team.id).create(team=self.team, key="welcome", hog_flow_id=uuid4())
+
+        self._run(["templates"])
+
+        assert not MessageTemplate.objects.filter(team_id=self.team.id, key="welcome").exists()
 
     def test_templates_keep_their_scope_and_never_send_on_their_own(self) -> None:
         run = self._run(["templates"])
