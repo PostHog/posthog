@@ -130,11 +130,12 @@ def guarded_content(hog: Optional[str], inputs: Any, inputs_schema: Any, mapping
     return (
         # The serializer trims the code it saves.
         (hog or "").strip(),
-        _schema_signature(inputs_schema),
+        # Inputs are evaluated in schema order, so a reorder counts as a change.
+        list(_schema_signature(inputs_schema).items()),
         _inputs_signature(inputs, inputs_schema, secret_keys),
         [
             (
-                _schema_signature(mapping.get("inputs_schema")),
+                list(_schema_signature(mapping.get("inputs_schema")).items()),
                 _inputs_signature(mapping.get("inputs"), mapping.get("inputs_schema"), set()),
             )
             for mapping in mappings or []
