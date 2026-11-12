@@ -27,6 +27,7 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpCohortMembershipTriggerConsumer } from './cdp/consumers/cdp-cohort-membership-trigger.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronDeadLetterWorker } from './cdp/consumers/cdp-cyclotron-dead-letter-worker.consumer'
 import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
 import { CdpCyclotronWorkerEmailSandbox } from './cdp/consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
@@ -177,11 +178,7 @@ export class PluginServer implements NodeServer {
         }
 
         // Create shared job queue backends — each consumer gets the one(s) it needs
-        // The dead letter worker would divert its own poisoned batches back onto the topic it reads.
-        const crashGuardSettings =
-            capabilities.cdpCyclotronWorker && this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND !== DEAD_LETTER_QUEUE
-                ? createCrashGuardSettings(this.config)
-                : null
+        const crashGuardSettings = capabilities.cdpCyclotronWorker ? createCrashGuardSettings(this.config) : null
         const kafkaQueue = new CyclotronJobQueueKafka(
             this.config.KAFKA_CLIENT_RACK,
             this.config,
@@ -276,7 +273,11 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorker) {
             serviceLoaders.push(async () => {
-                const worker = new CdpCyclotronWorker(this.config, { ...cdpDeps!, crashGuardSettings }, kafkaQueue)
+                const deps = { ...cdpDeps!, crashGuardSettings }
+                const worker =
+                    this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND === DEAD_LETTER_QUEUE
+                        ? new CdpCyclotronDeadLetterWorker(this.config, deps, kafkaQueue)
+                        : new CdpCyclotronWorker(this.config, deps, kafkaQueue)
                 await worker.start()
                 return worker.service
             })
