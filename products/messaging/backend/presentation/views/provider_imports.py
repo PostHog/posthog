@@ -16,6 +16,8 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
+from posthog.permissions import get_authenticator_scopes
+from posthog.scopes import scopes_not_covered
 
 from products.messaging.backend.facade.provider_imports import (
     IMPORT_PROVIDER_CHOICES,
@@ -190,6 +192,18 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_project_access("editor")
 
         data = request.validated_data
+        # The import runs in the background without this request, so the key's scopes are checked here.
+        scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+        if (
+            "automations" in data["steps"]
+            and scopes is not None
+            and "*" not in scopes
+            and scopes_not_covered(scopes, ["cohort:write"])
+        ):
+            raise PermissionDenied(
+                "Importing automations can create cohorts, so this key needs the cohort:write scope. "
+                "Leave out Automations, or use a key that has it."
+            )
         if data["provider"] not in {provider.key for provider in self._providers()}:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
         try:
