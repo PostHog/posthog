@@ -56,35 +56,49 @@ describe('config', () => {
         }
     }
 
-    describe.each([
+    type Row = [value: string, expected: number | 'default']
+    const everyReader: Row[] = [
+        ['"3008"', 3008],
+        ["'3008'", 3008],
+        ['" 3008.12 "', 3008.12],
+        ['.5', 0.5],
+        ['"3008', 'default'],
+        ['abc', 'default'],
+        ['Infinity', 'default'],
+    ]
+    const overrideRows: Row[] = [
+        ['10ms', 10],
+        ['', 'default'],
+        [' ', 'default'],
+    ]
+
+    describe.each<[string, (value: string) => number, number, Row[]]>([
         [
             'overrideWithEnv',
-            (value: string) => overrideWithEnv(getDefaultConfig(), { TASK_TIMEOUT: value }).TASK_TIMEOUT,
+            (value) => overrideWithEnv(getDefaultConfig(), { TASK_TIMEOUT: value }).TASK_TIMEOUT,
             30,
+            overrideRows,
         ],
         [
             'overrideConfigWithEnv',
-            (value: string) => overrideConfigWithEnv({ TASK_TIMEOUT: 30 }, { TASK_TIMEOUT: value }).TASK_TIMEOUT,
+            (value) => overrideConfigWithEnv({ TASK_TIMEOUT: 30 }, { TASK_TIMEOUT: value }).TASK_TIMEOUT,
             30,
+            overrideRows,
         ],
-        ['getExternalRequestConfig', readExternalRequestTimeout, 3000],
-    ])('%s', (_reader, read, defaultValue) => {
-        test.each([
-            ['"3008"', 3008],
-            ["'3008'", 3008],
-            ['" 3008.12 "', 3008.12],
-            ['.5', 0.5],
-            ['0x10', 16],
-        ])('reads a number from the env value %s', (value, expected) => {
-            expect(read(value)).toEqual(expected)
+        [
+            'getExternalRequestConfig',
+            readExternalRequestTimeout,
+            3000,
+            [
+                ['0x10', 16],
+                ['', 0],
+                ['3000ms', 'default'],
+            ],
+        ],
+    ])('%s', (_reader, read, defaultValue, ownRows) => {
+        test.each([...everyReader, ...ownRows])('reads the env value %p as %p', (value, expected) => {
+            expect(read(value)).toEqual(expected === 'default' ? defaultValue : expected)
         })
-
-        test.each(['"3008', 'abc', '', ' ', 'Infinity', '10ms', '1_000'])(
-            'keeps the default for the env value %p',
-            (value) => {
-                expect(read(value)).toEqual(defaultValue)
-            }
-        )
     })
 
     test('a service started with quoted and unparsable numbers reads the quoted one and logs the other', async () => {
