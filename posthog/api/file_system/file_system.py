@@ -44,7 +44,6 @@ from posthog.api.file_system.access_levels import (
     file_system_ref_alternate_spellings,
     file_system_resource,
     filter_workflow_files_by_access_level,
-    is_uuid_keyed_file_type,
     keep_workflow_files_in_scoped_teams,
 )
 from posthog.api.file_system.deletion import (
@@ -213,7 +212,10 @@ def _ref_lookup_q(ref: str, entry_type: str | None = None) -> Q:
 
 def _stored_spellings(team_id: int, file_type: str, refs: set[str], any_surface: Q) -> dict[str, set[str]]:
     spellings = {ref: {ref} for ref in refs}
-    uuid_keyed = is_uuid_keyed_file_type(file_type)
+    # Only workflow and template rows can keep a spelling other than the canonical id, because rows of
+    # those types were written before refs were canonicalized. Matching every UUID-keyed type by its key
+    # would scan the team's rows of that type on each delete, so other types match their exact ref.
+    uuid_keyed = file_type in WORKFLOW_FILE_SYSTEM_TYPES
     if uuid_keyed:
         canonical_by_key = {key: ref for ref in refs if (key := uuid_ref_key(ref))}
         matching = uuid_refs_q(refs)
