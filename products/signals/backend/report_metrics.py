@@ -49,6 +49,7 @@ MAX_METRIC_UNIT_LENGTH = 40
 # Trailing longitudinal buckets saved next to the value snapshot so an inbox row can draw the trend
 # without running the query. Two weeks of daily buckets is enough shape for a row-sized bar or line strip.
 MAX_METRIC_SERIES_POINTS = 14
+MAX_SERIES_BUCKET_LABEL_LENGTH = 32
 # `value_at` is authored content, not a server timestamp, so allow a small clock-skew margin before
 # treating a snapshot time as an impossible future one.
 METRIC_VALUE_AT_MAX_CLOCK_SKEW = timedelta(minutes=5)
@@ -435,6 +436,13 @@ class ReportMetric(BaseModel):
             "snapshot series is available."
         ),
     )
+    series_buckets: list[str] | None = Field(
+        default=None,
+        description=(
+            "The Trends bucket label of each `series` point, such as `2026-11-09` or `2026-11-09 10:00:00` in the "
+            "project's timezone. Saved by snapshot refreshes; null when the buckets were not recorded."
+        ),
+    )
     value_format: ReportMetricValueFormat = Field(
         default="number",
         description=(
@@ -551,6 +559,15 @@ class ReportMetric(BaseModel):
             raise ValueError(f"must not exceed {MAX_METRIC_SERIES_POINTS} points")
         if any(not math.isfinite(point) for point in value):
             raise ValueError("must contain only finite numbers")
+        return value
+
+    @field_validator("series_buckets")
+    @classmethod
+    def series_buckets_must_be_short_labels(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and (
+            len(value) > MAX_METRIC_SERIES_POINTS or any(len(label) > MAX_SERIES_BUCKET_LABEL_LENGTH for label in value)
+        ):
+            raise ValueError(f"must hold at most {MAX_METRIC_SERIES_POINTS} labels, each a date or datetime")
         return value
 
     @field_validator("value_at")

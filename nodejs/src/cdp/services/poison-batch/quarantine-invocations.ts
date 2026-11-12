@@ -132,13 +132,18 @@ const withReadableFirstScheduledAt = (state: Record<string, unknown>): Record<st
     if (firstScheduledAt === undefined) {
         return state
     }
-    const readable =
-        typeof firstScheduledAt === 'string' &&
-        CLICKHOUSE_DATETIME.test(firstScheduledAt) &&
-        // A day past the end of its month passes the pattern, and Date rolls it over to the next month.
-        new Date(`${firstScheduledAt.slice(0, 19).replace(' ', 'T')}Z`).toISOString().slice(0, 19) ===
-            firstScheduledAt.slice(0, 19).replace(' ', 'T')
-    return readable ? state : rest
+    return typeof firstScheduledAt === 'string' && isReadableDateTime(firstScheduledAt) ? state : rest
+}
+
+const isReadableDateTime = (value: string): boolean => {
+    if (!CLICKHOUSE_DATETIME.test(value)) {
+        return false
+    }
+    const instant = value.slice(0, 19).replace(' ', 'T')
+    const parsed = new Date(`${instant}Z`)
+    // A time such as 08:60:00 gives an invalid Date, and toISOString would throw on it. A day past the end of
+    // its month gives a valid Date in the next month, so the round trip catches it.
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 19) === instant
 }
 
 /**

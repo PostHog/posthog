@@ -290,82 +290,178 @@ describe('consumer', () => {
             ])
         })
 
-        it('should not corrupt backgroundTask array when task is not found (index = -1)', async () => {
-            // This test verifies proper handling when indexOf returns -1
-            // Expected correct behavior:
-            // 1. If task not found (index = -1), nothing should be removed from array
-            // 2. The task should not wait for any other tasks
-            // 3. The array should remain unchanged
+        const watchLoopOutcome = (): Promise<unknown> =>
+            Promise.race([
+                consumer['consumerLoop']!.then(
+                    () => 'stopped cleanly',
+                    (error) => error
+                ),
+                delay(50).then(() => 'still consuming'),
+            ])
 
-            // Set up initial background tasks
-            await simulateMessageWithBackgroundTask(
-                [createKafkaMessage({ offset: 1, partition: 0 })],
-                Promise.resolve()
-            )
-            await simulateMessageWithBackgroundTask(
-                [createKafkaMessage({ offset: 2, partition: 0 })],
-                Promise.resolve()
-            )
-            await simulateMessageWithBackgroundTask(
-                [createKafkaMessage({ offset: 3, partition: 0 })],
-                Promise.resolve()
-            )
-
-            // Wait for tasks to complete and clear
-            await delay(100)
-
-            // Now add 3 pending tasks
+        it('stores no offsets once a background task fails, and stops the loop so the batch replays', async () => {
+            const failure = new Error('Connection terminated unexpectedly')
             const p1 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
             const p2 = triggerablePromise()
-            const p3 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 2, partition: 0 })], p2.promise)
+            const loopOutcome = watchLoopOutcome()
 
-            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 4, partition: 0 })], p1.promise)
-            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 5, partition: 0 })], p2.promise)
-            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 6, partition: 0 })], p3.promise)
-
-            const tasksBeforeCorruption = [...consumer['backgroundTask']]
-            expect(tasksBeforeCorruption.map((t) => t.promise)).toEqual([p1.promise, p2.promise, p3.promise])
-
-            // Simulate a task that completes but is somehow not in the array
-            // This could happen due to race conditions or double-completion
-            const orphanTask = Promise.resolve()
-
-            // Manually inject the orphan task's finally handler using the FIXED logic
-            // This includes the error handling that should trigger when index = -1
-            const backgroundTaskWithFinally = orphanTask.finally(async () => {
-                const index = consumer['backgroundTask'].findIndex((t) => t.promise === orphanTask)
-                // This will be -1 since orphanTask is not in the array
-
-                // FIXED logic includes error detection and reporting
-                if (index < 0) {
-                    // In real code, this would captureException and increment metrics
-                    // For test, we just verify the logic path works
-                    expect(index).toBe(-1) // Confirm we're in the error case
-                }
-
-                const promisesToWait =
-                    index >= 0 ? consumer['backgroundTask'].slice(0, index).map((t) => t.promise) : []
-
-                // Only remove the task if it was actually found
-                if (index >= 0) {
-                    consumer['backgroundTask'].splice(index, 1)
-                }
-
-                await Promise.all(promisesToWait)
-            })
-
-            await backgroundTaskWithFinally
-
-            // The array should remain unchanged if the code handles -1 index properly
-            // With the bug, p3 would be incorrectly removed
-            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([p1.promise, p2.promise, p3.promise])
-
-            // Clean up
-            p1.resolve()
+            p1.reject(failure)
             p2.resolve()
-            p3.resolve()
-            await delay(100)
+            await delay(1)
+            consumeCallback(null, [])
+            await delay(1)
+
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+            await expect(loopOutcome).resolves.toBe(failure)
         })
+
+        type SettleStep = { resolve: number } | { reject: number } | { dispatchWithoutBackgroundTask: number }
+
+        it.each<{ name: string; pendingBatches: number; steps: SettleStep[]; storedOffsets: number[] }>([
+            {
+                name: 'the later batch fulfils first, then the earlier batch rejects',
+                pendingBatches: 2,
+                steps: [{ resolve: 2 }, { reject: 1 }],
+                storedOffsets: [],
+            },
+            {
+                name: 'the first batch fulfils, the second rejects, then the third fulfils',
+                pendingBatches: 3,
+                steps: [{ resolve: 1 }, { reject: 2 }, { resolve: 3 }],
+                storedOffsets: [2],
+            },
+            {
+                name: 'the middle batch rejects while the first is pending, then the first and third fulfil',
+                pendingBatches: 3,
+                steps: [{ reject: 2 }, { resolve: 1 }, { resolve: 3 }],
+                storedOffsets: [],
+            },
+            {
+                name: 'a batch with no background task arrives after a rejection',
+                pendingBatches: 1,
+                steps: [{ reject: 1 }, { dispatchWithoutBackgroundTask: 2 }],
+                storedOffsets: [],
+            },
+        ])(
+            'stores no offsets for a batch that settles after a failure when $name',
+            async ({ pendingBatches, steps, storedOffsets }) => {
+                const tasks: ReturnType<typeof triggerablePromise>[] = []
+                for (let offset = 1; offset <= pendingBatches; offset++) {
+                    const task = triggerablePromise()
+                    tasks.push(task)
+                    await simulateMessageWithBackgroundTask(
+                        [createKafkaMessage({ offset, partition: 0 })],
+                        task.promise
+                    )
+                }
+                void consumer['consumerLoop']!.catch(() => {})
+
+                for (const step of steps) {
+                    if ('resolve' in step) {
+                        tasks[step.resolve - 1].resolve()
+                    } else if ('reject' in step) {
+                        tasks[step.reject - 1].reject(new Error('background task failed'))
+                    } else {
+                        consumeCallback(null, [
+                            createKafkaMessage({ offset: step.dispatchWithoutBackgroundTask, partition: 0 }),
+                        ])
+                    }
+                    await delay(1)
+                }
+
+                expect(mockRdKafkaConsumer.offsetsStore.mock.calls.map(([offsets]) => offsets[0].offset)).toEqual(
+                    storedOffsets
+                )
+            }
+        )
+
+        it.each([undefined, null, 0, '', false])(
+            'stores no offsets and stops the loop with an Error when a background task rejects with %p',
+            async (reason) => {
+                const p1 = triggerablePromise()
+                await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+                const p2 = triggerablePromise()
+                await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 2, partition: 0 })], p2.promise)
+                const loopOutcome = watchLoopOutcome()
+
+                p1.reject(reason)
+                p2.resolve()
+                await delay(1)
+                consumeCallback(null, [])
+                await delay(1)
+
+                expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+                await expect(loopOutcome).resolves.toBeInstanceOf(Error)
+            }
+        )
+
+        it('stores no offsets and removes no other task when its own task is missing from the queue', async () => {
+            const p1 = triggerablePromise()
+            const other = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+            consumer['backgroundTask'] = [{ promise: other.promise, createdAt: Date.now() }]
+
+            p1.resolve()
+            await delay(1)
+
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([other.promise])
+            other.resolve()
+        })
+
+        it('stores no offsets for a background task that rejects during disconnect, and still disconnects', async () => {
+            const p1 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+            const loopOutcome = watchLoopOutcome()
+            const disconnecting = consumer.disconnect().catch(() => {})
+
+            p1.reject(undefined)
+            consumeCallback(null, [])
+            await disconnecting
+
+            await expect(loopOutcome).resolves.toBeInstanceOf(Error)
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+            expect(mockRdKafkaConsumer.disconnect).toHaveBeenCalled()
+        })
+
+        it('stores no offsets for a background task that rejects during a revoke, and still unassigns', async () => {
+            mockRdKafkaConsumer.assignments.mockReturnValue([])
+            const p1 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+            void consumer['consumerLoop']!.catch(() => {})
+
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+            ])
+            p1.reject(new Error('background task failed'))
+            await delay(1)
+
+            expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
+                { topic: 'test-topic', partition: 0 },
+            ])
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+        })
+
+        it.each([new Error('background task failed'), undefined, 0])(
+            'refuses a manual offsetsStore after a background task rejects with %p',
+            async (reason) => {
+                const offsets = [{ topic: 'test-topic', partition: 0, offset: 1 }]
+                consumer.offsetsStore(offsets)
+                expect(mockRdKafkaConsumer.offsetsStore).toHaveBeenCalledWith(offsets)
+
+                const p1 = triggerablePromise()
+                await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+                void consumer['consumerLoop']!.catch(() => {})
+                p1.reject(reason)
+                await delay(1)
+                mockRdKafkaConsumer.offsetsStore.mockClear()
+
+                expect(() => consumer.offsetsStore(offsets)).toThrow()
+                expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+            }
+        )
     })
 
     describe('rebalancing', () => {

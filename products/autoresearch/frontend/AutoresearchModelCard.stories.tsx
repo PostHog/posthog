@@ -124,3 +124,8 @@ export const AwaitingCheckWithoutLikelyCount: Story = {
 export const Confirmed: Story = { args: { pipeline: CONFIRMED } }
 
 export const ConfirmedRetraining: Story = { args: { pipeline: { ...CONFIRMED, live_training_run: LIVE_RUN } } }
+
+export const AwaitingCheckNamedAsQuestion: Story = {
+    args: { pipeline: { ...BASE, name: 'Who will come back next week?', target_event: '$pageview' } },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}

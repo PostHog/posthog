@@ -1,5 +1,6 @@
 import type { ExperimentHealthFindingActionKind } from './experimentHealthFindingEvents'
 import { HealthFindingActionButton } from './HealthFindingActionButton'
+import type { HealthPanelFinding } from './healthPanelFindings'
 import { HealthPanelSection } from './HealthPanelSection'
 
 // What each action does and what it changes, so a reader can pick one before clicking.
@@ -45,6 +46,11 @@ const FIXES: Record<ExperimentHealthFindingActionKind, { title: string; descript
         description:
             "Users and events after the end date don't count in the results. In the next step you choose whether to roll out a variant or leave the feature flag as it is.",
     },
+    move_start_date: {
+        title: 'Move the start date',
+        description:
+            'Sets the start date to after the change, so the results leave out the exposures before it. Your users see no change.',
+    },
     freeze_exposure: {
         title: 'Freeze exposure',
         description:
@@ -54,9 +60,11 @@ const FIXES: Record<ExperimentHealthFindingActionKind, { title: string; descript
 
 export function HealthFindingFixes({
     actions,
+    evidence,
     onActedOn,
 }: {
     actions: ExperimentHealthFindingActionKind[]
+    evidence: HealthPanelFinding['evidence']
     onActedOn: (actionKind: ExperimentHealthFindingActionKind) => void
 }): JSX.Element {
     return (
@@ -68,7 +76,11 @@ export function HealthFindingFixes({
                             <span className="font-semibold">{FIXES[actionKind].title}</span>
                             <span className="text-secondary">{FIXES[actionKind].description}</span>
                         </div>
-                        <HealthFindingActionButton actionKind={actionKind} onClick={() => onActedOn(actionKind)} />
+                        <HealthFindingActionButton
+                            actionKind={actionKind}
+                            evidence={evidence}
+                            onClick={() => onActedOn(actionKind)}
+                        />
                     </li>
                 ))}
             </ul>

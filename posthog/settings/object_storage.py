@@ -109,7 +109,8 @@ INBOX_RANKING_TRAINING_HOLDOUT_DAYS = get_from_env("INBOX_RANKING_TRAINING_HOLDO
 # Serving publish (products/signals/dags/inbox_ranking/training/dag.py): once this many days have
 # passed since the last promotion, the daily publish serves the newest version of the served recipe
 # that passed the promotion gate. 0 turns the step off, and promotion is then only the manual
-# `inbox_ranking_promote_job`.
+# `inbox_ranking_promote_job`. A valid `interval_days` in the `inbox-ranking-auto-promotion` flag
+# payload takes precedence over this value.
 INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS = get_from_env("INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS", 3, type_cast=int)
 # Labels refresh sensor (products/signals/dags/inbox_ranking/dataset): how many stale labels
 # partitions one hourly tick rewrites after a FEATURE_SCHEMA_VERSION bump, newest first.

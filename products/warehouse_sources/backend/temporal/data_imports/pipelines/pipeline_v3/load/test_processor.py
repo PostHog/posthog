@@ -586,6 +586,62 @@ class TestMarkJobCompleted:
 
     @parameterized.expand(
         [
+            ("webhook_job_completes", "webhook", "Completed", "run-abc-a2", None, 2),
+            ("webhook_job_absorbed_by_failed", "webhook", "Failed", "run-abc-a2", None, None),
+            ("incremental_job_completes", "incremental", "Completed", "run-abc-a2", None, None),
+            ("run_uuid_without_attempt", "webhook", "Completed", "run-abc", None, None),
+            ("webhook_delete_fails", "webhook", "Completed", "run-abc-a2", OSError("s3 down"), 2),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.delete_consumed_webhook_files", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.run_completed_on_every_table", return_value=True)
+    @patch(f"{_PROCESSOR}.resume_schedule_after_ad_hoc_run")
+    @patch(f"{_PROCESSOR}.transaction")
+    @patch(f"{_PROCESSOR}.release_v3_pipeline_lock")
+    @patch(f"{_PROCESSOR}.ExternalDataJob.objects")
+    @patch(f"{_PROCESSOR}.finish_row_tracking", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.ExternalDataSchema.objects")
+    @patch(f"{_PROCESSOR}.update_external_job_status")
+    def test_deletes_webhook_files_only_when_a_webhook_job_completes(
+        self,
+        _case: str,
+        snapshot_sync_type: str,
+        resulting_status: str,
+        run_uuid: str,
+        delete_error: Exception | None,
+        deleted_attempt: int | None,
+        mock_update: MagicMock,
+        _schema_objects: MagicMock,
+        _finish_row_tracking: AsyncMock,
+        mock_job_objects: MagicMock,
+        mock_release: MagicMock,
+        _transaction: MagicMock,
+        _resume: MagicMock,
+        _every_table_completed: MagicMock,
+        mock_delete: AsyncMock,
+    ) -> None:
+        model = MagicMock()
+        model.status = resulting_status
+        model.schema_snapshot = {"sync_type": snapshot_sync_type}
+        mock_update.return_value = model
+        mock_delete.side_effect = delete_error
+        job = MagicMock()
+        job.workflow_run_id = "wf-run-1"
+        mock_job_objects.only.return_value.get.return_value = job
+        signal = self._make_signal(run_uuid=run_uuid)
+        signal.sync_type = "incremental"
+
+        _mark_job_completed(signal)
+
+        if deleted_attempt is not None:
+            mock_delete.assert_awaited_once_with(1, "schema-1", "job-1", deleted_attempt)
+        else:
+            mock_delete.assert_not_awaited()
+        # A failed delete leaves files to read again, so the lock is still released.
+        mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-run-1")
+
+    @parameterized.expand(
+        [
             (
                 "aged_out_batch_never_loaded",
                 UnfinishedEarlierBatches(count=1, first_batch_index=2, states=("pending",)),
