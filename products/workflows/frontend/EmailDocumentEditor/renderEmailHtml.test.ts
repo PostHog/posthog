@@ -104,7 +104,7 @@ describe('renderEmailHtml', () => {
                     { type: 'emailColumn', attrs: { ratio: 1 }, content: [paragraph('One')] },
                     {
                         type: 'emailColumn',
-                        attrs: { ratio: 2 },
+                        attrs: { ratio: 2, emailStyle: { backgroundColor: '#111111' } },
                         content: [{ type: 'emailHtml', attrs: { html: 'Two' } }],
                     },
                 ],
@@ -113,16 +113,25 @@ describe('renderEmailHtml', () => {
 
         expect(html).toContain('font-size:0;line-height:0')
         expect(html.match(/class="ph-col ph-col-gap" style="[^"]*font-size:16px;line-height:150%/g)).toHaveLength(2)
-        // Outlook ignores inline-block, so it needs the real table cells with pixel widths.
-        expect(html).toContain('<!--[if mso]></td><td width="368" valign="top"><![endif]-->')
+        // Outlook ignores inline-block, and a div's background and padding, so the real table cells carry them.
+        expect(html).toContain(
+            '<!--[if mso]></td><td width="368" valign="top" bgcolor="#111111" style="padding:0px 0px 0px 8px"><![endif]-->'
+        )
     })
 
-    it('caps an image at the space it has and gives it a pixel width for Outlook', () => {
-        const html = renderEmailHtml(
-            doc({ type: 'emailImage', attrs: { src: 'https://example.com/a.png', alt: 'A "b"', naturalWidth: 2000 } })
-        )
+    it.each([
+        { name: 'no body border', page: {}, width: 552 },
+        { name: 'a body border, which takes room inside the body', page: { bodyBorderWidth: 2 }, width: 548 },
+    ])('caps an image at the space it has and gives it a pixel width for Outlook, with $name', ({ page, width }) => {
+        const html = renderEmailHtml({
+            ...doc({
+                type: 'emailImage',
+                attrs: { src: 'https://example.com/a.png', alt: 'A "b"', naturalWidth: 2000 },
+            }),
+            attrs: { page },
+        })
 
-        expect(html).toContain('width="552"')
+        expect(html).toContain(`width="${width}"`)
         expect(html).toContain('alt="A &quot;b&quot;"')
     })
 

@@ -243,9 +243,10 @@ function renderList(node: JSONContent, ctx: RenderContext): string {
             return `<li style="margin:0 0 ${px(style.listItemGap, 4)}px 0">${parts.join('')}</li>`
         })
         .join('')
+    // Outlook on Windows ignores list padding and then has no room left to draw the bullets or numbers.
     const listCss = css({
-        margin: 0,
-        'padding-left': `${px(style.listIndent, 24)}px`,
+        margin: `0 0 0 ${px(style.listIndent, 24)}px`,
+        padding: 0,
         ...textProperties(style, ctx, ctx.page.fontSize),
     })
     return `<${tag} style="${listCss}">${items}</${tag}>`
@@ -334,7 +335,7 @@ function renderButton(node: JSONContent, ctx: RenderContext): string {
                       ? Math.round((ctx.contentWidth * fullWidth) / 100)
                       : Math.ceil(labelText.length * buttonFontSize * 0.62) + paddingX * 2
                   const arc = Math.min(50, Math.round((radius / Math.min(height, width)) * 100))
-                  return `<!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${escapeAttribute(href)}" style="height:${height}px;v-text-anchor:middle;width:${width}px;" arcsize="${arc}%" stroke="f" fillcolor="${background}"><w:anchorlock/><center style="color:${color};font-family:${safeFont(style.fontFamily ?? ctx.page.fontFamily).replace(/'/g, '')};font-size:${buttonFontSize}px;font-weight:${px(style.fontWeight, 600)}">${escapeText(labelText)}</center></v:roundrect><![endif]-->`
+                  return `<!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${escapeAttribute(href)}" style="height:${height}px;v-text-anchor:middle;width:${width}px;" arcsize="${arc}%" ${style.borderWidth ? `strokecolor="${safeColor(style.borderColor, background)}" strokeweight="${px(style.borderWidth)}px"` : 'stroke="f"'} fillcolor="${background}"><w:anchorlock/><center style="color:${color};font-family:${safeFont(style.fontFamily ?? ctx.page.fontFamily).replace(/'/g, '')};font-size:${buttonFontSize}px;font-weight:${px(style.fontWeight, 600)}">${escapeText(labelText)}</center></v:roundrect><![endif]-->`
               })()
             : ''
     const tableWidth = fullWidth ? ` width="${fullWidth}%"` : ''
@@ -383,10 +384,12 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
                     : undefined,
                 'border-radius': columnStyle.borderRadius ? `${px(columnStyle.borderRadius)}px` : undefined,
             })
+            // Outlook ignores a div's background and padding, so its cell carries them.
+            const msoCell = `<td width="${width}" valign="top"${background ? ` bgcolor="${background}"` : ''} style="padding:${sides(columnPadding)}">`
             const before =
                 index === 0
-                    ? `<!--[if mso]><table role="presentation" width="${available}" cellpadding="0" cellspacing="0" border="0"><tr><td width="${width}" valign="top"><![endif]-->`
-                    : `<!--[if mso]></td><td width="${width}" valign="top"><![endif]-->`
+                    ? `<!--[if mso]><table role="presentation" width="${available}" cellpadding="0" cellspacing="0" border="0"><tr>${msoCell}<![endif]-->`
+                    : `<!--[if mso]></td>${msoCell}<![endif]-->`
             const className = columnStyle.padding ? 'ph-col' : 'ph-col ph-col-gap'
             return `${before}<div class="${className}" style="${divCss}">${inner}</div>`
         })
@@ -584,7 +587,8 @@ export function renderEmailHtml(doc: JSONContent): string {
     const bodyWidth = px(page.bodyWidth, 600) || 600
     const ctx: RenderContext = {
         page,
-        contentWidth: Math.max(1, bodyWidth - px(padding.left) - px(padding.right)),
+        // A border is drawn inside the body's width, so it takes room from the content too.
+        contentWidth: Math.max(1, bodyWidth - px(padding.left) - px(padding.right) - px(page.bodyBorderWidth) * 2),
     }
     const pageBackground = safeColor(page.backgroundColor, '#ffffff')
     const bodyBackground = safeColor(page.bodyBackgroundColor, '#ffffff')
@@ -602,9 +606,11 @@ export function renderEmailHtml(doc: JSONContent): string {
     const colorSchemeMeta = page.oldEditorStyles
         ? ''
         : '<meta name="color-scheme" content="light" />\n<meta name="supported-color-schemes" content="light" />\n'
-    const fontLinks = emailFontUrls(doc)
-        .map((url) => `<link rel="stylesheet" href="${escapeAttribute(url)}" />\n`)
-        .join('')
+    // Outlook on Windows falls back to Times New Roman for a font it has to download, instead of the next one listed.
+    const fontUrls = emailFontUrls(doc)
+    const fontLinks = fontUrls.length
+        ? `<!--[if !mso]><!-->\n${fontUrls.map((url) => `<link rel="stylesheet" href="${escapeAttribute(url)}" />\n`).join('')}<!--<![endif]-->\n`
+        : ''
     const previewText = page.previewText
         ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;font-size:1px;line-height:1px;mso-hide:all">${escapeText(page.previewText)}</div>\n`
         : ''
