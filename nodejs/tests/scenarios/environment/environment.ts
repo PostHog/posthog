@@ -7,7 +7,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
 import { Profile, ROLE_RESTART_BACKOFF_MS } from '../cards'
-import { ProviderEdge, startProviderEdge } from '../provider-edge'
+import { FaultHold, FaultRule, ProviderEdge, startProviderEdge } from '../provider-edge'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import {
@@ -20,10 +20,12 @@ import {
     groupLag,
     groupMembers,
     missingTemplates,
+    postgresServersOf,
     rolesNotReady,
     seekToEnd,
     startStack,
     syncTemplates,
+    terminateRoleConnections,
 } from './stack'
 import { RoleExit, createSupervisor } from './supervisor'
 
@@ -43,9 +45,13 @@ export interface Environment {
 
 export type RoleHandle = { name: Role; url: string; metricsUrl: string }
 
-export type Action = { kind: 'kill'; role: Role }
+export type Action =
+    | { kind: 'kill'; role: Role }
+    | { kind: 'freeze'; role: Role }
+    | { kind: 'pg.terminate'; share: number }
+    | { kind: 'edge.fault'; rule: FaultRule }
 
-export type Actuation = { observed(): Promise<boolean>; release(): Promise<void> }
+export type Actuation = FaultHold
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
@@ -59,6 +65,7 @@ const GROUPS_EMPTY_WITHIN_MS = 45_000
 const STOP_GRACE_MS = 10_000
 const PROBE_INTERVAL_MS = 1000
 const KILL_OBSERVED_WITHIN_MS = 10_000
+const FREEZE_OBSERVED_WITHIN_MS = 10_000
 
 const portsOf = (specs: RoleSpec[]): { port: number; owner: string }[] =>
     specs.map(({ role }) => ({ port: ROLE_PORTS[role], owner: role }))
@@ -97,6 +104,7 @@ export function createEnvironment({
         restartBackoffMs: ROLE_RESTART_BACKOFF_MS,
     })
     let edge: ProviderEdge | undefined
+    let postgresServers = [postgresUrl]
     let releaseLock: (() => Promise<void>) | undefined
 
     const logOf = (role: Role): string => path.join(stateDir, `${role}.log`)
@@ -140,10 +148,25 @@ export function createEnvironment({
             return { healthy: down.length === 0, down }
         },
 
-        actuate(action) {
-            const gone = supervisor.kill(action.role, KILL_OBSERVED_WITHIN_MS)
-            gone.catch(() => undefined)
-            return Promise.resolve({ observed: () => gone, release: () => Promise.resolve() })
+        async actuate(action) {
+            switch (action.kind) {
+                case 'kill': {
+                    const gone = supervisor.kill(action.role, KILL_OBSERVED_WITHIN_MS)
+                    gone.catch(() => undefined)
+                    return { observed: () => gone, release: () => Promise.resolve() }
+                }
+                case 'freeze':
+                    return supervisor.freeze(action.role, FREEZE_OBSERVED_WITHIN_MS)
+                case 'pg.terminate': {
+                    let terminated = 0
+                    for (const server of postgresServers) {
+                        terminated += await terminateRoleConnections(server, action.share)
+                    }
+                    return { observed: () => Promise.resolve(terminated > 0), release: () => Promise.resolve() }
+                }
+                case 'edge.fault':
+                    return startedEdge('actuate').hold(action.rule)
+            }
         },
 
         exits: (): RoleExit[] => supervisor.exits(),
@@ -178,6 +201,7 @@ export function createEnvironment({
             PROBE_INTERVAL_MS
         )
         edge.clearFaults()
+        postgresServers = postgresServersOf(specs[0], postgresUrl)
         await deleteUnfinishedJobs(cyclotronUrlOf(specs[0]))
         await forgetSesBucket(sesRateLimiterValkey)
         for (const group of groups) {
@@ -265,6 +289,7 @@ export function createEnvironment({
             feedbackUrl: `http://127.0.0.1:${ROLE_PORTS['cdp-api']}/public/m/ses_webhook`,
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
+        postgresServers = postgresServersOf(specs[0], postgresUrl)
         const api = specs.filter((spec) => spec.role === 'cdp-api')
         const others = specs.filter((spec) => spec.role !== 'cdp-api')
         await supervisor.start(api)

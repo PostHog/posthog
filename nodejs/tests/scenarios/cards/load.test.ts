@@ -7,10 +7,7 @@ import { z } from 'zod'
 
 const definitions: Definitions = {
     ...DEFINITIONS,
-    valves: [
-        ...DEFINITIONS.valves,
-        { name: 'pg.drop_connections', params: z.object({ share: z.number() }).strict(), target: z.string() },
-    ],
+    valves: [...DEFINITIONS.valves],
     measurements: [{ name: 'role_cpu_seconds', params: z.object({}).strict() }],
 }
 
@@ -105,13 +102,34 @@ describe('load', () => {
         ],
         [
             'a dose its valve refuses',
-            { ...card, valves: [{ ...emailWorkerKill, valve: 'pg.drop_connections', dose: { share: 'all' } }] },
+            {
+                ...card,
+                valves: [
+                    { ...emailWorkerKill, valve: 'pg.drop_connections', target: 'postgres', dose: { share: 'all' } },
+                ],
+            },
             undefined,
             'valves.0.dose.share: ',
         ],
         [
             'a kill aimed at something that is not a role',
             { ...card, valves: [{ ...emailWorkerKill, target: 'postgres' }] },
+            undefined,
+            'valves.0.target: ',
+        ],
+        [
+            'a destination status aimed at a host the edge does not answer for',
+            {
+                ...card,
+                valves: [
+                    {
+                        ...emailWorkerKill,
+                        valve: 'dest.status',
+                        target: 'api.example.com',
+                        dose: { code: 503, share: 1 },
+                    },
+                ],
+            },
             undefined,
             'valves.0.target: ',
         ],

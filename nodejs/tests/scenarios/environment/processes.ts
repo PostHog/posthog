@@ -168,13 +168,18 @@ function readEntry(name: string): ProcEntry | null {
     }
 }
 
+export function processState(pid: number): string | null {
+    const stat = readOptional(path.join(PROC_ROOT, String(pid), 'stat'))
+    return stat === null ? null : stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)
+}
+
 export function readProcs(): ProcEntry[] {
     return readdirSync(PROC_ROOT)
         .filter((name) => /^\d+$/.test(name))
         .flatMap((name) => readEntry(name) ?? [])
 }
 
-function signal(target: number, sig: NodeJS.Signals | 0): boolean {
+export function signal(target: number, sig: NodeJS.Signals | 0): boolean {
     try {
         process.kill(target, sig)
         return true

@@ -1,7 +1,5 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { mkdtempSync, rmSync } from 'fs'
-import http from 'http'
-import { AddressInfo } from 'net'
 import os from 'os'
 import path from 'path'
 
@@ -24,7 +22,7 @@ type Job = { team: number; queue: Queue; status: 'available' | 'running' }
 type StackSetup = {
     running?: Role[]
     unkillable?: boolean
-    finishesJobsBeforeKill?: boolean
+    finishesJobsFirst?: boolean
     probeFailure?: string
     probeFailsFor?: number
     runningJobs?: number
@@ -34,7 +32,7 @@ type StackSetup = {
 function stackOf({
     running = [EMAIL_WORKER],
     unkillable = false,
-    finishesJobsBeforeKill = false,
+    finishesJobsFirst = false,
     probeFailure,
     probeFailsFor = Infinity,
     runningJobs = 0,
@@ -44,6 +42,10 @@ function stackOf({
     let nextPid = 1
     const processes = new Map<Role, number>(running.map((role) => [role, nextPid++]))
     const gone: number[] = []
+    const frozen = new Set<number>()
+    const everFrozen: number[] = []
+    let roleSessions = 4
+    let droppedSessions = 0
     const goneAfterRelease: number[] = []
     let releaseBegan = false
     const jobs: Job[] = []
@@ -52,9 +54,23 @@ function stackOf({
 
     const context: ValveContext = {
         teams: [OUR_TEAM],
-        edgeUrl: 'http://127.0.0.1:1',
         environment: {
             actuate: (action): Promise<Actuation> => {
+                if (finishesJobsFirst) {
+                    jobs.splice(0)
+                }
+                if (action.kind === 'edge.fault') {
+                    return Promise.reject(new Error('this stack has no provider edge'))
+                }
+                if (action.kind === 'pg.terminate') {
+                    const dropped = Math.ceil(action.share * roleSessions)
+                    roleSessions -= dropped
+                    droppedSessions += dropped
+                    return Promise.resolve({
+                        observed: () => Promise.resolve(dropped > 0),
+                        release: () => Promise.resolve(),
+                    })
+                }
                 const pid = processes.get(action.role)
                 if (pid === undefined) {
                     return Promise.resolve({
@@ -62,8 +78,16 @@ function stackOf({
                         release: () => Promise.resolve(),
                     })
                 }
-                if (finishesJobsBeforeKill) {
-                    jobs.splice(0)
+                if (action.kind === 'freeze') {
+                    frozen.add(pid)
+                    everFrozen.push(pid)
+                    return Promise.resolve({
+                        observed: () => Promise.resolve(frozen.has(pid)),
+                        release: () => {
+                            frozen.delete(pid)
+                            return Promise.resolve()
+                        },
+                    })
                 }
                 if (!unkillable) {
                     gone.push(pid)
@@ -101,6 +125,7 @@ function stackOf({
     return {
         context,
         gone: () => [...gone],
+        effects: () => ({ gone: [...gone], frozen: [...frozen], everFrozen: [...everFrozen], droppedSessions }),
         goneAfterRelease: () => [...goneAfterRelease],
         releasing: (release: () => Promise<void>) => {
             releaseBegan = true
@@ -116,11 +141,23 @@ function stackOf({
     }
 }
 
+type Effects = ReturnType<ReturnType<typeof stackOf>['effects']>
+
 const kill = (schedule: Pick<ValveEntry, 'at' | 'when'>, holdFor = '10ms'): ValveEntry => ({
     valve: 'role.kill',
     target: EMAIL_WORKER,
     dose: {},
     for: holdFor,
+    ...schedule,
+})
+
+const freeze = (schedule: Pick<ValveEntry, 'at' | 'when'>): ValveEntry => ({ ...kill(schedule), valve: 'role.freeze' })
+
+const dropConnections = (schedule: Pick<ValveEntry, 'at' | 'when'>): ValveEntry => ({
+    valve: 'pg.drop_connections',
+    target: 'postgres',
+    dose: { share: 0.5 },
+    for: '10ms',
     ...schedule,
 })
 
@@ -172,6 +209,32 @@ describe('valves', () => {
         await waitForExpect(() => expect(stack.gone()).toEqual([1]), 2000, 5)
         await valves.releaseAll()
 
+        expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
+    })
+
+    const UNTOUCHED: Effects = { gone: [], frozen: [], everFrozen: [], droppedSessions: 0 }
+
+    it.each<[string, ValveEntry, StackSetup, Partial<Effects>]>([
+        ['a kill, which replaces the process', kill({ at: '0ms' }), {}, { gone: [1] }],
+        ['a freeze, which resumes the same process on release', freeze({ at: '0ms' }), {}, { everFrozen: [1] }],
+        [
+            'a connection drop, though the workers finish their jobs on new connections',
+            dropConnections({ when: RUNNING_ON_EMAIL }),
+            { runningJobs: 2, finishesJobsFirst: true },
+            { droppedSessions: 2 },
+        ],
+    ])('applies and observes %s', async (_story, entry, stackSetup, effects) => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf(stackSetup)
+
+        await valves.start([entry], stack.context)
+        await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+        await valves.releaseAll()
+
+        expect({ effects: stack.effects(), error: valves.timeline()[0].error }).toEqual({
+            effects: { ...UNTOUCHED, ...effects },
+            error: undefined,
+        })
         expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
     })
 
@@ -246,13 +309,19 @@ describe('valves', () => {
         [
             'whose kill stranded no job, because the worker finished them first',
             kill({ when: RUNNING_ON_EMAIL }),
-            { runningJobs: 2, finishesJobsBeforeKill: true },
+            { runningJobs: 2, finishesJobsFirst: true },
+            'applied after running_on_queue email at least 2 stopped holding',
+        ],
+        [
+            'whose freeze stranded no job, because the worker finished them first',
+            freeze({ when: RUNNING_ON_EMAIL }),
+            { runningJobs: 2, finishesJobsFirst: true },
             'applied after running_on_queue email at least 2 stopped holding',
         ],
         [
             'whose kill stranded no job, read by a probe that had failed once before',
             kill({ when: RUNNING_ON_EMAIL }),
-            { runningJobs: 2, finishesJobsBeforeKill: true, probeFailure: 'connection refused', probeFailsFor: 1 },
+            { runningJobs: 2, finishesJobsFirst: true, probeFailure: 'connection refused', probeFailsFor: 1 },
             'applied after running_on_queue email at least 2 stopped holding',
         ],
     ])('records an error for an entry %s, and releases it', async (_story, entry, stackSetup, error) => {
@@ -301,6 +370,16 @@ describe('valves', () => {
             await edge.close()
         })
 
+        const onEdge = (): ValveContext => ({
+            ...stackOf().context,
+            environment: {
+                actuate: (action) =>
+                    action.kind === 'edge.fault'
+                        ? Promise.resolve(edge.hold(action.rule))
+                        : Promise.reject(new Error(`no ${action.kind} here`)),
+            },
+        })
+
         const send = (): Promise<string> =>
             ses
                 .send(
@@ -318,7 +397,7 @@ describe('valves', () => {
         it('throttles SES sends until the drive ends, and lifts the throttle on release', async () => {
             const valves = createValves({ pollMs: 5 })
 
-            await valves.start([throttle(1, '1m')], { ...stackOf().context, edgeUrl: edge.url })
+            await valves.start([throttle(1, '1m')], onEdge())
             await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
             const outcomes = [await send(), await send()]
             await waitForExpect(() => expect(valves.timeline()[0].observedAt).toBeDefined(), 2000, 5)
@@ -336,10 +415,7 @@ describe('valves', () => {
         ])('answers every SES send with a %s while it holds', async (type, outcome) => {
             const valves = createValves({ pollMs: 5 })
 
-            await valves.start([{ valve: 'ses.reject', target: 'ses', dose: { type }, at: '0ms', for: '1m' }], {
-                ...stackOf().context,
-                edgeUrl: edge.url,
-            })
+            await valves.start([{ valve: 'ses.reject', target: 'ses', dose: { type }, at: '0ms', for: '1m' }], onEdge())
             await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
             const outcomes = [await send(), await send()]
             const truth = parseJSON(await (await internalFetch(`${edge.url}/_truth`)).text()) as TruthPage
@@ -354,129 +430,40 @@ describe('valves', () => {
             })
         })
 
-        it.each<[string, string, number | undefined, 'error' | 'releasedAt' | undefined]>([
-            ['its observation window passes', '1m', 50, 'error'],
-            ['its hold ends', '100ms', undefined, 'releasedAt'],
-            ['the drive ends', '1m', undefined, undefined],
-        ])(
-            'records a throttle that no send went over as never observed once %s, and lifts it',
-            async (_story, holdFor, faultObservedWithinMs, recordedBeforeDriveEnds) => {
-                const valves = createValves({ pollMs: 5, faultObservedWithinMs })
+        it('records a throttle that no send went over as never observed once the drive ends, and lifts it', async () => {
+            const valves = createValves({ pollMs: 5 })
 
-                await valves.start([throttle(1, holdFor)], { ...stackOf().context, edgeUrl: edge.url })
-                await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
-                expect(await send()).toBe('sent')
-                if (recordedBeforeDriveEnds) {
-                    await waitForExpect(
-                        () => expect(valves.timeline()[0][recordedBeforeDriveEnds]).toBeDefined(),
-                        2000,
-                        5
-                    )
-                }
-                await valves.releaseAll()
+            await valves.start([throttle(1, '1m')], onEdge())
+            await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+            expect(await send()).toBe('sent')
+            await valves.releaseAll()
 
-                expect(await send()).toBe('sent')
-                expect(valves.timeline()[0]).toEqual(
-                    expect.objectContaining({
-                        error: 'applied but not observed',
-                        appliedAt: expect.any(String),
-                        releasedAt: expect.any(String),
-                    })
-                )
-                expect(valves.timeline()[0].observedAt).toBeUndefined()
-            }
-        )
-    })
-
-    async function fakeEdge({
-        observation,
-        removed,
-    }: {
-        observation: 'held' | 'none applied' | 'applied after 100ms'
-        removed: number
-    }) {
-        const requests: string[] = []
-        let observationAsked!: () => void
-        const asked = new Promise<void>((resolve) => (observationAsked = resolve))
-        const server = http.createServer((req, res) => {
-            requests.push(`${req.method} ${req.url}`)
-            if (req.method === 'POST') {
-                res.writeHead(201).end(JSON.stringify({ id: 'fault-1' }))
-            } else if (req.method === 'DELETE') {
-                res.writeHead(removed).end()
-            } else if (observation === 'held') {
-                observationAsked()
-            } else if (observation === 'applied after 100ms') {
-                setTimeout(() => res.writeHead(200).end(JSON.stringify({ applied: 1 })), 100)
-            } else {
-                res.writeHead(200).end(JSON.stringify({ applied: 0 }))
-            }
+            expect(await send()).toBe('sent')
+            expect(valves.timeline()[0]).toEqual(
+                expect.objectContaining({
+                    error: 'applied but not observed',
+                    appliedAt: expect.any(String),
+                    releasedAt: expect.any(String),
+                })
+            )
+            expect(valves.timeline()[0].observedAt).toBeUndefined()
         })
-        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-        return {
-            edgeUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-            asked,
-            removals: () => requests.filter((request) => request.startsWith('DELETE')),
-            close: async () => {
-                server.closeAllConnections()
-                await new Promise((closed) => server.close(closed))
-            },
-        }
-    }
+    })
 
-    it('ends the drive while an observation request is still open, and lifts the fault', async () => {
-        const edge = await fakeEdge({ observation: 'held', removed: 204 })
+    it('keeps both reasons when a fault it never observed fails to release', async () => {
         const valves = createValves({ pollMs: 5 })
-        try {
-            await valves.start([throttle(1, '60m')], { ...stackOf().context, edgeUrl: edge.edgeUrl })
-            await edge.asked
-            await valves.releaseAll()
+        const stack = stackOf({ unkillable: true, releaseFailure: 'connection refused' })
 
-            const { error, releasedAt, observedAt } = valves.timeline()[0]
-            expect({ error, releasedAt, observedAt, removals: edge.removals() }).toEqual({
-                error: 'applied but not observed',
-                releasedAt: expect.any(String),
-                observedAt: undefined,
-                removals: ['DELETE /_faults/fault-1'],
-            })
-        } finally {
-            await edge.close()
-        }
-    })
+        await valves.start([kill({ at: '0ms' })], stack.context)
+        await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+        await valves.releaseAll()
 
-    it('does not observe a fault from a hit the edge reports after the observation window', async () => {
-        const edge = await fakeEdge({ observation: 'applied after 100ms', removed: 204 })
-        const valves = createValves({ pollMs: 5, faultObservedWithinMs: 20 })
-        try {
-            await valves.start([throttle(1, '60m')], { ...stackOf().context, edgeUrl: edge.edgeUrl })
-            await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
-            await valves.releaseAll()
-
-            const { error, observedAt } = valves.timeline()[0]
-            expect({ error, observedAt }).toEqual({ error: 'applied but not observed', observedAt: undefined })
-        } finally {
-            await edge.close()
-        }
-    })
-
-    it('keeps both reasons when the edge refuses to remove a fault it never observed', async () => {
-        const edge = await fakeEdge({ observation: 'none applied', removed: 500 })
-        const valves = createValves({ pollMs: 5, faultObservedWithinMs: 20 })
-        try {
-            await valves.start([throttle(1, '60m')], { ...stackOf().context, edgeUrl: edge.edgeUrl })
-            await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
-            await valves.releaseAll()
-
-            const { error, releasedAt, observedAt } = valves.timeline()[0]
-            expect({ error, releasedAt, observedAt, removals: edge.removals() }).toEqual({
-                error: 'applied but not observed; The edge did not remove the ses.throttle fault: it answered 500',
-                releasedAt: undefined,
-                observedAt: undefined,
-                removals: ['DELETE /_faults/fault-1'],
-            })
-        } finally {
-            await edge.close()
-        }
+        const { error, releasedAt, observedAt } = valves.timeline()[0]
+        expect({ error, releasedAt, observedAt }).toEqual({
+            error: 'applied but not observed; connection refused',
+            releasedAt: undefined,
+            observedAt: undefined,
+        })
     })
 
     it('records a release that failed, and still ends the drive', async () => {

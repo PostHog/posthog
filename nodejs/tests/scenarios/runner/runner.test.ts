@@ -428,7 +428,7 @@ describe('runner through seed, drive and judge', () => {
         edgeUrl: () => edge.url,
         role: (name) => ({ name, url: 'http://127.0.0.1:1', metricsUrl: processMetrics.url }),
         actuate(action) {
-            exits.push(...killExits(action.role))
+            exits.push(...(action.kind === 'kill' ? killExits(action.role) : []))
             return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
         },
         health: () => Promise.resolve({ healthy: true, down: [] }),

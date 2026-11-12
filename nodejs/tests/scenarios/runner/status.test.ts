@@ -75,6 +75,15 @@ describe('statusOf', () => {
             `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while role.freeze on ${HOGFLOW_WORKER} was applied`,
         ],
         [
+            "a role exited while the roles' Postgres connections were dropped",
+            {
+                timeline: [{ ...killed('postgres', 10, 30), valve: 'pg.drop_connections' }],
+                exits: [{ ...exited(HOGFLOW_WORKER, 20), signal: null, code: 1 }],
+            },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it, while pg.drop_connections on postgres was applied`,
+        ],
+        [
             'a role exited after a valve on another role was released',
             { timeline: [killed(EMAIL_WORKER, 10, 11)], exits: [exited(HOGFLOW_WORKER, 20)] },
             'failed',

@@ -7,6 +7,8 @@ import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracki
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
+import { ruleOf } from './faults'
+
 const TRACKING_KEYS = 'scenario-tracking-key'
 const ALICE = 'run-1-1@www.example.com'
 const BOB = 'run-1-2@www.example.com'
@@ -396,6 +398,13 @@ describe('provider edge', () => {
 
         expect(status).toBe(400)
         expect(json.problems).toEqual(expect.arrayContaining([expect.stringMatching(new RegExp(`^${field}`))]))
+        expect(await send(ALICE)).toBe('sent')
+    })
+
+    it('refuses to hold a bounce on an edge that cannot sign feedback', async () => {
+        const bounce = ruleOf({ name: 'ses.reject', params: { type: 'bounce' }, dose: { count: 1 } })
+
+        expect(() => edge.hold(bounce)).toThrow(/^params\.type: a bounce needs an edge with/)
         expect(await send(ALICE)).toBe('sent')
     })
 })

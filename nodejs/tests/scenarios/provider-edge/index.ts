@@ -1,6 +1,7 @@
 import http from 'http'
 import { AddressInfo } from 'net'
 import { text } from 'stream/consumers'
+import { setTimeout as sleep } from 'timers/promises'
 
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -29,6 +30,11 @@ export type { TruthAttachment, TruthMessage, TruthPage, TruthRecord } from './tr
 
 export const WEBHOOK_HOST = 'hooks.example.com'
 
+const FAULT_OBSERVED_WITHIN_MS = 10_000
+const FAULT_POLL_MS = 100
+
+export type FaultHold = { observed(released?: AbortSignal): Promise<boolean>; release(): Promise<void> }
+
 export type ProviderEdgeOptions = {
     port: number
     configurationSets?: ConfigurationSets
@@ -43,6 +49,7 @@ export type ProviderEdge = {
     caCertPath?: string
     sent: readonly SesMessage[]
     addFault(rule: FaultRule): string
+    hold(rule: FaultRule): FaultHold
     clearFaults(): void
     close(): Promise<void>
 }
@@ -152,15 +159,23 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         })
     }
 
+    const unsignedBounce = (rule: FaultRule): string | undefined => {
+        if (rule.answer.kind !== 'bounce' || feedback) {
+            return undefined
+        }
+        const missing = signer ? 'a feedback URL' : 'a certificate directory to sign feedback with'
+        return `params.type: a bounce needs an edge with ${missing}`
+    }
+
     const addCardFault = (body: unknown): Reply => {
         const parsed = CardFault.safeParse(body)
         if (!parsed.success) {
             return { status: 400, body: { problems: problemsOf(parsed.error, 'fault') } }
         }
         const rule = ruleOf(parsed.data)
-        if (rule.answer.kind === 'bounce' && !feedback) {
-            const missing = signer ? 'a feedback URL' : 'a certificate directory to sign feedback with'
-            return { status: 400, body: { problems: [`params.type: a bounce needs an edge with ${missing}`] } }
+        const problem = unsignedBounce(rule)
+        if (problem) {
+            return { status: 400, body: { problems: [problem] } }
         }
         return { status: 201, body: { id: faults.add(rule) } }
     }
@@ -185,10 +200,6 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             case 'DELETE /_faults':
                 faults.clear()
                 return { status: 204 }
-            case 'GET /_faults/:id': {
-                const applied = faults.applied(faultId!)
-                return applied === undefined ? { status: 404 } : { status: 200, body: { id: faultId, applied } }
-            }
             case 'DELETE /_faults/:id':
                 return { status: faults.remove(faultId!) ? 204 : 404 }
             default:
@@ -286,6 +297,29 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         caCertPath: certificates?.caCertPath,
         sent,
         addFault: (rule) => faults.add(rule),
+        hold: (rule) => {
+            const problem = unsignedBounce(rule)
+            if (problem) {
+                throw new Error(problem)
+            }
+            const id = faults.add(rule)
+            return {
+                observed: async (released) => {
+                    const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
+                    while (faults.applied(id) === 0) {
+                        if (Date.now() > deadline || released?.aborted) {
+                            return false
+                        }
+                        await sleep(FAULT_POLL_MS, undefined, { signal: released }).catch(() => undefined)
+                    }
+                    return true
+                },
+                release: () => {
+                    faults.remove(id)
+                    return Promise.resolve()
+                },
+            }
+        },
         clearFaults: () => faults.clear(),
         close: async () => {
             proxy?.close()
