@@ -84,8 +84,10 @@
 //      by the products/ root files that vendor tests collect, by the repo
 //      invariants that walk the vendor tree, and by the Python toolchain domain,
 //      because a lockfile change reaches a vendor's third-party packages
-//      directly. It is not claimed by the rest of posthog/ or by other products,
-//      which reach a vendor only through the SDK.
+//      directly. The core modules that the SDK imports directly claim it too,
+//      in addition to their own lanes, and the set is read from the SDK source.
+//      The rest of posthog/, common/ and other products do not claim it, because
+//      they reach a vendor only through one of those modules.
 //
 //      This keeps a vendor PR out of the lane that every core PR claims. A vendor
 //      PR queued in that lane is tested on top of the core PRs ahead of it, and
@@ -95,7 +97,9 @@
 //
 //      ACCEPTED RISK: two kinds of change can break a vendor, or be broken by
 //      one, without sharing its lane. The first is a posthog/, common/ or other
-//      product change that alters what the SDK returns. The second is code that
+//      product change that alters what the SDK returns through a module the SDK
+//      does not import directly, which is the same bound as narrowing 2. The
+//      second is code that
 //      loads every vendor at runtime through the source registry, with no import
 //      edge, such as a product test that checks each vendor's catalog entry.
 //      Either PR can merge in parallel with a vendor PR, and then no queue run
@@ -1560,6 +1564,42 @@ function isWarehouseSourceVendorFile(file) {
     return segments.length >= 2 && segments[0] !== WAREHOUSE_SOURCE_SDK_DIR
 }
 
+// The core modules the SDK imports directly. A change to one of them can change
+// what every vendor gets from the SDK, so it claims the vendor lane as well as
+// its own. The set is read from the SDK source, so a new SDK import is covered
+// without a list to keep in sync. warehouse_sources modules are left out
+// because every file of the product already claims the lane.
+const WAREHOUSE_SOURCE_SDK_IMPORT = /^\s*(?:from\s+([\w.]+)\s+import\b|import\s+([\w.]+))/gm
+const WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS = ['posthog.', 'common.', 'ee.', 'products.']
+
+function loadWarehouseSourceSdkImports(repoRoot) {
+    const imports = new Set()
+    const sdkDir = path.join(repoRoot, WAREHOUSE_SOURCE_PLUGIN_DIR, WAREHOUSE_SOURCE_SDK_DIR)
+    if (!fs.existsSync(sdkDir)) {
+        return imports
+    }
+    const sources = fs.readdirSync(sdkDir, { recursive: true }).filter((file) => file.endsWith('.py'))
+    for (const source of sources) {
+        const text = fs.readFileSync(path.join(sdkDir, source), 'utf8')
+        for (const match of text.matchAll(WAREHOUSE_SOURCE_SDK_IMPORT)) {
+            const module = match[1] || match[2]
+            if (!WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS.some((root) => module.startsWith(root))) {
+                continue
+            }
+            if (module.startsWith(`products.${WAREHOUSE_SOURCES_PRODUCT}.`)) {
+                continue
+            }
+            const base = module.split('.').join('/')
+            for (const candidate of [`${base}.py`, `${base}/__init__.py`]) {
+                if (fs.existsSync(path.join(repoRoot, candidate))) {
+                    imports.add(candidate)
+                }
+            }
+        }
+    }
+    return imports
+}
+
 // Internal sentinel for a file whose crate radius only the determinator's
 // answer can state, because the path names no crate directory to seed from
 // (rust/Cargo.lock). Consumed by the determinator resolution at the end of
@@ -2083,6 +2123,10 @@ function computeTargets(changedFiles, context) {
         if (isWarehouseSourceVendorFile(file) && hasWarehouseSourceVendorLane(context)) {
             targets.add(WAREHOUSE_SOURCE_VENDORS)
             continue
+        }
+        // No `continue`: the module keeps the lanes its own directory gives it.
+        if (context.warehouseSourceSdkImports?.has(file) && hasWarehouseSourceVendorLane(context)) {
+            targets.add(WAREHOUSE_SOURCE_VENDORS)
         }
 
         for (const lane of nodeLanesForWorkspaceFile(file, context)) {
@@ -3039,6 +3083,7 @@ function buildContext(repoRoot) {
         backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
         tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
+        warehouseSourceSdkImports: loadWarehouseSourceSdkImports(repoRoot),
         rustInventory,
         tachGraph,
     }
@@ -3060,6 +3105,7 @@ module.exports = {
     isTripwire,
     listIsolatedProducts,
     loadContractSurfaces,
+    loadWarehouseSourceSdkImports,
     parseCrateName,
     parsePytestIgnores,
     parseSemgrepLanguages,

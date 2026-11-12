@@ -30,6 +30,7 @@ const {
     isTripwire,
     listIsolatedProducts,
     loadContractSurfaces,
+    loadWarehouseSourceSdkImports,
     parseCrateName,
     parsePytestIgnores,
     parseSemgrepLanguages,
@@ -1961,6 +1962,43 @@ test('a warehouse source vendor claims only the vendor lane, which every vendor 
     assert.equal(allKnownTargets(context).includes(vendorLane), true)
     for (const file of ['posthog/models/user.py', 'products/alpha/backend/api.py']) {
         assert.equal(computeTargets([file], context).includes(vendorLane), false, file)
+    }
+
+    // A core module the SDK imports claims the vendor lane on top of its own.
+    const sdkImport = 'posthog/integrations/__init__.py'
+    const withSdkImports = { ...context, warehouseSourceSdkImports: new Set([sdkImport]) }
+    const sdkImportTargets = computeTargets([sdkImport], withSdkImports)
+    assert.equal(sdkImportTargets.includes(vendorLane), true)
+    assert.equal(sdkImportTargets.includes('py:core'), true)
+    assert.equal(computeTargets(['posthog/models/user.py'], withSdkImports).includes(vendorLane), false)
+
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-imports-'))
+    try {
+        const write = (file, text) => {
+            fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+            fs.writeFileSync(path.join(root, file), text)
+        }
+        write(
+            'products/warehouse_sources/sources/sdk/__init__.py',
+            [
+                'from posthog.integrations import IntegrationKind',
+                'from posthog.security.url_validation import (',
+                '    is_url_allowed,',
+                ')',
+                'from products.warehouse_sources.backend.facade import api',
+                'from dlt.common import json',
+                '',
+            ].join('\n')
+        )
+        write(sdkImport, '')
+        write('posthog/security/url_validation.py', '')
+        write('products/warehouse_sources/backend/facade/api.py', '')
+        assert.deepEqual([...loadWarehouseSourceSdkImports(root)].sort(), [
+            sdkImport,
+            'posthog/security/url_validation.py',
+        ])
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true })
     }
 
     assert.equal(computeTargets([`${vendorDir}/source.py`], CONTEXT).includes(vendorLane), false)
