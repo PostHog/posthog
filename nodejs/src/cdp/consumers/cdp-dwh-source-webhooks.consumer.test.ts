@@ -303,6 +303,16 @@ describe('DWH source webhooks', () => {
             expect(res.body).toEqual({ error: 'Not found' })
         })
 
+        it('should pass a GET request to the template, which decides the reply', async () => {
+            const res = await supertest(app).get(`/public/webhooks/dwh/${hogFunction.id}?challenge=abc123`)
+
+            expect(res.status).toEqual(405)
+            expect(res.text).toEqual('Method not allowed')
+
+            await waitForBackgroundTasks()
+            expect(getDwhKafkaMessages()).toHaveLength(0)
+        })
+
         it('should process a valid Stripe webhook and produce to Kafka', async () => {
             const webhookReq = createStripeWebhookRequest(signingSecret)
 

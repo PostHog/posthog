@@ -566,6 +566,8 @@ export class CdpApi {
             publicBodySizeLimit,
             asyncHandler(this.handleWarehouseSourceWebhook())
         )
+        // Some providers verify a webhook URL with a GET before they deliver to it. The template decides the reply.
+        router.get('/public/webhooks/dwh/:webhook_id', asyncHandler(this.handleWarehouseSourceWebhook()))
         router.post('/public/webhooks/:webhook_id', publicBodySizeLimit, asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))

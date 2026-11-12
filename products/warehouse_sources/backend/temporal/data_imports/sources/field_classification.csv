@@ -869,7 +869,7 @@ NpmRegistry,,,,package_names,,npm-registry
 Nuget,,,,package_ids,,nuget
 Nuntly,api_key,,,,,nuntly
 Nutshell,,,,,,nutshell
-Nylas,,,,,,nylas
+Nylas,api_key region,,,grant_scope grant_ids include_message_bodies event_history_days,,nylas
 OPUSWatch,api_key,,,start_date,,opus-watch
 Octolens,api_key,,,,,octolens
 OctopusDeploy,host api_key,,,,,octopus-deploy
