@@ -287,7 +287,15 @@ def _daily_engine_counts(
         )
         for row in checks.annotate(date=TruncDate("created_at", tzinfo=tz))
         .values("date", "engine")
-        .annotate(**_check_counts(target_domains))
+        # Spelled out rather than `**_check_counts(...)` so the row keys stay typed. `mentioned` filters on the
+        # `cited` column, so it has to come before the annotation named `cited`.
+        .annotate(
+            checks=Count("id"),
+            mentioned=Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
+            cited=Count("id", filter=Q(cited=True)),
+            failed=Count("id", filter=Q(check_failed=True)),
+            avg_position=Avg("target_best_position"),
+        )
         .order_by("date", "engine")
     )
 
