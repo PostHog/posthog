@@ -3885,11 +3885,13 @@ describe('EmailService', () => {
             { body: 'many links', text: '{{ unsubscribe_url }} '.repeat(1_000_000) },
             {
                 body: 'multibyte text and links',
-                text: '界'.repeat(6_000_000) + '{{ unsubscribe_url }} '.repeat(70_000),
+                text: '界'.repeat(6_000_000) + '{{ unsubscribe_url }} '.repeat(90_000),
             },
         ])(
             'fails a marketing API send whose $body would pass the SES message limit once filled in, without sending it',
             async ({ text }) => {
+                hub.SITE_URL = 'http://localhost:8000'
+                service = createService()
                 const html = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
                 invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
                 invocation.state.messageCategory = { id: randomUUID(), type: 'marketing' }
@@ -3929,6 +3931,8 @@ describe('EmailService', () => {
         ])(
             'a marketing API send with $links before its own unsubscribe link sends: $sent',
             async ({ distinct, sent }) => {
+                hub.SITE_URL = 'http://localhost:8000'
+                service = createService()
                 const tokens = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
                 const others = Array.from({ length: distinct }, (_, i) =>
                     tokens.generatePreferencesUrl({ team_id: invocation.teamId, identifier: `other-${i}@example.com` })
