@@ -230,7 +230,7 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
                 retry_policy=ISSUE_TAGS_RETRY_POLICY,
             )
         except ActivityError:
-            workflow.logger.warning("Issue tagging failed; the issue keeps no tags from this run")
+            workflow.logger.warning("Issue tagging failed; some tags may be missing")
             (
                 workflow.metric_meter()
                 .create_counter(
