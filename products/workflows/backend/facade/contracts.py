@@ -1115,6 +1115,16 @@ class ImportSegment:
     name: str
     # Customer.io's segment type: `dynamic`, or `static`/`manual` for a list people are added to by hand.
     type: str
+    # The segment's rules, from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members.
+    conditions: dict[str, Any] | None = None
+
+
+@frozen
+class SegmentCohortFilters:
+    """A Customer.io segment's rules as cohort filters, or the rules no cohort filter matches exactly."""
+
+    filters: dict[str, Any] | None
+    untranslated: tuple[str, ...] = ()
 
 
 @frozen
@@ -1133,6 +1143,8 @@ class ImportOptions:
     topic_categories: dict[str, ImportCategory] = field(default_factory=dict)
     # Customer.io segment id to its name and type.
     segments: dict[str, ImportSegment] = field(default_factory=dict)
+    # In a preview, the Customer.io segments a real import would turn into cohorts.
+    pending_segment_cohorts: frozenset[str] = frozenset()
 
 
 @frozen
