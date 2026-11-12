@@ -113,6 +113,7 @@ INTENTIONAL_ADMIN_OVERRIDES = frozenset(
     {
         "admin/posthog/user/<int:pk>/delete/",
         "admin/legal_documents/legaldocument/<path:object_id>/delete/",
+        "admin/legal_documents/legaldocument/add/",
         "admin/posthog/datadeletionrequest/add/",
         "admin/account_audits/accountauditcredential/add/",
         "admin/managed_warehouse/managedwarehouseviewtranslationjob/add/",

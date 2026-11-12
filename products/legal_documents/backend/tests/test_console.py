@@ -7,14 +7,23 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.contrib.messages import get_messages
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 from parameterized import parameterized
 
 from products.legal_documents.backend.console import LegalDocumentsPanel
+from products.legal_documents.backend.facade.api import upload_signed_document_as_staff
+from products.legal_documents.backend.facade.contracts import StaffSignedDocumentUpload
+from products.legal_documents.backend.facade.enums import StaffUploadOutcome
 from products.legal_documents.backend.models import LegalDocument
 from products.legal_documents.backend.storage import signed_pdf_storage_key
 
 _LOGIC = "products.legal_documents.backend.logic"
+_PDF_BYTES = b"%PDF-1.4\nfake pdf bytes for testing\n%%EOF"
+
+
+def _pdf(name: str = "agreement.pdf", content: bytes = _PDF_BYTES, content_type: str = "application/pdf") -> Any:
+    return SimpleUploadedFile(name, content, content_type=content_type)
 
 
 class TestLegalDocumentsConsolePanel(BaseTest):
@@ -37,7 +46,7 @@ class TestLegalDocumentsConsolePanel(BaseTest):
         fields.update(overrides)
         return LegalDocument.objects.create(**fields)
 
-    def _post(self, operation_key: str, data: dict[str, str]) -> Any:
+    def _post(self, operation_key: str, data: dict[str, Any]) -> Any:
         return self.client.post(
             f"/admin/console/organizations/{self.organization.pk}/legal-documents/{operation_key}/", data
         )
@@ -47,17 +56,17 @@ class TestLegalDocumentsConsolePanel(BaseTest):
 
     @parameterized.expand(
         [
-            ("signed_with_envelope", {}, {"refetch-pdf", "delete"}),
+            ("signed_with_envelope", {}, {"upload-signed-document", "refetch-pdf", "delete"}),
             (
                 "out_for_signature",
                 {"status": LegalDocument.Status.SUBMITTED_FOR_SIGNATURE},
-                {"resend-signing-email", "delete"},
+                {"upload-signed-document", "resend-signing-email", "delete"},
             ),
-            ("signed_without_envelope", {"pandadoc_document_id": ""}, {"delete"}),
+            ("signed_without_envelope", {"pandadoc_document_id": ""}, {"upload-signed-document", "delete"}),
             (
                 "out_for_signature_without_envelope",
                 {"status": LegalDocument.Status.SUBMITTED_FOR_SIGNATURE, "pandadoc_document_id": ""},
-                {"delete"},
+                {"upload-signed-document", "delete"},
             ),
         ]
     )
@@ -68,8 +77,82 @@ class TestLegalDocumentsConsolePanel(BaseTest):
 
         assert self._offered() == expected
 
-    def test_organization_without_documents_offers_nothing(self) -> None:
-        assert self._offered() == set()
+    def test_organization_without_documents_offers_only_the_upload(self) -> None:
+        assert self._offered() == {"upload-signed-document"}
+
+    def test_organization_with_every_document_type_offers_no_upload(self) -> None:
+        for document_type in ("BAA", "DPA", "MSA"):
+            self._document(document_type=document_type, pandadoc_document_id="")
+
+        assert self._offered() == {"delete"}
+
+    def _upload_data(self, pdf: Any) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "document_type": "MSA",
+            "company_name": "Acme, Inc.",
+            "company_address": "1 Analytics Way",
+            "representative_email": "ada@acme.example",
+        }
+        if pdf is not None:
+            data["signed_pdf"] = pdf
+        return data
+
+    @patch(f"{_LOGIC}.object_storage")
+    def test_upload_saves_a_signed_row_and_its_pdf(self, mock_storage: MagicMock) -> None:
+        response = self._post("upload-signed-document", self._upload_data(_pdf()))
+
+        assert response.status_code == 302
+        document = LegalDocument.objects.get(organization=self.organization, document_type="MSA")
+        assert document.status == LegalDocument.Status.SIGNED
+        assert document.signed_pdf_stored
+        assert document.created_by_id == self.user.id
+        mock_storage.write_stream.assert_called_once()
+        key, _stream = mock_storage.write_stream.call_args.args
+        assert key == signed_pdf_storage_key(document)
+        assert mock_storage.write_stream.call_args.kwargs["extras"] == {"ContentType": "application/pdf"}
+
+    @patch(f"{_LOGIC}.object_storage")
+    def test_upload_storage_failure_saves_no_row(self, mock_storage: MagicMock) -> None:
+        mock_storage.write_stream.side_effect = RuntimeError("s3 unreachable")
+
+        response = self._post("upload-signed-document", self._upload_data(_pdf()))
+
+        assert response.status_code == 502
+        assert not LegalDocument.objects.filter(organization=self.organization).exists()
+
+    @parameterized.expand(
+        [
+            ("missing", lambda: None),
+            ("not_a_pdf_extension", lambda: _pdf(name="agreement.txt", content_type="text/plain")),
+            ("not_a_pdf_content_type", lambda: _pdf(content_type="image/png")),
+            ("oversized", lambda: _pdf(content=b"x" * (26 * 1024 * 1024))),
+        ]
+    )
+    @patch(f"{_LOGIC}.object_storage")
+    def test_upload_refuses_a_file_that_is_not_the_signed_pdf(
+        self, _name: str, make_pdf: Callable[[], Any], mock_storage: MagicMock
+    ) -> None:
+        response = self._post("upload-signed-document", self._upload_data(make_pdf()))
+
+        assert response.status_code == 400
+        mock_storage.write_stream.assert_not_called()
+        assert not LegalDocument.objects.filter(organization=self.organization).exists()
+
+    @patch(f"{_LOGIC}.object_storage")
+    def test_upload_of_a_type_the_organization_already_has_is_refused(self, mock_storage: MagicMock) -> None:
+        # The form lists only free types, so this is the race where another upload lands first.
+        self._document(document_type="MSA")
+        upload = StaffSignedDocumentUpload(
+            organization_id=self.organization.pk,
+            created_by_id=self.user.pk,
+            document_type="MSA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+        )
+
+        assert upload_signed_document_as_staff(upload, _pdf()) == StaffUploadOutcome.ALREADY_EXISTS
+        assert LegalDocument.objects.filter(organization=self.organization, document_type="MSA").count() == 1
 
     @patch(f"{_LOGIC}.download_and_store_signed_pdf", return_value=True)
     def test_refetch_stores_the_pandadoc_pdf_and_marks_the_row_stored(self, mock_download: MagicMock) -> None:

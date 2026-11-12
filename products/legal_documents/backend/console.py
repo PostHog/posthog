@@ -3,6 +3,8 @@ from uuid import UUID
 from django import forms
 from django.contrib import messages
 from django.contrib.admin.utils import unquote
+from django.core.files.uploadedfile import UploadedFile
+from django.core.validators import FileExtensionValidator
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 
@@ -19,11 +21,21 @@ from products.legal_documents.backend.facade.api import (
     list_for_staff,
     refetch_signed_pdf,
     resend_signing_email,
+    upload_signed_document_as_staff,
+    uploadable_document_types,
 )
-from products.legal_documents.backend.facade.contracts import StaffLegalDocument
-from products.legal_documents.backend.facade.enums import LegalDocumentStatus, StaffRefetchOutcome, StaffResendOutcome
+from products.legal_documents.backend.facade.contracts import StaffLegalDocument, StaffSignedDocumentUpload
+from products.legal_documents.backend.facade.enums import (
+    LegalDocumentStatus,
+    StaffRefetchOutcome,
+    StaffResendOutcome,
+    StaffUploadOutcome,
+)
 
 GROWTH = Owner(name="Growth", crest="growth")
+
+# PandaDoc PDFs are far smaller. A file above this is almost certainly the wrong one.
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 DELETE_DESCRIPTION = (
     "Removes the PostHog record. For a document that is out for signature, this voids its PandaDoc envelope, so the "
@@ -58,6 +70,32 @@ def _document_form(documents: list[StaffLegalDocument], *, with_reason: bool) ->
         reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
 
     return DocumentWithReasonForm
+
+
+def _upload_form(document_types: list[str]) -> type[forms.Form]:
+    class UploadSignedDocumentForm(forms.Form):
+        document_type = forms.ChoiceField(choices=[(document_type, document_type) for document_type in document_types])
+        company_name = forms.CharField(max_length=255)
+        company_address = forms.CharField(max_length=512)
+        representative_email = forms.EmailField()
+        signed_pdf = forms.FileField(
+            label="Signed PDF",
+            widget=forms.FileInput(attrs={"accept": ".pdf"}),
+            validators=[FileExtensionValidator(allowed_extensions=["pdf"])],
+            help_text="The counter-signed PDF, at most 25 MB.",
+        )
+
+        def clean_signed_pdf(self) -> UploadedFile:
+            pdf: UploadedFile = self.cleaned_data["signed_pdf"]
+            if pdf.size and pdf.size > MAX_UPLOAD_BYTES:
+                raise forms.ValidationError("The file is larger than 25 MB. Check that it is the signed PDF.")
+            # The browser sets the content type from the upload. The extension check above is the main one,
+            # so this only refuses an obvious mismatch.
+            if pdf.content_type and pdf.content_type != "application/pdf":
+                raise forms.ValidationError("The file is not a PDF. Upload the signed PDF.")
+            return pdf
+
+    return UploadSignedDocumentForm
 
 
 def _selected_document(form: forms.Form | None) -> UUID:
@@ -97,6 +135,33 @@ def resend_email(request: HttpRequest, obj: Model, form: forms.Form | None) -> H
     return HttpResponse(status=409)
 
 
+def upload_signed_document(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert form is not None
+    document_type = form.cleaned_data["document_type"]
+    upload = StaffSignedDocumentUpload(
+        organization_id=obj.pk,
+        created_by_id=request.user.pk,
+        document_type=document_type,
+        company_name=form.cleaned_data["company_name"],
+        company_address=form.cleaned_data["company_address"],
+        representative_email=form.cleaned_data["representative_email"],
+    )
+    outcome = upload_signed_document_as_staff(upload, form.cleaned_data["signed_pdf"])
+    if outcome == StaffUploadOutcome.STORED:
+        messages.success(request, f"Uploaded the signed {document_type}. The customer can download it now.")
+        return None
+    if outcome == StaffUploadOutcome.ALREADY_EXISTS:
+        messages.error(
+            request, f"This organization already has a {document_type}. Delete it first, then upload the new one."
+        )
+        return HttpResponse(status=409)
+    messages.error(
+        request,
+        "Could not store the PDF. Object storage may be unavailable. Nothing was saved. Check the logs and try again.",
+    )
+    return HttpResponse(status=502)
+
+
 def delete_document(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
     if not delete_as_staff(_selected_document(form), obj.pk):
         messages.error(request, "This document no longer exists.")
@@ -111,7 +176,7 @@ class LegalDocumentsPanel(Panel):
     key = "legal-documents"
     title = "Legal documents"
     owner = GROWTH
-    operation_keys = frozenset({"refetch-pdf", "resend-signing-email", "delete"})
+    operation_keys = frozenset({"upload-signed-document", "refetch-pdf", "resend-signing-email", "delete"})
 
     def facts(self, obj: Model) -> list[Fact]:
         documents = list_for_staff(obj.pk)
@@ -131,7 +196,19 @@ class LegalDocumentsPanel(Panel):
         documents = list_for_staff(obj.pk)
         refetchable = [document for document in documents if can_refetch_signed_pdf(document)]
         sendable = [document for document in documents if can_resend_signing_email(document)]
+        uploadable = uploadable_document_types(documents)
         operations: list[Operation] = []
+        if uploadable:
+            operations.append(
+                Operation(
+                    key="upload-signed-document",
+                    label="Upload signed document",
+                    handler=upload_signed_document,
+                    form_class=_upload_form(uploadable),
+                    description="For a document signed outside PandaDoc, such as a counter-signed MSA. Saves it as "
+                    "signed, and the customer can download the PDF.",
+                )
+            )
         if refetchable:
             operations.append(
                 Operation(
@@ -165,7 +242,7 @@ class LegalDocumentsPanel(Panel):
                     form_class=_document_form(documents, with_reason=True),
                     description=DELETE_DESCRIPTION,
                     undo_hint="This cannot be undone. The customer can request a BAA or DPA again in organization "
-                    "settings. Staff can upload a signed PDF again in Django admin.",
+                    "settings. Staff can upload a signed PDF again with Upload signed document.",
                 )
             )
         return operations
@@ -200,4 +277,13 @@ console.register_moved_action(
     record="organization",
     target="legal-documents/delete/",
     resolver=find_document_organization,
+)
+
+# Staff added a signed document on the Django admin add page, which the organization page linked to with
+# ?organization=<id>. That ID sits in the query, which a moved action cannot read, so the page leads home.
+console.register_moved_page(
+    old_path="admin/legal_documents/legaldocument/add/",
+    title="Uploading a signed legal document",
+    url="/admin/console/",
+    note="Open the organization and use Upload signed document under Legal documents.",
 )

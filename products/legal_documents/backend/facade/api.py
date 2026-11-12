@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import timedelta
+from typing import IO
 from uuid import UUID
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -31,7 +32,14 @@ from ..logic import (
 from ..logic.pandadoc import PandaDocError
 from ..models import LegalDocument
 from . import contracts
-from .enums import BaaBlockReason, LegalDocumentStatus, StaffRefetchOutcome, StaffResendOutcome
+from .enums import (
+    BaaBlockReason,
+    DocumentType,
+    LegalDocumentStatus,
+    StaffRefetchOutcome,
+    StaffResendOutcome,
+    StaffUploadOutcome,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -245,6 +253,30 @@ def get_organization_id_for_staff(document_id: UUID) -> UUID | None:
     """The organization of a document, for staff links that only carry the document ID."""
     document = logic.get_by_id(document_id)
     return document.organization_id if document is not None else None
+
+
+def uploadable_document_types(documents: list[contracts.StaffLegalDocument]) -> list[str]:
+    """The document types an organization has no document of yet, since it can hold one of each."""
+    taken = {document.document_type for document in documents}
+    return [document_type.value for document_type in DocumentType if document_type.value not in taken]
+
+
+def upload_signed_document_as_staff(upload: contracts.StaffSignedDocumentUpload, pdf: IO[bytes]) -> StaffUploadOutcome:
+    try:
+        logic.create_signed_document_from_upload(
+            organization_id=upload.organization_id,
+            created_by_id=upload.created_by_id,
+            document_type=upload.document_type,
+            company_name=upload.company_name,
+            company_address=upload.company_address,
+            representative_email=upload.representative_email,
+            pdf=pdf,
+        )
+    except IntegrityError:
+        return StaffUploadOutcome.ALREADY_EXISTS
+    except logic.SignedPdfUploadFailed:
+        return StaffUploadOutcome.STORAGE_FAILED
+    return StaffUploadOutcome.STORED
 
 
 def delete_as_staff(document_id: UUID, organization_id: UUID) -> bool:

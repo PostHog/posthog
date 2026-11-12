@@ -66,3 +66,15 @@ class StaffLegalDocument:
     signed_pdf_stored: bool
     has_pandadoc_envelope: bool
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class StaffSignedDocumentUpload:
+    """A document signed outside PandaDoc, such as a counter-signed MSA, that staff upload as a PDF."""
+
+    organization_id: UUID
+    created_by_id: int
+    document_type: str
+    company_name: str
+    company_address: str
+    representative_email: str
