@@ -251,6 +251,43 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             )
         assert "not supported" in str(exc.value)
 
+    @parameterized.expand([("no_domain_verified", False), ("one_domain_verified", True)])
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_organization_holds_at_most_three_unverified_domains(
+        self, _name, one_domain_verified, _mock_create_email_domain, _mock_get_mail_from
+    ):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        for team, email in [(self.team, "a@one.com"), (other_team, "b@two.com"), (self.team, "c@three.com")]:
+            EmailIntegration.create_native_integration(
+                {"email": email, "name": "Sender"},
+                team_id=team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+        if one_domain_verified:
+            Integration.objects.filter(kind="email", config__domain="one.com").update(
+                config={"email": "a@one.com", "domain": "one.com", "provider": "ses", "verified": True}
+            )
+
+        def add_sender(email: str) -> None:
+            EmailIntegration.create_native_integration(
+                {"email": email, "name": "Sender"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+
+        add_sender("second@two.com")
+        if one_domain_verified:
+            add_sender("d@four.com")
+        else:
+            with pytest.raises(ValidationError) as exc:
+                add_sender("d@four.com")
+            assert "3 email domains waiting for verification" in str(exc.value)
+        assert Integration.objects.filter(kind="email", config__domain="two.com").count() == 2
+        assert Integration.objects.filter(kind="email", config__domain="four.com").exists() == one_domain_verified
+
 
 class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
     def _create_email_integration(self, email: str, team_id: int, organization_id: str) -> Integration:
