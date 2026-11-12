@@ -201,25 +201,8 @@ tools:
             the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and
             an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one
             that returned successfully. Returns a 400 while the cohort's 'is_calculating' is true."
-        exclude_params:
-            - population_mode
-            - name
-            - description
-            - deleted
-            - filters
-            - is_static
-            - cohort_type
-            - groups
-            - version
-            - pending_version
-            - is_calculating
-            - created_by
-            - created_at
-            - last_calculation
-            - errors_calculating
-            - last_error_message
-            - count
-            - experiment_set
+        include_params:
+            - query
         inject_body:
             population_mode: replace
         param_overrides:
