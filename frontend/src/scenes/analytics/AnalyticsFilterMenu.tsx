@@ -12,7 +12,6 @@ import {
     FilterMenuOpenTiming,
     FilterMenuTrigger,
     FilterOption,
-    FilterRadioSubMenu,
     FilterSearchSubMenu,
 } from '@posthog/quill'
 
@@ -21,30 +20,11 @@ import { fullName } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
 import { membersLogic } from '~/models/membersLogic'
-import { AnalyticsListDisplayConfiguration } from '~/queries/schema/schema-general'
 
-import { AnalyticsOrderBy } from './analyticsFeed'
 import { analyticsListLogic } from './analyticsListLogic'
 import { AnalyticsOwnerAvatar } from './AnalyticsOwner'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 import { ANALYTICS_TYPES, AnalyticsType } from './analyticsUtils'
-
-type AnalyticsSort = NonNullable<AnalyticsListDisplayConfiguration['default_sort']>
-
-const SORT_OPTIONS: FilterOption<AnalyticsOrderBy>[] = [
-    { value: '-last_viewed_at', label: 'Last viewed by me' },
-    { value: '-created_at', label: 'Created' },
-]
-
-// Only a header click or a link reaches these orders, so each shows as a row only while it is in force.
-const OLDEST_FIRST_OPTIONS: Partial<Record<AnalyticsOrderBy, FilterOption<AnalyticsOrderBy>>> = {
-    last_viewed_at: { value: 'last_viewed_at', label: 'Last viewed by me, oldest first' },
-    created_at: { value: 'created_at', label: 'Created, oldest first' },
-}
-
-function isAnalyticsSort(orderBy: AnalyticsOrderBy): orderBy is AnalyticsSort {
-    return orderBy === '-last_viewed_at' || orderBy === '-created_at'
-}
 
 const TYPE_OPTIONS: FilterOption<AnalyticsType>[] = ANALYTICS_TYPES.map((info) => ({
     value: info.type,
@@ -69,18 +49,16 @@ function captureFilterMenuOpened(
 }
 
 /**
- * The list's controls in one menu, laid out like the nav rail's: sort, then a row per filter, then display choices, then
- * Clear filters. The sort and display choices are saved on the person, so they never count as a filter.
+ * The list's filters in one menu, laid out like the nav rail's: a row per filter, then display choices, then Clear
+ * filters. The display choices are saved on the person, so they never count as a filter.
  */
 export function AnalyticsFilterMenu(): JSX.Element {
-    const { filters, scope, insightsHidden, defaultSort, narrowingFiltersActive } = useValues(analyticsListLogic)
-    const { setFilters, setInsightsHidden, setDefaultSort, clearNarrowingFilters } = useActions(analyticsListLogic)
+    const { filters, scope, insightsHidden, narrowingFiltersActive } = useValues(analyticsListLogic)
+    const { setFilters, setInsightsHidden, clearNarrowingFilters } = useActions(analyticsListLogic)
     const tagPages = useTagPages('analytics-list-tags')
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
     const { user } = useValues(userLogic)
-    const sort = filters.orderBy ?? defaultSort
-    const oldestFirstOption = OLDEST_FIRST_OPTIONS[sort]
 
     return (
         <DropdownMenu
@@ -93,18 +71,6 @@ export function AnalyticsFilterMenu(): JSX.Element {
         >
             <FilterMenuTrigger active={narrowingFiltersActive} dataAttr="analytics-list-filter" />
             <DropdownMenuContent align="start" className="min-w-64">
-                <FilterRadioSubMenu
-                    label="Sort by"
-                    options={oldestFirstOption ? [...SORT_OPTIONS, oldestFirstOption] : SORT_OPTIONS}
-                    value={sort}
-                    onChange={(next) => {
-                        if (isAnalyticsSort(next)) {
-                            setDefaultSort(next)
-                        }
-                    }}
-                    optionDataAttr="analytics-list-default-sort"
-                />
-                <DropdownMenuSeparator />
                 <FilterCheckboxSubMenu
                     label="Type"
                     allLabel="All types"

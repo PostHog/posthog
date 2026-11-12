@@ -6,13 +6,25 @@ import { ANALYTICS_TYPES, AnalyticsItem, AnalyticsType, fileSystemEntryToAnalyti
 
 export const ANALYTICS_FEED_PAGE_SIZE = 20
 
-const ANALYTICS_ORDER_BYS = ['-created_at', 'created_at', '-last_viewed_at', 'last_viewed_at'] as const
+const ANALYTICS_ORDER_BYS = [
+    '-created_at',
+    'created_at',
+    '-last_viewed_at',
+    'last_viewed_at',
+    '-view_count',
+    '-viewer_count',
+] as const
 
 /** A column of the list, with a leading `-` for descending, as the file system API takes it. */
 export type AnalyticsOrderBy = (typeof ANALYTICS_ORDER_BYS)[number]
 
 export function isAnalyticsOrderBy(value: unknown): value is AnalyticsOrderBy {
     return ANALYTICS_ORDER_BYS.includes(value as AnalyticsOrderBy)
+}
+
+/** Orders on a count over the last 30 days rather than on a time. */
+export function isAnalyticsCountOrderBy(orderBy: AnalyticsOrderBy | undefined): boolean {
+    return orderBy === '-view_count' || orderBy === '-viewer_count'
 }
 
 export function parseAnalyticsOrderBy(orderBy: AnalyticsOrderBy): { id: string; desc: boolean } {
@@ -138,12 +150,23 @@ export async function fetchAnalyticsSourcePage(
         if (query.orderBy && parseAnalyticsOrderBy(query.orderBy).id === 'last_viewed_at') {
             item.timestamp = entry.last_viewed_at ?? null
         }
+        if (isAnalyticsCountOrderBy(query.orderBy)) {
+            item.viewCount = entry.view_count ?? 0
+            item.viewerCount = entry.viewer_count ?? 0
+        }
         return [item]
     })
     return { items, fetched: result.results.length, hasMore: !!result.next && result.results.length > 0 }
 }
 
-export function analyticsTime(item: AnalyticsItem, orderBy?: AnalyticsFeedQuery['orderBy']): number {
+/** The value the feed merges each type's rows on, larger first. */
+export function analyticsSortValue(item: AnalyticsItem, orderBy?: AnalyticsFeedQuery['orderBy']): number {
+    if (orderBy === '-view_count') {
+        return item.viewCount ?? 0
+    }
+    if (orderBy === '-viewer_count') {
+        return item.viewerCount ?? 0
+    }
     if (!item.timestamp) {
         return -Infinity
     }
@@ -156,10 +179,10 @@ function analyticsItemComesFirst(
     second: AnalyticsItem,
     orderBy?: AnalyticsFeedQuery['orderBy']
 ): boolean {
-    const firstTime = analyticsTime(first, orderBy)
-    const secondTime = analyticsTime(second, orderBy)
-    if (firstTime !== secondTime) {
-        return firstTime > secondTime
+    const firstValue = analyticsSortValue(first, orderBy)
+    const secondValue = analyticsSortValue(second, orderBy)
+    if (firstValue !== secondValue) {
+        return firstValue > secondValue
     }
     return new Date(first.createdAt ?? 0).getTime() > new Date(second.createdAt ?? 0).getTime()
 }

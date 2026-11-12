@@ -71,7 +71,9 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.file_system.file_system_view_log import (
     FileSystemViewLog,
+    annotate_view_counts,
     get_recent_file_system_items,
+    item_view_logs_since,
     recent_view_logs,
 )
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
@@ -162,6 +164,24 @@ class FileSystemFrequentQuerySerializer(serializers.Serializer):
 
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
     last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    view_count = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Views in the last 30 days, counting each day a person viewed the file once. "
+            "Null unless a typed list is ordered by view_count or viewer_count."
+        ),
+    )
+    viewer_count = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "People who viewed the file in the last 30 days. "
+            "Null unless a typed list is ordered by view_count or viewer_count."
+        ),
+    )
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
     class Meta:
@@ -178,6 +198,8 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
             "created_at",
             "created_by",
             "last_viewed_at",
+            "view_count",
+            "viewer_count",
             "user_access_level",
         ]
         read_only_fields = [
@@ -241,6 +263,31 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         )
 
         return file_system
+
+
+class FileSystemViewersQuerySerializer(serializers.Serializer):
+    type = serializers.CharField(max_length=150, help_text="The file's type, such as dashboard or insight.")
+    ref = serializers.CharField(max_length=200, help_text="The file's ref, the ID of the object it points to.")
+
+
+class FileSystemViewerSerializer(serializers.Serializer):
+    user = UserBasicSerializer(read_only=True, help_text="The person who viewed the file.")
+    view_count = serializers.IntegerField(
+        read_only=True, help_text="Days in the window on which this person viewed the file."
+    )
+    last_viewed_at = serializers.DateTimeField(read_only=True, help_text="When this person last viewed the file.")
+
+
+class FileSystemViewersSerializer(serializers.Serializer):
+    since = serializers.DateField(
+        read_only=True, help_text="The first day of the window, in the project's time zone. The window ends today."
+    )
+    results = FileSystemViewerSerializer(
+        many=True, read_only=True, help_text="Everyone who viewed the file in the window, most views first."
+    )
+
+
+VIEW_COUNT_ORDER_BYS = ("-view_count", "view_count", "-viewer_count", "viewer_count")
 
 
 class FileSystemsLimitOffsetPagination(FacadeLimitOffsetPagination):
@@ -382,6 +429,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "retrieve",
         "search",
         "frequent",
+        "viewers",
         "unfiled",
         "count",
         "count_by_path",
@@ -675,6 +723,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
                 queryset = queryset.order_by(order_by_param, "id")
+            elif order_by_param in VIEW_COUNT_ORDER_BYS and (type_param or type__startswith_param):
+                # Counting every person's views costs one index scan per row, so only a list of one type gets it.
+                queryset = annotate_view_counts(queryset, self.team.timezone).order_by(
+                    order_by_param, "-created_at", "id"
+                )
             else:
                 # `last_viewed_at` ordering (Recents, with or without a search term) is served
                 # view-log-first in `_list_recents`, so it never reaches this queryset path.
@@ -922,6 +975,29 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             frequent_on=timezone.now().astimezone(ZoneInfo(self.team.timezone or "UTC")).date(),
         )
         return Response(self.get_serializer(items, many=True).data)
+
+    @validated_request(
+        query_serializer=FileSystemViewersQuerySerializer,
+        responses={200: FileSystemViewersSerializer},
+        summary="List who viewed a file in the last 30 days",
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def viewers(self, request: Request, **kwargs: object) -> Response:
+        params = request.validated_query_data
+        entries = self._scope_by_project_and_environment(
+            FileSystem.objects.filter(surface_q(self.file_system_surface), type=params["type"], ref=params["ref"])
+        )
+        entry = self._filter_by_access_control(entries).first()
+        if entry is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        logs, since = item_view_logs_since(self.team.timezone)
+        viewers = (
+            logs.filter(team_id=entry.team_id, type=entry.type, ref=entry.ref)
+            .select_related("user")
+            .order_by("-view_count", "-viewed_at")
+        )
+        results = [{"user": log.user, "view_count": log.view_count, "last_viewed_at": log.viewed_at} for log in viewers]
+        return Response(FileSystemViewersSerializer({"since": since, "results": results}).data)
 
     def _created_by_users(self, results: builtins.list[dict[str, Any]]) -> builtins.list[dict[str, Any]]:
         # Collect user IDs from the "created_by" meta field so the client can render avatars

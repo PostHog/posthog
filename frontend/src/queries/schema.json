@@ -1768,7 +1768,7 @@
             "properties": {
                 "default_sort": {
                     "description": "The sort a list opens with. A column header click still changes the sort for that visit.",
-                    "enum": ["-last_viewed_at", "-created_at"],
+                    "enum": ["-last_viewed_at", "-created_at", "-view_count", "-viewer_count"],
                     "type": "string"
                 },
                 "hide_insights": {
@@ -30022,6 +30022,14 @@
                     "description": "Access level the user has for the referenced object ('none' means no access); null/absent when access controls don't apply",
                     "type": ["string", "null"]
                 },
+                "view_count": {
+                    "description": "Views in the last 30 days, counting each day a person viewed it once. Null unless the list is ordered by views or viewers",
+                    "type": "integer"
+                },
+                "viewer_count": {
+                    "description": "People who viewed it in the last 30 days. Null unless the list is ordered by views or viewers",
+                    "type": "integer"
+                },
                 "visualOrder": {
                     "description": "Order of object in tree",
                     "type": "number"
@@ -30278,6 +30286,14 @@
                 "user_access_level": {
                     "description": "Access level the user has for the referenced object ('none' means no access); null/absent when access controls don't apply",
                     "type": ["string", "null"]
+                },
+                "view_count": {
+                    "description": "Views in the last 30 days, counting each day a person viewed it once. Null unless the list is ordered by views or viewers",
+                    "type": "integer"
+                },
+                "viewer_count": {
+                    "description": "People who viewed it in the last 30 days. Null unless the list is ordered by views or viewers",
+                    "type": "integer"
                 },
                 "visualOrder": {
                     "description": "Order of object in tree",

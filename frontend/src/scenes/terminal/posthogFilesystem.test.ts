@@ -52,6 +52,8 @@ describe('PostHog filesystem projection', () => {
         created_at: '2026-01-01T00:00:00Z',
         created_by: null,
         last_viewed_at: null,
+        view_count: null,
+        viewer_count: null,
         user_access_level: 'editor',
         meta: type === 'notebook' ? { content_type: 'text/markdown' } : {},
     })

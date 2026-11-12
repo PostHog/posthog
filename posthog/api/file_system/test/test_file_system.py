@@ -1257,6 +1257,52 @@ class TestFileSystemAPI(APIBaseTest):
             self.assertTrue(all(row["last_viewed_at"] is None for row in results[-3:]))
             self.assertTrue(all(row["last_viewed_at"] for row in results[:-3]))
 
+    @time_machine.travel("2026-09-30T12:00:00Z", tick=False)
+    def test_typed_list_orders_by_view_counts_in_the_window(self) -> None:
+        for ref in ("busy", "popular", "stale", "unseen"):
+            FileSystem.objects.create(team=self.team, path=f"Dashboard {ref}", type="dashboard", ref=ref)
+        viewers = [self.user] + [
+            User.objects.create_and_join(self.organization, f"viewer{index}@example.com", "password")
+            for index in range(2)
+        ]
+        today = timezone.now().date()
+
+        def view(user: User, ref: str, days_ago: list[int]) -> None:
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=user,
+                type="dashboard",
+                ref=ref,
+                viewed_at=timezone.now() - timedelta(days=min(days_ago)),
+                view_days=[today - timedelta(days=day) for day in days_ago],
+            )
+
+        # Days before the 30-day window must not count, even when a later view keeps the row in it.
+        view(viewers[0], "busy", [0, 1, 2, 3, 45])
+        for user in viewers:
+            view(user, "popular", [5])
+        view(viewers[0], "stale", [40])
+
+        base = f"/api/projects/{self.team.id}/file_system/?type=dashboard&order_by="
+        for ordering, expected in [
+            ("-view_count", [("busy", 4, 1), ("popular", 3, 3)]),
+            ("-viewer_count", [("popular", 3, 3), ("busy", 4, 1)]),
+        ]:
+            response = self.client.get(f"{base}{ordering}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            rows = [(row["ref"], row["view_count"], row["viewer_count"]) for row in response.json()["results"]]
+            self.assertEqual(rows[:2], expected)
+            self.assertCountEqual(rows[2:], [("stale", 0, 0), ("unseen", 0, 0)])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/viewers/?type=dashboard&ref=busy")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["since"], "2026-09-01")
+        self.assertEqual(
+            [(row["user"]["email"], row["view_count"]) for row in response.json()["results"]], [(self.user.email, 4)]
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/viewers/?type=dashboard&ref=popular")
+        self.assertEqual(len(response.json()["results"]), 3)
+
     def test_list_order_by_created_at(self):
         # Create items in chronological order
         with time_machine.travel("2020-01-01 10:00:00", tick=False):
@@ -1609,6 +1655,19 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/frequent/", {"limit": 1})
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual([item["ref"] for item in response.json()], [self.file_a.ref])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_viewers_hidden_for_items_with_none_access(self, mock_flag: MagicMock) -> None:
+        assert self.file_b.ref is not None
+        Dashboard.objects.filter(id=self.file_b.ref).update(created_by=self.other_user)
+        FileSystem.objects.filter(team=self.team, type="dashboard", ref=self.file_b.ref).update(
+            created_by=self.other_user
+        )
+        self._create_access_control(resource="dashboard", resource_id=self.file_b.ref, access_level="none")
+        url = f"/api/projects/{self.team.id}/file_system/viewers/"
+
+        self.assertEqual(self.client.get(url, {"type": "dashboard", "ref": self.file_a.ref}).status_code, 200)
+        self.assertEqual(self.client.get(url, {"type": "dashboard", "ref": self.file_b.ref}).status_code, 404)
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_excludes_items_with_none_access(self, mock_flag):

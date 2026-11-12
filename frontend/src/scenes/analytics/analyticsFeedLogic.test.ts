@@ -8,12 +8,13 @@ import { initKeaTests } from '~/test/init'
 
 import {
     AnalyticsFeedQuery,
+    AnalyticsOrderBy,
     AnalyticsSourceState,
     EMPTY_ANALYTICS_FEED_QUERY,
     mergeAnalyticsSources,
 } from './analyticsFeed'
 import { analyticsFeedLogic, resetAnalyticsFeedSnapshot, selectAnalyticsFeed } from './analyticsFeedLogic'
-import { fileSystemEntryToAnalytics } from './analyticsUtils'
+import { AnalyticsItem, fileSystemEntryToAnalytics } from './analyticsUtils'
 
 const ALL: AnalyticsFeedQuery = EMPTY_ANALYTICS_FEED_QUERY
 
@@ -228,36 +229,61 @@ describe('analyticsFeedLogic', () => {
 })
 
 describe('mergeAnalyticsSources view order', () => {
+    const source = (
+        type: 'dashboard' | 'notebook',
+        orderBy: AnalyticsOrderBy,
+        rows: Partial<AnalyticsItem>[]
+    ): AnalyticsSourceState => ({
+        projectId: '1',
+        query: { ...ALL, orderBy },
+        type,
+        items: rows.map((row, index) => ({
+            ...fileSystemEntryToAnalytics({
+                id: `fs-${type}-${index}`,
+                type,
+                ref: `${type}-${index}`,
+                path: `${type}/${index}`,
+                created_at: at(30 - index),
+            })!,
+            ...row,
+        })),
+        offset: rows.length,
+        hasMore: false,
+        initialized: true,
+        refreshing: false,
+        loading: false,
+        failed: false,
+        generation: 0,
+    })
+
     test.each(['-last_viewed_at', 'last_viewed_at', '-created_at', 'created_at'] as const)(
         'merges %s across types with rows that have no time last',
         (orderBy) => {
-            const source = (type: 'dashboard' | 'notebook', days: (number | null)[]): AnalyticsSourceState => ({
-                projectId: '1',
-                query: { ...ALL, orderBy },
-                type,
-                items: days.map((day, index) => ({
-                    ...fileSystemEntryToAnalytics({
-                        id: `fs-${type}-${index}`,
-                        type,
-                        ref: `${type}-${index}`,
-                        path: `${type}/${index}`,
-                        created_at: at(30 - index),
-                    })!,
-                    timestamp: day === null ? null : at(day),
-                })),
-                offset: days.length,
-                hasMore: false,
-                initialized: true,
-                refreshing: false,
-                loading: false,
-                failed: false,
-                generation: 0,
-            })
+            const times = (days: (number | null)[]): Partial<AnalyticsItem>[] =>
+                days.map((day) => ({ timestamp: day === null ? null : at(day) }))
             const dashboards = orderBy.startsWith('-') ? [5, 2, null] : [2, 5, null]
-            const { items } = mergeAnalyticsSources([source('dashboard', dashboards), source('notebook', [3, null])])
+            const { items } = mergeAnalyticsSources([
+                source('dashboard', orderBy, times(dashboards)),
+                source('notebook', orderBy, times([3, null])),
+            ])
             const expected = orderBy.startsWith('-') ? [5, 3, 2, null, null] : [2, 3, 5, null, null]
             expect(items.map((item) => item.timestamp)).toEqual(expected.map((day) => (day === null ? null : at(day))))
             expect(items.slice(-2).map((item) => item.type)).toEqual(['notebook', 'dashboard'])
         }
     )
+
+    test.each([
+        ['-view_count', 'viewCount'],
+        ['-viewer_count', 'viewerCount'],
+    ] as const)('merges %s across types on the count, not the time', (orderBy, key) => {
+        // The times run against the counts, so a merge on the time puts the rows the other way round.
+        const { items } = mergeAnalyticsSources([
+            source('dashboard', orderBy, [
+                { [key]: 9, timestamp: at(1) },
+                { [key]: 2, timestamp: at(8) },
+            ]),
+            source('notebook', orderBy, [{ [key]: 5, timestamp: at(4) }]),
+        ])
+        expect(items.map((item) => item[key])).toEqual([9, 5, 2])
+    })
 })

@@ -187,6 +187,8 @@ class AmazonAdsDefaultSources(StrEnum):
 class DefaultSort(StrEnum):
     FIELD_LAST_VIEWED_AT = "-last_viewed_at"
     FIELD_CREATED_AT = "-created_at"
+    FIELD_VIEW_COUNT = "-view_count"
+    FIELD_VIEWER_COUNT = "-viewer_count"
 
 
 class AnnotationScope(StrEnum):

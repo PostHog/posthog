@@ -9,6 +9,8 @@ const COLUMN_LABELS: Record<string, string> = {
     owner: 'Owner',
     last_viewed_at: 'Last viewed by me',
     created_at: 'Created',
+    view_count: 'Views',
+    viewer_count: 'Viewers',
 }
 
 export function AnalyticsListSkeleton({ columns }: { columns: AnalyticsListColumns }): JSX.Element {

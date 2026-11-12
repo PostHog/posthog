@@ -5829,6 +5829,16 @@ export interface FileSystemEntry {
     created_at?: string
     /** Timestamp when the file system entry was last viewed */
     last_viewed_at?: string | null
+    /**
+     * Views in the last 30 days, counting each day a person viewed it once. Null unless the list is ordered by views or viewers
+     * @asType integer
+     */
+    view_count?: number | null
+    /**
+     * People who viewed it in the last 30 days. Null unless the list is ordered by views or viewers
+     * @asType integer
+     */
+    viewer_count?: number | null
     /** Whether this is a shortcut or the actual item */
     shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
@@ -9870,7 +9880,7 @@ export interface AnalyticsListDisplayConfiguration {
     /** Leaves insights out of the All list. */
     hide_insights?: boolean
     /** The sort a list opens with. A column header click still changes the sort for that visit. */
-    default_sort?: '-last_viewed_at' | '-created_at'
+    default_sort?: '-last_viewed_at' | '-created_at' | '-view_count' | '-viewer_count'
 }
 
 export interface TicketSidebarConfiguration {

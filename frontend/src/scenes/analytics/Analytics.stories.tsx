@@ -173,6 +173,21 @@ const FILE_SYSTEM = [
     },
 ]
 
+// Views and viewers over the last 30 days, by file system id, for the lists sorted on them.
+const VIEW_COUNTS: Record<string, { view_count: number; viewer_count: number }> = {
+    'fs-dash-12': { view_count: 42, viewer_count: 6 },
+    'fs-ins-signups': { view_count: 17, viewer_count: 9 },
+    'fs-canvas-1': { view_count: 8, viewer_count: 3 },
+}
+
+const VIEWERS = {
+    since: '2026-08-30',
+    results: [
+        { user: ADA, view_count: 21, last_viewed_at: at(28, 8) },
+        { user: GRACE, view_count: 12, last_viewed_at: at(27, 15) },
+    ],
+}
+
 // Answers the file system like the API does for the params the Analyses pages send.
 const fileSystemHandler = ({ request }: { request: Request }): [number, unknown] => {
     const params = new URL(request.url).searchParams
@@ -196,6 +211,16 @@ const fileSystemHandler = ({ request }: { request: Request }): [number, unknown]
             (parent !== null || depth !== null || type !== null || typePrefix !== null || entry.type !== 'folder')
     )
     const orderBy = params.get('order_by')
+    if (orderBy === '-view_count' || orderBy === '-viewer_count') {
+        const counted = results
+            .map((entry) => ({ ...entry, ...(VIEW_COUNTS[entry.id] ?? { view_count: 0, viewer_count: 0 }) }))
+            .sort((first, second) =>
+                orderBy === '-view_count'
+                    ? second.view_count - first.view_count
+                    : second.viewer_count - first.viewer_count
+            )
+        return [200, { results: counted, count: counted.length, next: null, users: [ADA, GRACE] }]
+    }
     results.sort((first, second) => {
         if (orderBy === '-last_viewed_at' || orderBy === 'last_viewed_at') {
             if (!first.last_viewed_at) {
@@ -230,6 +255,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/insights/': { results: INSIGHTS, next: null, count: INSIGHTS.length },
                 '/api/environments/:team_id/file_system/': fileSystemHandler,
                 '/api/projects/:team_id/file_system/': fileSystemHandler,
+                '/api/projects/:team_id/file_system/viewers/': VIEWERS,
                 '/api/projects/:team_id/tags/': {
                     results: ['finance', 'growth', 'onboarding', 'weekly'],
                     next: null,
@@ -397,5 +423,17 @@ export const ListNewInsightDialog: Story = {
         await clickWhenRendered('analytics-list-new')
         await clickWhenRendered('analytics-new-insight')
         await within(document.body).findByText('How does it change over time?', {}, { timeout: 15000 })
+    },
+}
+
+export const ListByViewers: Story = {
+    parameters: { pageUrl: urls.analyticsList({ orderBy: '-viewer_count' }) },
+}
+
+export const ListViewersDialog: Story = {
+    parameters: { pageUrl: urls.analyticsList({ orderBy: '-viewer_count' }) },
+    play: async () => {
+        await clickWhenRendered('analytics-list-row-viewers')
+        await within(document.body).findByText('Last viewed', {}, { timeout: 15000 })
     },
 }

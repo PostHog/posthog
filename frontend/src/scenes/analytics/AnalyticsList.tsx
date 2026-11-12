@@ -47,13 +47,14 @@ import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
-import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
+import { AnalyticsListRow, AnalyticsSortColumn, analyticsListColumns } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
 import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
+import { AnalyticsViewersDialog } from './AnalyticsViewersDialog'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
 import { ShareToSpaceDialog } from './ShareToSpaceDialog'
 
@@ -105,9 +106,13 @@ function AnalyticsListContent(): JSX.Element {
             : urls.analyticsList(analyticsListUrlParams(filters))
     const showSpace = mode === 'feed'
     const showOwner = scope !== 'mine'
+    const sortedColumn =
+        mode === 'feed' && feedQuery.orderBy
+            ? (parseAnalyticsOrderBy(feedQuery.orderBy).id as AnalyticsSortColumn)
+            : null
     const columns = useMemo(
-        () => analyticsListColumns({ backUrl, showSpace, showOwner }),
-        [backUrl, showSpace, showOwner]
+        () => analyticsListColumns({ backUrl, showSpace, showOwner, sortedColumn }),
+        [backUrl, showSpace, showOwner, sortedColumn]
     )
     const rows = useMemo<AnalyticsListRow[]>(
         () => [
@@ -356,6 +361,7 @@ function AnalyticsListContent(): JSX.Element {
             </div>
             <AnalyticsCreateModals />
             <ShareToSpaceDialog />
+            <AnalyticsViewersDialog />
             <TodayAnalyticsNewFolderDialog />
         </SceneContent>
     )

@@ -47,6 +47,8 @@ import type {
     FileSystemShortcutBulkUpdateApi,
     FileSystemShortcutListParams,
     FileSystemShortcutReorderApi,
+    FileSystemViewersApi,
+    FileSystemViewersRetrieveParams,
     GitHubBranchesResponseApi,
     GitHubInstallRequestListResponseApi,
     GitHubReposRefreshResponseApi,
@@ -2144,6 +2146,36 @@ export const getFileSystemUnfiledRetrieveUrl = (projectId: string) => {
 
 export const fileSystemUnfiledRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getFileSystemUnfiledRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFileSystemViewersRetrieveUrl = (projectId: string, params: FileSystemViewersRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/file_system/viewers/?${stringifiedParams}`
+        : `/api/projects/${projectId}/file_system/viewers/`
+}
+
+/**
+ * @summary List who viewed a file in the last 30 days
+ */
+export const fileSystemViewersRetrieve = async (
+    projectId: string,
+    params: FileSystemViewersRetrieveParams,
+    options?: RequestInit
+): Promise<FileSystemViewersApi> => {
+    return apiMutator<FileSystemViewersApi>(getFileSystemViewersRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -1865,6 +1865,17 @@ class FileSystemEntry(BaseModel):
             " access); null/absent when access controls don't apply"
         ),
     )
+    view_count: int | None = Field(
+        default=None,
+        description=(
+            "Views in the last 30 days, counting each day a person viewed it once. Null"
+            " unless the list is ordered by views or viewers"
+        ),
+    )
+    viewer_count: int | None = Field(
+        default=None,
+        description=("People who viewed it in the last 30 days. Null unless the list is ordered by views or viewers"),
+    )
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
@@ -6311,6 +6322,17 @@ class FileSystemImport(BaseModel):
             "Access level the user has for the referenced object ('none' means no"
             " access); null/absent when access controls don't apply"
         ),
+    )
+    view_count: int | None = Field(
+        default=None,
+        description=(
+            "Views in the last 30 days, counting each day a person viewed it once. Null"
+            " unless the list is ordered by views or viewers"
+        ),
+    )
+    viewer_count: int | None = Field(
+        default=None,
+        description=("People who viewed it in the last 30 days. Null unless the list is ordered by views or viewers"),
     )
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 

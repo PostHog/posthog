@@ -5169,6 +5169,16 @@ export interface FileSystemApi {
     /** @nullable */
     readonly last_viewed_at: string | null
     /**
+     * Views in the last 30 days, counting each day a person viewed the file once. Null unless a typed list is ordered by view_count or viewer_count.
+     * @nullable
+     */
+    readonly view_count: number | null
+    /**
+     * People who viewed the file in the last 30 days. Null unless a typed list is ordered by view_count or viewer_count.
+     * @nullable
+     */
+    readonly viewer_count: number | null
+    /**
      * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
      * @nullable
      */
@@ -5205,6 +5215,16 @@ export interface PatchedFileSystemApi {
     readonly created_by?: UserBasicApi | null
     /** @nullable */
     readonly last_viewed_at?: string | null
+    /**
+     * Views in the last 30 days, counting each day a person viewed the file once. Null unless a typed list is ordered by view_count or viewer_count.
+     * @nullable
+     */
+    readonly view_count?: number | null
+    /**
+     * People who viewed the file in the last 30 days. Null unless a typed list is ordered by view_count or viewer_count.
+     * @nullable
+     */
+    readonly viewer_count?: number | null
     /**
      * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
      * @nullable
@@ -5252,6 +5272,22 @@ export interface FileSystemRankedSearchResponseApi {
     matched_with_typos: boolean
     /** True when the search stopped at its candidate limit, so type_counts are lower bounds. */
     counts_capped: boolean
+}
+
+export interface FileSystemViewerApi {
+    /** The person who viewed the file. */
+    readonly user: UserBasicApi
+    /** Days in the window on which this person viewed the file. */
+    readonly view_count: number
+    /** When this person last viewed the file. */
+    readonly last_viewed_at: string
+}
+
+export interface FileSystemViewersApi {
+    /** The first day of the window, in the project's time zone. The window ends today. */
+    readonly since: string
+    /** Everyone who viewed the file in the window, most views first. */
+    readonly results: readonly FileSystemViewerApi[]
 }
 
 export interface FileSystemShortcutApi {
@@ -7599,6 +7635,21 @@ export type FileSystemSearchRetrieveParams = {
      * @maxLength 200
      */
     search: string
+}
+
+export type FileSystemViewersRetrieveParams = {
+    /**
+     * The file's ref, the ID of the object it points to.
+     * @minLength 1
+     * @maxLength 200
+     */
+    ref: string
+    /**
+     * The file's type, such as dashboard or insight.
+     * @minLength 1
+     * @maxLength 150
+     */
+    type: string
 }
 
 export type FileSystemShortcutListParams = {

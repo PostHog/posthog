@@ -9,7 +9,8 @@ from zoneinfo import ZoneInfo
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import IntegrityError, models, transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Count, Exists, Func, IntegerField, OuterRef, Q, QuerySet, Subquery, Sum, Value
+from django.db.models.functions import Coalesce
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -25,6 +26,59 @@ if TYPE_CHECKING:
 
 VIEW_DAYS_KEPT = 35
 FRECENCY_HALF_LIFE_DAYS = 14
+# Shorter than VIEW_DAYS_KEPT, so every day in the window is still in `view_days`.
+VIEW_COUNT_WINDOW_DAYS = 30
+
+
+class ViewDaysSince(Func):
+    """The number of days in a `view_days` array on or after a date."""
+
+    output_field = IntegerField()
+
+    def __init__(self, view_days: object, since: date) -> None:
+        super().__init__(view_days, Value(since))
+
+    def as_sql(self, compiler, connection, **extra_context):  # type: ignore[override]
+        days_sql, days_params = compiler.compile(self.source_expressions[0])
+        since_sql, since_params = compiler.compile(self.source_expressions[1])
+        return (
+            f"(SELECT COUNT(*) FROM unnest({days_sql}) AS view_day WHERE view_day >= {since_sql})",
+            [*days_params, *since_params],
+        )
+
+
+def view_count_window_start(team_timezone: Optional[str]) -> tuple[date, datetime]:
+    """The first day of the view count window in the team's time zone, and the moment that day starts."""
+    tz = ZoneInfo(team_timezone or "UTC")
+    since = timezone.now().astimezone(tz).date() - timedelta(days=VIEW_COUNT_WINDOW_DAYS - 1)
+    return since, datetime.combine(since, datetime.min.time(), tzinfo=tz)
+
+
+def item_view_logs_since(team_timezone: Optional[str]) -> tuple[QuerySet[FileSystemViewLog], date]:
+    """Every person's view log row with a view in the window, with `view_count`, the days they viewed the item."""
+    since, since_start = view_count_window_start(team_timezone)
+    logs = FileSystemViewLog.objects.filter(viewed_at__gte=since_start).annotate(
+        view_count=ViewDaysSince("view_days", since)
+    )
+    return logs, since
+
+
+def annotate_view_counts(queryset: QuerySet[FileSystem], team_timezone: Optional[str]) -> QuerySet[FileSystem]:
+    """Adds `view_count` (days each person viewed the file, summed) and `viewer_count` over the window."""
+    since, since_start = view_count_window_start(team_timezone)
+    item_logs = (
+        FileSystemViewLog.objects.filter(
+            team_id=OuterRef("team_id"), type=OuterRef("type"), ref=OuterRef("ref"), viewed_at__gte=since_start
+        )
+        .order_by()
+        .values("team_id", "type", "ref")
+    )
+    return queryset.annotate(
+        viewer_count=Coalesce(Subquery(item_logs.annotate(total=Count("id")).values("total")[:1]), 0),
+        view_count=Coalesce(
+            Subquery(item_logs.annotate(total=Sum(ViewDaysSince("view_days", since))).values("total")[:1]), 0
+        ),
+    )
 
 
 def view_days_score(view_days: Sequence[date], today: date) -> float:

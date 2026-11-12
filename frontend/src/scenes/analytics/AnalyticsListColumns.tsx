@@ -8,6 +8,7 @@ import {
     IconFolder,
     IconFolderMove,
     IconFolderOpen,
+    IconPeople,
     IconTrash,
     IconX,
 } from '@posthog/icons'
@@ -48,10 +49,14 @@ import {
     analyticsOpenHref,
     isSpacePath,
 } from './analyticsUtils'
+import { analyticsViewersLogic } from './analyticsViewersLogic'
 
 export type AnalyticsListRow = { kind: 'folder'; folder: FolderRow } | { kind: 'item'; item: AnalyticsItem }
 
 export type AnalyticsListColumns = ColumnDef<AnalyticsListRow>[]
+
+/** The column the list is sorted on, the only one of the sortable columns it shows. */
+export type AnalyticsSortColumn = 'last_viewed_at' | 'created_at' | 'view_count' | 'viewer_count'
 
 function EmptyCell(): JSX.Element {
     return (
@@ -69,6 +74,36 @@ function TimeCell({ time }: { time: string | null }): JSX.Element {
         <Text size="xs" variant="muted" render={<span />}>
             <TZLabel time={time} />
         </Text>
+    )
+}
+
+function CountCell({
+    item,
+    count,
+    source,
+}: {
+    item: AnalyticsItem
+    count: number
+    source: 'views' | 'viewers'
+}): JSX.Element {
+    const { openViewers } = useActions(analyticsViewersLogic)
+    if (!count) {
+        return (
+            <Text size="xs" variant="muted">
+                0
+            </Text>
+        )
+    }
+    return (
+        <Button
+            variant="link"
+            size="sm"
+            tooltip="See who viewed it"
+            onClick={() => openViewers({ type: item.type, ref: item.id, name: item.name }, source)}
+            data-attr={`analytics-list-row-${source}`}
+        >
+            {count.toLocaleString()}
+        </Button>
     )
 }
 
@@ -168,6 +203,7 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
 
 function ItemMenuCell({ item }: { item: AnalyticsItem }): JSX.Element {
     const { openShareToSpace } = useActions(analyticsShareLogic)
+    const { openViewers } = useActions(analyticsViewersLogic)
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
@@ -193,6 +229,13 @@ function ItemMenuCell({ item }: { item: AnalyticsItem }): JSX.Element {
                 >
                     <IconFolderMove />
                     Move to another collection
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    onClick={() => openViewers({ type: item.type, ref: item.id, name: item.name }, 'menu')}
+                    data-attr="analytics-list-row-usage"
+                >
+                    <IconPeople />
+                    View usage
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
@@ -330,15 +373,65 @@ function ItemTitle({
     )
 }
 
-/** The list's columns. The type shows as the title's icon. */
+function sortColumn(id: AnalyticsSortColumn, sortable: boolean): AnalyticsListColumns[number] {
+    switch (id) {
+        case 'last_viewed_at':
+            return {
+                id,
+                header: 'Last viewed by me',
+                accessorFn: (row) => (row.kind === 'item' ? (row.item.entry?.last_viewed_at ?? null) : null),
+                enableSorting: sortable,
+                sortDescFirst: true,
+                enableMultiSort: false,
+                meta: { sortDataAttr: 'analytics-list-sort-last-viewed' },
+                cell: ({ getValue }) => <TimeCell time={getValue<string | null>()} />,
+            }
+        case 'created_at':
+            return {
+                id,
+                header: 'Created',
+                accessorFn: (row) => (row.kind === 'item' ? row.item.createdAt : (row.folder.createdAt ?? null)),
+                enableSorting: sortable,
+                sortDescFirst: true,
+                enableMultiSort: false,
+                meta: { sortDataAttr: 'analytics-list-sort-created' },
+                cell: ({ getValue }) => <TimeCell time={getValue<string | null>()} />,
+            }
+        case 'view_count':
+        case 'viewer_count':
+            return {
+                id,
+                header: id === 'view_count' ? 'Views' : 'Viewers',
+                // The counts only sort most first, which the sort menu picks, so the header does not toggle them.
+                enableSorting: false,
+                cell: ({ row }) =>
+                    row.original.kind === 'item' ? (
+                        <CountCell
+                            item={row.original.item}
+                            count={
+                                (id === 'view_count' ? row.original.item.viewCount : row.original.item.viewerCount) ?? 0
+                            }
+                            source={id === 'view_count' ? 'views' : 'viewers'}
+                        />
+                    ) : (
+                        <EmptyCell />
+                    ),
+            }
+    }
+}
+
+/** The list's columns. The type shows as the title's icon. Of the sortable columns, only the sorted one shows. */
 export function analyticsListColumns({
     backUrl,
     showSpace,
     showOwner,
+    sortedColumn,
 }: {
     backUrl: string
     showSpace: boolean
     showOwner: boolean
+    /** Null for a folder, which lists by name and shows when each row was created. */
+    sortedColumn: AnalyticsSortColumn | null
 }): AnalyticsListColumns {
     const draggable = !showSpace
     return [
@@ -391,29 +484,7 @@ export function analyticsListColumns({
                   },
               ] satisfies AnalyticsListColumns)
             : []),
-        ...(showSpace
-            ? ([
-                  {
-                      id: 'last_viewed_at',
-                      header: 'Last viewed by me',
-                      accessorFn: (row) => (row.kind === 'item' ? (row.item.entry?.last_viewed_at ?? null) : null),
-                      sortDescFirst: true,
-                      enableMultiSort: false,
-                      meta: { sortDataAttr: 'analytics-list-sort-last-viewed' },
-                      cell: ({ getValue }) => <TimeCell time={getValue<string | null>()} />,
-                  },
-              ] satisfies AnalyticsListColumns)
-            : []),
-        {
-            id: 'created_at',
-            header: 'Created',
-            accessorFn: (row) => (row.kind === 'item' ? row.item.createdAt : (row.folder.createdAt ?? null)),
-            enableSorting: showSpace,
-            sortDescFirst: true,
-            enableMultiSort: false,
-            meta: { sortDataAttr: 'analytics-list-sort-created' },
-            cell: ({ getValue }) => <TimeCell time={getValue<string | null>()} />,
-        },
+        sortedColumn ? sortColumn(sortedColumn, true) : sortColumn('created_at', false),
         {
             id: 'actions',
             enableResizing: false,
