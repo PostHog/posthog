@@ -2,12 +2,9 @@ import './CardMeta.scss'
 
 import clsx from 'clsx'
 
-import { IconEllipsis } from '@posthog/icons'
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
-
-import { closesIntoLemonPopover } from 'lib/components/QuillSurface/closesIntoLemonPopover'
-
 import { InsightColor } from '~/types'
+
+import { QuillCardMoreMenu } from './QuillCardMoreMenu'
 
 export interface QuillCardMetaProps {
     ribbonColor?: InsightColor | null
@@ -35,29 +32,7 @@ export function QuillCardMeta({
         <div className="CardMeta__controls">
             {refreshControl}
             {headerStatus}
-            {menuItems ? (
-                <DropdownMenu
-                    onOpenChange={(open, details) => {
-                        if (closesIntoLemonPopover(open, details)) {
-                            details.cancel()
-                        }
-                    }}
-                >
-                    <DropdownMenuTrigger
-                        render={
-                            <Button
-                                size="icon"
-                                aria-label={menuTooltip}
-                                tooltip={menuTooltip}
-                                data-attr="more-button"
-                            />
-                        }
-                    >
-                        <IconEllipsis />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">{menuItems}</DropdownMenuContent>
-                </DropdownMenu>
-            ) : null}
+            {menuItems ? <QuillCardMoreMenu items={menuItems} tooltip={menuTooltip} /> : null}
         </div>
     )
 
