@@ -38,6 +38,9 @@ class SlackAppWorkFocusInputs:
     slack_user_id: str
     # Set on a daily run: the previous run time, as epoch seconds. The run reads the messages sent after it.
     since: int | None = None
+    # Set on a daily run: the run time the sweep claimed, as epoch seconds. The run sends only while the row still
+    # names it, so a retry that a later sweep overtook sends nothing.
+    run_at: int | None = None
     start_delay_seconds: int = 0
 
 
