@@ -267,7 +267,7 @@ export interface logsViewerDataLogicActions {
         }
     }
     expireLiveTail: () => boolean
-    fetchLogs: (trigger?: LogsQueryTriggerEnumApi) => any
+    fetchLogs: (trigger?: LogsQueryTriggerEnumApi) => LogsQueryTriggerEnumApi
     fetchLogsFailure: (
         error: string,
         errorObject?: any
@@ -277,10 +277,10 @@ export interface logsViewerDataLogicActions {
     }
     fetchLogsSuccess: (
         logs: LogMessage[],
-        payload?: any
+        payload?: LogsQueryTriggerEnumApi
     ) => {
         logs: LogMessage[]
-        payload?: any
+        payload?: LogsQueryTriggerEnumApi
     }
     fetchNextLogsPage: (limit?: number) => {
         limit: number | undefined
@@ -335,8 +335,8 @@ export interface logsViewerDataLogicActions {
         trigger?: LogsQueryTriggerEnumApi,
         debounce?: integer
     ) => {
-        trigger: LogsQueryTriggerEnumApi | undefined
         debounce: number | undefined
+        trigger: LogsQueryTriggerEnumApi | undefined
     }
     setCustomColumnAliases: (customColumnAliases: Record<string, string> | null) => {
         customColumnAliases: Record<string, string> | null
