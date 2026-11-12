@@ -7,7 +7,6 @@ import { buildRedirectUrl, getPublicUrl, matchAuthServerRedirect } from '@/lib/r
 import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 
 import type { Lifecycle } from './app'
-import { cliCatalogHandler } from './cli-catalog-route'
 import { AUTH_REDIRECT_PATHS, getAuthorizationServerUrl, MCP_DOCS_URL } from './constants'
 import { InterviewRecruitment } from './interview-recruitment'
 import { register } from './metrics'
@@ -127,7 +126,6 @@ export function registerPublicRoutes(app: Hono, redis: RedisWithPing, lifecycle:
     app.get(`/.well-known/muse-challenge/${MUSE_CHALLENGE_TOKEN}`, (c) =>
         c.text(`muse-challenge=${MUSE_CHALLENGE_TOKEN}`)
     )
-    app.get('/cli/catalog.json', cliCatalogHandler)
     app.get('/health', healthHandler)
     app.get('/healthz', healthHandler)
     app.get('/readyz', readyzHandler(redis, lifecycle))

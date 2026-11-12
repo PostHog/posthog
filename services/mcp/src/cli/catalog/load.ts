@@ -59,6 +59,13 @@ export function loadCatalog(raw: unknown, reserved: ReadonlySet<string> = new Se
             dropped.push({ name: entry.name, reason: `needs ${missing.join(', ')}, which this hog doesn't have` })
             continue
         }
+        if (
+            entry.hooks !== null &&
+            !entry.requires.some((capability) => capability.startsWith(`hook:${entry.hooks}@`))
+        ) {
+            dropped.push({ name: entry.name, reason: `uses hooks ${entry.hooks} without requiring a version of them` })
+            continue
+        }
         if (entry.uiApp !== null && !hasUiApp(entry.uiApp)) {
             dropped.push({ name: entry.name, reason: `needs the UI app ${entry.uiApp}, which this hog doesn't have` })
             continue
