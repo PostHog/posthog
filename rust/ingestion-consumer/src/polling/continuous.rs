@@ -606,15 +606,15 @@ mod tests {
     #[test]
     fn a_poll_completes_once_its_own_offsets_settle_on_every_partition() {
         let mut harness = continuous(1_000);
-        harness.receive(0, &[0, 1]);
+        harness.receive(0, &[0, 2]);
         harness.receive(1, &[0]);
         harness.after_the_batch_timeout();
         harness.submit();
-        harness.receive(0, &[2, 3]);
+        harness.receive(0, &[4, 5]);
         harness.after_the_batch_timeout();
         harness.submit();
 
-        harness.complete(0, &[1, 2, 3]);
+        harness.complete(0, &[2, 4, 5]);
         assert_eq!(
             harness.completed_polls(),
             polls(&[("poll-1", 2)]),
@@ -631,7 +631,8 @@ mod tests {
         harness.complete(1, &[0]);
         assert_eq!(
             harness.completed_polls(),
-            polls(&[("poll-1", 2), ("poll-0", 3)])
+            polls(&[("poll-1", 2), ("poll-0", 3)]),
+            "a compacted offset inside a poll's span never settles, so it does not count"
         );
     }
 
