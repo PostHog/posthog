@@ -66,6 +66,16 @@ function webLink(href: string): UnlayerValues {
     }
 }
 
+/**
+ * An image at its own size, capped by its column, is the old editor's automatic width. A fixed percentage instead
+ * would shrink it on phones, where this editor lets it fill the screen.
+ */
+function hasAutomaticWidth(node: JSONContent, available: number): boolean {
+    const width = styleOf(node).width
+    const naturalWidth = number(node.attrs?.naturalWidth, 0)
+    return !width || (naturalWidth > 0 && number(width, 0) === Math.min(naturalWidth, available))
+}
+
 function imageContent(node: JSONContent, contentWidth: number, outer: EmailSides): Content | null {
     const style = styleOf(node)
     const padding = style.padding ?? NO_SIDES
@@ -75,10 +85,7 @@ function imageContent(node: JSONContent, contentWidth: number, outer: EmailSides
         return null
     }
     const width = style.width ?? node.attrs?.naturalWidth
-    // An image at its own size, capped by its column, is the old editor's automatic width. A fixed percentage
-    // instead would shrink it on phones, where this editor lets it fill the screen.
-    const naturalWidth = number(node.attrs?.naturalWidth, 0)
-    const autoWidth = !style.width || (naturalWidth > 0 && number(style.width, 0) === Math.min(naturalWidth, available))
+    const autoWidth = hasAutomaticWidth(node, available)
     const href = safeEmailLink(node.attrs?.href)
     return {
         type: 'image',

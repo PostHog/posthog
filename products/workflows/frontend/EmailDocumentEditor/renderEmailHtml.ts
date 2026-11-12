@@ -256,6 +256,25 @@ function headingSize(level: number, page: EmailPageStyle): number {
     return level === 1 ? page.h1Size : level === 2 ? page.h2Size : page.h3Size
 }
 
+/**
+ * A resized image keeps its share of the width on a phone, as in the old editor, and one at its own size fills it.
+ * The height is for Outlook on Windows, which ignores height:auto and squashes an image that has no height of its own.
+ */
+function imageSizing(
+    node: JSONContent,
+    width: number,
+    available: number
+): { cssWidth: string; heightAttribute: string } {
+    const naturalWidth = px(node.attrs?.naturalWidth)
+    const naturalHeight = px(node.attrs?.naturalHeight)
+    const resized = width < available && width !== naturalWidth
+    return {
+        cssWidth: resized ? `${Math.round((width / available) * 1000) / 10}%` : '100%',
+        heightAttribute:
+            naturalWidth && naturalHeight ? ` height="${Math.round((width * naturalHeight) / naturalWidth)}"` : '',
+    }
+}
+
 function renderImage(node: JSONContent, ctx: RenderContext): string {
     const style = styleOf(node)
     const padding = style.padding ?? NO_SIDES
@@ -266,12 +285,10 @@ function renderImage(node: JSONContent, ctx: RenderContext): string {
     const available = Math.max(1, ctx.contentWidth - px(padding.left) - px(padding.right))
     const width = Math.min(px(style.width ?? node.attrs?.naturalWidth, available) || available, available)
     const align = style.textAlign ?? 'left'
-    // A resized image keeps its share of the width on a phone, as in the old editor. One at its own size fills it.
-    const naturalWidth = px(node.attrs?.naturalWidth)
-    const resized = width < available && width !== naturalWidth
+    const { cssWidth, heightAttribute } = imageSizing(node, width, available)
     const imageCss = css({
         display: 'block',
-        width: resized ? `${Math.round((width / available) * 1000) / 10}%` : '100%',
+        width: cssWidth,
         'max-width': `${width}px`,
         height: 'auto',
         border: 0,
@@ -281,11 +298,7 @@ function renderImage(node: JSONContent, ctx: RenderContext): string {
         'margin-left': align === 'left' ? undefined : 'auto',
         'margin-right': align === 'right' ? undefined : align === 'center' ? 'auto' : undefined,
     })
-    // Outlook on Windows ignores height:auto and squashes an image that has no height of its own.
-    const naturalHeight = px(node.attrs?.naturalHeight)
-    const height =
-        naturalWidth && naturalHeight ? ` height="${Math.round((width * naturalHeight) / naturalWidth)}"` : ''
-    const image = `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(String(node.attrs?.alt ?? ''))}" width="${width}"${height} style="${imageCss}" />`
+    const image = `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(String(node.attrs?.alt ?? ''))}" width="${width}"${heightAttribute} style="${imageCss}" />`
     const href = safeEmailLink(node.attrs?.href)
     const inner = href ? `<a href="${escapeAttribute(href)}" target="_blank">${image}</a>` : image
     return blockCell({ ...style, borderRadius: undefined, borderWidth: undefined }, inner, NO_SIDES)
