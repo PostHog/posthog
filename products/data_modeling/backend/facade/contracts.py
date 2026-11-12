@@ -155,6 +155,10 @@ class MaterializationFailedError(Exception):
     pass
 
 
+class UnknownNodeError(Exception):
+    """The node id does not name a live node in the team, so there is nothing to watch."""
+
+
 @dataclass(frozen=True)
 class NodeDescriptionTarget:
     """What a node stands for, which decides where its description lives."""

@@ -4,7 +4,6 @@ import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import type { TransactionalEmailLogDetailApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { emailSentAt } from './emailActivity'
 import { TransactionalEmailActivityTimeline } from './TransactionalEmailActivityTimeline'
 import { transactionalEmailLogEntryLogic } from './transactionalEmailLogEntryLogic'
 
@@ -59,13 +58,12 @@ export function TransactionalEmailActivity({ email }: { email: TransactionalEmai
             </p>
         )
     } else if (activityFailed && !activityLoading) {
-        const distinctId = email.distinct_id
         content = (
             <LemonBanner
                 type="error"
                 action={{
                     children: 'Try again',
-                    onClick: () => loadActivity({ distinctId, sentAt: emailSentAt(email) }),
+                    onClick: () => loadActivity(),
                     'data-attr': 'transactional-email-activity-retry',
                 }}
             >

@@ -23,6 +23,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
+from uuid import UUID
 
 from django.conf import settings
 
@@ -78,13 +79,22 @@ from products.alerts.backend.platform_insight_alert import (
     insight_of,
     insight_row_settings,
     interval_of,
+    investigated_alert,
 )
 from products.alerts.backend.platform_investigation import with_investigation
-from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
+from products.alerts_platform.backend.facade.api import (
+    destination_hears_kind,
+    due_check_ids,
+    due_checks,
+    has_incident_destination,
+    refresh_settings,
+    slot_of,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     AlertDeliveryRequest,
     AlertEventKind,
+    DestinationType,
     GroupingMode,
     IncidentAction,
     InstanceCheckState,
@@ -604,11 +614,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         kinds.append(outcome.failure.kind)
     sends_messages = any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds)
     actions = _incident_actions(check, outcome)
-    if actions and not configured_destination_template_ids(
-        team_id=check.team_id,
-        alert_id=alert_id,
-        allowed_event_ids=tuple(INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()),
-    ):
+    if actions and not _has_incident_destination(check):
         actions = {}
     if not sends_messages and not actions:
         return None
@@ -629,6 +635,19 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         overflow_is_lower_bound=outcome.overflow_is_lower_bound,
         parts=delivery_parts(outcome, actions),
     )
+
+
+def _has_incident_destination(check: PlatformAlertCheckInput) -> bool:
+    """Whether a destination of this alert follows the incident events, as a HogFunction or as a
+    destination the platform keeps. Read only on a firing edge. It decides only that the edge starts a
+    delivery: which destinations that delivery reaches is the delivery's to decide."""
+    if configured_destination_template_ids(
+        team_id=check.team_id,
+        alert_id=str(check.destination_alert_id),
+        allowed_event_ids=tuple(INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()),
+    ):
+        return True
+    return has_incident_destination(team_id=check.team_id, configuration_id=check.id)
 
 
 def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> dict[str, IncidentAction]:
@@ -1085,12 +1104,23 @@ def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> Re
     ):
         raise ChartRenderPoolFull()
     try:
-        alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
+        # The id a firing names its chart by, which is the platform alert's own for an alert with no insight row.
+        alert = investigated_alert(team_id, UUID(alert_id))
         if alert is None:
             return None
         started = time.monotonic()
         try:
-            chart = render_alert_insight_chart_or_raise(alert)
+            chart = render_alert_insight_chart_or_raise(
+                alert,
+                # Destinations the platform keeps are keyed by its own id, which only a built alert carries.
+                platform_slack_destination=alert._state.adding
+                and destination_hears_kind(
+                    team_id=team_id,
+                    configuration_id=alert.id,
+                    destination_type=DestinationType.SLACK,
+                    event_kind=AlertEventKind.FIRING,
+                ),
+            )
         except InsightChartRenderFailed as error:
             # A timed-out export fails like any other, so only its duration tells the two apart.
             if time.monotonic() - started >= CHART_RENDER_TIMEOUT.total_seconds():

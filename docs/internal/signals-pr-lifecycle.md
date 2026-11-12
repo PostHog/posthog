@@ -39,7 +39,7 @@ The backend `complete_implementation` service records a durable attempt and free
 
 The save transaction locks the report before the check. Replaying an identical submission ID returns its saved row even after lifecycle changes; changing its content raises `MonitoringResultConflict`. New submissions require enabled Monitoring, the current attempt's membership and definition version, an unchanged check, and an explicit completed soak. Pending, active, technically errored, and expired members remain eligible for final evaluation: interim execution errors and safety expiry do not remove a frozen attempt's final obligation. Cancelled or completed checks remain ineligible. Saving a result does not reactivate an errored or expired check. The evidence window must equal `[monitoring_started_at, monitoring_started_at + soak_minutes]`, including zero soak. New IDs preserve inconclusive and error history and allow later evaluation. Once a pass or failure exists, another submission cannot replace it. Invalidated new work raises `InvalidMonitoringResult`. Evaluators must retain their submission ID and payload across delivery retries and use a fresh ID for a new evaluation. This interface does not run evaluators, schedule retries, spend check runs, complete checks, or transition reports.
 
-Monitoring keeps the researched report available for verification and new matching signals, without starting another implementation. Enabled responses expose the server-owned start time, and implementation work is done while the report itself remains unfinished. A Monitoring child keeps its parent plan open, and child rollups cannot finish a Monitoring parent. The single and bulk state APIs accept the Monitoring target. Start monitoring appears after follow-up checks load and at least one exists; the service decides whether any remain applicable when the request runs. Existing Monitoring reports can be finished manually, reopened, or archived. Manual completion records caller attribution and explicitly states that automatic verification and an evidence amendment were not performed. PR merges continue to resolve reports.
+Monitoring keeps the researched report available for verification and new matching signals, without starting another implementation. Enabled responses expose the server-owned start time, and implementation work is done while the report itself remains unfinished. A Monitoring child keeps its parent plan open, and child rollups cannot finish a Monitoring parent. The single and bulk state APIs accept the Monitoring target. Start monitoring now appears in the Follow-up checks section after follow-up checks load and at least one exists; the service decides whether any remain applicable when the request runs. Existing Monitoring reports can be finished manually, reopened, or archived. Manual completion records caller attribution and explicitly states that automatic verification and an evidence amendment were not performed. PR merges continue to resolve reports.
 
 Disabled organizations treat stored Monitoring reports as Resolved across reads, filters, counts, sorting, actions, recurrence handling, work state, plan rollups, and background checks. Responses omit the Monitoring start field and the inbox offers no Monitoring controls. Monitoring entry is refused. Restoring a report archived from Monitoring returns it to Resolved while disabled. Reads preserve the stored status.
 
@@ -115,7 +115,7 @@ Protected research runs require analytics access before a person can resume or w
 
 ## Monitoring metric definitions
 
-The report detail action is **Start monitoring**, with the tooltip “PostHog watches to make sure the fix works”. It is hidden until follow-up checks have loaded and when none are set. The implementation-completion service remains responsible for selecting applicable checks and deciding whether entry creates a Monitoring attempt or resolves directly.
+A report enters Monitoring manually from the **Follow-up checks** section of the report detail, which asks "Fix already implemented?" above the checks and offers **Start monitoring now**, with the tooltip “PostHog watches to make sure the fix works”. The section and its prompt are hidden until follow-up checks have loaded and when none are set. The implementation-completion service remains responsible for selecting applicable checks and deciding whether entry creates a Monitoring attempt or resolves directly.
 
 **Resolve** on a Monitoring report resolves it manually and cancels its remaining pending and active follow-up checks in the same transaction. Historical terminal checks and other reports' checks are preserved. Results already in flight cannot revive canceled checks. Its reasons are **Verified manually**, **No action needed**, **Was already fixed before this report**, and **Something else…**. The `verified_manually` reason is separate from `fixed_outside_posthog`, requires an enabled Monitoring period, and is preserved with caller attribution. A separate attributed log entry records that automatic verification and an evidence amendment were not performed, preserving the full 4,000-character limit for the user's feedback note.
 
@@ -706,3 +706,20 @@ The check uses the effective runtime and model access after defaults are applied
 The provisioning guard also treats this refusal as an expected failure, so an incompatible run already queued before the admission check fails without reporting an exception to error tracking.
 Other funding modes keep their existing runtime and model access rules.
 First-report completion returns an incomplete outcome without a notification when admission failed before the scout run was created.
+
+## Restarting the first-report scout
+
+After deploying a fix, an operator can restart a finished first-report investigation by resetting its `signals-scout-onboarding-...` Temporal workflow to the first `WorkflowTaskCompleted` event, before `run_signals_scout_activity`.
+The reset preserves the workflow input and creates a new scout run and task with a `first-report:<workflow_run_id>` key.
+Repeated activity delivery within the same Temporal execution returns the existing run; a reset supplies a new execution ID.
+Existing tasks and scout runs stay in the history, including attempts created with the legacy `first-report` key; no database edits are needed.
+The normal onboarding trigger still starts only once per project.
+First-report dispatch locks the canonical project's Signals config and checks for a live queued or in-progress run in the task creation transaction.
+A competing dispatch rolls back its task and run before any sandbox starts.
+Restarts re-evaluate the current experiment assignment and quota gates.
+
+Check the new scout run and its task outcome after resetting.
+A Temporal workflow marked `Completed` can have returned a failed or skipped scout result; that status alone does not mean the investigation succeeded.
+The onboarding UI reads the latest scout run, so a restart replaces the failed state with progress and then the new result.
+Reload a page that still shows the previous failure once after restarting; terminal states stop polling.
+While the new investigation is pending or running, the page polls every ten seconds and refreshes the report list when a report appears.

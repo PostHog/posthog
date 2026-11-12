@@ -36,9 +36,12 @@ const MOVED_AT = SEND_AT.add(2, 'day')
 const WEEK_OF_SEND = SEND_AT.subtract(SEND_AT.day(), 'day').startOf('day')
 const NEXT_WEEK = WEEK_OF_SEND.add(7, 'day')
 
+const ONE_TIME_RRULE = 'FREQ=DAILY;COUNT=1'
+const ONE_TIME_RRULE_ON_SEND_WEEKDAY = `FREQ=WEEKLY;BYDAY=${['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][SEND_AT.day()]};COUNT=1`
+
 const SCHEDULE: HogFlowScheduleApi = {
     id: 'schedule-1',
-    rrule: 'FREQ=DAILY;COUNT=1',
+    rrule: ONE_TIME_RRULE_ON_SEND_WEEKDAY,
     starts_at: SEND_AT.toISOString(),
     timezone: 'UTC',
     status: 'active',
@@ -69,14 +72,14 @@ describe('sendCalendarLogic', () => {
     let server: { schedule: HogFlowScheduleApi; runs: SendCalendarBatchJobApi[] }
 
     // The server keeps what the last save wrote, so the check before a move or Undo sees the saved schedule.
-    // Like the real endpoint, the calendar endpoint returns the flow's schedules whatever the range, but only the
-    // runs created in [start, end).
+    // Like the real endpoint, the calendar endpoint returns the flow's open schedules whatever the range, but only
+    // the runs created in [start, end).
     const serveFromStore = (): void => {
         server = { schedule: SCHEDULE, runs: [] }
         jest.mocked(hogFlowsSendCalendarRetrieve).mockImplementation(async (_projectId, { start, end }) => [
             {
                 ...FLOW,
-                schedules: [server.schedule],
+                schedules: [server.schedule].filter((item) => item.status !== 'completed'),
                 batch_jobs: server.runs.filter(
                     (item) => !dayjs(item.created_at).isBefore(start) && dayjs(item.created_at).isBefore(end)
                 ),
@@ -113,22 +116,20 @@ describe('sendCalendarLogic', () => {
 
     const TEAMMATE_EDIT = { ...SCHEDULE, rrule: 'FREQ=WEEKLY;BYDAY=TU,TH' }
 
+    const clickUndo = async (): Promise<void> => {
+        const undo = jest.mocked(lemonToast.success).mock.calls[0][1]?.button?.action
+        await expectLogic(logic, () => undo?.()).toFinishAllListeners()
+    }
+
     it('moves a one-time send to the day it was dropped on, and Undo moves it back', async () => {
         await dropOnMovedDay()
 
-        expect(hogFlowsSchedulesPartialUpdate).toHaveBeenLastCalledWith(expect.any(String), FLOW.id, SCHEDULE.id, {
-            starts_at: MOVED_AT.toISOString(),
-            rrule: SCHEDULE.rrule,
-        })
+        expect(server.schedule).toEqual({ ...SCHEDULE, starts_at: MOVED_AT.toISOString(), rrule: ONE_TIME_RRULE })
         expect(savedStart()).toEqual(MOVED_AT.toISOString())
 
-        const undo = jest.mocked(lemonToast.success).mock.calls[0][1]?.button?.action
-        await expectLogic(logic, () => undo?.()).toFinishAllListeners()
+        await clickUndo()
 
-        expect(hogFlowsSchedulesPartialUpdate).toHaveBeenLastCalledWith(expect.any(String), FLOW.id, SCHEDULE.id, {
-            starts_at: SCHEDULE.starts_at,
-            rrule: SCHEDULE.rrule,
-        })
+        expect(server.schedule).toEqual(SCHEDULE)
         expect(savedStart()).toEqual(SCHEDULE.starts_at)
     })
 
@@ -146,29 +147,35 @@ describe('sendCalendarLogic', () => {
 
     it('refuses Undo when a teammate changed the schedule after the move', async () => {
         await dropOnMovedDay()
-        jest.mocked(hogFlowsSchedulesList).mockResolvedValue([TEAMMATE_EDIT])
+        const teammateEditAfterMove = { ...server.schedule, rrule: TEAMMATE_EDIT.rrule }
+        server.schedule = teammateEditAfterMove
 
-        const undo = jest.mocked(lemonToast.success).mock.calls[0][1]?.button?.action
-        await expectLogic(logic, () => undo?.()).toFinishAllListeners()
+        await clickUndo()
 
-        expect(hogFlowsSchedulesPartialUpdate).toHaveBeenCalledTimes(1)
+        expect(server.schedule).toEqual(teammateEditAfterMove)
         expect(lemonToast.error).toHaveBeenCalledWith(
             "Couldn't undo the move. Its schedule changed after the calendar loaded. Check the reloaded calendar and try again."
         )
+        expect(logic.values.scheduledFlows?.[0].schedules).toEqual([teammateEditAfterMove])
     })
 
     it('refuses to move a send whose time passed while the calendar was open, and reloads', async () => {
-        const send = logic.values.sends.find((item) => item.flowId === FLOW.id)!
-        const elapsed = { ...send, at: dayjs.utc().subtract(1, 'hour') }
+        const sentSchedule = { ...SCHEDULE, status: 'completed' as const, next_run_at: null }
+        server.schedule = sentSchedule
+        server.runs = [run('run-sent', SEND_AT)]
+        jest.useFakeTimers({ advanceTimers: true, now: SEND_AT.add(1, 'hour').toDate() })
 
-        await expectLogic(logic, () => logic.actions.applyMove(elapsed, 2, MOVED_AT.toISOString())).toDispatchActions([
-            'loadScheduledFlows',
-        ])
+        try {
+            await dropOnMovedDay()
+        } finally {
+            jest.useRealTimers()
+        }
 
-        expect(hogFlowsSchedulesPartialUpdate).not.toHaveBeenCalled()
+        expect(server.schedule).toEqual(sentSchedule)
         expect(lemonToast.error).toHaveBeenCalledWith(
             "Couldn't move October product update. This send already went out."
         )
+        expect(logic.values.sends.map((send) => [send.key, send.state])).toEqual([['run-sent', 'sent']])
     })
 
     it('loads the runs of the new range when the person moves to another week', async () => {

@@ -3052,9 +3052,13 @@ class TestLogsAlertAPI(APIBaseTest):
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
             return self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{self._copy(alert_id).id}/")
 
-    @parameterized.expand([("logs",), ("platform",)])
-    def test_deleting_a_platform_firing_resolves_its_incident_while_its_destinations_exist(self, route: str) -> None:
-        created, _copy = self._firing_on_the_platform_with_pagerduty()
+    @parameterized.expand([("logs", True), ("platform", True), ("platform", False)])
+    def test_deleting_a_platform_firing_resolves_its_incident_while_its_destinations_exist(
+        self, route: str, with_logs_row: bool
+    ) -> None:
+        created, copy = self._firing_on_the_platform_with_pagerduty()
+        if not with_logs_row:
+            LogsAlertConfiguration.objects.filter(id=created["id"]).delete()
         destinations_when_sent: list[int] = []
 
         def deliver(request: Any) -> None:
@@ -3067,6 +3071,15 @@ class TestLogsAlertAPI(APIBaseTest):
         (request,) = [call.args[0] for call in deliver_evaluation.call_args_list]
         assert request.incident_actions == {"": IncidentAction.RESOLVE}
         assert destinations_when_sent[0] > 0
+        with team_scope(self.team.id):
+            copy_left = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=copy.id
+            )
+        assert (
+            copy_left,
+            LogsAlertConfiguration.objects.filter(id=created["id"]).exists(),
+            HogFunction.objects.filter(team=self.team, deleted=False).exists(),
+        ) == (None, False, False)
 
     def test_a_platform_delete_after_a_handback_refuses_and_keeps_the_logs_row(self) -> None:
         created = self._owned_by_the_platform()
@@ -3079,14 +3092,16 @@ class TestLogsAlertAPI(APIBaseTest):
         assert LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
 
     @parameterized.expand([("logs",), ("platform",)])
-    def test_deleting_an_alert_the_platform_owns_deletes_both_rows(self, route: str) -> None:
+    def test_deleting_an_alert_the_platform_owns_deletes_both_rows_and_its_destinations(self, route: str) -> None:
         created = self._owned_by_the_platform()
+        self._add_pagerduty_destination(created["id"])
         copy_id = self._copy(created["id"]).id
 
         response = self._delete_through(route, created["id"])
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+        assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
         assert ActivityLog.objects.filter(
             scope="PlatformAlertConfiguration", item_id=str(copy_id), activity="deleted", user=self.user
         ).exists()
