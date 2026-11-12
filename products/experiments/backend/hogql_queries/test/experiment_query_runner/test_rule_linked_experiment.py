@@ -228,9 +228,9 @@ class TestRuleLinkedExperiment(ExperimentQueryRunnerBaseTest):
 
         assert self._samples_and_sums(result) == {"control": (1, 0), "test": (1, 20)}
 
-    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
+    @time_machine.travel("2020-01-03T12:00:00Z", tick=False)
     def test_a_flag_renamed_after_the_launch_keeps_its_exposures(self):
-        experiment = self._create_rule_linked_experiment()
+        experiment = self._create_rule_linked_experiment(start_date=timezone.now() - timedelta(days=2))
         query = self._mean_query(experiment)
         self._expose("control_0", "control")
         self._expose("test_0", "test")
@@ -262,9 +262,11 @@ class TestRuleLinkedExperiment(ExperimentQueryRunnerBaseTest):
         assert runner._precompute_skip_reason() == PrecomputeSkipReason.FLAG_RULE
         assert result.is_precomputed is False
 
-    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
+    @time_machine.travel("2020-01-03T12:00:00Z", tick=False)
     def test_exposures_runner_counts_the_rule_and_reads_the_split_from_its_weights(self):
-        experiment = self._create_rule_linked_experiment(weights=(30, 70))
+        experiment = self._create_rule_linked_experiment(
+            start_date=timezone.now() - timedelta(days=2), weights=(30, 70)
+        )
         for index in range(2):
             self._expose(f"control_{index}", "control")
         for index in range(5):
@@ -323,6 +325,6 @@ class TestRuleLinkedExperiment(ExperimentQueryRunnerBaseTest):
             experiment_name=experiment.name,
             feature_flag={"key": self.flag.key, "filters": self.flag.filters},
             start_date=experiment.start_date.isoformat() if experiment.start_date else None,
-            end_date=experiment.end_date.isoformat() if experiment.end_date else None,
+            end_date=None,
             exposure_criteria=experiment.exposure_criteria,
         )
