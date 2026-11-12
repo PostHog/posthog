@@ -24,9 +24,3 @@ def tags_by_issue(
             )
         )
     return result
-
-
-def issue_ids_with_answers(team_id: int, key: str, answers: Collection[bool], *, limit: int) -> list[str]:
-    """The ids of at most `limit` issues whose answer to the tag is one of `answers`."""
-    tags = ErrorTrackingIssueTag.objects.for_team(team_id).filter(key=key, value__in=answers)
-    return [str(issue_id) for issue_id in tags.values_list("issue_id", flat=True)[:limit]]

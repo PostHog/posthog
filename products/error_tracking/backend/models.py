@@ -1254,7 +1254,4 @@ class ErrorTrackingIssueTag(TeamScopedRootMixin, UUIDModel):
             # Serves the SET_NULL update when a user is deleted. Answers from automated taggers have no
             # person, so the index leaves them out.
             models.Index(fields=["set_by"], name="et_issue_tag_set_by", condition=models.Q(set_by__isnull=False)),
-            # Serves the issue list's tag filter, which finds the issues with one answer to one tag. The included
-            # issue column lets that read come from the index alone.
-            models.Index(fields=["team", "key", "value"], include=["issue"], name="et_issue_tag_team_key_value"),
         ]

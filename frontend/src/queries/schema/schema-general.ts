@@ -4870,8 +4870,8 @@ export interface ErrorTrackingIssueTag {
     description: string
     /** The answer: true for yes, false for no, null when the tagger was unsure. */
     value: boolean | null
-    /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. */
-    source: string
+    /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. Issue detail sets it, list results do not. */
+    source?: string
 }
 
 export interface ErrorTrackingRelationalIssue {

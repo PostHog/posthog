@@ -1653,9 +1653,12 @@ class ErrorTrackingIssueTag(BaseModel):
     description: str = Field(..., description="What the tag means, for a tooltip.")
     key: str = Field(..., description="Key of the tag definition.")
     label: str = Field(..., description="Short name of the tag.")
-    source: str = Field(
-        ...,
-        description=("The tagger that wrote the answer: `jev` for AI, `manual` for a person."),
+    source: str | None = Field(
+        default=None,
+        description=(
+            "The tagger that wrote the answer: `jev` for AI, `manual` for a person."
+            " Issue detail sets it, list results do not."
+        ),
     )
     value: bool | None = Field(
         ...,

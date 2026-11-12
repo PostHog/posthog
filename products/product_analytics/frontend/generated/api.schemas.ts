@@ -4652,8 +4652,8 @@ export interface ErrorTrackingIssueTagApi {
     key: string
     /** Short name of the tag. */
     label: string
-    /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. */
-    source: string
+    /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. Issue detail sets it, list results do not. */
+    source?: string | null
     /** The answer: true for yes, false for no, null when the tagger was unsure. */
     value: boolean | null
 }

@@ -25121,7 +25121,7 @@
                     "type": "string"
                 },
                 "source": {
-                    "description": "The tagger that wrote the answer: `jev` for AI, `manual` for a person.",
+                    "description": "The tagger that wrote the answer: `jev` for AI, `manual` for a person. Issue detail sets it, list results do not.",
                     "type": "string"
                 },
                 "value": {
@@ -25129,7 +25129,7 @@
                     "type": ["boolean", "null"]
                 }
             },
-            "required": ["key", "label", "description", "value", "source"],
+            "required": ["key", "label", "description", "value"],
             "type": "object"
         },
         "ErrorTrackingIssueTagFilter": {
