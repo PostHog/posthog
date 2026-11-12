@@ -3,6 +3,7 @@ from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
+import structlog
 from requests import Request, Response
 
 from products.warehouse_sources.sources.sdk import (
@@ -18,7 +19,6 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
-    create_response_hooks,
     frozen,
     make_tracked_session,
     parse_datetime_value,
@@ -47,15 +47,30 @@ API_TOKEN_PASSWORD = "api_token"
 # Workspace fields that hold credentials: a deprecated workspace API token, and a calendar feed URL
 # that embeds a private token.
 _WORKSPACE_SECRET_FIELDS = ("api_token", "ical_url")
+logger = structlog.get_logger(__name__)
+
 # Toggl answers 402 for two reasons: the hourly request quota ran out, which a later run recovers
 # from, or the workspace's plan lacks the feature the request needs, which no retry fixes. Only the
 # second carries this text. That workspace is skipped, so one workspace on a smaller plan does not
 # stop the table for the others.
+_FEATURE_DENIED_TEXT = "feature enabled"
 _SKIP_WORKSPACE_WITHOUT_FEATURE: ResponseAction = {
     "status_code": 402,
-    "content": "feature enabled",
+    "content": _FEATURE_DENIED_TEXT,
     "action": "ignore",
 }
+
+
+class _WorkspaceLacksFeature(Exception):
+    """The Reports API refused a workspace because the workspace's plan lacks the feature."""
+
+
+def _raise_when_workspace_lacks_feature(response: Response, *args: Any, **kwargs: Any) -> None:
+    # The time entries search runs once per window, so the workspace loop needs to know about the
+    # denial to skip the remaining windows. An "ignore" response action would only end one search.
+    if response.status_code == 402 and _FEATURE_DENIED_TEXT in response.text:
+        raise _WorkspaceLacksFeature
+    response.raise_for_status()
 
 
 @dataclasses.dataclass(frozen=False)
@@ -361,7 +376,7 @@ def _search_pages(
             "enrich_response": True,
         },
         paginator=TogglReportsPaginator(),
-        hooks=create_response_hooks([_SKIP_WORKSPACE_WITHOUT_FEATURE]),
+        hooks={"response": [_raise_when_workspace_lacks_feature]},
         initial_paginator_state={"first_row_number": first_row_number} if first_row_number is not None else None,
         page_state_hook=record_next_row,
     )
@@ -408,32 +423,37 @@ def _time_entries_source(
                     first_row_number = resume.first_row_number
 
             windows = list(_windows(first_date, last_date))
-            for index, window in enumerate(windows):
-                next_window_start = windows[index + 1].start if index + 1 < len(windows) else None
-                for groups, next_row_number in _search_pages(client, workspace_id, window, first_row_number):
-                    if next_row_number is not None:
-                        state = TogglResumeConfig(
-                            completed_workspace_ids=list(completed),
-                            workspace_id=workspace_id,
-                            window_start=window.start.isoformat(),
-                            first_row_number=next_row_number,
-                        )
-                    elif next_window_start is not None:
-                        state = TogglResumeConfig(
-                            completed_workspace_ids=list(completed),
-                            workspace_id=workspace_id,
-                            window_start=next_window_start.isoformat(),
-                        )
-                    else:
-                        state = TogglResumeConfig(completed_workspace_ids=[*completed, workspace_id])
-                    resumable_source_manager.save_state(state)
+            try:
+                for index, window in enumerate(windows):
+                    next_window_start = windows[index + 1].start if index + 1 < len(windows) else None
+                    for groups, next_row_number in _search_pages(client, workspace_id, window, first_row_number):
+                        if next_row_number is not None:
+                            state = TogglResumeConfig(
+                                completed_workspace_ids=list(completed),
+                                workspace_id=workspace_id,
+                                window_start=window.start.isoformat(),
+                                first_row_number=next_row_number,
+                            )
+                        elif next_window_start is not None:
+                            state = TogglResumeConfig(
+                                completed_workspace_ids=list(completed),
+                                workspace_id=workspace_id,
+                                window_start=next_window_start.isoformat(),
+                            )
+                        else:
+                            state = TogglResumeConfig(completed_workspace_ids=[*completed, workspace_id])
+                        resumable_source_manager.save_state(state)
 
-                    rows = _flatten_time_entries(groups, workspace_id)
-                    if rows:
-                        yield rows
-                    else:
-                        resumable_source_manager.safe_point()
-                first_row_number = None
+                        rows = _flatten_time_entries(groups, workspace_id)
+                        if rows:
+                            yield rows
+                        else:
+                            resumable_source_manager.safe_point()
+                    first_row_number = None
+            except _WorkspaceLacksFeature:
+                # Every later window of this workspace would be refused the same way.
+                logger.info("toggl_workspace_lacks_reports_feature", workspace_id=workspace_id)
+                resumable_source_manager.safe_point()
 
             completed.append(workspace_id)
 

@@ -150,8 +150,9 @@ class TestTimeEntries:
         result = _driver().run(
             "time_entries",
             [
+                # Workspace 1 spans two windows, so a denial must also skip its second window.
                 ScriptedResponse(
-                    json=[{"id": 1, "max_data_retention_days": 30}, {"id": 2, "max_data_retention_days": 30}]
+                    json=[{"id": 1, "max_data_retention_days": 400}, {"id": 2, "max_data_retention_days": 30}]
                 ),
                 ScriptedResponse(status=402, body=body),
                 ScriptedResponse(json=[_group([201])]),
@@ -160,6 +161,7 @@ class TestTimeEntries:
 
         if expected_error is None:
             assert result.raised is None
+            assert result.paths == [WORKSPACES_PATH, _search_path(1), _search_path(2)]
             assert [(row["id"], row["workspace_id"]) for row in result.rows] == [(201, 2)]
         else:
             assert expected_error in str(result.raised)

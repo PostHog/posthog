@@ -71,7 +71,7 @@ Find the token at the bottom of your [Toggl Track profile settings](https://trac
 
 The token reads what your Toggl Track user can read. Use a workspace admin's token to sync the time entries of every member and the list of workspace users.
 
-Toggl Track limits API requests per hour based on your plan, so the first sync of a large workspace can take several runs to finish. A table skips any workspace whose plan does not include that data.
+Toggl Track limits API requests per hour based on your plan. On a smaller plan, the first sync of a large workspace can run out of requests before it finishes. A table skips any workspace whose plan does not include that data.
 
 Incremental time entry syncs re-read the last 7 days. Run a full refresh to pick up edits to older entries.""",
             iconPath="/static/warehouse-sources/toggl/icon.png",
@@ -111,7 +111,8 @@ Incremental time entry syncs re-read the last 7 days. Run a full refresh to pick
         return {
             "402 Client Error": (
                 "Your Toggl Track plan's hourly API request limit ran out before this sync finished. "
-                "The next sync continues where this one stopped."
+                "The next sync reads this table again from the start. If this keeps happening, use "
+                "incremental sync or sync fewer tables, so each run needs fewer requests."
             ),
         }
 
