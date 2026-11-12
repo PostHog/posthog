@@ -616,6 +616,8 @@ function isRecordableToolName(name: string, isKnownToolName: (name: string) => b
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
     'notebooks-create': () =>
         'Tool "notebooks-create" was removed. Use "notebooks-create-markdown" with title and optional markdown instead of content JSON. Add executable cells with "notebooks-add-cell".',
+    'notebooks-retrieve': () =>
+        'Tool "notebooks-retrieve" was removed. Use "notebooks-get" with the same short_id to read the notebook, cells, and kernel state. It requires notebook:read and query:read.',
     'notebook-edit': () =>
         'Tool "notebook-edit" was removed. Use "notebooks-get" to find cell node_ids, then "notebooks-update-cell" or "notebooks-add-cell" with notebook_id. Text replacement arguments are no longer supported.',
     // Removed in favor of SQL-based schema discovery via `system.information_schema.*`.

@@ -2088,6 +2088,7 @@ describe('exec tool', () => {
     describe('deprecated tool redirects', () => {
         it.each([
             ['notebooks-create', 'notebooks-create-markdown'],
+            ['notebooks-retrieve', 'notebooks-get'],
             ['notebook-edit', 'notebooks-update-cell'],
             ['read-data-warehouse-schema', 'execute-sql'],
             ['entity-search', 'execute-sql'],

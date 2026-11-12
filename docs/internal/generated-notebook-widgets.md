@@ -151,7 +151,7 @@ SQL and Python cells save their run ID, column metadata, and row count in the no
 A bounded preview keeps at most five rows within 8 KiB and up to 2,048 characters per console stream in the notebook, including runs created through MCP.
 The preview helper is shared with MCP, so the MCP TypeScript CI filter covers `products/notebooks/**`.
 Full results and images load from the saved run. Older browser tabs can still display the small preview.
-Saved result reads require notebook and query permissions.
+The saved-run result endpoints require notebook and query permissions.
 Loading a saved result does not execute a cell or mark dependent cells stale. If a saved run is unavailable, the preview stays visible and the cell offers a rerun.
 
 New notebooks place the typing caret in the title, including when opened through the command menu. Enter continues into the notebook body.
