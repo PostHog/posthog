@@ -13,13 +13,13 @@ METHOD = {"key": "method", "type": "string", "label": "Method", "required": True
 TARGET = {"key": "target", "type": "string", "label": "Target", "secret": True}
 
 
-def content(hog: str = HOG, inputs: Any = None, schema: Any = None) -> dict:
-    return {"hog": hog, "inputs": inputs or {}, "schema": schema or [URL, HEADERS]}
+def content(hog: str = HOG, inputs: Any = None, schema: Any = None, mappings: Any = None) -> dict:
+    return {"hog": hog, "inputs": inputs or {}, "schema": schema or [URL, HEADERS], "mappings": mappings or []}
 
 
 def guarded(save: dict) -> tuple:
     secret_keys = {schema["key"] for schema in save["schema"] if schema.get("secret")}
-    return guarded_content(save["hog"], save["inputs"], save["schema"], [], secret_keys)
+    return guarded_content(save["hog"], save["inputs"], save["schema"], save["mappings"], secret_keys)
 
 
 class TestGuardedContent(SimpleTestCase):
@@ -74,6 +74,12 @@ class TestGuardedContent(SimpleTestCase):
                 "value_other_than_the_default",
                 content(schema=[URL, METHOD]),
                 content(inputs={"method": {"value": "GET"}}, schema=[URL, METHOD]),
+            ),
+            ("schema_order", content(schema=[URL, HEADERS]), content(schema=[HEADERS, URL])),
+            (
+                "mapping_schema_order",
+                content(mappings=[{"inputs_schema": [URL, HEADERS]}]),
+                content(mappings=[{"inputs_schema": [HEADERS, URL]}]),
             ),
             (
                 "default_that_fills_an_empty_secret",
