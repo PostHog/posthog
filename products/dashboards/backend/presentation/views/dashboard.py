@@ -523,7 +523,7 @@ def tile_insights_context(tiles: Iterable[DashboardTile]) -> dict[str, Any]:
     cache must exist before the copies are made."""
     return {
         "insights_in_response": [tile.insight for tile in tiles if tile.insight is not None],
-        "_native_insight_alerts": {},
+        "_shown_insight_alerts": {},
     }
 
 

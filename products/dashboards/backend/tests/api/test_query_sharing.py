@@ -86,7 +86,7 @@ class TestDashboardQuerySharingAccess(APIBaseTest):
 
 
 class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTest):
-    def test_tiles_share_one_native_alert_lookup(self) -> None:
+    def test_tiles_share_one_alert_lookup(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Sharing test")
         tiles = [
             DashboardTile.objects.create(
@@ -103,8 +103,8 @@ class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTe
             # One worker serializes the tiles in turn, so the second tile reads what the first one loaded.
             patch("products.dashboards.backend.query_sharing_stream.WORKERS_PER_STREAM", 1),
             patch(
-                "products.product_analytics.backend.presentation.insight.native_insight_alerts",
-                return_value={},
+                "products.product_analytics.backend.presentation.insight.shown_insight_alerts",
+                side_effect=lambda insights, rows: {insight.id: [] for insight in insights},
             ) as lookup,
         ):
             response = self.client.get(

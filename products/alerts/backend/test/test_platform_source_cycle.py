@@ -144,6 +144,11 @@ _AGENT_ON: Final = {
 }
 
 
+# Rows draw first, then alerts with no insight row, each oldest first.
+_ROW_FIRST: Final = [("alert upper threshold", 100.0), ("sibling lower threshold", 5.0)]
+_SIBLING_FIRST: Final = [("sibling lower threshold", 5.0), ("alert upper threshold", 100.0)]
+
+
 class TestPlatformInsightEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -426,17 +431,53 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_row_with_a_slack_function", True, "hog_function", True),
-            ("a_native_alert_with_a_slack_function", False, "hog_function", True),
-            ("a_native_alert_with_a_platform_slack_destination", False, "platform", True),
-            ("a_native_alert_without_slack", False, None, False),
+            ("a_row_with_a_slack_function", "row", "hog_function", [_ROW_FIRST]),
+            # Its row's threshold drifted from the copy's, which the platform owns.
+            (
+                "a_moved_alert_with_a_slack_function",
+                "copy",
+                "hog_function",
+                [[("sibling lower threshold", 5.0), ("alert upper threshold", 200.0)]],
+            ),
+            ("a_native_alert_with_a_slack_function", "native", "hog_function", [_SIBLING_FIRST]),
+            ("a_native_alert_with_a_platform_slack_destination", "native", "platform", [_SIBLING_FIRST]),
+            ("a_native_alert_without_slack", "native", None, []),
         ]
     )
-    def test_a_firing_chart_draws_the_threshold_of_the_alert_it_fires_for(
-        self, _name: str, has_row: bool, slack: str | None, renders: bool
+    def test_a_firing_chart_draws_the_threshold_of_every_enabled_alert_on_the_insight(
+        self, _name: str, kind: str, slack: str | None, rendered_lines: list[list[tuple[str, float]]]
     ) -> None:
         alert = self._alert()
-        chart_alert_id = alert.id if has_row else self._native(alert).id
+        for name, enabled in (("sibling", True), ("disabled", False)):
+            self._copy(
+                alert,
+                name=name,
+                enabled=enabled,
+                legacy_configuration_id=None,
+                owner=PlatformAlertOwner.PLATFORM,
+                destinations_owner=PlatformAlertOwner.PLATFORM,
+                source_config={
+                    "insight_id": alert.insight_id,
+                    SOURCE_CONDITION_KEY: {
+                        "comparison": {"type": "absolute_value"},
+                        "threshold": {"type": "absolute", "bounds": {"lower": 5.0}},
+                    },
+                },
+            )
+        if kind == "copy":
+            self._copy(
+                alert,
+                owner=PlatformAlertOwner.PLATFORM,
+                source_config={
+                    "insight_id": alert.insight_id,
+                    SOURCE_CONDITION_KEY: {
+                        "comparison": {"type": "absolute_value"},
+                        "threshold": {"type": "absolute", "bounds": {"upper": 200.0}},
+                    },
+                },
+            )
+            AlertConfiguration.objects.filter(id=alert.id).update(owner=PlatformAlertOwner.PLATFORM)
+        chart_alert_id = self._native(alert).id if kind == "native" else alert.id
         if slack == "hog_function":
             HogFunction.objects.create(
                 team=self.team,
@@ -473,11 +514,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         ) as render:
             chart = render_firing_chart(self.team.id, str(chart_alert_id), held_until=time.time() + 60)
 
-        assert chart == (RenderedChart(asset_id=7, render_user_id=self.user.id) if renders else None)
+        assert chart == (RenderedChart(asset_id=7, render_user_id=self.user.id) if rendered_lines else None)
         assert [
             [(line["label"], line["value"]) for line in call.kwargs["reference_lines"]]
             for call in render.call_args_list
-        ] == ([[("alert upper threshold", 100.0)]] if renders else [])
+        ] == rendered_lines
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_a_check_holds_a_clickhouse_slot_only_while_its_query_runs(self) -> None:
