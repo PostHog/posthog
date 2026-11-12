@@ -3820,7 +3820,7 @@ export interface ExperimentHealthInputsReaderAccessApi {
     can_read_flag_history: boolean
     /** Whether the reader may query events, which the flag-change and forced-variant checks need. */
     can_query_events: boolean
-    /** Event properties the reader is denied. The forced-variant and release-condition checks skip their scan when one of them is a flag call property it reads, or a property that the filter for internal and test users reads when the experiment applies it. */
+    /** Event properties the reader is denied. The forced-variant and release-condition checks skip their scan when one of them is a flag call property it reads. */
     denied_event_properties: string[]
 }
 

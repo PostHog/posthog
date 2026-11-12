@@ -35,8 +35,7 @@ NO_QUERIES = ExperimentHealthReaderAccess(
     can_read_flag_history=False,
     can_query_events=False,
     denied_event_properties=frozenset(),
-    denied_person_properties=frozenset(),
-    denied_group_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 CODE = ExperimentHealthFindingCode.METRIC_CANNOT_COMPILE
 KEY = ExperimentHealthCheckKey.METRIC_CANNOT_COMPILE

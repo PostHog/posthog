@@ -1153,17 +1153,14 @@ class EnterpriseExperimentsViewSet(
         can_view_flag = experiment.feature_flag_id is None or self.user_access_control.check_access_level_for_object(
             experiment.feature_flag, required_level="viewer"
         )
-        restricted = split_restricted_property_names(
-            get_restricted_properties_with_group_type_index_for_team(
-                user=cast(User, request.user), team_id=self.team_id
-            )
+        restrictions = get_restricted_properties_with_group_type_index_for_team(
+            user=cast(User, request.user), team_id=self.team_id
         )
         return ExperimentHealthReaderAccess(
             can_read_flag_history=bool(can_view_flag) and "activity_log:read" not in missing_scopes,
             can_query_events="query:read" not in missing_scopes,
-            denied_event_properties=restricted.event,
-            denied_person_properties=restricted.person,
-            denied_group_properties=frozenset().union(*restricted.group.values()),
+            denied_event_properties=split_restricted_property_names(restrictions).event,
+            restricted_properties=frozenset(restrictions),
         )
 
     @validated_request(

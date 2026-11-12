@@ -11,6 +11,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
@@ -527,9 +529,8 @@ class ExperimentHealthReaderAccess:
     can_read_flag_history: bool
     can_query_events: bool
     denied_event_properties: frozenset[str]
-    denied_person_properties: frozenset[str]
-    # The group properties the reader is denied, for any group type.
-    denied_group_properties: frozenset[str]
+    # The reader's property access rules, for a check that compiles its query to learn whether they mask a read.
+    restricted_properties: frozenset[RestrictedProperty]
 
 
 class ExperimentValidationError(Exception):

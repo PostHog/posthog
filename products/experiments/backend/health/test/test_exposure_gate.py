@@ -44,8 +44,7 @@ FULL_ACCESS = ExperimentHealthReaderAccess(
     can_read_flag_history=True,
     can_query_events=True,
     denied_event_properties=frozenset(),
-    denied_person_properties=frozenset(),
-    denied_group_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 _BY_EVENT_PROPERTY: dict[str, Any] = {
     "exposure_config": {
@@ -333,8 +332,7 @@ class TestLoadFlagHistory(BaseTest):
                 can_read_flag_history=True,
                 can_query_events=True,
                 denied_event_properties=denied,
-                denied_person_properties=frozenset(),
-                denied_group_properties=frozenset(),
+                restricted_properties=frozenset(),
             ),
         )
 
@@ -483,8 +481,7 @@ class TestLoadFlagHistory(BaseTest):
                 can_read_flag_history=can_read_flag_history,
                 can_query_events=can_query_events,
                 denied_event_properties=frozenset(),
-                denied_person_properties=frozenset(),
-                denied_group_properties=frozenset(),
+                restricted_properties=frozenset(),
             ),
         )
 
@@ -504,8 +501,7 @@ class TestLoadFlagHistory(BaseTest):
                     can_read_flag_history=True,
                     can_query_events=False,
                     denied_event_properties=frozenset(),
-                    denied_person_properties=frozenset(),
-                    denied_group_properties=frozenset(),
+                    restricted_properties=frozenset(),
                 ),
             ),
         ]

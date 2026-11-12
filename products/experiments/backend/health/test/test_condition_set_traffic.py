@@ -13,11 +13,15 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.test.persons import create_person
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.health.condition_set_traffic import (
     load_condition_set_traffic,
@@ -35,9 +39,18 @@ FULL_ACCESS = ExperimentHealthReaderAccess(
     can_read_flag_history=True,
     can_query_events=True,
     denied_event_properties=frozenset(),
-    denied_person_properties=frozenset(),
-    denied_group_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
+EVENT = PropertyDefinition.Type.EVENT
+PERSON = PropertyDefinition.Type.PERSON
+
+
+def _denied(property_type: PropertyDefinition.Type, name: str) -> ExperimentHealthReaderAccess:
+    return replace(
+        FULL_ACCESS, restricted_properties=frozenset({RestrictedProperty(name=name, property_type=property_type)})
+    )
+
+
 TRAFFIC = ConditionSetTraffic(
     since=datetime(2026, 10, 1, tzinfo=UTC),
     until=datetime(2026, 10, 8, tzinfo=UTC),
@@ -136,31 +149,41 @@ class TestLoadConditionSetTraffic(BaseTest):
     @parameterized.expand(
         [
             ("no_query_access", replace(FULL_ACCESS, can_query_events=False), None),
-            (
-                "denied_the_reason",
-                replace(FULL_ACCESS, denied_event_properties=frozenset({"$feature_flag_reason"})),
-                None,
-            ),
-            (
-                "denied_the_person_property_of_the_test_account_filter",
-                replace(FULL_ACCESS, denied_person_properties=frozenset({"email"})),
-                None,
-            ),
-            (
-                "denied_another_person_property",
-                replace(FULL_ACCESS, denied_person_properties=frozenset({"plan"})),
-                TRAFFIC,
-            ),
+            ("denied_the_reason", _denied(EVENT, "$feature_flag_reason"), None),
+            ("denied_the_person_property_of_the_test_account_filter", _denied(PERSON, "email"), None),
+            ("denied_another_person_property", _denied(PERSON, "plan"), TRAFFIC),
             (
                 "denied_the_person_property_of_a_test_account_filter_the_experiment_skips",
-                replace(FULL_ACCESS, denied_person_properties=frozenset({"email"})),
+                _denied(PERSON, "email"),
                 TRAFFIC,
                 False,
             ),
             (
-                "denied_any_property_under_a_hogql_test_account_filter",
-                replace(FULL_ACCESS, denied_group_properties=frozenset({"industry"})),
+                "denied_the_parent_of_a_dotted_filter_key",
+                _denied(PERSON, "email"),
                 None,
+                True,
+                [{"key": "email.domain", "value": "example.com", "operator": "is_not", "type": "person"}],
+            ),
+            ("denied_a_child_of_the_filter_key", _denied(PERSON, "email.domain"), None),
+            (
+                "denied_an_input_of_a_virtual_property",
+                _denied(PERSON, "$initial_referring_domain"),
+                None,
+                True,
+                [{"key": "$virt_initial_channel_type", "value": "Internal", "operator": "is_not", "type": "person"}],
+            ),
+            (
+                "denied_a_property_that_a_hogql_filter_reads",
+                _denied(PERSON, "email"),
+                None,
+                True,
+                [{"key": "person.properties.email != 'qa@example.com'", "type": "hogql"}],
+            ),
+            (
+                "denied_a_property_that_a_hogql_filter_doesnt_read",
+                _denied(PERSON, "email"),
+                TRAFFIC,
                 True,
                 [{"key": "properties.$host != 'localhost'", "type": "hogql"}],
             ),
@@ -183,6 +206,34 @@ class TestLoadConditionSetTraffic(BaseTest):
         traffic, query = self._load(TRAFFIC, reader_access=reader_access)
 
         self.assertEqual((traffic, query.call_count), (expected, 0 if expected is None else 1))
+
+    def test_a_cohort_test_account_filter_reads_the_stored_members(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Staff",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        Team.objects.filter(pk=self.team.pk).update(
+            test_account_filters=[{"key": "id", "value": cohort.pk, "operator": "not_in", "type": "cohort"}],
+            modifiers={"inlineCohortCalculation": "always"},
+        )
+        self.experiment = Experiment.objects.get(pk=self.experiment.pk)
+
+        traffic, _ = self._load(TRAFFIC, reader_access=_denied(PERSON, "email"))
+
+        self.assertEqual(traffic, TRAFFIC)
 
     @parameterized.expand(
         [

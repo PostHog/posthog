@@ -48,8 +48,7 @@ NO_QUERIES = ExperimentHealthReaderAccess(
     can_read_flag_history=False,
     can_query_events=False,
     denied_event_properties=frozenset(),
-    denied_person_properties=frozenset(),
-    denied_group_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 FINISHED_AT = datetime(2026, 10, 26, 9, 30, tzinfo=UTC)
 OUT_OF_MEMORY = "This query ran out of memory before it could finish."

@@ -180,7 +180,7 @@ def _health_inputs_traffic_status(inputs: HealthInputs) -> ExperimentHealthInput
         return ExperimentHealthInputsTrafficStatus.NOT_NEEDED
     if not inputs.reader_access.can_query_events:
         return ExperimentHealthInputsTrafficStatus.NO_QUERY_ACCESS
-    if inputs.denied_scanned_properties:
+    if inputs.scan_reads_denied_property:
         return ExperimentHealthInputsTrafficStatus.DENIED_PROPERTIES
     if inputs.flag_version is None:
         return ExperimentHealthInputsTrafficStatus.NO_FLAG_VERSION
