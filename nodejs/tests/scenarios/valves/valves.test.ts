@@ -119,6 +119,14 @@ const kill = (schedule: Pick<ValveEntry, 'at' | 'when'>, holdFor = '10ms'): Valv
     ...schedule,
 })
 
+const throttle = (rate: number, holdFor: string): ValveEntry => ({
+    valve: 'ses.throttle',
+    target: 'ses',
+    dose: { rate },
+    at: '0ms',
+    for: holdFor,
+})
+
 const RUNNING_ON_EMAIL = { name: 'running_on_queue' as const, params: { queue: 'email' as const, atLeast: 2 } }
 
 describe('valves', () => {
@@ -289,14 +297,6 @@ describe('valves', () => {
                     (error: Error) => error.name
                 )
 
-        const throttle = (rate: number, holdFor: string): ValveEntry => ({
-            valve: 'ses.throttle',
-            target: 'ses',
-            dose: { rate },
-            at: '0ms',
-            for: holdFor,
-        })
-
         it('throttles SES sends until the drive ends, and lifts the throttle on release', async () => {
             const valves = createValves({ pollMs: 5 })
 
@@ -346,64 +346,77 @@ describe('valves', () => {
         )
     })
 
-    it.each<[string, 'held' | 'none applied', number, object]>([
-        [
-            'its observation request is still open when its hold ends',
-            'held',
-            204,
-            { error: 'applied but not observed', releasedAt: expect.any(String) },
-        ],
-        [
-            'the edge then refuses to remove it',
-            'none applied',
-            500,
-            {
-                error: 'applied but not observed; The edge did not remove the ses.throttle fault: it answered 500',
-                releasedAt: undefined,
-            },
-        ],
-    ])(
-        'records an edge fault never observed once %s, with every reason',
-        async (_story, observation, removed, expected) => {
-            const heldAnswers: (() => void)[] = []
-            const requests: string[] = []
-            const server = http.createServer((req, res) => {
-                requests.push(`${req.method} ${req.url}`)
-                if (req.method === 'POST') {
-                    res.writeHead(201).end(JSON.stringify({ id: 'fault-1' }))
-                } else if (req.method === 'DELETE') {
-                    res.writeHead(removed).end()
-                } else if (observation === 'held') {
-                    heldAnswers.push(() => res.writeHead(200).end(JSON.stringify({ applied: 1 })))
-                } else {
-                    res.writeHead(200).end(JSON.stringify({ applied: 0 }))
-                }
-            })
-            await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-            const edgeUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-            const valves = createValves({ pollMs: 5 })
-            try {
-                await valves.start(
-                    [{ valve: 'ses.throttle', target: 'ses', dose: { rate: 1 }, at: '0ms', for: '50ms' }],
-                    { ...stackOf().context, edgeUrl }
-                )
-                await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
-                heldAnswers.forEach((answer) => answer())
-                await valves.releaseAll()
-
-                const { error, releasedAt, observedAt } = valves.timeline()[0]
-                expect({
-                    error,
-                    releasedAt,
-                    observedAt,
-                    removals: requests.filter((request) => request.startsWith('DELETE')),
-                }).toEqual({ ...expected, observedAt: undefined, removals: ['DELETE /_faults/fault-1'] })
-            } finally {
+    async function fakeEdge({ observation, removed }: { observation: 'held' | 'none applied'; removed: number }) {
+        const heldAnswers: (() => void)[] = []
+        const requests: string[] = []
+        let observationAsked!: () => void
+        const asked = new Promise<void>((resolve) => (observationAsked = resolve))
+        const server = http.createServer((req, res) => {
+            requests.push(`${req.method} ${req.url}`)
+            if (req.method === 'POST') {
+                res.writeHead(201).end(JSON.stringify({ id: 'fault-1' }))
+            } else if (req.method === 'DELETE') {
+                res.writeHead(removed).end()
+            } else if (observation === 'held') {
+                heldAnswers.push(() => res.writeHead(200).end(JSON.stringify({ applied: 1 })))
+                observationAsked()
+            } else {
+                res.writeHead(200).end(JSON.stringify({ applied: 0 }))
+            }
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        return {
+            edgeUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+            asked,
+            answerHeld: () => heldAnswers.forEach((answer) => answer()),
+            removals: () => requests.filter((request) => request.startsWith('DELETE')),
+            close: async () => {
                 server.closeAllConnections()
                 await new Promise((closed) => server.close(closed))
-            }
+            },
         }
-    )
+    }
+
+    it('ends the drive while an observation request is still open, and lifts the fault', async () => {
+        const edge = await fakeEdge({ observation: 'held', removed: 204 })
+        const valves = createValves({ pollMs: 5 })
+        try {
+            await valves.start([throttle(1, '60m')], { ...stackOf().context, edgeUrl: edge.edgeUrl })
+            await edge.asked
+            await valves.releaseAll()
+            edge.answerHeld()
+
+            const { error, releasedAt, observedAt } = valves.timeline()[0]
+            expect({ error, releasedAt, observedAt, removals: edge.removals() }).toEqual({
+                error: 'applied but not observed',
+                releasedAt: expect.any(String),
+                observedAt: undefined,
+                removals: ['DELETE /_faults/fault-1'],
+            })
+        } finally {
+            await edge.close()
+        }
+    })
+
+    it('keeps both reasons when the edge refuses to remove a fault it never observed', async () => {
+        const edge = await fakeEdge({ observation: 'none applied', removed: 500 })
+        const valves = createValves({ pollMs: 5, faultObservedWithinMs: 20 })
+        try {
+            await valves.start([throttle(1, '60m')], { ...stackOf().context, edgeUrl: edge.edgeUrl })
+            await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+            await valves.releaseAll()
+
+            const { error, releasedAt, observedAt } = valves.timeline()[0]
+            expect({ error, releasedAt, observedAt, removals: edge.removals() }).toEqual({
+                error: 'applied but not observed; The edge did not remove the ses.throttle fault: it answered 500',
+                releasedAt: undefined,
+                observedAt: undefined,
+                removals: ['DELETE /_faults/fault-1'],
+            })
+        } finally {
+            await edge.close()
+        }
+    })
 
     it('records a release that failed, and still ends the drive', async () => {
         const valves = createValves({ pollMs: 5 })
