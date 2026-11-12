@@ -614,22 +614,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         discovered_schemas: list[SourceSchema] | None = None
         connection_warning: str | None = None
 
-        new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
-
-        # The connect page checked the stored values on their own, without the source's current routing. So a
-        # connection target, TLS setting or SSH tunnel that the user did not enter there is dropped rather than
-        # inherited, and the new secrets never go to a host or through a tunnel the user did not see.
-        if stored_credential is not None:
-            routing_keys = {*_CONNECTION_ROUTING_KEYS, *source.connection_host_fields}
-            for field in list(new_job_inputs):
-                if field in incoming_job_inputs:
-                    continue
-                if field in routing_keys or field.startswith(_SSH_TUNNEL_KEY_PREFIX):
-                    del new_job_inputs[field]
-
-        # The secrets of a stored credential are complete: the connect page checked them on their own. So a
-        # reconnect carries over no stored secret the user left blank there, such as an old key passphrase.
-        secrets_base: dict[str, Any] = {} if stored_credential is not None else existing_job_inputs
+        if stored_credential is None:
+            new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
+            secrets_base: dict[str, Any] = existing_job_inputs
+        else:
+            # The connect page checked the stored values on their own. So a reconnect keeps only the source's
+            # sync settings and runtime state, and takes every connection field from the stored values: no
+            # host, TLS setting, SSH tunnel or secret that the user did not enter there carries over.
+            new_job_inputs = {**SourceInputsStore.load_settings(instance), **incoming_job_inputs}
+            secrets_base = {}
 
         # CDC resource ownership changes must go through the CDC-specific endpoints.
         for key in helpers._CDC_EXPOSED_JOB_INPUT_KEYS:

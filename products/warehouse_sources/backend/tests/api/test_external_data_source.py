@@ -14288,6 +14288,50 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert not stored.get("passphrase")
 
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source.ClickHouseSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_patch_with_stored_credential_inherits_no_connection_field_the_user_left_out(
+        self, mock_validate: MagicMock
+    ) -> None:
+        # An optional secret or TLS setting the stored payload omits must not come from the source, or the new
+        # host would get the old password over a connection the connect page never checked.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="ClickHouse",
+            created_by=self.user,
+            prefix="reconnect_clickhouse",
+            job_inputs={
+                "host": "old.example.com",
+                "port": "8443",
+                "database": "default",
+                "user": "reader",
+                "password": "old_password",
+                "secure": "false",
+                "verify": "false",
+            },
+        )
+        credential = PendingSourceCredential.objects.for_team(self.team.pk).create(
+            team=self.team,
+            source_type="ClickHouse",
+            payload={"host": "new.example.com", "port": "8443", "database": "default", "user": "reader"},
+            created_by=self.user,
+        )
+
+        response = self._reconnect(source, str(credential.pk))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        validated_config = mock_validate.call_args.args[0]
+        assert validated_config.host == "new.example.com"
+        assert not validated_config.password
+        assert validated_config.secure is True
+        assert validated_config.verify is True
+        assert not SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)).get("password")
+
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(False, "Invalid Stripe API key"),
     )
