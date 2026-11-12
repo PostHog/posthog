@@ -99,7 +99,11 @@ const treeHrefs = (body: string): string[] => {
             if (!('tagName' in child)) {
                 continue
             }
-            const href = child.tagName === 'a' ? child.attrs.find(({ name }) => name === 'href') : undefined
+            const href =
+                child.tagName === 'a'
+                    ? (child.attrs.find(({ name, namespace }) => name === 'href' && !namespace) ??
+                      child.attrs.find(({ name }) => name === 'href'))
+                    : undefined
             if (href) {
                 hrefs.push(href.value)
             }

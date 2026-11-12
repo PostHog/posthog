@@ -23,6 +23,21 @@ describe('clickableHrefs', () => {
             ['https://example.com/bye'],
         ],
         [
+            'an SVG anchor with an href after its xlink:href',
+            '<svg><a xlink:href="https://example.com/bye" href="https://example.com/news"><text>News</text></a></svg>',
+            ['https://example.com/news'],
+        ],
+        [
+            'an SVG anchor with an href before its xlink:href',
+            '<svg><a href="https://example.com/news" xlink:href="https://example.com/bye"><text>News</text></a></svg>',
+            ['https://example.com/news'],
+        ],
+        [
+            'an SVG anchor with only an xlink:href',
+            '<svg><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            ['https://example.com/bye'],
+        ],
+        [
             'an anchor inside a script',
             '<script>document.write(\'<a href="https://example.com/bye">Unsubscribe</a>\')</script>',
             [],
