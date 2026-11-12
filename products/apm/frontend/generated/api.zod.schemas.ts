@@ -180,3 +180,79 @@ export const ServicesHealthResponseApi = zod.object({
 
 export type ServicesHealthResponseApi = zod.input<typeof ServicesHealthResponseApi>
 export type ServicesHealthResponseApiOutput = zod.output<typeof ServicesHealthResponseApi>
+
+export const ServiceUsageApi = zod.object({
+    log_records: zod.number().describe('Log records stored in the window.'),
+    log_bytes: zod
+        .number()
+        .describe('Uncompressed size of the stored log records in bytes. Billing counts logs by this size.'),
+    spans: zod.number().describe('Spans of every kind stored in the window.'),
+    metric_points: zod.number().describe('Metric data points stored in the window.'),
+    metric_series: zod.number().describe('Distinct metric series with at least one point in the window.'),
+    service_name: zod.string().describe('The service.name resource attribute.'),
+})
+
+export type ServiceUsageApi = zod.input<typeof ServiceUsageApi>
+export type ServiceUsageApiOutput = zod.output<typeof ServiceUsageApi>
+
+export const UsageValuesApi = zod.object({
+    log_records: zod.number().describe('Log records stored in the window.'),
+    log_bytes: zod
+        .number()
+        .describe('Uncompressed size of the stored log records in bytes. Billing counts logs by this size.'),
+    spans: zod.number().describe('Spans of every kind stored in the window.'),
+    metric_points: zod.number().describe('Metric data points stored in the window.'),
+    metric_series: zod.number().describe('Distinct metric series with at least one point in the window.'),
+})
+
+export type UsageValuesApi = zod.input<typeof UsageValuesApi>
+export type UsageValuesApiOutput = zod.output<typeof UsageValuesApi>
+
+export const UsageSignalEnumApi = zod
+    .enum(['logs', 'traces', 'metrics'])
+    .describe('\* `logs` - Logs\n\* `traces` - Traces\n\* `metrics` - Metrics')
+
+export type UsageSignalEnumApi = zod.input<typeof UsageSignalEnumApi>
+export type UsageSignalEnumApiOutput = zod.output<typeof UsageSignalEnumApi>
+
+export const ServiceUsageResponseApi = zod.object({
+    results: zod
+        .array(
+            zod.object({
+                log_records: zod.number().describe('Log records stored in the window.'),
+                log_bytes: zod
+                    .number()
+                    .describe(
+                        'Uncompressed size of the stored log records in bytes. Billing counts logs by this size.'
+                    ),
+                spans: zod.number().describe('Spans of every kind stored in the window.'),
+                metric_points: zod.number().describe('Metric data points stored in the window.'),
+                metric_series: zod.number().describe('Distinct metric series with at least one point in the window.'),
+                service_name: zod.string().describe('The service.name resource attribute.'),
+            })
+        )
+        .describe('One row per service across logs, traces, and metrics, largest logs size first.'),
+    totals: zod
+        .object({
+            log_records: zod.number().describe('Log records stored in the window.'),
+            log_bytes: zod
+                .number()
+                .describe('Uncompressed size of the stored log records in bytes. Billing counts logs by this size.'),
+            spans: zod.number().describe('Spans of every kind stored in the window.'),
+            metric_points: zod.number().describe('Metric data points stored in the window.'),
+            metric_series: zod.number().describe('Distinct metric series with at least one point in the window.'),
+        })
+        .describe('Totals for the whole window, including services past the row limit.'),
+    unavailable_signals: zod
+        .array(
+            zod
+                .enum(['logs', 'traces', 'metrics'])
+                .describe('\* `logs` - Logs\n\* `traces` - Traces\n\* `metrics` - Metrics')
+        )
+        .describe('Signals that failed to load. Their values are 0 in every row and in the totals.'),
+    date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
+    date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
+})
+
+export type ServiceUsageResponseApi = zod.input<typeof ServiceUsageResponseApi>
+export type ServiceUsageResponseApiOutput = zod.output<typeof ServiceUsageResponseApi>

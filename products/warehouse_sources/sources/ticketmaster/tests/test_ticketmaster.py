@@ -144,3 +144,42 @@ def test_unknown_endpoint_rejected_before_request() -> None:
 def test_credential_connection_error_gives_a_message(error: BaseException) -> None:
     with scripted_network(always(error)):
         assert validate_credentials(make_config(), "events", "v2") == (False, UNREACHABLE_MESSAGE)
+
+
+CLASSIFICATIONS_PAGE: dict[str, Any] = {
+    "_embedded": {
+        "classifications": [
+            {"segment": {"id": "seg-1", "name": "Music", "_embedded": {"genres": [{"id": "gen-1", "name": "Rock"}]}}},
+            {"type": {"id": "type-1", "name": "Group", "_embedded": {"subtypes": [{"id": "sub-1"}]}}},
+        ]
+    },
+    "page": {"number": 0, "size": 200, "totalElements": 2, "totalPages": 1},
+}
+
+
+@pytest.mark.parametrize("keyword", [" Example act ", ""])
+def test_classifications_sync_the_whole_taxonomy_with_a_root_id(keyword: str) -> None:
+    result = read_rows("classifications", [ScriptedResponse(json=CLASSIFICATIONS_PAGE)], keyword)
+
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == ["seg-1", "type-1"]
+    assert result.rows[0]["segment"]["_embedded"]["genres"] == [{"id": "gen-1", "name": "Rock"}]
+    [request] = result.requests
+    assert request.path == "/discovery/v2/classifications.json"
+    assert request.param("keyword") is None
+
+    with scripted_network(always(ScriptedResponse(json=CLASSIFICATIONS_PAGE))) as network:
+        assert validate_credentials(make_config(keyword), "classifications", "v2") == (True, None)
+    assert [request.param("keyword") for request in network.requests_log] == [None]
+
+
+@pytest.mark.parametrize(
+    "item",
+    [{}, {"segment": {"name": "Music"}}, {"segment": None, "type": {"id": ""}}],
+)
+def test_classification_without_a_root_id_fails(item: dict[str, Any]) -> None:
+    page = {**CLASSIFICATIONS_PAGE, "_embedded": {"classifications": [item]}}
+    result = read_rows("classifications", [ScriptedResponse(json=page)])
+
+    assert isinstance(result.raised, ValueError)
+    assert "without a segment or type ID" in str(result.raised)

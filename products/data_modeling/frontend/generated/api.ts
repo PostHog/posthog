@@ -22,6 +22,7 @@ import type {
     NodeResumeApi,
     NodeRunApi,
     NodeRunResponseApi,
+    NodeWatchingApi,
     PaginatedEdgeSummaryListApi,
     PaginatedNodeListApi,
     PatchedEdgeApi,
@@ -316,6 +317,42 @@ export const dataModelingNodesRunCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(nodeRunApi),
+    })
+}
+
+export const getDataModelingNodesUnwatchCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/unwatch/`
+}
+
+/**
+ * Stop getting failure notifications for this node, including the ones you get as its creator.
+ */
+export const dataModelingNodesUnwatchCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<NodeWatchingApi> => {
+    return apiMutator<NodeWatchingApi>(getDataModelingNodesUnwatchCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getDataModelingNodesWatchCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/watch/`
+}
+
+/**
+ * Get failure notifications for this node. Watching a node you already watch changes nothing.
+ */
+export const dataModelingNodesWatchCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<NodeWatchingApi> => {
+    return apiMutator<NodeWatchingApi>(getDataModelingNodesWatchCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

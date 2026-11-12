@@ -213,7 +213,7 @@ export function Message({
                                     fallbackDisableImages={message.fromZendesk}
                                 />
                             ) : (
-                                <SupportMarkdown className="text-sm" disableImages>
+                                <SupportMarkdown className="text-sm" disableImages literalHtml={!message.fromGithub}>
                                     {message.content}
                                 </SupportMarkdown>
                             )}

@@ -19,6 +19,7 @@ import { loadConfig, type LoadedConfig } from './config'
 import type { GlobalOptions } from './globals'
 import type { Prompts } from './prompts'
 import type { Runtime } from './runtime'
+import { SKILL_COMMANDS } from './skill-commands'
 import { Telemetry } from './telemetry'
 
 // What a command's `run` gets besides its own arguments and options. It has no output on
@@ -102,7 +103,7 @@ export class Context {
     skills(): Promise<SkillsLibrary> {
         this.skillsLibrary ??= this.runtime.loadSkills({
             cacheDir: posthogPath(this.runtime, 'skills'),
-            learnCommand: 'hog learn',
+            commands: SKILL_COMMANDS,
             // The downloads go to GitHub, not PostHog, so --rate-limit doesn't count them.
             fetch: (url, init) => this.runtime.fetch(url, { ...init, skipRateLimit: true }),
         })

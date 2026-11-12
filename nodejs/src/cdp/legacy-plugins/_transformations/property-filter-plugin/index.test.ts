@@ -87,3 +87,18 @@ test('event properties are empty when no properties are given', () => {
     expect(event.properties).not.toHaveProperty('$set')
     expect(event.properties).not.toHaveProperty('foo')
 })
+
+test.each(['__proto__.hasOwnProperty', 'constructor.prototype.toString'])(
+    'a filter path through %s leaves the built-in prototype intact',
+    (propertyToFilter) => {
+        const { hasOwnProperty, toString } = Object.prototype
+        const event = processEvent(createEvent({ properties: { name: 'Mr. Hog', gender: 'male' } }), {
+            ...meta,
+            global: { propertiesToFilter: [propertyToFilter, 'gender'] },
+        } as unknown as LegacyTransformationPluginMeta)
+
+        expect(event.properties).toEqual({ name: 'Mr. Hog' })
+        expect(Object.prototype.hasOwnProperty).toBe(hasOwnProperty)
+        expect(Object.prototype.toString).toBe(toString)
+    }
+)
