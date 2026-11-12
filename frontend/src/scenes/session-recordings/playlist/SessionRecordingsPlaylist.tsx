@@ -51,6 +51,7 @@ export function SessionRecordingsPlaylist({
         ...props,
         autoPlay: props.autoPlay ?? true,
         onlyPinned: props.type === 'collection',
+        watchLayout,
     }
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { canOverrideLayout, staffLayoutOverride } = useValues(playerSettingsLogic)

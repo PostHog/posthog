@@ -1170,7 +1170,7 @@ function agentMessageIndexBeforeEvent(
     const updateKind = agentMessageUpdateKind(events[index]);
     if (updateKind === "ignored") continue;
     if (updateKind === "chunk") {
-      position.chunkRunActive = true;
+      startAgentMessageChunkRun(position, events[index]);
     } else if (updateKind === "final") {
       position.messageIndex += 1;
       position.chunkRunActive = false;
@@ -1193,8 +1193,8 @@ function indexAgentMessagePositions(
   for (const event of events) {
     const updateKind = agentMessageUpdateKind(event);
     if (updateKind === "chunk") {
+      startAgentMessageChunkRun(position, event);
       positions.set(event, position.messageIndex);
-      position.chunkRunActive = true;
     } else if (updateKind === "final") {
       positions.set(event, position.messageIndex);
       position.messageIndex += 1;
@@ -1507,6 +1507,7 @@ function agentMessageUpdateKind(
 interface AgentMessagePosition {
   messageIndex: number;
   chunkRunActive: boolean;
+  chunkParent?: string;
 }
 
 function isSessionPromptEvent(event: AcpMessage): boolean {
@@ -1519,6 +1520,38 @@ function finishAgentMessageChunkRun(position: AgentMessagePosition): void {
   if (!position.chunkRunActive) return;
   position.messageIndex += 1;
   position.chunkRunActive = false;
+  position.chunkParent = undefined;
+}
+
+function chunkParentToolCallId(event: AcpMessage): string | undefined {
+  const message = event.message;
+  if (!isJsonRpcNotification(message)) return undefined;
+  const parent = (
+    message.params as
+      | {
+          update?: {
+            _meta?: { claudeCode?: { parentToolCallId?: unknown } };
+          };
+        }
+      | undefined
+  )?.update?._meta?.claudeCode?.parentToolCallId;
+  return typeof parent === "string" ? parent : undefined;
+}
+
+// SessionLogWriter stores a chunk from another subagent as a new message, so a
+// change of parent ends the run. Returns whether this chunk started a run.
+function startAgentMessageChunkRun(
+  position: AgentMessagePosition,
+  event: AcpMessage,
+): boolean {
+  const parent = chunkParentToolCallId(event);
+  if (position.chunkRunActive && position.chunkParent !== parent) {
+    finishAgentMessageChunkRun(position);
+  }
+  if (position.chunkRunActive) return false;
+  position.chunkRunActive = true;
+  position.chunkParent = parent;
+  return true;
 }
 
 function discardChunksSupersededByHydratedMessages(
@@ -1541,7 +1574,7 @@ function discardChunksSupersededByHydratedMessages(
     const updateKind = agentMessageUpdateKind(event);
     if (updateKind === "ignored") continue;
     if (updateKind === "chunk") {
-      hydratedPosition.chunkRunActive = true;
+      startAgentMessageChunkRun(hydratedPosition, event);
       continue;
     }
     if (updateKind === "final") {
@@ -1582,8 +1615,7 @@ function discardChunksSupersededByHydratedMessages(
     } else {
       const updateKind = agentMessageUpdateKind(event);
       if (updateKind === "chunk") {
-        if (!livePosition.chunkRunActive) {
-          livePosition.chunkRunActive = true;
+        if (startAgentMessageChunkRun(livePosition, event)) {
           discardChunkRun = hydratedMessagePositions.has(
             livePosition.messageIndex,
           );

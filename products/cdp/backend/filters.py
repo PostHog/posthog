@@ -1,4 +1,5 @@
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional
 
@@ -8,7 +9,7 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, ast, property_to_expr
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
@@ -272,20 +273,22 @@ def _build_event_filter_expr(filter: dict) -> ast.Expr:
     return parse_expr("event = {event}", {"event": ast.Constant(value=event_name)})
 
 
-def _build_action_filter_expr(filter: dict, actions: dict[int, Action], team: Team) -> ast.Expr:
+def _build_action_filter_expr(filter: dict, actions: Mapping[int, Action | None], team: Team) -> ast.Expr:
     """Build expression for a single action filter."""
     try:
         action_id = int(filter["id"])
-        action = actions.get(action_id)
-        if not action:
+        if action_id not in actions:
             return action_to_expr(get_action(action_id=action_id, project_id=team.project_id))
+        action = actions[action_id]
+        if action is None:
+            return parse_expr("1 = 2")
         # Callers fetched these with their team joined, so reuse the team rather than read it once per action.
         return action_to_expr(action, team=team)
     except KeyError:
         return parse_expr("1 = 2")  # No events match
 
 
-def _build_single_filter_expr(filter: dict, actions: dict[int, Action], team: Team) -> ast.Expr:
+def _build_single_filter_expr(filter: dict, actions: Mapping[int, Action | None], team: Team) -> ast.Expr:
     """Build expression for a single event or action filter with its properties."""
     filter_exprs: list[ast.Expr] = []
 
@@ -349,7 +352,13 @@ def _build_warehouse_table_filters(filters: dict, team: Team) -> list[ast.Expr]:
     return [ast.Or(exprs=entry_exprs) if len(entry_exprs) > 1 else entry_exprs[0]]
 
 
-def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, Action]) -> ast.Expr:
+def hog_function_filters_to_expr(
+    filters: dict,
+    team: Team,
+    actions: Mapping[int, Action | None],
+    *,
+    test_account_filters: list[ast.Expr] | None = None,
+) -> ast.Expr:
     """
     Build a HogQL expression from hog function filters.
 
@@ -357,7 +366,12 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
     rather than duplicating them for each event/action check.
     """
     # Build component filters
-    test_account_filters = _build_test_account_filters(filters, team)
+    if test_account_filters is None:
+        test_account_filters = _build_test_account_filters(filters, team)
+    elif filters.get("filter_test_accounts", False):
+        test_account_filters = [clone_expr(expr) for expr in test_account_filters]
+    else:
+        test_account_filters = []
     global_property_filters = _build_global_property_filters(filters, team)
     warehouse_table_filters = _build_warehouse_table_filters(filters, team)
 

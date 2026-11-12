@@ -150,8 +150,9 @@ list and read objects in this bucket.` The key from the old table is no longer v
   table's folder. For a Delta table the message reads `... denied access to the bucket for the Delta table '<name>'.
 Check that the key can read its folder.` The key must list and read the table's whole path. This error turns syncing
   off and can show as `The storage provider rejected these credentials. ...`. Ask the user to fix the key's access in
-  their storage provider, or to enter new credentials for the source in the PostHog app. Do not ask for keys in the
-  chat or send them through a tool. Then turn syncing on again.
+  their storage provider, or reconnect the source with new credentials through a connect link, as in scenario B of
+  `diagnosing-failed-warehouse-syncs`. Do not ask for keys in the chat or send them through a tool. Then turn syncing
+  on again.
 - `No files are available for table '<name>'. No file in the bucket matches '<pattern>'.` No file matches the table's
   pattern now. The files may have been moved, renamed or removed. A variant says `The files it was discovered from may
 have been renamed, moved, or removed from the bucket.` Ask the user to check the bucket.

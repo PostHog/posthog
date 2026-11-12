@@ -16,6 +16,7 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import requests
 import structlog
 from django_filters.utils import translate_validation
 from django_redis.cache import RedisCache
@@ -294,6 +295,19 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         return False
 
 
+# Keep in sync with INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE in frontend/src/lib/api-error.ts, which
+# keeps this expected failure out of error tracking.
+INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE = "integration_token_refresh_failed"
+
+
+def _token_refresh_failed_error() -> ValidationError:
+    return ValidationError(
+        "This integration's authentication token could not be refreshed. "
+        "Please reconnect or disconnect this integration and connect a different account.",
+        code=INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE,
+    )
+
+
 def _ensure_oauth_token_valid(instance: IntegrationRecord) -> IntegrationRecord:
     """Check that an OAuth integration's token is usable, attempting refresh if needed.
 
@@ -306,19 +320,13 @@ def _ensure_oauth_token_valid(instance: IntegrationRecord) -> IntegrationRecord:
         return instance
 
     if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
-        raise ValidationError(
-            "This integration's authentication token could not be refreshed. "
-            "Please reconnect or disconnect this integration and connect a different account."
-        )
+        raise _token_refresh_failed_error()
 
     oauth = OauthIntegration(instance)
     if oauth.access_token_expired():
         instance = oauth.refresh_access_token()
         if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
-            raise ValidationError(
-                "This integration's authentication token could not be refreshed. "
-                "Please reconnect or disconnect this integration and connect a different account."
-            )
+            raise _token_refresh_failed_error()
     return instance
 
 
@@ -522,6 +530,47 @@ class JiraProjectSerializer(serializers.Serializer):
 
 class JiraProjectsResponseSerializer(serializers.Serializer):
     projects = JiraProjectSerializer(many=True, help_text="Jira projects available to this integration.")
+
+
+class GitLabProjectSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="GitLab numeric project ID.")
+    path_with_namespace = serializers.CharField(
+        help_text="Full project path, including nested groups, such as `acme/platform/api`. Use it as a task repository."
+    )
+    web_url = serializers.CharField(help_text="Project page on GitLab.")
+    default_branch = serializers.CharField(
+        allow_null=True, help_text="Default branch of the project. Null for a project without commits."
+    )
+
+
+class GitLabProjectsQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional search on the project name or path. Leave blank to list the most recently active projects.",
+    )
+
+
+class GitLabProjectsResponseSerializer(serializers.Serializer):
+    projects = GitLabProjectSerializer(
+        many=True,
+        help_text=(
+            "The connected project, when the token has the Developer role or higher on it. "
+            "Empty when it does not, or when it does not match the search."
+        ),
+    )
+    missing_scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Token scopes that coding tasks need and the token does not have. "
+            "Empty when the token has them, or when GitLab does not report the token's scopes."
+        ),
+    )
+    token_expires_at = serializers.DateField(
+        allow_null=True,
+        help_text="Date when the token expires. Null when it does not expire or GitLab does not report it.",
+    )
 
 
 class LinearTeamSerializer(serializers.Serializer):
@@ -1660,6 +1709,7 @@ class IntegrationViewSet(
         "linear_team_members",
         "github_assignees",
         "gitlab_members",
+        "gitlab_projects",
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
@@ -2924,6 +2974,39 @@ class IntegrationViewSet(
             raise ValidationError("gitlab_members endpoint is only supported for GitLab integrations")
         search = query_serializer.validated_data["search"]
         return assignees_response(lambda: GitLabIntegration(instance).list_assignees(search))
+
+    @extend_schema(parameters=[GitLabProjectsQuerySerializer], responses={200: GitLabProjectsResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="gitlab_projects")
+    def gitlab_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitLabProjectsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        instance = self.get_object()
+        if instance.kind != "gitlab":
+            raise ValidationError("gitlab_projects endpoint is only supported for GitLab integrations")
+        gitlab = GitLabIntegration(instance)
+        search = query_serializer.validated_data["search"].strip().lower()
+        try:
+            # A connection covers the project it was set up for. A broader token must not let every
+            # project member see the other private projects it can reach.
+            deadline = time.monotonic() + 10.0
+            project = gitlab.get_pushable_project(gitlab.project_path) if gitlab.project_path else None
+            projects = [project] if project and search in project.path_with_namespace.lower() else []
+            remaining = deadline - time.monotonic()
+            token_info = gitlab.credentials.describe(timeout=remaining) if remaining > 0 else None
+        except GitLabIntegrationError as error:
+            raise ValidationError(str(error))
+        except requests.RequestException as error:
+            raise ValidationError("Could not connect to GitLab. Try again.") from error
+        return Response(
+            GitLabProjectsResponseSerializer(
+                {
+                    "projects": projects,
+                    "missing_scopes": list(token_info.missing_task_scopes) if token_info else [],
+                    "token_expires_at": token_info.expires_at if token_info else None,
+                }
+            ).data
+        )
 
     @validated_request(
         PushTokenImportRequestSerializer,

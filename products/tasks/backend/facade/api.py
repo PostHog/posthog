@@ -122,6 +122,7 @@ from products.tasks.backend.facade.profiles import (
 )
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
+    gitlab_tasks_enabled,
     own_subscription_cloud_enabled as own_subscription_cloud_enabled,
     pi_cloud_runtime_enabled,
     run_stream_presence_gated,
@@ -129,6 +130,7 @@ from products.tasks.backend.feature_flags import (
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
+from products.tasks.backend.gitlab_repository_access import gitlab_repository_error
 from products.tasks.backend.logic.log_slice import (
     LogPart,
     LogPartSummary,
@@ -417,6 +419,8 @@ __all__ = [
     "list_tasks",
     "list_workflow_last_runs",
     "pi_cloud_runtime_enabled",
+    "gitlab_repository_error",
+    "gitlab_tasks_enabled",
     "prepare_task_run_artifact_uploads",
     "prepare_task_staged_artifacts",
     "presign_task_run_artifact",
@@ -1123,6 +1127,7 @@ def _task_detail_to_dto(
         repositories=task.repositories or ([task.repository] if task.repository else []),
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
+        repository_integration=task.repository_integration_id,
         signal_report=task.signal_report_source_id,
         json_schema=task.json_schema,
         internal=task.internal,
@@ -6623,6 +6628,17 @@ def _resolve_cloud_pr_authorship_mode(
         user_github_integration_is_usable,
     )
 
+    # GitLab runs commit as the connection's token, so they never resolve a GitHub identity.
+    if task.repository_integration_id is not None:
+        if github_user_token:
+            return None, contracts.TaskRunValidationError(
+                kind="validation_error",
+                code="github_token_not_allowed",
+                detail="GitLab tasks don't use a GitHub token. Start the run without github_user_token.",
+                attr="github_user_token",
+            )
+        return PrAuthorshipMode.BOT, None
+
     if not Task._github_resolution_allowed(
         task.origin_product, has_repository=bool(task.repositories or task.repository)
     ):
@@ -7272,6 +7288,33 @@ def get_pull_request_titles(team_id: int, user_id: int, task_ids: list[UUID]) ->
     )
 
     return pull_request_titles(team_id, user_id, task_ids)
+
+
+def get_task_repository_state(
+    task_id: str | UUID, team_id: int, user_id: int | None
+) -> contracts.TaskRepositoryState | None:
+    task = (
+        _visible_task_qs(team_id, user_id)
+        .filter(id=task_id)
+        .values_list(
+            "repository",
+            "repositories",
+            "github_integration_id",
+            "github_user_integration_id",
+            "repository_integration_id",
+        )
+        .first()
+    )
+    if task is None:
+        return None
+    repository, repositories, github_integration, github_user_integration, repository_integration = task
+    return contracts.TaskRepositoryState(
+        repository=repository,
+        repositories=repositories or ([repository] if repository else []),
+        github_integration=github_integration,
+        github_user_integration=github_user_integration,
+        repository_integration=repository_integration,
+    )
 
 
 def get_task_detail(
@@ -8294,7 +8337,12 @@ def create_task(
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
 
-    if validated_data.get("repository") and not validated_data.get("github_integration"):
+    uses_repository_integration = validated_data.get("repository_integration_id") is not None
+    if (
+        validated_data.get("repository")
+        and not validated_data.get("github_integration")
+        and not uses_repository_integration
+    ):
         default_integration = IntegrationManager.github.oauth.find(team.id)
         if default_integration:
             validated_data["github_integration"] = default_integration
@@ -8314,7 +8362,8 @@ def create_task(
     # requests that must agree on the origin — when they disagree the lookup misses and we cold-create,
     # which costs latency but can never hand over a Run booted under another product's budget or
     # PR-authorship rules.
-    if warm_branch_provided and user_id is not None and not reuses_no_warm_run:
+    # Warm runs are provisioned for GitHub repositories, and a GitLab project path can match a GitHub name.
+    if warm_branch_provided and user_id is not None and not reuses_no_warm_run and not uses_repository_integration:
         # Post-defaults comparison: warm runs are provisioned with the default triple
         # filled in, so the requested selection must be resolved the same way to match.
         warm_selection = _with_ai_run_defaults(
@@ -8520,7 +8569,11 @@ def create_task(
         and signal_report is not None
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
     )
-    if (validated_data.get("repository") or entitled_report_task) and not validated_data.get("github_integration"):
+    if (
+        (validated_data.get("repository") or entitled_report_task)
+        and not validated_data.get("github_integration")
+        and not uses_repository_integration
+    ):
         if signal_report is not None:
             integration_id = _report_task_github_integration_id(team, code_access_allowed=True)
             default_integration = (
@@ -8535,6 +8588,7 @@ def create_task(
         validated_data.get("repository")
         and validated_data.get("origin_product", Task.OriginProduct.USER_CREATED) == Task.OriginProduct.USER_CREATED
         and not validated_data.get("github_user_integration")
+        and not uses_repository_integration
     ):
         task_stub = Task(
             team=team,
@@ -8575,7 +8629,10 @@ def create_task(
         enforce_self_driving_free_trial(team, report_id=signal_report_id)
     if refuse_without_repository and signal_report is not None:
         _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
-        raise ValidationError({"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED})
+        raise ValidationError(
+            {"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED},
+            code="report_implementation_repository_unresolved",
+        )
 
     if signal_report is not None and signal_report_task_relationship in (None, "implementation"):
         from products.signals.backend.facade.github_optional import (  # noqa: PLC0415 - keeps the signals model graph out of tasks facade initialization
@@ -8583,22 +8640,22 @@ def create_task(
             pilot_repository_integration_id,
         )
 
-        if github_optional_pilot_enabled(team_id):
-            integration_id = (
-                pilot_repository_integration_id(team_id, validated_data["repository"])
-                if validated_data.get("repository")
-                else None
+        integration_id = (
+            pilot_repository_integration_id(team_id, validated_data["repository"])
+            if validated_data.get("repository")
+            else None
+        )
+        repository_integration = (
+            _team_github_integration_or_none(team_id, integration_id) if integration_id is not None else None
+        )
+        if repository_integration is not None:
+            validated_data["github_integration"] = repository_integration
+        elif github_optional_pilot_enabled(team_id):
+            raise ValidationError(
+                {
+                    "repository": "Connect or repair GitHub access to the selected repository before creating a pull request."
+                }
             )
-            pilot_integration = (
-                _team_github_integration_or_none(team_id, integration_id) if integration_id is not None else None
-            )
-            if pilot_integration is None:
-                raise ValidationError(
-                    {
-                        "repository": "Connect or repair GitHub access to the selected repository before creating a pull request."
-                    }
-                )
-            validated_data["github_integration"] = pilot_integration
 
     if signal_report_id and signal_report_task_relationship in (None, "implementation"):
         if repository := validated_data.get("repository"):
@@ -8686,7 +8743,12 @@ def set_task_title(task_id: str | UUID, team_id: int, title: str) -> bool:
 
 
 def update_task(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    expected_repository_state: tuple | None = None,
 ) -> contracts.TaskDetailDTO | None:
     """Update a task, mirroring ``TaskSerializer.update``. ``None`` if not found/controllable."""
     validated_data = dict(validated_data)
@@ -8702,6 +8764,27 @@ def update_task(
             return None
         if not _task_drive_allowed(task, user_id):
             return None
+        if (
+            expected_repository_state is not None
+            and not validated_data.keys().isdisjoint(
+                {
+                    "repository",
+                    "repositories",
+                    "repository_integration_id",
+                    "github_integration",
+                    "github_user_integration",
+                }
+            )
+            and expected_repository_state
+            != (
+                task.repository,
+                task.repositories or ([task.repository] if task.repository else []),
+                task.github_integration_id,
+                task.github_user_integration_id,
+                task.repository_integration_id,
+            )
+        ):
+            raise ValidationError("Repository configuration changed. Try again.")
         previous_repositories = list(task.repositories or [])
         previous_integration_id = task.github_integration_id
 
@@ -8717,6 +8800,7 @@ def update_task(
             validated_data.pop("repositories", None)
             validated_data.pop("github_integration", None)
             validated_data.pop("github_user_integration", None)
+            validated_data.pop("repository_integration_id", None)
         if "repositories" in validated_data:
             repositories = validated_data["repositories"]
             validated_data["repository"] = repositories[0] if repositories else None
