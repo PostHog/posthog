@@ -18,7 +18,7 @@ from products.signals.backend.emission.registry import SignalEmitterOutput
 
 logger = get_logger(__name__)
 
-_TAG_RE = re.compile(r"<[^>]+>")
+_TAG_RE = re.compile(r"<[^<>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
 
 

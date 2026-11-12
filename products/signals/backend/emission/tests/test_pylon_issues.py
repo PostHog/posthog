@@ -40,6 +40,7 @@ def test_full_record_strips_html_from_body():
         (None, "<div>Only a body</div>", "Only a body"),
         ("", "Plain &amp; simple", "Plain & simple"),
         (123, "Body with a non-string title", "Body with a non-string title"),
+        (None, "<<b>Stray bracket</b>", "< Stray bracket"),
     ],
 )
 def test_description_falls_back_to_available_text(title, body_html, expected):
