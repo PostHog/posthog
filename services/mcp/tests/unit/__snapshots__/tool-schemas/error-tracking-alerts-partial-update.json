@@ -145,16 +145,8 @@
             "items": {
                 "properties": {
                     "auth": {
-                        "description": "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind.",
-                        "properties": {
-                            "scheme": {
-                                "description": "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n* `bearer` - bearer\n* `header` - header\n* `basic` - basic\n* `query` - query\n* `body` - body",
-                                "enum": ["bearer", "header", "basic", "query", "body"],
-                                "type": "string"
-                            }
-                        },
-                        "required": ["scheme"],
-                        "type": "object"
+                        "description": "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind.",
+                        "type": "boolean"
                     },
                     "choices": {
                         "items": {
@@ -338,16 +330,8 @@
                                 "items": {
                                     "properties": {
                                         "auth": {
-                                            "description": "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind.",
-                                            "properties": {
-                                                "scheme": {
-                                                    "description": "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n* `bearer` - bearer\n* `header` - header\n* `basic` - basic\n* `query` - query\n* `body` - body",
-                                                    "enum": ["bearer", "header", "basic", "query", "body"],
-                                                    "type": "string"
-                                                }
-                                            },
-                                            "required": ["scheme"],
-                                            "type": "object"
+                                            "description": "Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind.",
+                                            "type": "boolean"
                                         },
                                         "choices": {
                                             "items": {

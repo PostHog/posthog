@@ -26,7 +26,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.facade.api import get_actions
-from products.cdp.backend.credential_auth import AuthScheme, validate_auth_declarations
+from products.cdp.backend.credential_auth import validate_auth_declarations
 from products.cdp.backend.filters import (
     DATA_WAREHOUSE_SOURCES,
     FILTER_FUNCTIONS,
@@ -771,18 +771,6 @@ class _TemplatingChoiceField(serializers.ChoiceField):
     pass
 
 
-class AuthDeclarationSchemaSerializer(serializers.Serializer):
-    scheme = serializers.ChoiceField(
-        choices=AuthScheme.choices,
-        help_text="The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.",
-    )
-
-
-@extend_schema_field(AuthDeclarationSchemaSerializer)
-class AuthDeclarationField(serializers.JSONField):
-    pass
-
-
 class InputsSchemaItemSerializer(serializers.Serializer):
     # nosemgrep: choices-need-a-class -- existing input-type list; this change only adds one value to it
     type = serializers.ChoiceField(
@@ -830,9 +818,9 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     requiredScopes = serializers.CharField(required=False)
     # Indicates if hog templating should be used for this input
     templating = _TemplatingChoiceField(choices=[True, False, "hog", "liquid"], required=False)
-    auth = AuthDeclarationField(
+    auth = serializers.BooleanField(
         required=False,
-        help_text="Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind.",
+        help_text="Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind.",
     )
 
     # TODO Validate choices if type=choice

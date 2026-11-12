@@ -1390,9 +1390,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "type": "destination",
                 "name": "Fetch URL",
                 "hog": "fetch('https://api.example.com', {'auth': inputs.token});",
-                "inputs_schema": [
-                    {"key": "token", "type": "string", "label": "Token", "secret": True, "auth": {"scheme": "bearer"}}
-                ],
+                "inputs_schema": [{"key": "token", "type": "string", "label": "Token", "secret": True, "auth": True}],
                 "inputs": {"token": {"value": "SECRET"}},
             },
         )

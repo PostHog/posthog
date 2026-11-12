@@ -321,34 +321,6 @@ export const InputsSchemaItemTypeEnumApi = {
     ReplayVisionScan: 'replay_vision_scan',
 } as const
 
-/**
- * * `bearer` - bearer
- * * `header` - header
- * * `basic` - basic
- * * `query` - query
- * * `body` - body
- */
-export type AuthSchemeEnumApi = (typeof AuthSchemeEnumApi)[keyof typeof AuthSchemeEnumApi]
-
-export const AuthSchemeEnumApi = {
-    Bearer: 'bearer',
-    Header: 'header',
-    Basic: 'basic',
-    Query: 'query',
-    Body: 'body',
-} as const
-
-export interface AuthDeclarationSchemaApi {
-    /** The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.
-     *
-     * * `bearer` - bearer
-     * * `header` - header
-     * * `basic` - basic
-     * * `query` - query
-     * * `body` - body */
-    scheme: AuthSchemeEnumApi
-}
-
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
 
 export interface InputsSchemaItemApi {
@@ -368,8 +340,8 @@ export interface InputsSchemaItemApi {
     integration_field?: string
     requiredScopes?: string
     templating?: boolean | 'hog' | 'liquid'
-    /** Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind. */
-    auth?: AuthDeclarationSchemaApi
+    /** Integration inputs only. True marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind. */
+    auth?: boolean
 }
 
 /**
