@@ -1,5 +1,6 @@
 import type {
     AEOBrandApi,
+    AEOEngineSettingApi,
     AEOKeywordApi,
     AEOKeywordModifierReportApi,
     AEOKeywordReportApi,
@@ -1038,5 +1039,51 @@ export const EXAMPLE_KEYWORD_MODIFIERS: AEOKeywordModifierReportApi = {
             engines: [{ engine: 'openai-web-search', answers: 35 }],
             example_searches: ['self hosted product analytics docker'],
         },
+    ],
+}
+
+export const EXAMPLE_ENGINE_SETTINGS: AEOEngineSettingApi[] = [
+    { engine: 'claude-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
+    { engine: 'openai-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
+    { engine: 'perplexity-web-search', mode: 'web_search', available: false, enabled: true, frequency: 'daily' },
+    { engine: 'exa-answer', mode: 'web_search', available: true, enabled: false, frequency: 'daily' },
+    { engine: 'claude-no-search', mode: 'no_search', available: true, enabled: true, frequency: 'weekly' },
+    { engine: 'openai-no-search', mode: 'no_search', available: true, enabled: false, frequency: 'daily' },
+]
+
+// Rows the overview's two HogQL tiles read. Rates follow a fixed pattern, so every render draws the same chart.
+const CITATION_ENGINES = ['ChatGPT', 'Claude', 'Exa']
+const CITATION_DAYS = Array.from({ length: 30 }, (_, index) => `2026-09-${String(index + 1).padStart(2, '0')}`)
+
+export const EXAMPLE_PROMPT_SET_CITATION_RESPONSE = {
+    columns: ['day', 'engine_name', 'rate'],
+    types: [
+        ['day', 'Date'],
+        ['engine_name', 'String'],
+        ['rate', 'Float64'],
+    ],
+    results: CITATION_DAYS.flatMap((day, dayIndex) =>
+        CITATION_ENGINES.map((engine, engineIndex) => [
+            day,
+            engine,
+            Math.round((0.3 + engineIndex * 0.08 + ((dayIndex * (engineIndex + 2)) % 7) * 0.015) * 1000) / 1000,
+        ])
+    ),
+}
+
+export const EXAMPLE_PROMPT_SET_SOURCES_RESPONSE = {
+    columns: ['domain', 'answers', 'share_of_answers', 'is_target'],
+    types: [
+        ['domain', 'String'],
+        ['answers', 'UInt64'],
+        ['share_of_answers', 'Float64'],
+        ['is_target', 'UInt8'],
+    ],
+    results: [
+        ['analytics-review.example.com', 1180, 0.48, 0],
+        ['example.com', 984, 0.4, 1],
+        ['community.example.org', 590, 0.24, 0],
+        ['docs.example.net', 402, 0.163, 0],
+        ['news.example.io', 233, 0.095, 0],
     ],
 }
