@@ -148,10 +148,10 @@ export function statusLabel(status: string): string {
 
 export function mergeOverlapping(spans: ReleaseSpan[]): ReleaseSpan[] {
     const merged: (ReleaseSpan & { count: number })[] = []
+    const family = (kind: ReleaseSpan['kind']): string => (kind.startsWith('experiment') ? 'experiment' : kind)
     for (const span of [...spans].sort((a, b) => a.from.localeCompare(b.from))) {
-        const top = SPAN_LOOK[span.kind].top
         const previous = merged.find(
-            (item) => SPAN_LOOK[item.kind].top === top && !dayjs(span.from).isAfter(dayjs(item.to), 'day')
+            (item) => family(item.kind) === family(span.kind) && !dayjs(span.from).isAfter(dayjs(item.to), 'day')
         )
         if (!previous) {
             merged.push({ ...span, count: 1 })

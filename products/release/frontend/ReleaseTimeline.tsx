@@ -21,7 +21,7 @@ import { ReleaseTrackLane } from './ReleaseTrackLane'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
 import { CALENDAR_SCALE, LANE, SPAN_LOOK, TOTAL, Track, buildTrack, mergeOverlapping } from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
-import { STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
+import { ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
 
 const NAME = 300
 const SUMMARY = 60
@@ -139,19 +139,19 @@ export function ReleaseTimeline(): JSX.Element {
         }
     }, [expanded, filteredRows, loadFlagActivity])
 
-    const tracks = useMemo(() => {
+    const stepsByFlag = useMemo(() => {
         const today = dayjs()
         const horizon = CALENDAR_SCALE().start.add(TOTAL, 'day')
-        const stepsByFlag = new Map<number, RolloutStep[]>()
+        const steps = new Map<number, RolloutStep[]>()
         for (const flag of flags) {
             if (flagActivity[flag.id]) {
-                stepsByFlag.set(flag.id, rolloutSteps(flag, flagActivity[flag.id], scheduledChanges, today, horizon))
+                steps.set(flag.id, rolloutSteps(flag, flagActivity[flag.id], scheduledChanges, today, horizon))
             }
         }
-        return filteredRows.map((row) => buildTrack(row, stepsByFlag))
-    }, [filteredRows, flags, flagActivity, scheduledChanges])
+        return steps
+    }, [flags, flagActivity, scheduledChanges])
 
-    const columns = useMemo<ColumnDef<Track>[]>(
+    const columns = useMemo<ColumnDef<ReleaseRow>[]>(
         () => [
             {
                 id: 'release',
@@ -159,16 +159,20 @@ export function ReleaseTimeline(): JSX.Element {
                 size: NAME,
                 enableSorting: false,
                 meta: { sticky: 'left' },
-                cell: ({ row }) => <TrackHeader track={row.original} open={!!expanded[row.original.row.id]} />,
+                cell: ({ row }) => (
+                    <TrackHeader track={buildTrack(row.original, stepsByFlag)} open={!!expanded[row.original.id]} />
+                ),
             },
             {
                 id: 'timeline',
                 header: () => <ReleaseTimelineAxis scale={CALENDAR_SCALE()} />,
                 enableSorting: false,
-                cell: ({ row }) => <TrackLanes track={row.original} open={!!expanded[row.original.row.id]} />,
+                cell: ({ row }) => (
+                    <TrackLanes track={buildTrack(row.original, stepsByFlag)} open={!!expanded[row.original.id]} />
+                ),
             },
         ],
-        [expanded]
+        [expanded, stepsByFlag]
     )
 
     return (
@@ -178,13 +182,14 @@ export function ReleaseTimeline(): JSX.Element {
         >
             <DataTable
                 columns={columns}
-                data={tracks}
+                data={filteredRows}
                 size="sm"
                 stickyHeader
-                pageSize={tracks.length > PAGE_SIZE ? PAGE_SIZE : undefined}
-                getRowId={(track) => track.row.id}
-                onRowClick={(track) => toggleExpanded(track.row.id)}
-                rowClassName={(track) => (expanded[track.row.id] ? 'bg-fill-hover/40' : undefined)}
+                className="max-h-[75vh]"
+                pageSize={filteredRows.length > PAGE_SIZE ? PAGE_SIZE : undefined}
+                getRowId={(row) => row.id}
+                onRowClick={(row) => toggleExpanded(row.id)}
+                rowClassName={(row) => (expanded[row.id] ? 'bg-fill-hover/40' : undefined)}
                 empty={
                     <Text size="xs" variant="muted">
                         {dataLoading
