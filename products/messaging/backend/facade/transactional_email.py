@@ -13,11 +13,13 @@ from products.messaging.backend.facade.contracts import (
     TransactionalEmailError,
 )
 from products.messaging.backend.services.transactional_email import (
+    CODE_SEND_CATEGORIES_FLAG,
     PIPELINE_ADDRESS_PATTERN,
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
     TransactionalEmailStage,
     check_transactional_update,
+    check_unsubscribe_link_kept,
     lock_transactional_workflow_id,
     make_transactional,
     observe_transactional_email_stage,
@@ -32,6 +34,7 @@ from products.messaging.backend.services.transactional_email import (
 from products.messaging.backend.services.transactional_email_status import get_email_status
 
 __all__ = [
+    "CODE_SEND_CATEGORIES_FLAG",
     "PIPELINE_ADDRESS_PATTERN",
     "SENDER_ADDRESS_MAX_LENGTH",
     "SENDER_ADDRESS_PATTERN",
@@ -47,6 +50,7 @@ __all__ = [
     "CategoriesNotEnabled",
     "SendCategoryDefinition",
     "check_transactional_update",
+    "check_unsubscribe_link_kept",
     "get_email_status",
     "lock_transactional_workflow_id",
     "make_transactional",

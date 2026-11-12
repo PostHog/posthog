@@ -121,7 +121,7 @@ export const getMessagingSendEmailCreateUrl = (projectId: string) => {
 }
 
 /**
- * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. A code send can define its message `category` by key, and PostHog creates that category if it's missing. In a marketing category it goes out as marketing email: it skips recipients who opted out, needs a link to `{{ unsubscribe_url }}` in its body, and can't have `cc` or `bcc`. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs, and API sends don't count toward frequency caps. A template sends in its own category, also when a `template_key` names it. A code send can define its message `category` by key, and PostHog creates that category if it's missing. In a marketing category it goes out as marketing email: it skips recipients who opted out, needs a link to `{{ unsubscribe_url }}` in its body, and can't have `cc` or `bcc`. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
 export const messagingSendEmailCreate = async (
@@ -998,7 +998,7 @@ export const getMessagingTemplatesMakeTransactionalCreateUrl = (projectId: strin
 }
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
+ * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Sends of a template with no category or a transactional one ignore marketing opt-outs. A template in a marketing category is refused unless the project can send marketing email over the API. Its body must then hold `{{ unsubscribe_url }}`, and its sends skip recipients who opted out. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
 export const messagingTemplatesMakeTransactionalCreate = async (
@@ -1020,7 +1020,7 @@ export const getMessagingTemplatesSendCreateUrl = (projectId: string, id: string
 }
 
 /**
- * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. A template with no category or a transactional one sends transactional email, which skips opt-outs. A template in a marketing category sends marketing email in that category: it skips recipients who opted out, and its body must hold `{{ unsubscribe_url }}`. API sends don't count toward frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
 export const messagingTemplatesSendCreate = async (
