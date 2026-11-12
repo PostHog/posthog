@@ -182,6 +182,8 @@ describe('credential redaction', () => {
     it.each([
         { input: `/callback?code=${OTHER_SECRET}&state=1`, expected: '/callback?code=[REDACTED]&state=1' },
         { input: 'verification code: 123456', expected: 'verification code: [REDACTED]' },
+        { input: 'verification code=4821 sent', expected: 'verification code=[REDACTED] sent' },
+        { input: { code: 4821 }, expected: { code: '[REDACTED]' } },
         { input: { code: OTHER_SECRET }, expected: { code: '[REDACTED]' } },
         { input: `Code: 60. failed with token=${OTHER_SECRET}`, expected: 'Code: 60. failed with token=[REDACTED]' },
     ])('still masks a code that is not a short number: $input', ({ input, expected }) => {

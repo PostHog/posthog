@@ -83,9 +83,9 @@ function containerLength(text: string): number {
     return text.length
 }
 
-// An HTTP status or a database error code is diagnostic output. An authorization code is longer than four digits.
+// An HTTP status or a database error code is diagnostic output. A one-time code or an authorization code has four digits or more.
 function isDiagnosticCode(name: string, value: unknown): boolean {
-    return /^code$/i.test(name) && /^["']?\d{1,4}(?![\w-])/.test(String(value))
+    return /^code$/i.test(name) && /^["']?\d{1,3}(?![\w-])/.test(String(value))
 }
 
 function findCredentialRanges(text: string, rule: CredentialNameRule): RedactionRange[] {
