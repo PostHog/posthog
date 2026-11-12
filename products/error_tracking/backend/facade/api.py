@@ -23,7 +23,7 @@ from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
 from ..logic import built_in_filters, external_references, github_external_references, rules
 from ..logic.issue_tags import (
-    gate as issue_tag_gate,
+    enabled as issue_tag_enabled,
     reader as issue_tag_reader,
 )
 from ..models import (
@@ -204,7 +204,7 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
 
 def get_issue(issue_id: UUID, team_id: int, *, with_tags: bool = False) -> contracts.ErrorTrackingIssue:
     issue = logic.get_issue(issue_id=issue_id, team_id=team_id)
-    definitions = issue_tag_gate.enabled_issue_tag_definitions(team_id) if with_tags else ()
+    definitions = issue_tag_enabled.enabled_issue_tag_definitions(team_id) if with_tags else ()
     if not definitions:
         return _to_issue(issue)
     tags = issue_tag_reader.tags_by_issue(team_id, [issue.id], definitions).get(str(issue.id), [])
@@ -216,7 +216,7 @@ def list_issue_tag_definitions(team_id: int) -> list[contracts.ErrorTrackingIssu
         contracts.ErrorTrackingIssueTagDefinition(
             key=definition.key, label=definition.label, description=definition.description
         )
-        for definition in issue_tag_gate.enabled_issue_tag_definitions(team_id)
+        for definition in issue_tag_enabled.enabled_issue_tag_definitions(team_id)
     ]
 
 

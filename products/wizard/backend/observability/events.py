@@ -1,7 +1,7 @@
 from uuid import NAMESPACE_URL, uuid5
 
 from posthog.models import User
-from posthog.ph_client import ph_background_capture
+from posthog.ph_client import ScopedCapture, ph_background_capture
 
 from products.wizard.backend.facade.contracts import (
     WizardRunArtifactDTO,
@@ -9,11 +9,13 @@ from products.wizard.backend.facade.contracts import (
     WizardRunGitDiffArtifactDTO,
     WizardRunPullRequestArtifactDTO,
 )
-from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunStage
+from products.wizard.backend.facade.enums import WizardPullRequestState, WizardRunEnvironment, WizardRunStage
 from products.wizard.backend.observability.config import (
     WIZARD_RUN_ARTIFACT_CREATED_EVENT,
     WIZARD_RUN_DISPATCH_FINISHED_EVENT,
     WIZARD_RUN_FINISHED_EVENT,
+    WIZARD_RUN_PULL_REQUEST_CLOSED_EVENT,
+    WIZARD_RUN_PULL_REQUEST_MERGED_EVENT,
     WIZARD_RUN_STAGE_ENTERED_EVENT,
     WIZARD_RUN_STARTED_EVENT,
     WIZARD_WORKER_USAGE_RECORDED_EVENT,
@@ -96,11 +98,31 @@ def enqueue_artifact_created(run: WizardRunDTO, artifact: WizardRunArtifactDTO) 
     _enqueue_run_event(run, WIZARD_RUN_ARTIFACT_CREATED_EVENT, f"artifact:{artifact.id}", properties)
 
 
+def enqueue_pull_request_finished(
+    run: WizardRunDTO, artifact: WizardRunPullRequestArtifactDTO, capture: ScopedCapture
+) -> None:
+    merged = artifact.state == WizardPullRequestState.MERGED
+    _enqueue_run_event(
+        run,
+        WIZARD_RUN_PULL_REQUEST_MERGED_EVENT if merged else WIZARD_RUN_PULL_REQUEST_CLOSED_EVENT,
+        f"pull_request:{artifact.id}:{'merged' if merged else 'closed'}",
+        {
+            "artifact_id": str(artifact.id),
+            "url": artifact.url,
+            "pr_number": artifact.number,
+            "merged_at": artifact.merged_at.isoformat() if artifact.merged_at else None,
+            "closed_at": artifact.closed_at.isoformat() if artifact.closed_at else None,
+        },
+        capture,
+    )
+
+
 def _enqueue_run_event(
     run: WizardRunDTO,
     event: str,
     event_key: str,
     properties: WizardEventProperties | None = None,
+    capture: ScopedCapture | None = None,
 ) -> None:
     event_uuid = uuid5(NAMESPACE_URL, f"wizard:{run.id}:{event_key}")
     event_properties: WizardEventProperties = {
@@ -126,7 +148,7 @@ def _enqueue_run_event(
         user_distinct_id = User.objects.filter(id=run.created_by_id).values_list("distinct_id", flat=True).first()
         if user_distinct_id is not None:
             distinct_id = user_distinct_id
-    ph_background_capture()(
+    (capture or ph_background_capture())(
         distinct_id=distinct_id,
         event=event,
         properties={**event_properties, "team_id": run.team_id, "wizard_run_id": str(run.id)},

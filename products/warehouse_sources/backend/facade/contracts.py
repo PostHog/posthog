@@ -75,6 +75,14 @@ class SharedCredentialsEdit(StrEnum):
     CONFIRMED = "confirmed"
 
 
+class LegacyHistoryTableError(Exception):
+    """An incremental schema's history table uses the legacy `_cdc` naming.
+
+    Incremental history writes with deltalite's history upsert, which needs the month-partitioned layout of a
+    `_history` table. A legacy table is unpartitioned, so an incremental sync cannot write it.
+    """
+
+
 class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
 

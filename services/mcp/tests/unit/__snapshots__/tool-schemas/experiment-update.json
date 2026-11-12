@@ -7805,6 +7805,30 @@
                                     }
                                 ],
                                 "description": "Unique identifier. Auto-generated if omitted."
+                            },
+                            "value_format": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "type": {
+                                                "enum": [
+                                                    "currency",
+                                                    "duration",
+                                                    "duration_ms",
+                                                    "percentage",
+                                                    "percentage_scaled"
+                                                ],
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
                             }
                         },
                         "required": ["metric_type"],
@@ -7816,7 +7840,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+            "description": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
         },
         "metrics_secondary": {
             "anyOf": [
@@ -9651,6 +9675,30 @@
                                     }
                                 ],
                                 "description": "Unique identifier. Auto-generated if omitted."
+                            },
+                            "value_format": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "type": {
+                                                "enum": [
+                                                    "currency",
+                                                    "duration",
+                                                    "duration_ms",
+                                                    "percentage",
+                                                    "percentage_scaled"
+                                                ],
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
                             }
                         },
                         "required": ["metric_type"],

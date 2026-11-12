@@ -7,7 +7,7 @@ escalation channel - save a query over a restricted table, publish, read it thro
 public link.
 """
 
-from typing import Any
+from typing import Any, Protocol
 
 from django.db.models import Q
 
@@ -22,7 +22,6 @@ from posthog.models import Team, User
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, extract_referenced_insight_short_ids
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -32,7 +31,17 @@ from products.subscriptions.backend.facade.api import (
 )
 
 
-def dashboard_shared_or_subscribed(dashboard: Dashboard) -> str | None:
+class GatedDashboard(Protocol):
+    """The dashboard fields the gate reads. A `DashboardSummary` has them, and so does a dashboard row."""
+
+    @property
+    def id(self) -> int: ...
+
+    @property
+    def team_id(self) -> int: ...
+
+
+def dashboard_shared_or_subscribed(dashboard: GatedDashboard) -> str | None:
     """How the dashboard's tiles reach readers who never pass a table-access check: through its
     public link, or through a subscription that delivers the whole dashboard. None when neither
     applies, so a tile write needs no access check."""
@@ -82,9 +91,21 @@ def insight_query_access_error(
     return f"Can't save this query: you don't have access to {denied_names}, and this insight is {exposure}."
 
 
+def _dashboard_team(dashboard: GatedDashboard) -> Team:
+    """The team that stores the dashboard, with its organization.
+
+    A dashboard row caches both after the first check, so a copy loop that checks the same destination
+    once per tile loads them once. A summary carries only the team id, so its team is read by id.
+    """
+    team = getattr(dashboard, "team", None)
+    if isinstance(team, Team):
+        return team
+    return Team.objects.select_related("organization").get(id=dashboard.team_id)
+
+
 def check_can_add_insight_to_dashboard(
     user: User,
-    dashboard: Dashboard,
+    dashboard: GatedDashboard,
     query: Any,
     user_access_control: UserAccessControl | None = None,
 ) -> None:
@@ -94,16 +115,17 @@ def check_can_add_insight_to_dashboard(
     control entitlement, or the editor is an org admin."""
     if not isinstance(query, dict):
         return
-    if not dashboard.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+    team = _dashboard_team(dashboard)
+    if not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
         return
-    uac = user_access_control or UserAccessControl(user=user, team=dashboard.team)
+    uac = user_access_control or UserAccessControl(user=user, team=team)
     # org admins have full access, so skip the gate for a faster write
     if uac.is_organization_admin:
         return
     exposure = dashboard_shared_or_subscribed(dashboard)
     if exposure is None:
         return
-    denied_resources = denied_query_resources(user, dashboard.team, [query])
+    denied_resources = denied_query_resources(user, team, [query])
     if denied_resources:
         denied_names = ", ".join(f"`{name}`" for name in denied_resources)
         raise serializers.ValidationError(
@@ -191,7 +213,7 @@ def _queries_exposed_by(config: SharingConfiguration) -> list[dict[str, Any]]:
     return queries
 
 
-def is_publicly_shared(artifact: "Dashboard | Notebook | Insight") -> bool:
+def is_publicly_shared(artifact: GatedDashboard | Notebook | Insight) -> bool:
     """Whether an active share exposes the artifact. Dashboards and notebooks are covered by
     their own share; an insight also transitively - by a shared dashboard's tile or a shared
     notebook embedding it."""
@@ -216,9 +238,9 @@ def is_publicly_shared(artifact: "Dashboard | Notebook | Insight") -> bool:
             artifact.short_id in extract_referenced_insight_short_ids(content)
             for content in team_shares.filter(notebook__isnull=False).values_list("notebook__content", flat=True)
         )
-    field = "dashboard" if isinstance(artifact, Dashboard) else "notebook"
+    shared_artifact = {"notebook": artifact} if isinstance(artifact, Notebook) else {"dashboard_id": artifact.id}
     return SharingConfiguration.objects.filter(
-        SharingConfiguration.tokens_active_q(), team_id=artifact.team_id, **{field: artifact}
+        SharingConfiguration.tokens_active_q(), team_id=artifact.team_id, **shared_artifact
     ).exists()
 
 

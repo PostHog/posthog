@@ -108,13 +108,19 @@ describe('Hono App Routes', () => {
         })
     })
 
-    describe('GET /.well-known/openai-apps-challenge', () => {
-        it('should return the challenge token', async () => {
+    describe('domain verification challenges', () => {
+        it.each([
+            ['/.well-known/openai-apps-challenge', 'pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU'],
+            [
+                '/.well-known/muse-challenge/5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc',
+                'muse-challenge=5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc',
+            ],
+        ])('GET %s returns the challenge token', async (path, expected) => {
             const { app } = createApp(mockRedis)
-            const res = await app.request('/.well-known/openai-apps-challenge')
+            const res = await app.request(path)
             expect(res.status).toBe(200)
             const body = await res.text()
-            expect(body).toBe('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU')
+            expect(body).toBe(expected)
         })
     })
 

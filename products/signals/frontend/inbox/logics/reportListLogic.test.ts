@@ -53,6 +53,33 @@ function makeReport(id: string): SignalReport {
 }
 
 describe('reportListLogic', () => {
+    it('recovers when the first report page fails transiently', async () => {
+        let pageAttempts = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                [REPORTS_URL]: ({ request }) => {
+                    const isPageRequest = new URL(request.url).searchParams.get('limit') !== '1'
+                    if (isPageRequest && ++pageAttempts === 1) {
+                        return [503, {}]
+                    }
+                    return [200, { count: 1, next: null, previous: null, results: [makeReport('recovered')] }]
+                },
+            },
+        })
+        initKeaTests()
+        const logic = reportListLogic(sectionListLogicProps('needs-decision'))
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.ensureLoaded()).toFinishAllListeners()
+
+        expect(pageAttempts).toBe(2)
+        expect(logic.values).toMatchObject({
+            reports: [makeReport('recovered')],
+            reportsLoadFailed: false,
+        })
+        logic.unmount()
+    })
+
     it('loads monitoring from the server without a browser rollout flag', async () => {
         const requests: string[] = []
         useMocks({
@@ -144,6 +171,7 @@ describe('reportListLogic', () => {
                                 next: firstPage ? 'http://localhost/api/projects/997/signals/reports/?offset=50' : null,
                                 previous: null,
                                 results: firstPage ? FIRST_PAGE : SECOND_PAGE,
+                                ranker: 'personal',
                                 ranking_id: 'personal-ranking-1',
                             },
                         ]
@@ -192,23 +220,28 @@ describe('reportListLogic', () => {
         })
 
         // The flat list merges the states by merge key, so a state loaded after a rebuild must use the
-        // ranking of the states already on screen.
-        it('loads a later state from the personal ranking the loaded states use', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
-                [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
-            })
-            inboxFiltersLogic.actions.setSort('personal', 'asc')
-            await expectLogic(logic).toFinishAllListeners()
-            const laterLogic = reportListLogic(sectionListLogicProps('monitoring'))
-            laterLogic.mount()
-            requestedRankingIds = []
+        // ranking of the states already on screen. Recommended gets a personal ranking in one flag arm.
+        it.each(['personal', 'recommended'] as const)(
+            'loads a later state from the personal ranking the loaded states use, sorted by %s',
+            async (sortField) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
+                    [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
+                })
+                inboxFiltersLogic.actions.setSort(sortField, 'asc')
+                await expectLogic(logic).toFinishAllListeners()
+                // Only an explicit Personalized sort explains a fallback, so a personal order is never one.
+                expect([logic.values.loadedPersonalOrder, logic.values.loadedPersonalFallback]).toEqual([true, false])
+                const laterLogic = reportListLogic(sectionListLogicProps('monitoring'))
+                laterLogic.mount()
+                requestedRankingIds = []
 
-            laterLogic.actions.ensureLoaded()
-            await expectLogic(laterLogic).toFinishAllListeners()
+                laterLogic.actions.ensureLoaded()
+                await expectLogic(laterLogic).toFinishAllListeners()
 
-            expect(requestedRankingIds).toEqual(['personal-ranking-1'])
-            laterLogic.unmount()
-        })
+                expect(requestedRankingIds).toEqual(['personal-ranking-1'])
+                laterLogic.unmount()
+            }
+        )
 
         // A teammate scope also names the teammate as the ranking owner, so `sort=personal` reads their ranking.
         it.each([

@@ -16,9 +16,10 @@ from __future__ import annotations
 import threading
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
 from redis.exceptions import LockError, LockNotOwnedError
 from redis.lock import Lock
 
@@ -29,7 +30,7 @@ from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.aeo.backend import suggestions
-from products.aeo.backend.catalog import sync_brands_from_run
+from products.aeo.backend.catalog import recompute_own_citations, sync_brands_from_run
 from products.aeo.backend.facade.contracts import AEO_CITATION_TRACKING_FLAG, PromptSuggestionRequest
 from products.aeo.backend.runner import run_citation_checks
 
@@ -52,6 +53,13 @@ SUGGESTION_TIME_LIMIT_SECONDS = SUGGESTION_SOFT_TIME_LIMIT_SECONDS + 60
 # stalled on slow engine retries keeps its lease.
 RUN_LEASE_SECONDS = 10 * 60
 RUN_LEASE_RENEW_SECONDS = 60
+
+# One recompute per team at a time. The lock outlives the time limit, so a killed task cannot leave
+# two passes writing the same checks.
+RECOMPUTE_SOFT_TIME_LIMIT_SECONDS = 20 * 60
+RECOMPUTE_TIME_LIMIT_SECONDS = RECOMPUTE_SOFT_TIME_LIMIT_SECONDS + 60
+RECOMPUTE_LOCK_SECONDS = RECOMPUTE_TIME_LIMIT_SECONDS + 60
+RECOMPUTE_RETRY_SECONDS = 60
 
 
 def _citation_tracking_enabled(team: Team) -> bool:
@@ -119,6 +127,13 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
         if summary.run_id:
             result = sync_brands_from_run(team.id, summary.run_id)
             logger.info("aeo_brand_sync_done", team_id=team_id, domains=result.domains, created=result.created)
+            # Repairs checks recorded against own domains that changed during the run, and any
+            # recompute that a failed task or broker left undone. Queued rather than run inline, so it
+            # keeps the recompute's time limit and lock.
+            try:
+                recompute_aeo_own_citations_task.delay(team_id)
+            except Exception:
+                logger.exception("aeo_own_citations_reconcile_enqueue_failed", team_id=team_id)
     except Exception:
         # The runner already absorbs per-prompt failures, so anything reaching here is
         # unexpected. Re-raise so Celery marks the task failed and alerting sees it.
@@ -175,3 +190,34 @@ def suggest_aeo_prompts_task(team_id: int, job_id: str, request: dict) -> None:
         suggestions.fail_job(team_id, job_id, "Prompt suggestions failed. Try again in a minute.")
         logger.exception("aeo_prompt_suggestions_task_failed", team_id=team_id)
         raise
+
+
+class RecomputeAlreadyRunning(Exception):
+    pass
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    autoretry_for=(OperationalError, InterfaceError, RecomputeAlreadyRunning),
+    retry_backoff=RECOMPUTE_RETRY_SECONDS,
+    max_retries=5,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=RECOMPUTE_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=RECOMPUTE_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit  # Team is the tenant; checks are read and written via AEOCitationCheck.objects.for_team
+def recompute_aeo_own_citations_task(self: Task, team_id: int) -> None:
+    # A recompute that is already running may have read the domains before this change, so wait for it
+    # rather than skip. Its passes and this one only touch checks whose key is stale.
+    lock = get_client().lock(f"aeo_own_citations_recompute:{team_id}", timeout=RECOMPUTE_LOCK_SECONDS)
+    if not lock.acquire(blocking=False):
+        raise RecomputeAlreadyRunning()
+    try:
+        changed = recompute_own_citations(team_id)
+        logger.info("aeo_own_citations_recomputed", team_id=team_id, changed=changed)
+    finally:
+        try:
+            lock.release()
+        except LockError:
+            logger.warning("aeo_own_citations_recompute_lock_expired", team_id=team_id)

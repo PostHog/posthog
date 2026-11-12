@@ -348,6 +348,41 @@ database "posthog" {
     }
   }
 
+  table "error_tracking_issue_tags" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "raw_error_tracking_issue_tags"
+    }
+  }
+
   table "events" {
     column "uuid" {
       type = "UUID"
@@ -2499,6 +2534,50 @@ database "posthog" {
     }
   }
 
+  table "raw_error_tracking_issue_tags" {
+    order_by = ["team_id", "key", "issue_id"]
+    settings = {
+      index_granularity = "512"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    index "kafka_timestamp_minmax_raw_error_tracking_issue_tags" {
+      expr        = "_timestamp"
+      type        = "minmax"
+      granularity = 3
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.raw_error_tracking_issue_tags"
+      replica_name   = "{replica}-{shard}"
+      version_column = "version"
+    }
+  }
+
   table "raw_sessions" {
     column "team_id" {
       type = "Int64"
@@ -3931,7 +4010,8 @@ database "posthog" {
   }
 
   table "sharded_web_bounces_dimensional_preaggregated" {
-    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
+    primary_key  = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
+    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type"]
     partition_by = "toYYYYMMDD(expires_at)"
     ttl          = "toDateTime(expires_at)"
     settings = {
@@ -4016,6 +4096,9 @@ database "posthog" {
     }
     column "mat_metadata_loggedIn" {
       type = "Nullable(Bool)"
+    }
+    column "channel_type" {
+      type = "LowCardinality(String)"
     }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
@@ -4213,7 +4296,8 @@ database "posthog" {
   }
 
   table "sharded_web_stats_dimensional_preaggregated" {
-    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "pathname", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
+    primary_key  = ["team_id", "job_id", "period_bucket", "host", "device_type", "pathname", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
+    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "pathname", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type"]
     partition_by = "toYYYYMMDD(expires_at)"
     ttl          = "toDateTime(expires_at)"
     settings = {
@@ -4301,6 +4385,9 @@ database "posthog" {
     }
     column "mat_metadata_loggedIn" {
       type = "Nullable(Bool)"
+    }
+    column "channel_type" {
+      type = "LowCardinality(String)"
     }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
@@ -4726,6 +4813,9 @@ database "posthog" {
     column "mat_metadata_loggedIn" {
       type = "Nullable(Bool)"
     }
+    column "channel_type" {
+      type = "LowCardinality(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -4944,6 +5034,9 @@ database "posthog" {
     }
     column "mat_metadata_loggedIn" {
       type = "Nullable(Bool)"
+    }
+    column "channel_type" {
+      type = "LowCardinality(String)"
     }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"

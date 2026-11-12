@@ -20,6 +20,7 @@ import { VisualReviewSceneTitle } from '../components/VisualReviewSceneTitle'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import { VisualReviewTrail } from '../components/VisualReviewTrail'
 import type { QuarantinedIdentifierEntryApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
+import { automaticQuarantineLabel } from '../lib/quarantineAuthor'
 import { repoFullNameFromParams, runPath, splitRepoFullName } from '../lib/repoPaths'
 import { mergeQueueBatchLeaderPrNumber } from '../lib/runPredicates'
 import {
@@ -244,6 +245,12 @@ function QuarantineBanner({
                         <>
                             <span aria-hidden>·</span>
                             <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
+                        </>
+                    )}
+                    {automaticQuarantineLabel(quarantineEntry) && (
+                        <>
+                            <span aria-hidden>·</span>
+                            <span>{automaticQuarantineLabel(quarantineEntry)}</span>
                         </>
                     )}
                 </div>

@@ -4,7 +4,7 @@ use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::invocation_context::context;
+use crate::{invocation_context::context, utils::ci::detailed_diagnostics};
 
 pub mod command;
 
@@ -228,6 +228,44 @@ impl std::error::Error for HogQLQueryErrorResponse {}
 
 impl std::fmt::Display for HogQLQueryErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} ({}): {}", self.error_type, self.code, self.detail)
+        write!(f, "{}", self.message(detailed_diagnostics()))
+    }
+}
+
+impl HogQLQueryErrorResponse {
+    // The detail quotes the query, so like every PostHog error it shows only outside CI. The query
+    // editor reads `detail` directly, because it only runs at a terminal.
+    fn message(&self, show_detail: bool) -> String {
+        if show_detail {
+            format!("{} ({}): {}", self.error_type, self.code, self.detail)
+        } else {
+            "PostHog refused the query. PostHog's error details are hidden in CI. Run the command outside CI to see them."
+                .to_string()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_errors_show_posthog_details_only_outside_ci() {
+        let error = HogQLQueryErrorResponse {
+            code: "invalid_input".to_string(),
+            detail: "Unable to resolve field: nope".to_string(),
+            error_type: "validation_error".to_string(),
+            other: HashMap::new(),
+        };
+
+        assert_eq!(
+            error.message(true),
+            "validation_error (invalid_input): Unable to resolve field: nope"
+        );
+        assert_eq!(
+            error.message(false),
+            "PostHog refused the query. PostHog's error details are hidden in CI. Run the command outside CI to see them."
+        );
+        assert_eq!(error.to_string(), error.message(false));
     }
 }

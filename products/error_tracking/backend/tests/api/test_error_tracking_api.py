@@ -43,7 +43,7 @@ from products.error_tracking.backend.logic import (
     team_flags,
 )
 from products.error_tracking.backend.logic.issue_tags import registry
-from products.error_tracking.backend.logic.issue_tags.gate import ISSUE_TAGS_FLAG
+from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG
 from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition, JevTaggerConfig
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
 from products.error_tracking.backend.logic.issue_tags.writer import set_issue_tag

@@ -134,7 +134,7 @@ integrations = IntegrationsTable(
     description="Third-party integrations connected to the project (Slack, GitHub, etc.); one row per integration.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Integration id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "kind": StringDatabaseField(name="kind", description="Integration type, e.g. 'slack', 'github', 'salesforce'."),
         "integration_id": StringDatabaseField(
             name="integration_id", description="Identifier of the account/workspace in the external system."

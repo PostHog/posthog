@@ -1,5 +1,4 @@
-// Backs the workflow chip's switcher dropdown: the repo's workflow names, loaded lazily on first open
-// so detail pages don't pay for the list until the user reaches for it.
+// The workflow names load on first open, so detail pages don't pay for the list until the dropdown opens.
 
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -69,7 +68,6 @@ export const workflowSwitcherLogic = kea<workflowSwitcherLogicType>([
     })),
 
     actions({
-        // Fired when the dropdown opens; loads once per mount instead of on every page view.
         ensureWorkflowsLoaded: true,
     }),
 
@@ -86,7 +84,7 @@ export const workflowSwitcherLogic = kea<workflowSwitcherLogicType>([
                         source_id: props.sourceId ?? undefined,
                         repo: `${props.repoOwner}/${props.repoName}`,
                     })
-                    // Server order (top workflows by run count) — the most active ones surface first.
+                    // The list keeps the server's order.
                     return items
                         .filter((it) => it.repo.owner === props.repoOwner && it.repo.name === props.repoName)
                         .map((it) => it.workflow_name)

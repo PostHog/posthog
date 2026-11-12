@@ -29,6 +29,7 @@ from ..facade.contracts import HighlightCandidate, HighlightFindings, HighlightS
 from ..facade.enums import (
     HighlightInterval,
     HighlightLabel,
+    HighlightMetricReason,
     HighlightPinStatus,
     HighlightPriority,
     HighlightsStatus,
@@ -57,6 +58,7 @@ FAILED_CACHE_SECONDS = 60
 COMPUTING_SECONDS = 5 * 60
 START_LOCK_SECONDS = 30
 MAX_ITEMS = 6
+ROW_TILES = 4
 MAX_PER_FAMILY = 2
 MIN_SCORE = 0.2
 URGENT_RISK_SCORE = 0.75
@@ -144,7 +146,7 @@ def get_highlights(
             return replace(content, status=status)
     if ready is not None:
         with suppress(ValidationError):
-            return replace(_HIGHLIGHTS.validate_python(ready.content), status=status)
+            return replace(_with_slots(_HIGHLIGHTS.validate_python(ready.content)), status=status)
     return contracts.Highlights(
         status=status,
         generated_at=None,
@@ -220,6 +222,10 @@ def _start(
         capture_exception(error, {"highlights_id": str(row.id), "product": "today"})
 
 
+def _with_slots(content: contracts.Highlights) -> contracts.Highlights:
+    return content if content.pulse_slots is not None else _pulse_content(content, {}, [])
+
+
 def _pulse_content(
     content: contracts.Highlights,
     progress: dict[str, PulseSourceProgress],
@@ -265,7 +271,28 @@ def _pulse_content(
             replace(slot, status=PulseSlotStatus.ERROR) if slot.status == PulseSlotStatus.PENDING else slot
             for slot in selected
         ]
-    return replace(content, pulse_slots=selected)
+    selected = _popular_within_row(selected, set(pin_order))
+    kept = {slot.key for slot in selected}
+    pulse = [m for m in content.pulse if m.reason != HighlightMetricReason.POPULAR or m.key in kept]
+    return replace(content, pulse=pulse, pulse_slots=selected)
+
+
+def _popular_within_row(slots: list[contracts.PulseSlot], pinned: set[str]) -> list[contracts.PulseSlot]:
+    popular = sorted(
+        (slot for slot in slots if slot.reason == HighlightMetricReason.POPULAR),
+        key=lambda slot: slot.status == PulseSlotStatus.ERROR,
+    )
+    others = [slot for slot in slots if slot.reason != HighlightMetricReason.POPULAR]
+    live = sum(slot.status != PulseSlotStatus.ERROR for slot in others)
+    shown = {slot.key for slot in popular[: max(0, ROW_TILES - live)]}
+    released = [slot.key for slot in others if slot.status == PulseSlotStatus.ERROR and slot.key not in pinned]
+    overflow = min(len(shown), len(others) + len(shown) - ROW_TILES)
+    dropped = set(released[::-1][: max(0, overflow)])
+    return [
+        slot
+        for slot in slots
+        if slot.key not in dropped and (slot.reason != HighlightMetricReason.POPULAR or slot.key in shown)
+    ]
 
 
 def publish_pulse(inputs: HighlightSourceInputs, found: HighlightFindings, slots: list[contracts.PulseSlot]) -> None:
@@ -370,10 +397,8 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
             **{metric.key: metric for metric in PINNED_METRICS.validate_json(inputs.pinned)},
         },
     )
-    if "_pulse_sources" in row.content:
-        highlights = _pulse_content(
-            highlights, progress, _HIGHLIGHTS.validate_python(row.content).pulse_slots or [], complete=True
-        )
+    previous_slots = _HIGHLIGHTS.validate_python(row.content).pulse_slots if "_pulse_sources" in row.content else []
+    highlights = _pulse_content(highlights, progress, previous_slots or [], complete=True)
     failed = [result for result in inputs.results if result.failed]
     usable = bool(highlights.items or highlights.pulse)
     row.status = (
