@@ -153,19 +153,20 @@ describe('autoresearchNewLogic', () => {
         ['a fractional training lookback', { training_lookback_days: 30.5 }, 0],
         ['a custom model with no population chosen', { population_choice: null }, 0],
         ['a population event not picked yet', { population_choice: 'event' as const }, 0],
-    ] as [string, Partial<NewPipelineFormValues>, number][])(
-        'sends %s to the validate endpoint only when the form is complete',
-        async (_, values, expectedCalls) => {
-            const logic = autoresearchNewLogic()
-            logic.mount()
+    ] as [
+        string,
+        Partial<Pick<NewPipelineFormValues, 'horizon_days' | 'training_lookback_days' | 'population_choice'>>,
+        number,
+    ][])('sends %s to the validate endpoint only when the form is complete', async (_, values, expectedCalls) => {
+        const logic = autoresearchNewLogic()
+        logic.mount()
 
-            logic.actions.setNewPipelineValues({ target_event: '$pageview', ...ALL_USERS, ...values })
-            await settle(logic)
+        logic.actions.setNewPipelineValues({ target_event: '$pageview', ...ALL_USERS, ...values })
+        await settle(logic)
 
-            expect(mockValidate).toHaveBeenCalledTimes(expectedCalls)
-            expect(logic.values.validationFailed).toBe(false)
-        }
-    )
+        expect(mockValidate).toHaveBeenCalledTimes(expectedCalls)
+        expect(logic.values.validationFailed).toBe(false)
+    })
 
     it.each([
         [

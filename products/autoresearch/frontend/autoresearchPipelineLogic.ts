@@ -686,6 +686,9 @@ export interface autoresearchPipelineLogicActions {
     reportPredictionLinkClicked: (destination: PredictionLinkDestination) => {
         destination: PredictionLinkDestination
     }
+    requestTraining: () => {
+        value: true
+    }
     resumePipeline: () => any
     resumePipelineFailure: (
         error: string,
@@ -700,9 +703,6 @@ export interface autoresearchPipelineLogicActions {
     ) => {
         pipeline: AutoresearchPipelineApi | null
         payload?: any
-    }
-    requestTraining: () => {
-        value: true
     }
     saveSegmentCohort: (segment: PredictionSegmentKey) => {
         segment: PredictionSegmentKey
@@ -750,11 +750,11 @@ export interface autoresearchPipelineLogicActions {
     setExperimentLogFilter: (filter: ExperimentLogFilter) => {
         filter: ExperimentLogFilter
     }
-    setHideLowestBucket: (hidden: boolean) => {
-        hidden: boolean
-    }
     setFirstRunCheckRunning: (running: boolean) => {
         running: boolean
+    }
+    setHideLowestBucket: (hidden: boolean) => {
+        hidden: boolean
     }
     setHoveredAccuracyDate: (date: string | null) => {
         date: string | null

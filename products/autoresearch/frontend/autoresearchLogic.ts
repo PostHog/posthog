@@ -99,6 +99,9 @@ export interface autoresearchLogicActions {
     pipelineUpdated: (pipeline: AutoresearchPipelineApi) => {
         pipeline: AutoresearchPipelineApi
     }
+    requestTraining: (pipeline: AutoresearchPipelineApi) => {
+        pipeline: AutoresearchPipelineApi
+    }
     resumePipeline: (pipeline: AutoresearchPipelineApi) => {
         pipeline: AutoresearchPipelineApi
     }
@@ -114,9 +117,6 @@ export interface autoresearchLogicActions {
     }
     setSort: (sort: ModelListSort) => {
         sort: ModelListSort
-    }
-    requestTraining: (pipeline: AutoresearchPipelineApi) => {
-        pipeline: AutoresearchPipelineApi
     }
     startTraining: (pipeline: AutoresearchPipelineApi) => {
         pipeline: AutoresearchPipelineApi
