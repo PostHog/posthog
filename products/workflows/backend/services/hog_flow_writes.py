@@ -487,7 +487,7 @@ def update_workflow(
                 base_live = _parse_stamp(base_live_updated_at)
                 if base_live and before_update.updated_at and before_update.updated_at > base_live:
                     raise WorkflowStale()
-                _save_live(instance, remaining)
+                _save_live(instance, _track_disabled_from_active(before_update, remaining))
         else:
             validated_data = _derive_from_locked_graph(before_update, validated_data, requested_exit_condition)
             if keeps_live_sensitivity:

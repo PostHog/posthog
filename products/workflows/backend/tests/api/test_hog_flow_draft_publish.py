@@ -108,6 +108,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
             ("archived_after_active", ["archived"]),
             ("restored_after_archive", ["archived", "draft"]),
             ("disabled_from_canvas", ["canvas_disable"]),
+            ("disabled_with_staged_save", ["staged_disable"]),
         ]
     )
     def test_mcp_content_edit_on_protected_flow_routes_to_draft(self, _name: str, moves: list[str]) -> None:
@@ -117,6 +118,17 @@ class TestHogFlowDraftPublish(APIBaseTest):
                 set_workflow_enabled(
                     team_id=self.team.id, user_id=self.user.id, workflow_id=UUID(flow_id), enabled=False
                 )
+                continue
+            if move == "staged_disable":
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                    {
+                        "status": "draft",
+                        "actions": [_trigger_action(), _webhook_action(url="https://staged.example.com")],
+                        "stage_draft": True,
+                    },
+                )
+                assert response.status_code == 200, response.json()
                 continue
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
