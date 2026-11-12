@@ -118,6 +118,14 @@ export function populationChosen(values: NewPipelineFormValues): boolean {
     return values.population_choice === 'all'
 }
 
+/** Why the population is not a decision yet, or undefined once it is. */
+function populationChoiceError(values: NewPipelineFormValues): string | undefined {
+    if (populationChosen(values)) {
+        return undefined
+    }
+    return values.population_choice === 'event' ? 'Pick the event that people did' : 'Choose who the model predicts for'
+}
+
 /**
  * True when the population's own event narrows every scan. Without one, the check reads every event
  * in the training lookback, which is what runs out of time on a high-volume project.
@@ -676,11 +684,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     formValues.target_type === 'action' && formValues.target_action_id == null
                         ? 'Pick a target action to predict'
                         : undefined,
-                population_choice: populationChosen(formValues)
-                    ? undefined
-                    : formValues.population_choice === 'event'
-                      ? 'Pick the event that people did'
-                      : 'Choose who the model predicts for',
+                population_choice: populationChoiceError(formValues),
                 horizon_days:
                     !formValues.horizon_days || formValues.horizon_days < 1
                         ? 'Prediction horizon must be at least 1 day'
@@ -882,10 +886,9 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 if (isSubmitting && submitIntent === 'draft') {
                     return 'Saving the draft'
                 }
-                if (!populationChosen(newPipeline)) {
-                    return newPipeline.population_choice === 'event'
-                        ? 'Pick the event that people did'
-                        : 'Choose who the model predicts for'
+                const populationError = populationChoiceError(newPipeline)
+                if (populationError) {
+                    return populationError
                 }
                 if (validationFailed || validation?.error_code === 'unavailable') {
                     return "Couldn't check this model. Retry the check first."
