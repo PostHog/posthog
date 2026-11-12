@@ -3479,6 +3479,19 @@ class SessionReplayBlock(BaseModel):
     type: Literal["session_replay"] = "session_replay"
 
 
+class SessionReplayListConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filter_test_accounts: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a new recordings list opens with internal and test users filtered"
+            " out. An absent value falls back to the legacy browser preference."
+        ),
+    )
+
+
 class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3664,6 +3677,7 @@ class UserBasicType(BaseModel):
 
 class UserUIConfiguration(BaseModel):
     analytics_list: AnalyticsListDisplayConfiguration | None = None
+    session_replay: SessionReplayListConfiguration | None = None
     sql_editor: SQLEditorConfiguration | None = None
     ticket_sidebar: TicketSidebarConfiguration | None = None
     version: int = Field(

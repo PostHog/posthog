@@ -656,6 +656,12 @@ def test_throttle_spaces_requests_per_site(monkeypatch):
         # Already canonical — left untouched.
         ("https://example.com/", "https://example.com/"),
         ("sc-domain:example.com", "sc-domain:example.com"),
+        # Domain property with a capitalised prefix or domain, extra whitespace or a trailing slash.
+        ("Sc-domain:example.com", "sc-domain:example.com"),
+        ("SC-DOMAIN:Example.COM", "sc-domain:example.com"),
+        ("sc-domain: example.com", "sc-domain:example.com"),
+        ("sc-domain:example.com/", "sc-domain:example.com"),
+        ("Sc-Domain%3AExample.com", "sc-domain:example.com"),
         # Percent-encoded values copied from a URL bar.
         ("sc-domain%3Abidsstack.com", "sc-domain:bidsstack.com"),
         ("sc-domain%3Atopol.io", "sc-domain:topol.io"),

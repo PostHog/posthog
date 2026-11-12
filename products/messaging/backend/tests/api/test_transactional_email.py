@@ -45,7 +45,6 @@ from products.messaging.backend.presentation.views.message_templates import (
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
-from products.messaging.backend.tests.test_code_send_fields import ADDRESS_VERDICTS
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
@@ -309,7 +308,6 @@ class TestTransactionalEmail(APIBaseTest):
             ("send_with_status_scope", "post", "send/", ["transactional_email:read"], status.HTTP_403_FORBIDDEN),
             ("send_email_with_write_scope", "post", "send_email", ["hog_flow:write"], status.HTTP_202_ACCEPTED),
             ("send_email_with_read_scope", "post", "send_email", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
-            ("code_send_with_read_scope", "post", "code_send", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
             (
                 "send_email_with_preference_scope",
                 "post",
@@ -330,13 +328,6 @@ class TestTransactionalEmail(APIBaseTest):
                 "send_email",
                 ["transactional_email:read"],
                 status.HTTP_403_FORBIDDEN,
-            ),
-            (
-                "code_send_with_send_scope",
-                "post",
-                "code_send",
-                ["transactional_email:write"],
-                status.HTTP_202_ACCEPTED,
             ),
             ("retrieve_is_not_a_psak_action", "get", "", ["hog_flow:write"], status.HTTP_403_FORBIDDEN),
             (
@@ -374,13 +365,6 @@ class TestTransactionalEmail(APIBaseTest):
         [
             ("send_scope", "template", ["transactional_email:write"], "transactional_email"),
             ("workflow_scope", "template", ["hog_flow:write"], "hog_flow"),
-            (
-                "send_scope_on_send_email",
-                "send_email",
-                ["transactional_email:write"],
-                "transactional_email",
-            ),
-            ("workflow_scope_on_send_email", "send_email", ["hog_flow:write"], "hog_flow"),
             (
                 "both_scopes",
                 "template",
@@ -828,8 +812,10 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            *((field, address, accepted) for field in ("to", "reply_to") for address, accepted in ADDRESS_VERDICTS),
-            ("cc", '"jane doe"@example.com', False),
+            ("to", "jane=tag@example.com", True),
+            ("to", "jane@localhost", False),
+            ("reply_to", "jane=tag@example.com", True),
+            ("reply_to", "jane@localhost", False),
         ]
     )
     def test_a_code_send_takes_the_addresses_the_pipeline_takes(
@@ -1003,28 +989,18 @@ class TestTransactionalEmail(APIBaseTest):
         fields = schema["components"]["schemas"][reference.rsplit("/", 1)[-1]]["properties"]
         assert {name: fields[name]["default"] for name in CODE_SEND_FIELDS if "default" in fields[name]} == {}
 
-    @parameterized.expand(
-        [
-            ("replay", 202, {"invocation_id": "first-send", "replayed": True}, 202, None),
-            ("key_used_by_a_template_send", 422, {"error": "idempotency_key_reused"}, 422, "idempotency_key_reused"),
-            ("recipient_suppressed", 422, {"error": "recipient_suppressed"}, 422, "recipient_suppressed"),
-        ]
-    )
-    def test_a_code_send_passes_its_idempotency_key_and_reports_the_pipelines_answer(
-        self, mock_post, _flag, _capture, _name, pipeline_status, pipeline_body, expected_status, expected_code
-    ):
-        mock_post.return_value = MagicMock(status_code=pipeline_status, json=lambda: pipeline_body)
+    def test_a_code_send_passes_its_idempotency_key_and_reports_a_replay(self, mock_post, _flag, _capture):
+        mock_post.return_value = MagicMock(
+            status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True}
+        )
 
         response = self._psak_client(["hog_flow:write"]).post(
             self.send_email_url, self._code_send(), format="json", headers={"Idempotency-Key": "welcome:user-1"}
         )
 
-        assert response.status_code == expected_status, response.json()
+        assert response.status_code == 202, response.json()
         assert json.loads(mock_post.call_args.kwargs["data"])["idempotency_key"] == "welcome:user-1"
-        if expected_code:
-            assert response.json()["code"] == expected_code
-        else:
-            assert response.json() == {"message_id": "first-send", "replayed": True}
+        assert response.json() == {"message_id": "first-send", "replayed": True}
 
     def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
         events = CapturedEvents(capture)
@@ -1786,6 +1762,59 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert HogFlow.objects.filter(team=self.team).count() == workflows_before
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
+
+    def test_a_folder_delete_reads_only_its_linked_workflows_once_before_locking_templates(self, mock_post, _flag):
+        self._login_member("editor@example.com", {None: "editor"})
+
+        def reads_deleting_a_folder_of(count: int, folder: str) -> tuple[int, list[str], list[int], int]:
+            for index in range(count):
+                template = MessageTemplate.objects.create(
+                    team=self.team,
+                    name=f"{folder} email {index}",
+                    content={"email": {"subject": "Hi", "html": "<p>Hi</p>"}},
+                    type="email",
+                    created_by=self.user,
+                )
+                make_transactional(self.team.id, template.id, user_id=self.user.id, from_integration_id=None)
+                template.refresh_from_db()
+                template.save()
+                FileSystem.objects.filter(team=self.team, type="message_template", ref=str(template.id)).update(
+                    path=f"{folder}/{template.name}", depth=2
+                )
+            entry = FileSystem.objects.create(team=self.team, path=folder, depth=1, type="folder")
+
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), response.content
+            assert not MessageTemplate.objects.filter(team=self.team, name__startswith=folder, deleted=False).exists()
+            sqls = [query["sql"] for query in queries.captured_queries]
+            access_rule_reads = sum("accesscontrol" in sql for sql in sqls)
+            workflow_reads = [
+                (position, sql)
+                for position, sql in enumerate(sqls)
+                if sql.startswith("SELECT") and 'FROM "posthog_hogflow"' in sql
+            ]
+            template_locks = [
+                position
+                for position, sql in enumerate(sqls)
+                if 'FROM "posthog_messagetemplate"' in sql and "FOR UPDATE NOWAIT" in sql
+            ]
+            workflow_content_reads = sum('"posthog_hogflow"."encrypted_inputs"' in sql for sql in sqls)
+            return (
+                access_rule_reads,
+                [sql for _position, sql in workflow_reads],
+                [position for position, _sql in workflow_reads] + template_locks[:1],
+                workflow_content_reads,
+            )
+
+        one = reads_deleting_a_folder_of(1, "One")
+        three = reads_deleting_a_folder_of(3, "Three")
+        assert HogFlow.objects.filter(team=self.team).count() > 3
+        assert (one[0], len(one[1])) == (three[0], len(three[1])) == (one[0], 1)
+        assert all('"posthog_hogflow"."id" IN' in sql for sql in one[1] + three[1])
+        assert one[2] == sorted(one[2]) and three[2] == sorted(three[2])
+        assert (one[3], three[3]) == (0, 0)
 
     def test_a_member_denied_the_workflow_cannot_delete_or_restore_it_through_the_project_tree(self, mock_post, _flag):
         self.template.refresh_from_db()

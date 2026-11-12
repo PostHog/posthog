@@ -6,6 +6,7 @@ from django.core.cache import cache
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -20,6 +21,8 @@ from ..logic.pull_requests import docs_github
 from ..settings import writer_settings
 from .client import start_merge_check_workflow
 from .merge_workflow import GITHUB_READ_ERRORS
+
+logger = structlog.get_logger(__name__)
 
 RECONCILE_WORKFLOW_NAME = "knowledge-writer-merge-reconcile"
 RECONCILE_OVERLAP = timedelta(hours=3)
@@ -71,8 +74,12 @@ def collect_unreconciled_changes(
     merges: UnreconciledMerges, github: GitHubReader, repository: str, reconcile_started_at: datetime
 ) -> None:
     if not is_public_repository(github, repository):
+        logger.info("knowledge_writer_reconcile_repository_skipped", repository=repository, reason="not_public")
         return
-    reconciled_at = cache.get(reconciled_at_cache_key(repository)) or reconcile_started_at
+    reconciled_at = cache.get(reconciled_at_cache_key(repository))
+    if reconciled_at is None:
+        logger.warning("knowledge_writer_reconciled_at_missing", repository=repository)
+        reconciled_at = reconcile_started_at
     merges.changes.extend(merged_changes_since(github, repository, reconciled_at - RECONCILE_OVERLAP))
     merges.reconciled_at_by_repository[repository] = reconcile_started_at
 
@@ -80,16 +87,21 @@ def collect_unreconciled_changes(
 def list_unreconciled_merges() -> UnreconciledMerges | None:
     writer = writer_settings()
     if writer is None:
+        logger.warning("knowledge_writer_reconcile_unconfigured")
         return None
     reconcile_started_at = timezone.now()
     merges = UnreconciledMerges(team_id=writer.team_id, changes=[], reconciled_at_by_repository={})
     for repository in writer.source_repositories:
         github = docs_github(writer.team_id, repository.split("/", 1)[0], priority=Priority.NORMAL)
         if github is None:
+            logger.info("knowledge_writer_reconcile_repository_skipped", repository=repository, reason="no_docs_github")
             continue
         try:
             collect_unreconciled_changes(merges, github, repository, reconcile_started_at)
         except GITHUB_READ_ERRORS as error:
+            logger.warning(
+                "knowledge_writer_reconcile_repository_failed", repository=repository, error_type=type(error).__name__
+            )
             capture_exception(RepositoryReconcileFailed(f"reconciling {repository} failed: {error}"))
     return merges
 
@@ -109,6 +121,11 @@ async def reconcile_merged_pull_requests_activity() -> None:
     for change in merges.changes:
         await start_merge_check_workflow(change, team_id=merges.team_id, client=client)
     await database_sync_to_async(save_reconciled_at, thread_sensitive=False)(merges.reconciled_at_by_repository)
+    logger.info(
+        "knowledge_writer_reconcile_finished",
+        merged_changes=len(merges.changes),
+        repositories_reconciled=len(merges.reconciled_at_by_repository),
+    )
 
 
 @workflow.defn(name=RECONCILE_WORKFLOW_NAME)

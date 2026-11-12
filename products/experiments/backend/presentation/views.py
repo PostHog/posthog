@@ -31,7 +31,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
-from posthog.api.utils import action
+from posthog.api.utils import MAX_LISTED_IDS, action
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
@@ -336,6 +336,13 @@ EXPERIMENT_LIST_FILTER_PARAMETERS = [
         location=OpenApiParameter.QUERY,
         type=int,
         description="Filter to experiments linked to the given feature flag ID.",
+        required=False,
+    ),
+    OpenApiParameter(
+        name="feature_flag_ids",
+        location=OpenApiParameter.QUERY,
+        type=str,
+        description=f"Comma-separated feature flag IDs, at most {MAX_LISTED_IDS}. Returns experiments linked to any of them.",
         required=False,
     ),
     OpenApiParameter(
@@ -1040,6 +1047,11 @@ class EnterpriseExperimentsViewSet(
         `metric_N_cause`. It is a warning for a primary metric. After the end it stays a warning only
         for a cause that a setting fixes, because the calculation after the fix reads the events up
         to the end. It is info otherwise.
+
+        A launched experiment that has not ended gets the info `stale_experiment` more than 60 days
+        after its start date, when the daily calculation leaves it out, with `days_running` from the
+        start date in `evidence`.
+        It offers `freeze_exposure` next to `end_experiment` when the experiment can freeze exposure.
 
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from

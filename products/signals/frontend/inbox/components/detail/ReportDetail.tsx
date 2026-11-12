@@ -175,7 +175,8 @@ interface InboxDetailFrameProps {
     report: SignalReport
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
-    /** Extra primary action(s) rendered after the shared report actions. */
+    /** The pull request's "Open in GitHub" action. When it is set, the frame does not show the implement
+     * action: "View task" adds nothing next to the pull request, and the runs section still links the task. */
     primaryAction?: ReactNode
     /** Whether the report column gets the Summary / Files changed tab bar. Driven by whether the report has
      * a PR (known immediately), not by whether the diff has loaded, so the bar doesn't pop in a beat later
@@ -291,7 +292,7 @@ export function InboxDetailFrame({
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
     const implementButton =
-        showCreatePr || reportTaskToOpen ? (
+        !primaryAction && (showCreatePr || reportTaskToOpen) ? (
             <ImplementButton
                 report={report}
                 reportTaskToOpen={reportTaskToOpen}

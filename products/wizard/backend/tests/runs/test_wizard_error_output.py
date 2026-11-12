@@ -45,6 +45,16 @@ from products.wizard.backend.logic.workers.wizard_error_output import WizardErro
                     "OpenAI API error (400): 400 invalid request body",
                 ),
                 ("Headless mode requires --api-key (phx_xxx)", "Headless mode requires --api-key (phx_xxx)"),
+                # A credential flush against a word character must still redact: the token
+                # patterns carry no word-boundary anchors.
+                ("failed withxpha_FakeOAuthToken1234", "failed withx[REDACTED]"),
+                ("failed with_pha_FakeOAuthToken1234", "failed with_[REDACTED]"),
+                ("rejected 1pha_FakeOAuthToken1234 twice", "rejected 1[REDACTED] twice"),
+                (
+                    "clone failed forxghp_FakeGitHubToken1234567",
+                    "clone failed forx[REDACTED]",
+                ),
+                ("key isxsk-FakeSecretToken123456789 ok", "key isx[REDACTED] ok"),
             )
         ),
         ('phw-error: {"code":"detect_no_framework"}', None),

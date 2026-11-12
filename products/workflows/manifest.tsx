@@ -145,7 +145,6 @@ export const manifest: ProductManifest = {
             iconType: 'broadcasts',
             href: (ref: string) => urls.workflowsLibraryTemplate(ref),
             listHref: () => urls.workflows('library'),
-            filterKey: 'message_template',
         },
         hog_flow: {
             flag: FEATURE_FLAGS.WORKFLOWS_LIST_V2,
@@ -154,7 +153,6 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
             href: (ref: string) => urls.workflow(ref, 'workflow'),
             listHref: () => urls.workflows(),
-            filterKey: 'hog_flow',
         },
     },
     treeItemsProducts: [
