@@ -14,6 +14,8 @@ RAW_SNAPSHOT_STREAM_FLAG = "replay-raw-snapshot-stream"
 
 # The number of blocks a stream fetches from recording-api in parallel, and so the most it holds in memory at once.
 RAW_SNAPSHOT_STREAM_BATCH_SIZE = 20
+# A whole batch in one piece would stall the event loop while the gzip middleware compresses it.
+RAW_SNAPSHOT_STREAM_MAX_PIECE_BYTES = 256 * 1024
 
 
 def is_raw_snapshot_stream_enabled(team_id: int) -> bool:
@@ -54,15 +56,25 @@ class RawSnapshotStream:
         return await self._chunk(0)
 
     async def chunks_after(self, first_chunk: bytes) -> AsyncIterator[bytes]:
-        yield first_chunk
-        for index in range(1, len(self._batches)):
-            yield await self._later_chunk(index)
+        chunk = first_chunk
+        # Leaves `chunk` as the only reference to a batch, so each batch is freed when the next one replaces it.
+        del first_chunk
+        for index in range(1, len(self._batches) + 1):
+            for piece in _pieces(chunk):
+                yield piece
+                # The gzip middleware compresses each piece on the event loop, so let other requests run in between.
+                await asyncio.sleep(0)
+            if index < len(self._batches):
+                chunk = await self._later_chunk(index)
 
     def chunks_after_sync(self, first_chunk: bytes) -> Iterator[bytes]:
         """The same stream for a WSGI server, which reads an async iterator to its end before it sends any of it."""
-        yield first_chunk
-        for index in range(1, len(self._batches)):
-            yield async_to_sync(self._later_chunk)(index)
+        chunk = first_chunk
+        del first_chunk
+        for index in range(1, len(self._batches) + 1):
+            yield from _pieces(chunk)
+            if index < len(self._batches):
+                chunk = async_to_sync(self._later_chunk)(index)
 
     async def _later_chunk(self, index: int) -> bytes:
         try:
@@ -86,6 +98,11 @@ class RawSnapshotStream:
                 )
             )
         return b"".join(_newline_terminated(content) for content in contents)
+
+
+def _pieces(chunk: bytes) -> Iterator[bytes]:
+    for start in range(0, len(chunk), RAW_SNAPSHOT_STREAM_MAX_PIECE_BYTES):
+        yield chunk[start : start + RAW_SNAPSHOT_STREAM_MAX_PIECE_BYTES]
 
 
 def _newline_terminated(content: bytes) -> bytes:

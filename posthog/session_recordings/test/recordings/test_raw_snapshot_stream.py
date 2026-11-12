@@ -66,3 +66,23 @@ class TestRawSnapshotStream(SimpleTestCase):
 
         with self.assertRaises(BlockFetchError):
             asyncio.run(read())
+
+    @patch("posthog.session_recordings.recordings.raw_snapshot_stream.RAW_SNAPSHOT_STREAM_MAX_PIECE_BYTES", 8)
+    @patch("posthog.session_recordings.recordings.raw_snapshot_stream.recording_api_client")
+    def test_batch_is_sent_in_bounded_pieces(self, mock_recording_api_client: MagicMock) -> None:
+        block = b'["window",{"type":4}]\n'
+        mock_storage = MagicMock()
+        mock_storage.fetch_block = AsyncMock(return_value=block)
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
+        stream = RawSnapshotStream("session", 1, [_block(i) for i in range(RAW_SNAPSHOT_STREAM_BATCH_SIZE + 1)])
+
+        async def read() -> list[bytes]:
+            first_chunk = await stream.first_chunk()
+            return [chunk async for chunk in stream.chunks_after(first_chunk)]
+
+        pieces = asyncio.run(read())
+        sync_pieces = list(stream.chunks_after_sync(block * RAW_SNAPSHOT_STREAM_BATCH_SIZE))
+
+        assert {len(piece) for piece in pieces} <= set(range(1, 9))
+        assert b"".join(pieces) == block * (RAW_SNAPSHOT_STREAM_BATCH_SIZE + 1)
+        assert sync_pieces == pieces

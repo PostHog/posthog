@@ -950,8 +950,7 @@ class _RawSnapshotStreamRateThrottle(_TierAwareReplayThrottle):
         return self._allow_request_internal(request, view, personal_api_key_only=False)
 
     def get_cache_key(self, request: Request, view: APIView) -> str:
-        # Only a validated personal API key gets its own bucket. The inherited key also trusts a key or token that
-        # the request carries but that did not authenticate it, which lets a caller choose a new bucket at will.
+        # Only a key that authenticated the request gets a bucket, or a caller could send any key to get a new one.
         key_hash = getattr(request.successful_authenticator, "personal_api_key_hash", None)
         ident = key_hash if isinstance(key_hash, str) else request.user.pk
         return self.cache_format % {"scope": self.scope, "ident": ident}
