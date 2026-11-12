@@ -133023,6 +133023,8 @@ export namespace Schemas {
      * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `SandboxEnvironment` - SandboxEnvironment
+     * * `SandboxCustomImage` - SandboxCustomImage
      * * `StamphogRepoConfig` - StamphogRepoConfig
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
@@ -133147,6 +133149,8 @@ export namespace Schemas {
       DataWarehouseJoin: 'DataWarehouseJoin',
       Billing: 'Billing',
       Loop: 'Loop',
+      SandboxEnvironment: 'SandboxEnvironment',
+      SandboxCustomImage: 'SandboxCustomImage',
       StamphogRepoConfig: 'StamphogRepoConfig',
       ReviewRepository: 'ReviewRepository',
       ReviewProjectSettings: 'ReviewProjectSettings',
@@ -133257,6 +133261,8 @@ export namespace Schemas {
      * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `SandboxEnvironment` - SandboxEnvironment
+     * * `SandboxCustomImage` - SandboxCustomImage
      * * `StamphogRepoConfig` - StamphogRepoConfig
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
@@ -133369,6 +133375,8 @@ export namespace Schemas {
       DataWarehouseJoin: 'DataWarehouseJoin',
       Billing: 'Billing',
       Loop: 'Loop',
+      SandboxEnvironment: 'SandboxEnvironment',
+      SandboxCustomImage: 'SandboxCustomImage',
       StamphogRepoConfig: 'StamphogRepoConfig',
       ReviewRepository: 'ReviewRepository',
       ReviewProjectSettings: 'ReviewProjectSettings',
