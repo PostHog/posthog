@@ -40,12 +40,20 @@ def test_newrelic_issue_title(raw, expected):
     "record,expected_description",
     [
         (
-            {"issue_id": "abc", "title": '["Error rate high"]', "priority": "CRITICAL", "timestamp": "t"},
+            {
+                "issue_id": "abc",
+                "issue_title": '["Error rate high"]',
+                "issue_priority": "CRITICAL",
+                "activated_at": "t",
+            },
             "New Relic alert: Error rate high\nPriority: critical",
         ),
-        ({"issue_id": "abc", "title": "Error rate high", "priority": None}, "New Relic alert: Error rate high"),
-        ({"issue_id": "abc", "title": "[]"}, None),
-        ({"issue_id": "", "title": "Error rate high"}, None),
+        (
+            {"issue_id": "abc", "issue_title": "Error rate high", "issue_priority": None},
+            "New Relic alert: Error rate high",
+        ),
+        ({"issue_id": "abc", "issue_title": "[]"}, None),
+        ({"issue_id": "", "issue_title": "Error rate high"}, None),
     ],
 )
 def test_newrelic_alert_issue_emitter(record, expected_description):
