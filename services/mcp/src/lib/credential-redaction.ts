@@ -83,14 +83,23 @@ function containerLength(text: string): number {
     return text.length
 }
 
+// An HTTP status or a database error code is diagnostic output. An authorization code is longer than four digits.
+function isDiagnosticCode(name: string, value: unknown): boolean {
+    return /^code$/i.test(name) && /^["']?\d{1,4}(?![\w-])/.test(String(value))
+}
+
 function findCredentialRanges(text: string, rule: CredentialNameRule): RedactionRange[] {
     const ranges: RedactionRange[] = []
     for (const match of text.matchAll(ASSIGNMENT_PATTERN)) {
-        if (!isCredentialName(match[1] ?? match[2] ?? match[3]!, rule)) {
+        const name = match[1] ?? match[2] ?? match[3]!
+        if (!isCredentialName(name, rule)) {
             continue
         }
         const start = match.index + match[0].length
         const rest = text.slice(start)
+        if (isDiagnosticCode(name, rest)) {
+            continue
+        }
         const quoted = rest.match(QUOTED_VALUE_PATTERN)
         if (quoted) {
             ranges.push({ start: start + 1, end: start + quoted[0].length - 1 })
@@ -200,7 +209,9 @@ export function redactCredentials(value: unknown, rule: CredentialNameRule = isL
             assignKey(
                 redacted,
                 redactCredentialsInText(key, rule),
-                isCredentialName(key, rule) ? REDACTED_VALUE : redactCredentials(entry, rule)
+                isCredentialName(key, rule) && !isDiagnosticCode(key, entry)
+                    ? REDACTED_VALUE
+                    : redactCredentials(entry, rule)
             )
         }
         return redacted

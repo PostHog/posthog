@@ -170,6 +170,24 @@ describe('credential redaction', () => {
         expect(redactCredentialsInText(input)).toBe(expected)
     })
 
+    it.each([
+        { name: 'a database error code', input: 'Code: 241. DB::Exception: Memory limit exceeded' },
+        { name: 'a status code in a JSON log line', input: '{"event": "request_finished", "code": 302}' },
+        { name: 'a status code in a key-value log line', input: 'event=request_finished code=500 request=GET' },
+        { name: 'a status code attribute', input: { code: 404 } },
+    ])('keeps $name', ({ input }) => {
+        expect(redactCredentials(input)).toEqual(input)
+    })
+
+    it.each([
+        { input: `/callback?code=${OTHER_SECRET}&state=1`, expected: '/callback?code=[REDACTED]&state=1' },
+        { input: 'verification code: 123456', expected: 'verification code: [REDACTED]' },
+        { input: { code: OTHER_SECRET }, expected: { code: '[REDACTED]' } },
+        { input: `Code: 60. failed with token=${OTHER_SECRET}`, expected: 'Code: 60. failed with token=[REDACTED]' },
+    ])('still masks a code that is not a short number: $input', ({ input, expected }) => {
+        expect(redactCredentials(input)).toEqual(expected)
+    })
+
     it('parses an unclosed private key label in linear time', () => {
         // A backtracking header pattern takes tens of seconds on this input, far past the test timeout.
         const input = `-----BEGIN ${'PRIVATE KEY '.repeat(100_000)}`
