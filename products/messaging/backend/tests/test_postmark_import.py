@@ -64,8 +64,13 @@ class TestMustachioToLiquid(SimpleTestCase):
 
         assert any(tag in note for note in converted.notes)
 
-    def test_deep_nesting_stays_within_the_output_budget(self) -> None:
-        html = "{{#a}}{{#b}}" * 500 + "{{x}}" + "{{/b}}{{/a}}" * 500
+    @parameterized.expand(
+        [
+            ("nested_sections", "{{#a}}{{#b}}" * 500 + "{{x}}" + "{{/b}}{{/a}}" * 500),
+            ("one_long_path", "{{" + "a." * 40_000 + "a}}"),
+        ]
+    )
+    def test_deep_nesting_stays_within_the_output_budget(self, _name: str, html: str) -> None:
 
         converted = convert_template({"Subject": "s", "HtmlBody": html, "Active": True})
 

@@ -87,10 +87,13 @@ class _Converter:
         self._uses_unsubscribe = False
 
     def _emit(self, part: str) -> None:
-        self._budget -= len(part)
+        self._spend(len(part))
+        self._out.append(part)
+
+    def _spend(self, size: int) -> None:
+        self._budget -= size
         if self._budget < 0:
             raise _OutputTooLarge
-        self._out.append(part)
 
     def convert(self, text: str) -> ConvertedText:
         position = 0
@@ -226,7 +229,10 @@ class _Converter:
                 scope = scope.parent or scope
             else:
                 self._uses_this = self._uses_this or (first and element == "this")
-                scope = _Scope(expression=_child(scope, element), parent=scope)
+                expression = _child(scope, element)
+                # Each step of a long path copies the whole path so far, so the work counts against the budget too.
+                self._spend(len(expression or ""))
+                scope = _Scope(expression=expression, parent=scope)
             first = False
         return scope
 
