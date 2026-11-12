@@ -97,12 +97,18 @@ describe('statusOf', () => {
         ],
         [
             'a valve was never observed',
+            { timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }] },
+            'invalid',
+            `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
+        ],
+        [
+            'an invariant failed while a valve was never observed',
             {
                 timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }],
                 invariants: [BROKEN],
             },
-            'invalid',
-            `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
+            'failed',
+            `role.kill on ${EMAIL_WORKER} was not observed: never applied; at_least_once failed: run-1 email: lost`,
         ],
         [
             'a valve was observed but not released',

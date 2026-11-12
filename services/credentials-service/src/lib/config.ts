@@ -4,6 +4,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { isProductionEnv } from '../db/role-guard'
+
 /** Where the pod's service account credentials are projected. */
 export const SERVICE_ACCOUNT_DIR = '/var/run/secrets/kubernetes.io/serviceaccount'
 
@@ -14,7 +16,6 @@ const SECRET_SOURCES: readonly SecretSourceKind[] = ['directory', 'kubernetes']
 export type KmsProviderKind = 'aws' | 'local'
 
 const KMS_PROVIDERS: readonly KmsProviderKind[] = ['aws', 'local']
-const LOCAL_KMS_REFUSED_ENVS: readonly string[] = ['prod-us', 'prod-eu']
 
 /** Wraps the per-record data keys with an AWS KMS key. */
 export interface AwsKmsConfig {
@@ -57,6 +58,19 @@ export interface DatabaseConfig {
     migrateUser?: string
 }
 
+/** Where audit rows are sent as `$credentials_access` events. */
+export interface AuditExportConfig {
+    /** Base URL of the capture host. The service posts to `/batch/` on it. */
+    host: string
+    /** The project API key of the receiving project. */
+    apiKey: string
+    batchSize: number
+    intervalSeconds: number
+    timeoutMs: number
+}
+
+export const MAX_AUDIT_RETENTION_DAYS = 60
+
 export interface Config {
     port: number
     host: string
@@ -85,7 +99,7 @@ export interface Config {
     /** Serves /metrics on its own listener, kept off the ingress like every other service. */
     metricsPort: number
 
-    /** Unset until CREDENTIALS_SERVICE_KMS_PROVIDER is set: no route needs a KMS yet. */
+    /** Set when CREDENTIALS_SERVICE_KMS_PROVIDER is set. The integration routes need it. */
     kms?: KmsConfig
 
     /**
@@ -93,6 +107,9 @@ export interface Config {
      * secrets only, and the integration features are off.
      */
     database?: DatabaseConfig
+
+    /** Set when CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED is `true`. Without it no audit row leaves the database. */
+    auditExport?: AuditExportConfig
 
     /**
      * Directory of Ed25519 public keys for the integrations audience, one `<deployment>.pub`
@@ -217,6 +234,26 @@ export function loadMigrateConfig(): MigrateConfig | undefined {
     return { url, runtimeRole }
 }
 
+function auditExportFromEnv(): AuditExportConfig | undefined {
+    if (process.env.CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED !== 'true') {
+        return undefined
+    }
+    const host = process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST
+    const apiKey = process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY
+    if (!host || !apiKey) {
+        throw new Error(
+            'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED=true needs CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST and CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY'
+        )
+    }
+    return {
+        host: httpUrlFromEnv('CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST', host),
+        apiKey,
+        batchSize: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_BATCH_SIZE', 500, 1),
+        intervalSeconds: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_INTERVAL_SECONDS', 10, 1),
+        timeoutMs: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_TIMEOUT_MS', 10_000, 1),
+    }
+}
+
 function kmsFromEnv(env: string): KmsConfig | undefined {
     const raw = process.env.CREDENTIALS_SERVICE_KMS_PROVIDER
     if (!raw) {
@@ -231,7 +268,7 @@ function kmsFromEnv(env: string): KmsConfig | undefined {
 
     if (provider === 'local') {
         // The local keys sit in plain config, so they must never protect cloud customer data.
-        if (LOCAL_KMS_REFUSED_ENVS.includes(env) || env.startsWith('prod')) {
+        if (isProductionEnv(env)) {
             throw new Error(`CREDENTIALS_SERVICE_KMS_PROVIDER=local is not allowed in ${env}`)
         }
         return { provider, keys: localKmsKeysFromEnv() }
@@ -283,6 +320,31 @@ function httpUrlFromEnv(key: string, raw: string): string {
     return raw
 }
 
+/** What the maintenance command needs. It connects as the migrate role, never as the runtime role. */
+export interface MaintenanceConfig {
+    url: string
+    retentionDays: number
+    /** Delete rows that were never exported. Off by default, so an export that is off keeps its rows. */
+    deleteUnexported: boolean
+}
+
+/** Undefined without a migrate URL. The command does not fall back to the runtime URL. */
+export function loadMaintenanceConfig(): MaintenanceConfig | undefined {
+    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL
+    if (!url) {
+        return undefined
+    }
+    const retentionDays = intFromEnv('CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS', 30, 1)
+    if (retentionDays > MAX_AUDIT_RETENTION_DAYS) {
+        throw new Error(`CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS must be at most ${MAX_AUDIT_RETENTION_DAYS}`)
+    }
+    return {
+        url,
+        retentionDays,
+        deleteUnexported: process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED === 'true',
+    }
+}
+
 export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
     const config: Config = {
         port: intFromEnv('PORT', 8004),
@@ -299,6 +361,11 @@ export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
         reloadSeconds: intFromEnv('CREDENTIALS_SERVICE_RELOAD_SECONDS', 30, 1),
 
         metricsPort: intFromEnv('CREDENTIALS_SERVICE_METRICS_PORT', 9090),
+    }
+
+    const auditExport = auditExportFromEnv()
+    if (auditExport) {
+        config.auditExport = auditExport
     }
 
     const database = loadDatabaseConfig()

@@ -6,7 +6,7 @@ import { internalFetch } from '~/common/utils/request'
 import type { Named } from '../cards'
 import type { SeedState } from '../generator/generator'
 import type { CyclotronProbe } from '../probe/cyclotron-probe'
-import type { TruthPage, TruthRecord } from '../provider-edge'
+import type { TruthHead, TruthPage, TruthRecord } from '../provider-edge'
 import { INVARIANTS, deliveryKey } from './invariants'
 
 export type JournalEntry = {
@@ -45,9 +45,10 @@ export type JudgeOptions = {
     probe: Pick<CyclotronProbe, 'unfinishedJobs'>
     fetchRetries: number
     pollMs?: number
+    now?: () => number
 }
 
-export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000 }: JudgeOptions): Judge {
+export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000, now = Date.now }: JudgeOptions): Judge {
     let journal: JournalEntry[] = []
     let truth: TruthRecord[] = []
     let cursor = 0
@@ -68,6 +69,14 @@ export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000 }: Jud
         }
     }
 
+    const truthHead = async (): Promise<number> => {
+        const response = await internalFetch(`${edgeUrl}/_truth/head`)
+        if (response.status !== 200) {
+            throw new Error(`The edge answered /_truth/head with ${response.status}`)
+        }
+        return (parseJSON(await response.text()) as TruthHead).head
+    }
+
     const unrecordedUnits = (): string[] => {
         const recorded = new Set(
             truth.flatMap(({ unitId, actionId }) =>
@@ -86,7 +95,7 @@ export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000 }: Jud
     return {
         async open(seed) {
             journal = []
-            await pullTruth()
+            cursor = await truthHead()
             truth = []
             teams = [...seed.teamIds]
         },
@@ -96,13 +105,13 @@ export function createJudge({ edgeUrl, probe, fetchRetries, pollMs = 1000 }: Jud
         },
 
         async converge(withinMs, signal) {
-            const startedAt = Date.now()
+            const startedAt = now()
             for (;;) {
                 await pullTruth()
                 const unfinishedJobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
                 const unrecorded = unrecordedUnits()
-                const tookMs = Date.now() - startedAt
-                const converged = unfinishedJobs === 0 && unrecorded.length === 0
+                const tookMs = now() - startedAt
+                const converged = unfinishedJobs === 0 && unrecorded.length === 0 && tookMs <= withinMs
                 if (converged || tookMs >= withinMs || signal.aborted) {
                     return { converged, unfinishedJobs, unrecorded, tookMs }
                 }

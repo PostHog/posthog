@@ -24,20 +24,14 @@ import { CommentType } from '~/types'
 
 import { CommentComposer } from './CommentComposer'
 import { CommentsLogicProps, CommentWithRepliesType, commentsLogic } from './commentsLogic'
-import { getCommentText, getRecordingLinkInfo, isViewingRecording, scopeSyncsToSlack } from './commentUtils'
+import {
+    getCommentAuthorName,
+    getCommentText,
+    getRecordingLinkInfo,
+    isViewingRecording,
+    scopeSyncsToSlack,
+} from './commentUtils'
 import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
-
-// Comments that came in from a synced Slack thread have no PostHog author; their Slack identity
-// rides in item_context.
-export function getCommentAuthorName(comment: CommentType): string {
-    if (comment.created_by) {
-        return comment.created_by.first_name ?? 'Unknown user'
-    }
-    if (comment.item_context?.from_slack) {
-        return comment.item_context.slack_author_name ?? 'Slack user'
-    }
-    return 'Unknown user'
-}
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType

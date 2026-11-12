@@ -24,6 +24,7 @@ from posthog.redis import get_client
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.offline_experiment_reads import OfflineScorerViewSet
+from products.ai_observability.backend.api.offline_experiment_serializers import ResultSubmissionSerializer
 from products.ai_observability.backend.api.offline_experiments import OfflineExperimentViewSet
 from products.ai_observability.backend.api.score_definitions import ScoreDefinitionViewSet
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
@@ -118,6 +119,198 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             version=1,
             input="What is 2 + 2?",
         )
+
+    @parameterized.expand(
+        [
+            ("session", "same_upload", [], True),
+            ("personal_key", "same_upload", [], True),
+            ("project_key", "same_upload", [], True),
+            ("session", "stored", [], True),
+            ("personal_key", "stored", ["llm_analytics:write"], False),
+            ("personal_key", "stored", ["evaluation:read"], False),
+            ("personal_key", "stored", ["evaluation:read", "llm_analytics:read"], True),
+            ("personal_key", "stored", ["evaluation:write", "llm_analytics:write"], True),
+            ("personal_key", "stored", ["*"], True),
+            ("project_key", "stored", ["*"], False),
+            ("personal_key", "replayed", [], True),
+            ("project_key", "replayed", [], True),
+            ("personal_key", "partial", [], False),
+            *[
+                (auth_kind, input_delivery, ["evaluation:read", "llm_analytics:read"], True, revoked_access)
+                for auth_kind, input_delivery, revoked_access in [
+                    ("session", "stored", "all"),
+                    ("personal_key", "same_upload", "all"),
+                    ("session", "same_upload", "input"),
+                    ("personal_key", "stored", "input"),
+                    ("session", "stored", "composite"),
+                    ("personal_key", "same_upload", "composite"),
+                ]
+            ],
+        ]
+    )
+    def test_composite_calculation_upload_and_read_back(
+        self,
+        auth_kind: str,
+        input_delivery: str,
+        read_scopes: list[str],
+        allowed: bool,
+        revoked_access: str | None = None,
+    ) -> None:
+        inputs = []
+        source_configs: list[tuple[str, str, dict[str, object]]] = [
+            ("quality", "numeric", {"min": 0, "max": 1}),
+            ("safe", "boolean", {}),
+            ("relevance", "categorical", {"options": [{"key": "good", "label": "Good"}]}),
+        ]
+        for alias, kind, config in source_configs:
+            source = ScoreDefinition.objects.create(team=self.team, name=alias, kind=kind)
+            version = source.create_new_version(config=config, created_by=self.user)
+            inputs.append({"alias": alias, "scorer_version_id": str(version.id)})
+        self._authenticate("personal_key", ["llm_analytics:write"])
+        composites = []
+        composite_configs: list[tuple[str, dict[str, object], str]] = [
+            ("numeric", {"min": 0, "max": 1}, 'quality * number(safe and "good" in relevance)'),
+            ("boolean", {}, 'safe and quality >= 0.8 and "good" in relevance'),
+            (
+                "categorical",
+                {"options": [{"key": "accept", "label": "Accept"}, {"key": "reject", "label": "Reject"}]},
+                '"accept" if safe and quality >= 0.8 and "good" in relevance else "reject"',
+            ),
+            ("numeric", {}, 'quality * number(safe and "good" in relevance) / 0'),
+        ]
+        for kind, config, expression in composite_configs:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/llm_analytics/score_definitions/",
+                {
+                    "name": kind,
+                    "kind": kind,
+                    "config": config,
+                    "calculation": "composite",
+                    "composition": {"inputs": inputs, "expression": expression},
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+            composites.append(response.data["current_version_id"])
+        self._authenticate("session")
+        experiment = self._experiment_body()
+        created = self.client.post(self._endpoint(), experiment, format="json")
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
+        item_id = str(uuid4())
+        results = [
+            {"item_id": item_id, "scorer_version_id": version_id, "calculate": True} for version_id in composites
+        ]
+        results.extend(
+            {"item_id": item_id, "scorer_version_id": source["scorer_version_id"], "status": "ok", "value": value}
+            for source, value in zip(inputs, [0.9, True, ["good"]])
+        )
+        body = {"items": [{"id": item_id}], "results": results}
+        upload_url = self._endpoint(str(experiment["id"]), "upload")
+        if input_delivery != "same_upload":
+            sources = self.client.post(
+                upload_url, {"items": body["items"], "results": results[len(composites) :]}, format="json"
+            )
+            self.assertEqual(sources.status_code, status.HTTP_200_OK, sources.data)
+        if input_delivery == "stored":
+            body["results"] = results[: len(composites)]
+        elif input_delivery == "partial":
+            body["results"] = results[:-1]
+        self._authenticate(auth_kind, ["offline_evaluation_ingestion:write", *read_scopes])
+        response = self.client.post(upload_url, body, format="json")
+        if not allowed:
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
+            self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), len(inputs))
+            return
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        source_ids = {
+            result["id"]
+            for result in (
+                sources.data["results"] if input_delivery == "stored" else response.data["results"][len(composites) :]
+            )
+        }
+        self.assertEqual(
+            [(row["status"], row["error_code"]) for row in response.data["results"]],
+            [("ok", None)] * 3
+            + [("error", "composite_formula_error")]
+            + ([("ok", None)] * 3 if input_delivery != "stored" else []),
+        )
+        self.assertEqual(
+            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)), [3]
+        )
+        completed = self.client.post(self._endpoint(str(experiment["id"]), "complete"), {}, format="json")
+        self.assertEqual(completed.status_code, status.HTTP_200_OK, completed.data)
+        replay = self.client.post(upload_url, body, format="json")
+        self.assertEqual(replay.status_code, status.HTTP_200_OK, replay.data)
+        self.assertEqual(
+            [result["id"] for result in replay.data["results"]], [result["id"] for result in response.data["results"]]
+        )
+        self.assertTrue(all(not result["created"] for result in replay.data["results"]))
+        self.assertEqual(replay.data["results"][3]["status"], "error")
+        self.assertEqual(replay.data["results"][3]["error_code"], "composite_formula_error")
+        if input_delivery == "replayed":
+            changed_inputs = [dict(result) for result in results]
+            changed_inputs[len(composites)]["value"] = 0.5
+            conflict = self.client.post(upload_url, {"items": [], "results": changed_inputs}, format="json")
+            self.assertEqual(conflict.status_code, status.HTTP_409_CONFLICT, conflict.data)
+        if auth_kind != "session" and not read_scopes:
+            self.assertEqual(
+                self.client.get(self._endpoint(str(experiment["id"]), f"items/{item_id}/results")).status_code, 403
+            )
+            composite_only_retry = self.client.post(
+                upload_url, {"items": [], "results": results[: len(composites)]}, format="json"
+            )
+            self.assertEqual(composite_only_retry.status_code, status.HTTP_403_FORBIDDEN, composite_only_retry.data)
+        self._authenticate("personal_key", ["evaluation:read", "llm_analytics:read"])
+        read = self.client.get(self._endpoint(str(experiment["id"]), f"items/{item_id}/results"))
+        self.assertEqual(read.status_code, status.HTTP_200_OK, read.data)
+        derived = {
+            result["scorer"]["id"]: result
+            for result in read.data["results"]
+            if result["scorer"]["calculation"] == "composite"
+        }
+        self.assertEqual(set(derived), set(composites))
+        for version_id, value in zip(composites, [0.9, True, ["accept"], None]):
+            self.assertEqual(derived[version_id]["value"], value)
+            self.assertEqual(set(derived[version_id]["input_result_ids"]), source_ids)
+            self.assertEqual(len(derived[version_id]["scorer"]["composition"]["inputs"]), 3)
+        summaries = self.client.get(self._endpoint(str(experiment["id"]), "scorer_summaries"))
+        self.assertEqual(summaries.status_code, status.HTTP_200_OK, summaries.data)
+        self.assertEqual(len(summaries.data["results"]), 7)
+
+        if revoked_access is not None:
+            membership = self._evaluation_member()
+            access = AccessControl.objects.create(
+                team=self.team,
+                resource="llm_analytics",
+                access_level="viewer",
+                organization_member=membership,
+            )
+            self._authenticate(auth_kind, ["offline_evaluation_ingestion:write", *read_scopes], user=membership.user)
+            permitted_retry = self.client.post(upload_url, body, format="json")
+            self.assertEqual(permitted_retry.status_code, status.HTTP_200_OK, permitted_retry.data)
+            self.assertEqual(permitted_retry.data, replay.data)
+
+            if revoked_access == "all":
+                access.access_level = "none"
+                access.save()
+            else:
+                version_id = inputs[0]["scorer_version_id"] if revoked_access == "input" else composites[0]
+                definition = ScoreDefinition.objects.get(team=self.team, current_version_id=version_id)
+                AccessControl.objects.create(
+                    team=self.team,
+                    resource="llm_analytics",
+                    resource_id=str(definition.id),
+                    access_level="none",
+                    organization_member=membership,
+                )
+
+            denied_retry = self.client.post(upload_url, body, format="json")
+            self.assertEqual(denied_retry.status_code, status.HTTP_400_BAD_REQUEST, denied_retry.data)
+            self.assertEqual(
+                denied_retry.data["attr"],
+                "results.0.calculate" if revoked_access == "input" else "results.0.scorer_version_id",
+            )
+            self.assertNotIn("results", denied_retry.data)
 
     @parameterized.expand([("session", False), ("personal_key", False), ("project_key", False), ("session", True)])
     @patch("products.ai_observability.backend.api.offline_experiments.report_user_action")
@@ -563,6 +756,23 @@ class TestOfflineExperimentsAPI(APIBaseTest):
 
 
 class TestOfflineExperimentValidationErrors(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("value", 0.5),
+            ("status", "error"),
+            ("error_code", "custom_error"),
+            ("payload", {"reasoning": "Caller result"}),
+            ("evaluator_trace_id", "evaluator-trace"),
+            ("evaluated_at", "2026-01-01T00:00:00Z"),
+        ]
+    )
+    def test_calculation_request_rejects_caller_supplied_result(self, field: str, value: object) -> None:
+        serializer = ResultSubmissionSerializer(
+            data={"item_id": str(uuid4()), "scorer_version_id": str(uuid4()), "calculate": True, field: value}
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("calculate", serializer.errors)
+
     @parameterized.expand(
         [
             (

@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 
 import type { LoadedCard } from '../cards'
-import type { RunResult } from '../runner/runner'
+import type { RunVerdict } from '../runner/runner'
 import type { Provenance } from './provenance'
 
 export const SCHEMA_VERSION = 1
@@ -11,7 +11,7 @@ type Property = string | number | boolean | null | string[] | unknown[]
 
 export type ScorecardProperties = { run_id: string; ended_at: string } & Record<string, Property>
 
-function invariantProperties(result: RunResult): Record<string, Property> {
+function invariantProperties(result: RunVerdict): Record<string, Property> {
     return Object.fromEntries([
         ...result.invariants.flatMap(({ name, passed, observed, gate, violation, unitIds }) => [
             [`inv_${name}_passed`, passed],
@@ -24,7 +24,7 @@ function invariantProperties(result: RunResult): Record<string, Property> {
     ])
 }
 
-function measurementProperties(result: RunResult): Record<string, Property> {
+function measurementProperties(result: RunVerdict): Record<string, Property> {
     return Object.fromEntries(
         result.measurements.flatMap(({ name, key, value, incomplete }) => {
             const property = ['m', name, key]
@@ -42,7 +42,7 @@ function measurementProperties(result: RunResult): Record<string, Property> {
 }
 
 export function scorecardOf(
-    result: RunResult,
+    result: RunVerdict,
     { card, profile }: LoadedCard,
     provenance: Provenance
 ): ScorecardProperties {

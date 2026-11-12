@@ -10,9 +10,14 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
-from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
+from products.experiments.backend.health.checks.forced_variant import (
+    forced_variant_release_condition,
+    forced_variant_rows,
+    forced_variant_values,
+)
 from products.experiments.backend.health.condition_set_traffic import grades_by_pinned_share
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
@@ -538,6 +543,35 @@ class TestForcedVariantReleaseCondition(TestCase):
 
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.title, finding.detail), (title, detail))
+
+    def test_reads_the_share_forced_in_each_variant(self) -> None:
+        # Set 1 forces 10 people into test. Set 2 splits the other 990 evenly, so test has 505 people.
+        ctx = _context([{**STAFF, "variant": "test"}, EVERYONE], traffic=_traffic({1: 10, 2: 990}))
+
+        self.assertEqual(
+            (dict(forced_variant_values(ctx)), [dict(row) for row in forced_variant_rows(ctx)]),
+            (
+                {
+                    ExperimentHealthValueKey.FORCED_CONDITION_COUNT: 1,
+                    ExperimentHealthValueKey.MATCHED_COUNT: 1000,
+                    ExperimentHealthValueKey.TRAFFIC_SINCE_AT: "2026-10-12T13:04:00+00:00",
+                },
+                [
+                    {
+                        ExperimentHealthValueKey.VARIANT: "control",
+                        ExperimentHealthValueKey.VARIANT_MATCHED_COUNT: 495,
+                        ExperimentHealthValueKey.FORCED_COUNT: 0,
+                        ExperimentHealthValueKey.FORCED_PERCENTAGE: 0.0,
+                    },
+                    {
+                        ExperimentHealthValueKey.VARIANT: "test",
+                        ExperimentHealthValueKey.VARIANT_MATCHED_COUNT: 505,
+                        ExperimentHealthValueKey.FORCED_COUNT: 10,
+                        ExperimentHealthValueKey.FORCED_PERCENTAGE: 1.98,
+                    },
+                ],
+            ),
+        )
 
     def test_variants_mapped_from_a_property_say_who_assigns_them(self) -> None:
         finding = forced_variant_release_condition(

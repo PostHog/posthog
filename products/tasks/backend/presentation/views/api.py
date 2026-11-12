@@ -5325,11 +5325,10 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         query = SandboxCustomImageListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         origin_product = query.validated_data.get("origin_product")
-        if origin_product and not tasks_facade.sandbox_custom_images_enabled(
+        origin_allowed = not origin_product or tasks_facade.sandbox_custom_images_enabled(
             self.team_id, request.user.id, origin_product=origin_product
-        ):
-            raise PermissionDenied("Custom sandbox images cannot run for tasks from this origin")
-        images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id)
+        )
+        images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id) if origin_allowed else []
         page = self.paginate_queryset(images)
         if page is not None:
             return self.get_paginated_response(SandboxCustomImageSerializer(page, many=True).data)
