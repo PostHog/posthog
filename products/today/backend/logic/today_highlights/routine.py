@@ -81,8 +81,14 @@ class PulseChoice:
 
 
 def find(context: Context) -> Found:
-    pinned = context.pinned
-    return Found(pulse=tuple(_progressive_metrics(context, pinned | context.hidden, PULSE_CANDIDATES - len(pinned))))
+    excluded = context.pinned | context.hidden
+    return Found(
+        pulse=tuple(
+            progressive_metrics(
+                context, excluded, PULSE_CANDIDATES - len(context.pinned), own_candidates(context, excluded)
+            )
+        )
+    )
 
 
 def _dashboard_context(candidate: PulseCandidate) -> InsightDashboardContext | None:
@@ -95,12 +101,14 @@ def _dashboard_context(candidate: PulseCandidate) -> InsightDashboardContext | N
     )
 
 
-def _progressive_metrics(context: Context, excluded: Collection[str], budget: int) -> list[contracts.HighlightMetric]:
+def progressive_metrics(
+    context: Context, excluded: Collection[str], budget: int, items: Sequence[ViewedItem]
+) -> list[contracts.HighlightMetric]:
     if budget <= 0:
         return []
     deadline = monotonic() + BLOCKING_SECONDS
     candidates: list[PulseCandidate] = []
-    for item in _own_candidates(context, excluded):
+    for item in items:
         if item.kind == "insight":
             candidates.append(PulseCandidate(viewed=item, short_id=item.ref))
         elif item.ref.isdigit():
@@ -244,7 +252,7 @@ def frecency(view_days: Collection[date], today: date) -> float:
     return sum(0.5 ** (age / FRECENCY_HALF_LIFE_DAYS) for age in ages if 0 <= age <= FRECENCY_LOOKBACK_DAYS)
 
 
-def _own_candidates(context: Context, excluded: Collection[str]) -> list[ViewedItem]:
+def own_candidates(context: Context, excluded: Collection[str]) -> list[ViewedItem]:
     none: list[str] = []
     skipped = {key.removeprefix(INSIGHT_PREFIX) for key in excluded if key.startswith(INSIGHT_PREFIX)}
     limit = SIGNAL_CANDIDATES + len(skipped)

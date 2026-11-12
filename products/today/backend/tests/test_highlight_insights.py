@@ -28,7 +28,7 @@ from products.today.backend.facade.enums import PulseSlotStatus
 from products.today.backend.logic.highlight_rules import human, short
 from products.today.backend.logic.highlight_trends import BAD_METRIC, MONEY, UNCLEAR_LABEL, UNKNOWN_DIRECTION
 from products.today.backend.logic.highlight_types import Context
-from products.today.backend.logic.today_highlights import home, routine
+from products.today.backend.logic.today_highlights import home, popular, routine
 
 TODAY = date(2026, 10, 13)
 
@@ -470,6 +470,48 @@ class TestRoutineInsights(BaseTest):
             [(f"insight:{ref}", reasons.get(ref, "built")) for ref in expected],
         )
 
+    @parameterized.expand(
+        [
+            ("a person without habits", 0, ["insight:team_fav", "insight:runner_up"]),
+            ("a person whose habits leave one place", 3, ["insight:team_fav"]),
+            ("a person whose habits fill the row", 4, []),
+        ]
+    )
+    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+    def test_popular_insights_fill_only_the_places_a_persons_own_habits_leave(
+        self, _name: str, habits: int, expected: list[str]
+    ) -> None:
+        viewers = [User.objects.create_and_join(self.organization, f"viewer{i}@example.com", None) for i in range(3)]
+        seen = {"team_fav": viewers, "runner_up": viewers[:2], "solo": viewers[:1], "ignored": viewers}
+        for ref, people in seen.items():
+            for person in people:
+                FileSystemViewLog.objects.create(
+                    team=self.team,
+                    user=person,
+                    type="insight",
+                    ref=ref,
+                    viewed_at=datetime.combine(TODAY - timedelta(days=2), time(12), tzinfo=UTC),
+                )
+        for i in range(habits):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="insight",
+                ref=f"habit{i}",
+                view_days=[TODAY - timedelta(days=age) for age in (1, 5, 9)],
+                viewed_at=datetime.combine(TODAY - timedelta(days=1), time(12), tzinfo=UTC),
+            )
+        points = [(TODAY - timedelta(days=d), 2.0) for d in range(14, 0, -1)]
+
+        with patch.object(
+            routine,
+            "get_insight_series",
+            side_effect=lambda **kwargs: insight({"opened": points}, short_id=kwargs["short_id"], name="Opened"),
+        ):
+            pulse = popular.find(Context(self.team, self.user, TODAY, hidden=frozenset({"insight:ignored"}))).pulse
+
+        self.assertEqual([(m.key, m.reason) for m in pulse], [(key, "popular") for key in expected])
+
 
 class TestProgressiveInsights(SimpleTestCase):
     def test_ready_numbers_are_published_while_the_first_query_is_still_running(self) -> None:
@@ -507,7 +549,6 @@ class TestProgressiveInsights(SimpleTestCase):
             ),
         )
         with (
-            patch.object(routine, "_own_candidates", return_value=views),
             patch.object(routine, "viewable_insight_definitions", return_value=definitions),
             patch.object(routine, "get_insight_series", side_effect=series),
             patch.object(
@@ -516,7 +557,7 @@ class TestProgressiveInsights(SimpleTestCase):
             patch.object(routine, "monotonic", side_effect=lambda: clock[0]),
             patch.object(routine, "sleep", side_effect=advance),
         ):
-            found = routine._progressive_metrics(context, frozenset(), 4)
+            found = routine.progressive_metrics(context, frozenset(), 4, views)
 
         self.assertEqual(published[0][0], 0)
         self.assertEqual([slot.key for slot in published[0][2]], [f"insight:{ref}" for ref in list(ready_at)[:4]])
@@ -581,13 +622,12 @@ class TestProgressiveInsights(SimpleTestCase):
             ),
         )
         with (
-            patch.object(routine, "_own_candidates", return_value=views),
             patch.object(routine, "dashboard_insights", return_value=dashboard),
             patch.object(routine, "viewable_insight_definitions", return_value=definitions),
             patch.object(routine, "get_insight_series", side_effect=series),
             patch.object(routine, "capture_exception"),
         ):
-            found = routine._progressive_metrics(context, frozenset(), 2)
+            found = routine.progressive_metrics(context, frozenset(), 2, views)
 
         self.assertEqual(
             [(metric.key, metric.dashboard_id) for metric in found], [("insight:a", 7), ("insight:b", None)]
@@ -635,14 +675,13 @@ class TestProgressiveInsights(SimpleTestCase):
             ),
         )
         with (
-            patch.object(routine, "_own_candidates", return_value=[viewed]),
             patch.object(routine, "dashboard_insights", return_value=dashboard),
             patch.object(routine, "viewable_insight_definitions", return_value=definitions),
             patch.object(
                 routine, "get_insight_series", return_value=insight({"opened": days([10.0] * 56)}, short_id="chart")
             ) as query,
         ):
-            found = routine._progressive_metrics(context, frozenset(), 6)
+            found = routine.progressive_metrics(context, frozenset(), 6, [viewed])
         self.assertEqual([slot.key for slot in published[0]], ["insight:chart"])
         self.assertEqual([metric.key for metric in found], ["insight:chart"])
         query.assert_called_once()
