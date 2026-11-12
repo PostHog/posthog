@@ -175,6 +175,20 @@ export type SendEmailApiCategory =
       }
     | null
 
+/**
+ * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
+ */
+export type SendEmailApiTracking =
+    | boolean
+    | {
+          /** Whether PostHog adds its open pixel to the email. Defaults to true. */
+          opens?: boolean
+          /** Whether the email's links go through a redirect that counts clicks. Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with `data-ph-no-track` keeps its own address. */
+          clicks?: boolean
+          /** Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true. */
+          engagement?: boolean
+      }
+
 export interface EmailAttachmentApi {
     /**
      * SHA-256 of a file uploaded through `POST /api/projects/{project_id}/messaging/attachments/uploads/`, as 64 lowercase hex characters.
@@ -240,8 +254,15 @@ export interface SendEmailApi {
      * @nullable
      */
     attachments?: EmailAttachmentApi[] | null
-    /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
+    /**
+     * Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says.
+     * @deprecated
+     */
     capture_engagement?: boolean
+    /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
+    tracking?: SendEmailApiTracking
+    /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
+    sensitive?: boolean
     /**
      * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
      * @maxLength 1024
@@ -973,6 +994,8 @@ export interface MessageTemplateApi {
     readonly transactional_hog_flow_id: string | null
     /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
     draft_content?: MessageTemplateContentApi | null
+    /** Whether the template has unpublished edits in `draft_content`. */
+    readonly has_draft: boolean
 }
 
 export interface PaginatedMessageTemplateListApi {
@@ -1025,6 +1048,8 @@ export interface PatchedMessageTemplateApi {
     readonly transactional_hog_flow_id?: string | null
     /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
     draft_content?: MessageTemplateContentApi | null
+    /** Whether the template has unpublished edits in `draft_content`. */
+    readonly has_draft?: boolean
 }
 
 /**
@@ -1555,6 +1580,10 @@ export type MessagingSuppressionsSuppressionsRetrieveParams = {
 
 export type MessagingTemplatesListParams = {
     /**
+     * With true, leave out `content` and `draft_content` from each template, for lists that show names and metadata only. `has_draft` still says whether a draft exists.
+     */
+    basic?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1562,6 +1591,11 @@ export type MessagingTemplatesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.
+     * @nullable
+     */
+    transactional?: boolean | null
 }
 
 export type TransactionalEmailLogListParams = {

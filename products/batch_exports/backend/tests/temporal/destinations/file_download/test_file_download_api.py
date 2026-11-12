@@ -567,7 +567,10 @@ async def test_file_download_list_returns_run_ids_and_statuses(
     await async_client.aforce_login(user)
 
     tied_runs = sorted([completed_run, cancelled_run], key=lambda run: run.id, reverse=True)
-    expected = [{"id": str(run.id), "status": run.status} for run in [*tied_runs, running_run]]
+    expected = [
+        {"id": str(run.id), "status": run.status, "created_at": run.created_at.isoformat().replace("+00:00", "Z")}
+        for run in [*tied_runs, running_run]
+    ]
 
     response = await async_client.get(f"/api/projects/{team.pk}/file_download_batch_exports")
 

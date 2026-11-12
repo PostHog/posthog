@@ -1,10 +1,7 @@
-import re
 import json
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
-from functools import partial
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
@@ -18,7 +15,6 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 import requests
-import responses
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -31,7 +27,6 @@ from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, Us
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
-from posthog.security.outbound_proxy import internal_requests
 from posthog.test.waiting import wait_until
 
 from products.access_control.backend.facade.testing import create_access_control
@@ -39,7 +34,6 @@ from products.cdp.backend.templates.hog_function_template import sync_template_t
 from products.messaging.backend.facade.transactional_email import report_first_code_send
 from products.messaging.backend.models.first_code_send import FirstCodeSend
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
-from products.messaging.backend.models.message_preferences import MessageRecipientPreference
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.presentation.views.message_templates import (
@@ -52,6 +46,7 @@ from products.messaging.backend.services import send_categories, transactional_e
 from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
 from products.messaging.backend.tasks.tasks import detect_code_email_source_task
+from products.messaging.backend.tests.fake_cdp_api import FakeAnalytics, FakeCdpApi
 from products.messaging.backend.tests.fakes.unlayer_export_api import FakeUnlayerExportAPI, unlayer_document
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
@@ -84,25 +79,6 @@ def _stage_counts() -> dict[str, float]:
     }
 
 
-CDP_SEND_ROUTE = re.compile(r".*/api/projects/(?P<team_id>\d+)/hog_flows/[^/]+/transactional_email(/send)?$")
-ACCEPTED_REQUEST_KEYS: dict[str, set[str] | None] = {
-    "to": None,
-    "distinct_id": None,
-    "variables": None,
-    "idempotency_key": None,
-    "send": None,
-    "message_category": {"id", "type"},
-}
-ACCEPTED_SEND_KEYS: dict[str, set[str] | None] = {
-    "content": {"subject", "html", "text"},
-    "from": {"integrationId", "email", "name"},
-    "replyTo": None,
-    "cc": None,
-    "bcc": None,
-    "tracking": {"captureEngagement"},
-    "attachments": None,
-}
-ACCEPTED_ATTACHMENT_KEYS = {"sha256", "filename", "content_type", "content_id"}
 WELCOME_DELIVERED = {
     "subject": "Welcome, Jane",
     "html": "<p>Hi Jane</p>",
@@ -122,98 +98,6 @@ class CapturedEvents:
 
     def properties(self, event: str) -> list[dict[str, Any]]:
         return [captured["properties"] for captured in self._events if captured.get("event") == event]
-
-
-class FakeCdpApi:
-    def __init__(self, refusal: tuple[int, str] | None = None, *, takes_attachments: bool = True) -> None:
-        self.received: list[dict[str, Any]] = []
-        self._queued: list[dict[str, Any]] = []
-        self._refusal = refusal
-        self._accepted = {
-            field: keys for field, keys in ACCEPTED_SEND_KEYS.items() if takes_attachments or field != "attachments"
-        }
-
-    @contextmanager
-    def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
-        client_post.side_effect = partial(requests.Session.post, internal_requests)
-        with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
-            http.add_callback(responses.POST, CDP_SEND_ROUTE, self._send)
-            yield self
-
-    def _send(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
-        payload = json.loads(request.body or "{}")
-        self.received.append(payload)
-        issues = _unrecognized_keys(payload, ACCEPTED_REQUEST_KEYS, [])
-        if "send" in payload:
-            issues += self._unrecognized_send_keys(payload["send"])
-            if not isinstance(payload["send"].get("tracking", {}).get("captureEngagement"), bool):
-                issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
-        if issues:
-            return 400, {}, json.dumps({"error": json.dumps(issues)})
-        refusal = self._refusal or self._opt_out_refusal(request.url or "", payload)
-        if refusal:
-            return refusal[0], {}, json.dumps({"error": refusal[1]})
-        self._queued.append(payload)
-        return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self._queued)}"})
-
-    def emails(self) -> list[dict[str, Any]]:
-        return [self._email(payload["send"]) for payload in self._queued]
-
-    def categories(self) -> list[dict[str, str] | None]:
-        return [payload.get("message_category") for payload in self._queued]
-
-    @staticmethod
-    def _email(send: dict[str, Any]) -> dict[str, Any]:
-        email = {**send["content"], "captureEngagement": send["tracking"]["captureEngagement"]}
-        email.update({field: send[field] for field in ("from", "replyTo", "cc", "bcc", "attachments") if field in send})
-        return email
-
-    def deliver(self) -> list[tuple[str, str]]:
-        delivered, self._queued = self._queued, []
-        return [
-            ("$workflows_email_sent", payload["distinct_id"])
-            for payload in delivered
-            if payload["send"]["tracking"]["captureEngagement"] is not False
-        ]
-
-    def _unrecognized_send_keys(self, send: dict[str, Any]) -> list[dict[str, Any]]:
-        issues = _unrecognized_keys(send, self._accepted, ["send"])
-        if "attachments" in self._accepted:
-            for index, file in enumerate(send.get("attachments") or []):
-                if file.keys() - ACCEPTED_ATTACHMENT_KEYS:
-                    issues.append(
-                        {
-                            "code": "unrecognized_keys",
-                            "keys": sorted(file.keys() - ACCEPTED_ATTACHMENT_KEYS),
-                            "path": ["send", "attachments", index],
-                        }
-                    )
-        return issues
-
-    @staticmethod
-    def _opt_out_refusal(url: str, payload: dict[str, Any]) -> tuple[int, str] | None:
-        category = payload.get("message_category") or {}
-        if category.get("type") != "marketing":
-            return None
-        route = CDP_SEND_ROUTE.search(url)
-        assert route is not None
-        recipient = MessageRecipientPreference.objects.filter(
-            team_id=int(route["team_id"]), identifier=payload["to"]
-        ).first()
-        preferences = recipient.preferences if recipient else {}
-        if "OPTED_OUT" in (preferences.get(category["id"]), preferences.get("$all")):
-            return 422, "recipient_opted_out"
-        return None
-
-
-def _unrecognized_keys(value: dict[str, Any], accepted: dict[str, Any], path: list[str]) -> list[dict[str, Any]]:
-    issues = [{"code": "unrecognized_keys", "keys": [key], "path": path} for key in value.keys() - accepted.keys()]
-    for field, allowed in accepted.items():
-        if allowed is not None and isinstance(value.get(field), dict) and value[field].keys() - allowed:
-            issues.append(
-                {"code": "unrecognized_keys", "keys": sorted(value[field].keys() - allowed), "path": [*path, field]}
-            )
-    return issues
 
 
 @patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
@@ -1441,6 +1325,116 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("omitted", "json", {}, {}, (True, None, True)),
+            ("true", "json", {"tracking": True}, {"clicks": True}, (True, True, True)),
+            (
+                "false",
+                "json",
+                {"tracking": False},
+                {"captureEngagement": False, "opens": False, "clicks": False},
+                (False, False, False),
+            ),
+            ("empty", "json", {"tracking": {}}, {}, (True, None, True)),
+            ("clicks_on", "json", {"tracking": {"clicks": True}}, {"clicks": True}, (True, True, True)),
+            ("clicks_off", "json", {"tracking": {"clicks": False}}, {"clicks": False}, (True, False, True)),
+            ("opens_off", "json", {"tracking": {"opens": False}}, {"opens": False}, (False, None, True)),
+            (
+                "engagement_off",
+                "json",
+                {"tracking": {"engagement": False}},
+                {"captureEngagement": False},
+                (True, None, False),
+            ),
+            (
+                "all_named",
+                "json",
+                {"tracking": {"opens": True, "clicks": False, "engagement": True}},
+                {"clicks": False},
+                (True, False, True),
+            ),
+            (
+                "deprecated_capture_engagement",
+                "json",
+                {"capture_engagement": False},
+                {"captureEngagement": False},
+                (True, None, False),
+            ),
+            ("form_tracking_omitted", "multipart", {"capture_engagement": "true"}, {}, (True, None, True)),
+            (
+                "form_false",
+                "multipart",
+                {"tracking": "false"},
+                {"captureEngagement": False, "opens": False, "clicks": False},
+                (False, False, False),
+            ),
+            ("form_true", "multipart", {"tracking": "true"}, {"clicks": True}, (True, True, True)),
+        ]
+    )
+    def test_a_code_send_queues_the_tracking_the_caller_set(
+        self, mock_post, _flag, capture, _name, body_format, fields, queued_tracking, reported
+    ):
+        pipeline, analytics = FakeCdpApi(), FakeAnalytics()
+        mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format=body_format
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [send["tracking"] for send in pipeline.queued_sends] == [{"captureEngagement": True, **queued_tracking}]
+        assert [
+            (event["tracking_opens"], event["tracking_clicks"], event["tracking_engagement"])
+            for event in analytics.properties_of("transactional email api send")
+        ] == [reported]
+
+    @parameterized.expand(
+        [
+            ("omitted", "json", {}, "unset"),
+            ("true", "json", {"sensitive": True}, True),
+            ("false", "json", {"sensitive": False}, False),
+            ("form_omitted", "multipart", {}, "unset"),
+            ("form_true", "multipart", {"sensitive": "true"}, True),
+            ("form_false", "multipart", {"sensitive": "false"}, False),
+        ]
+    )
+    def test_a_code_send_queues_the_sensitivity_the_caller_set(
+        self, mock_post, _flag, _capture, _name, body_format, fields, queued
+    ):
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(**fields), format=body_format
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [send.get("sensitive", "unset") for send in cdp.queued_sends] == [queued]
+
+    @parameterized.expand(
+        [
+            ("unmarked_on_a_sensitive_template", "password-reset", True, False, status.HTTP_400_BAD_REQUEST),
+            ("marked_on_a_sensitive_template", "password-reset", True, True, status.HTTP_202_ACCEPTED),
+            ("unmarked_on_a_template_that_is_not_sensitive", "password-reset", False, False, status.HTTP_202_ACCEPTED),
+            ("unmarked_under_a_key_without_a_template", "welcome", True, False, status.HTTP_202_ACCEPTED),
+        ]
+    )
+    def test_a_code_send_can_unmark_sensitivity_unless_its_template_is_sensitive(
+        self, mock_post, _flag, _capture, _name, key, template_sensitive, sensitive, expected_status
+    ):
+        MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset", sensitive=template_sensitive)
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(template_key=key, sensitive=sensitive), format="json"
+            )
+
+        refused = expected_status == status.HTTP_400_BAD_REQUEST
+        assert (response.status_code, response.json().get("attr")) == (
+            expected_status,
+            "sensitive" if refused else None,
+        ), response.json()
+        assert [send["sensitive"] for send in cdp.queued_sends] == ([] if refused else [sensitive])
+
+    @parameterized.expand(
+        [
             ("no_subject", {"subject": ""}, "subject"),
             ("no_body", {"html": None}, "html"),
             ("data_for_rendered_content", {"message_data": {"name": "Jane"}}, "message_data"),
@@ -1460,6 +1454,12 @@ class TestTransactionalEmail(APIBaseTest):
                 {"bcc": ["audit@example.com", "{{person.properties.email}}@example.com"]},
                 None,
             ),
+            ("clicks_without_opens", {"tracking": {"opens": False, "clicks": True}}, "tracking"),
+            ("tracking_kind_this_server_lacks", {"tracking": {"pixel": False}}, "tracking"),
+            ("tracking_that_is_not_a_boolean", {"tracking": "sometimes"}, "tracking"),
+            ("tracking_kind_that_is_not_a_boolean", {"tracking": {"clicks": "sometimes"}}, "tracking"),
+            ("tracking_beside_capture_engagement", {"tracking": True, "capture_engagement": True}, "tracking"),
+            ("sensitive_that_is_not_a_boolean", {"sensitive": "sometimes"}, "sensitive"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
             ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
@@ -1506,17 +1506,22 @@ class TestTransactionalEmail(APIBaseTest):
     @parameterized.expand(
         [
             ("subject", "Hi", "validation_error"),
+            ("tracking", False, "validation_error"),
+            ("sensitive", True, "validation_error"),
             ("cc", "copy@example.com", "invalid_request"),
             ("bcc", ["audit@example.com"], "invalid_request"),
             ("attachments", TWO_FILES[:1], "invalid_request"),
         ]
     )
     def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture, field, value, error_type):
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
         response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, field: value})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert (response.json()["attr"], response.json()["type"]) == (field, error_type)
-        mock_post.assert_not_called()
+        assert pipeline.queued == []
 
     @parameterized.expand(
         [
@@ -1682,25 +1687,33 @@ class TestTransactionalEmail(APIBaseTest):
         assert json.loads(mock_post.call_args.kwargs["data"])["idempotency_key"] == "welcome:user-1"
         assert response.json() == {"message_id": "first-send", "replayed": True}
 
-    def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
+    @parameterized.expand(
+        [
+            ("attachments", {"attachments": TWO_FILES}, {"takes_attachments": False}, "attachments", "attachments", 2),
+            ("category", MARKETING_SEND, {"takes_categories": False}, "category", "message_category", 0),
+        ]
+    )
+    def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(
+        self, mock_post, _flag, capture, _name, fields, pipeline, field, wire_field, attachment_count
+    ):
         events = CapturedEvents(capture)
 
-        with FakeCdpApi(takes_attachments=False).serving(mock_post) as cdp:
-            response = self._psak_client(["hog_flow:write"]).post(
-                self.send_email_url, self._code_send(attachments=TWO_FILES), format="json"
+        with FakeCdpApi(**pipeline).serving(mock_post) as cdp:
+            response = self._psak_client(["transactional_email:write"]).post(
+                self.send_email_url, self._code_send(**fields), format="json"
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         body = response.json()
-        assert (body["code"], body["attr"]) == ("field_not_accepted", "attachments")
+        assert (body["code"], body["attr"]) == ("field_not_accepted", field)
         assert "doesn't take the field yet" in body["why"]
         assert "Send the email without this field" in body["fix"]
         assert cdp.emails() == []
-        assert [payload["send"]["attachments"] for payload in cdp.received] == [TWO_FILES]
+        assert [wire_field in payload["send"] for payload in cdp.received] == [True]
         assert [
-            (sent["outcome"], sent["error_code"], sent["attachment_count"], sent["attachment_bytes"])
+            (sent["outcome"], sent["error_code"], sent["attachment_count"])
             for sent in events.properties("transactional email api send")
-        ] == [("rejected", "field_not_accepted", 2, None)]
+        ] == [("rejected", "field_not_accepted", attachment_count)]
 
     @parameterized.expand(
         [
