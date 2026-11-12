@@ -593,7 +593,10 @@ function menuHtml(values: Record<string, any>): string {
     const itemCss = menuItemCss(values)
     const items = (values.menu?.items ?? []).map((item: { text?: string }) => menuItemHtml(item, values, itemCss))
     const separator = values.layout === 'vertical' ? '' : String(values.separator ?? '')
-    const between = separator ? ` ${menuItemHtml({ text: separator }, values, itemCss)} ` : ' '
+    // The old editor hides the separator on phones, with a rule every converted email keeps.
+    const between = separator
+        ? ` ${menuItemHtml({ text: separator }, values, itemCss).replace('<span ', '<span class="hide-mobile" ')} `
+        : ' '
     return `<div style="text-align:${align(values.align) ?? 'center'}">${items.join(between)}</div>`
 }
 

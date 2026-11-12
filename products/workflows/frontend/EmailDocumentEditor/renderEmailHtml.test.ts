@@ -120,20 +120,38 @@ describe('renderEmailHtml', () => {
     })
 
     it.each([
-        { name: 'no body border', page: {}, width: 552 },
-        { name: 'a body border, which takes room inside the body', page: { bodyBorderWidth: 2 }, width: 548 },
-    ])('caps an image at the space it has and gives it a pixel width for Outlook, with $name', ({ page, width }) => {
-        const html = renderEmailHtml({
-            ...doc({
-                type: 'emailImage',
-                attrs: { src: 'https://example.com/a.png', alt: 'A "b"', naturalWidth: 2000 },
-            }),
-            attrs: { page },
-        })
+        {
+            name: 'no body border',
+            page: {},
+            image: { naturalWidth: 2000 },
+            expected: ['width="552" style', 'width:100%'],
+        },
+        {
+            name: 'a body border, which takes room inside the body',
+            page: { bodyBorderWidth: 2 },
+            image: { naturalWidth: 2000 },
+            expected: ['width="548" style'],
+        },
+        {
+            name: 'a height for Outlook and a share of the width on phones once resized',
+            page: {},
+            image: { naturalWidth: 400, naturalHeight: 200, emailStyle: { width: 200 } },
+            expected: ['width="200" height="100"', 'width:36.2%;max-width:200px'],
+        },
+    ])(
+        'caps an image at the space it has and gives it a pixel width for Outlook, with $name',
+        ({ page, image, expected }) => {
+            const html = renderEmailHtml({
+                ...doc({ type: 'emailImage', attrs: { src: 'https://example.com/a.png', alt: 'A "b"', ...image } }),
+                attrs: { page },
+            })
 
-        expect(html).toContain(`width="${width}"`)
-        expect(html).toContain('alt="A &quot;b&quot;"')
-    })
+            for (const part of expected) {
+                expect(html).toContain(part)
+            }
+            expect(html).toContain('alt="A &quot;b&quot;"')
+        }
+    )
 
     it('writes plain text with links, buttons and separate lines from an HTML block', () => {
         const text = renderEmailText(

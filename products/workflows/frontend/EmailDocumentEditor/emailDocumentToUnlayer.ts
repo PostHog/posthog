@@ -75,6 +75,10 @@ function imageContent(node: JSONContent, contentWidth: number, outer: EmailSides
         return null
     }
     const width = style.width ?? node.attrs?.naturalWidth
+    // An image at its own size, capped by its column, is the old editor's automatic width. A fixed percentage
+    // instead would shrink it on phones, where this editor lets it fill the screen.
+    const naturalWidth = number(node.attrs?.naturalWidth, 0)
+    const autoWidth = !style.width || (naturalWidth > 0 && number(style.width, 0) === Math.min(naturalWidth, available))
     const href = safeEmailLink(node.attrs?.href)
     return {
         type: 'image',
@@ -83,8 +87,8 @@ function imageContent(node: JSONContent, contentWidth: number, outer: EmailSides
                 url: src,
                 width: number(width, contentWidth),
                 ...(node.attrs?.naturalHeight ? { height: number(node.attrs.naturalHeight, 0) } : {}),
-                autoWidth: !style.width,
-                ...(style.width
+                autoWidth,
+                ...(!autoWidth
                     ? {
                           maxWidth: `${Math.min(100, Math.round((number(style.width, available) / available) * 1000) / 10)}%`,
                       }

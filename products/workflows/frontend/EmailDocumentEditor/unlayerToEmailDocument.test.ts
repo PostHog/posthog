@@ -163,7 +163,7 @@ describe('unlayerToEmailDocument', () => {
         expect(html).toContain('<a href="https://example.com/blog" target="_blank" style="padding:5px 15px;')
         expect(html).toContain('color:#1d4aff')
         expect(html).toContain(
-            '</a> <span style="padding:5px 15px;display:inline-block;font-size:14px;color:#444444">|</span> <a'
+            '</a> <span class="hide-mobile" style="padding:5px 15px;display:inline-block;font-size:14px;color:#444444">|</span> <a'
         )
         expect(html).toContain('href="https://example.com/?a=1&amp;b=&quot;x&quot;"')
         expect(html).toContain('A &lt;b&gt;&quot;quote&quot;&lt;/b&gt;')
@@ -311,6 +311,22 @@ describe('unlayerToEmailDocument', () => {
         ).document?.doc.content as Record<string, any>[]
         expect(kept.type).toBe('emailHtml')
         expect(kept.attrs?.html).toContain('border-top: 1px solid red')
+    })
+
+    it("gives an image at its own size the old editor's automatic width, so it still fills a phone", () => {
+        const image = (width: number): Record<string, any> => ({
+            type: 'emailImage',
+            attrs: { src: 'https://example.com/a.png', naturalWidth: 300, emailStyle: { width } },
+        })
+        const design = emailDocumentToUnlayer({ type: 'doc', attrs: { page: {} }, content: [image(300), image(150)] })
+        const sources = design.body.rows.flatMap((row: any) =>
+            row.columns.flatMap((column: any) => column.contents.map((content: any) => content.values.src))
+        )
+
+        expect(sources.map((src: any) => [src.autoWidth, src.maxWidth])).toEqual([
+            [true, undefined],
+            [false, '27.2%'],
+        ])
     })
 
     it('keeps every block when an email goes to the old editor and comes back', () => {

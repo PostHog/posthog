@@ -139,9 +139,9 @@ export const DEFAULT_EMAIL_PAGE_STYLE: EmailPageStyle = {
     h1Size: 32,
     h2Size: 24,
     h3Size: 20,
-    buttonBackgroundColor: '#111111',
+    buttonBackgroundColor: '#3aaee0',
     buttonTextColor: '#ffffff',
-    buttonBorderRadius: 6,
+    buttonBorderRadius: 4,
     globalCss: '',
 }
 

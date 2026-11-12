@@ -266,9 +266,12 @@ function renderImage(node: JSONContent, ctx: RenderContext): string {
     const available = Math.max(1, ctx.contentWidth - px(padding.left) - px(padding.right))
     const width = Math.min(px(style.width ?? node.attrs?.naturalWidth, available) || available, available)
     const align = style.textAlign ?? 'left'
+    // A resized image keeps its share of the width on a phone, as in the old editor. One at its own size fills it.
+    const naturalWidth = px(node.attrs?.naturalWidth)
+    const resized = width < available && width !== naturalWidth
     const imageCss = css({
         display: 'block',
-        width: '100%',
+        width: resized ? `${Math.round((width / available) * 1000) / 10}%` : '100%',
         'max-width': `${width}px`,
         height: 'auto',
         border: 0,
@@ -278,7 +281,11 @@ function renderImage(node: JSONContent, ctx: RenderContext): string {
         'margin-left': align === 'left' ? undefined : 'auto',
         'margin-right': align === 'right' ? undefined : align === 'center' ? 'auto' : undefined,
     })
-    const image = `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(String(node.attrs?.alt ?? ''))}" width="${width}" style="${imageCss}" />`
+    // Outlook on Windows ignores height:auto and squashes an image that has no height of its own.
+    const naturalHeight = px(node.attrs?.naturalHeight)
+    const height =
+        naturalWidth && naturalHeight ? ` height="${Math.round((width * naturalHeight) / naturalWidth)}"` : ''
+    const image = `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(String(node.attrs?.alt ?? ''))}" width="${width}"${height} style="${imageCss}" />`
     const href = safeEmailLink(node.attrs?.href)
     const inner = href ? `<a href="${escapeAttribute(href)}" target="_blank">${image}</a>` : image
     return blockCell({ ...style, borderRadius: undefined, borderWidth: undefined }, inner, NO_SIDES)
@@ -517,7 +524,8 @@ export function oldEditorCss(page: EmailPageStyle): string {
     return `table, td, tr { border-collapse: collapse; vertical-align: top; }
 p { margin: 0; }
 * { line-height: inherit; }
-table, td { color: ${safeColor(page.textColor, '#000000')}; }`
+table, td { color: ${safeColor(page.textColor, '#000000')}; }
+@media (max-width: 480px) { .hide-mobile { max-height: 0px; overflow: hidden; display: none !important; } }`
 }
 
 function responsiveCss(page: EmailPageStyle): string {
@@ -529,6 +537,7 @@ body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%;
 table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
 img { -ms-interpolation-mode: bicubic; }
 a { color: ${safeColor(page.linkColor, '#1d4aff')}; }
+a[x-apple-data-detectors='true'] { color: inherit !important; text-decoration: none !important; }
 @media only screen and (max-width: ${breakpoint}px) {
   .ph-body { width: 100% !important; }
   .ph-col { max-width: 100% !important; }
