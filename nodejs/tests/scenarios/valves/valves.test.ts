@@ -1,12 +1,14 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 
+import { parseJSON } from '~/common/utils/json-parse'
+import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
 import { Actuation } from '../environment/environment'
 import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
-import { ProviderEdge, startProviderEdge } from '../provider-edge'
+import { ProviderEdge, TruthPage, startProviderEdge } from '../provider-edge'
 import { ValveContext, createValves } from './valves'
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
@@ -308,6 +310,30 @@ describe('valves', () => {
             expect(await send()).toBe('sent')
             expect(valves.timeline()[0]).toEqual(expect.objectContaining({ releasedAt: expect.any(String) }))
             expect(valves.timeline()[0].error).toBeUndefined()
+        })
+
+        it.each([
+            ['rejected', 'MessageRejected'],
+            ['bounce', 'sent'],
+        ])('answers every SES send with a %s while it holds', async (type, outcome) => {
+            const valves = createValves({ pollMs: 5 })
+
+            await valves.start([{ valve: 'ses.reject', target: 'ses', dose: { type }, at: '0ms', for: '1m' }], {
+                ...stackOf().context,
+                edgeUrl: edge.url,
+            })
+            await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+            const outcomes = [await send(), await send()]
+            const truth = parseJSON(await (await internalFetch(`${edge.url}/_truth`)).text()) as TruthPage
+            await valves.releaseAll()
+
+            expect({
+                outcomes,
+                faults: truth.records.filter(({ kind }) => kind === 'ses.send').map(({ fault }) => fault),
+            }).toEqual({
+                outcomes: [outcome, outcome],
+                faults: ['ses.reject', 'ses.reject'],
+            })
         })
 
         it.each<[string, string, number | undefined, 'error' | 'releasedAt' | undefined]>([

@@ -13,9 +13,10 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { CdpRole, LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
-import { consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
+import { SES_WEBHOOKS_GROUP, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { STACK, cyclotronUrlOf } from '../environment/stack'
 import { DriveSummary, drive, seed } from '../generator/generator'
+import { watchSesFeedback } from '../generator/ses-feedback'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
 import { Measurement, Sampled, Sampler, measure, startSampler } from '../judge/measurements'
 import { createCyclotronProbe } from '../probe/cyclotron-probe'
@@ -190,7 +191,14 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                     CdpRole.options.map((role) => ({ role, metricsUrl: environment.role(role).metricsUrl }))
                 )
                 await valves.start(card.valves, { environment, probe, teams: seeded.teamIds, edgeUrl })
-                const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, cdpApi, runId })
+                const sesFeedback = watchSesFeedback({ edgeUrl, lag: () => environment.groupLag(SES_WEBHOOKS_GROUP) })
+                const units = await drive(loaded, seeded, judge, signal, {
+                    producer,
+                    eventsTopic,
+                    cdpApi,
+                    sesFeedback,
+                    runId,
+                })
                 await valves.releaseAll()
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
                 sampled = await sampler.stop()

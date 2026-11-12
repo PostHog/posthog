@@ -8,35 +8,60 @@ import type { OfferContext } from './traffic'
 
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
 const NEVER_ABORTED = new AbortController().signal
-const EVENT_EMAIL = { name: 'event_email', params: {} }
 const CDP_API = { url: 'http://127.0.0.1:1', jwt: { mint: () => 'unused' } }
+const NO_FEEDBACK: OfferContext['sesFeedback'] = { settled: () => Promise.reject(new Error('no follow-up expected')) }
 
-const seededFor = (teamIds: number[]): SeedState => ({
+const seededFor = (teamIds: number[], traffic: string): SeedState => ({
     teamIds,
-    flowIds: { event_email: Object.fromEntries(teamIds.map((teamId) => [teamId, `flow-${teamId}`])) },
+    flowIds: Object.fromEntries(
+        [traffic, `${traffic}.followup`].map((key) => [
+            key,
+            Object.fromEntries(teamIds.map((teamId) => [teamId, `${key}-${teamId}`])),
+        ])
+    ),
 })
 
 type Produce = OfferContext['producer']['produce']
 type Summary = Awaited<ReturnType<typeof drive>>
 
-function cardWith({ seed = 1, ratePerSecond, driveFor }: { seed?: number; ratePerSecond: number; driveFor: string }) {
+function cardWith({
+    seed = 1,
+    ratePerSecond,
+    driveFor,
+    traffic = 'event_email',
+}: {
+    seed?: number
+    ratePerSecond: number
+    driveFor: string
+    traffic?: string
+}) {
     return {
         ...SMOKE,
-        card: { ...SMOKE.card, seed, drive: { ...SMOKE.card.drive, for: driveFor, traffic: [EVENT_EMAIL] } },
-        profile: { ...SMOKE.profile, traffic: { event_email: { ratePerSecond } } },
+        card: {
+            ...SMOKE.card,
+            seed,
+            drive: { ...SMOKE.card.drive, for: driveFor, traffic: [{ name: traffic, params: {} }] },
+        },
+        profile: { ...SMOKE.profile, traffic: { [traffic]: { ratePerSecond } } },
     } satisfies LoadedCard
 }
 
 function startDrive(
     loaded: LoadedCard,
     produce: Produce,
-    { teamIds = [7], signal = NEVER_ABORTED }: { teamIds?: number[]; signal?: AbortSignal } = {}
+    {
+        teamIds = [7],
+        signal = NEVER_ABORTED,
+        sesFeedback = NO_FEEDBACK,
+    }: { teamIds?: number[]; signal?: AbortSignal; sesFeedback?: OfferContext['sesFeedback'] } = {}
 ): { driving: Promise<Summary>; journal: JournalEntry[] } {
     const journal: JournalEntry[] = []
-    const driving = drive(loaded, seededFor(teamIds), { record: (entry) => journal.push(entry) }, signal, {
+    const seeded = seededFor(teamIds, loaded.card.drive.traffic[0].name)
+    const driving = drive(loaded, seeded, { record: (entry) => journal.push(entry) }, signal, {
         producer: { produce },
         eventsTopic: 'scenario_events_test',
         cdpApi: CDP_API,
+        sesFeedback,
         runId: 'run-a',
     })
     return { driving, journal }
@@ -81,6 +106,51 @@ describe('drive', () => {
             answer(kafka)
 
             expect(await driving).toEqual(expected)
+        }
+    )
+
+    it.each<[string, Produce, object]>([
+        [
+            'its first send was accepted',
+            () => Promise.resolve(),
+            {
+                followUps: ['run-a-1'],
+                journal: [{ unitId: 'run-a-1', answer: { accepted: true }, followUp: { notSent: 'no feedback' } }],
+                summary: { targetUnits: 1, offeredUnits: 1 },
+            },
+        ],
+        [
+            'its first send was refused',
+            () => Promise.reject(new Error('broker down')),
+            {
+                followUps: [],
+                journal: [{ unitId: 'run-a-1', answer: { accepted: false }, followUp: undefined }],
+                summary: { targetUnits: 1, offeredUnits: 0 },
+            },
+        ],
+    ])(
+        'journals a follow-up after the window with the unit, and counts it by its first answer, once %s',
+        async (_story, produce, expected) => {
+            const followUps: string[] = []
+            const sesFeedback = {
+                settled: (unitId: string) => {
+                    followUps.push(unitId)
+                    return new Promise<string>((resolve) => setTimeout(() => resolve('no feedback'), 5000))
+                },
+            }
+            const { driving, journal } = startDrive(
+                cardWith({ ratePerSecond: 10, driveFor: '100ms', traffic: 'bounce_followup' }),
+                produce,
+                { sesFeedback }
+            )
+
+            await jest.advanceTimersByTimeAsync(5000)
+
+            expect({
+                summary: await driving,
+                followUps,
+                journal: journal.map(({ unitId, answer, followUp }) => ({ unitId, answer, followUp })),
+            }).toMatchObject(expected)
         }
     )
 

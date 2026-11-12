@@ -1,0 +1,31 @@
+id: ses-bounce-suppresses
+version: 1
+clock: real
+profile: synthetic
+seed: 5
+setup:
+    teams: 1
+drive:
+    for: 30s
+    traffic:
+        - name: bounce_followup
+valves:
+    - valve: ses.reject
+      target: ses
+      dose:
+          type: bounce
+      at: 0s
+      for: 2m
+convergeWithin: 3m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: bounced_suppressed
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
+    - name: delivery_latency_ms

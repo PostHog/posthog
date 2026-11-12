@@ -11,8 +11,9 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
 import type { TrafficDefinition } from '../cards/definitions'
-import type { JournalEntry } from '../judge/judge'
+import type { FollowUpAnswer, JournalEntry } from '../judge/judge'
 import { UNIT_EMAIL_DOMAIN, WEBHOOK_HOST } from '../provider-edge'
+import type { SesFeedback } from './ses-feedback'
 
 const Rate = z.object({ ratePerSecond: z.number().positive() }).strict()
 
@@ -22,6 +23,7 @@ export type OfferContext = {
     producer: Pick<KafkaProducerWrapper, 'produce'>
     eventsTopic: string
     cdpApi: { url: string; jwt: Pick<ScopedServiceJwt, 'mint'> }
+    sesFeedback: SesFeedback
 }
 
 export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
@@ -30,6 +32,10 @@ export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
     deliveries: string[]
     flow(teamId: number, emailIntegrationId: number): Promise<HogFlow>
     offer(unit: Unit, context: OfferContext): Promise<JournalEntry['answer']>
+    followUp?: {
+        flow(teamId: number, emailIntegrationId: number): Promise<HogFlow>
+        offer(unit: Unit, context: OfferContext): Promise<FollowUpAnswer>
+    }
 }
 
 export const SENDER = { email: 'flows@www.example.com', name: 'Scenario runner', domain: 'www.example.com' }
@@ -181,27 +187,57 @@ export const transactionalEmail: TrafficKind = {
             EMAIL_ACTION,
             await emailStep(emailIntegrationId, 'event.properties.to')
         ),
-    offer: async (unit, { cdpApi }) => {
-        try {
-            const response = await internalFetch(
-                `${cdpApi.url}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'content-type': 'application/json',
-                        authorization: `Bearer ${cdpApi.jwt.mint({ team_id: unit.teamId, hog_flow_id: unit.flowId })}`,
-                    },
-                    body: JSON.stringify({ to: unitAddress(unit), distinct_id: unit.unitId, variables: {} }),
-                }
-            )
-            const body = await response.text()
-            return response.status >= 200 && response.status < 300
-                ? { accepted: true }
-                : { accepted: false, status: response.status, outcome: errorOf(body) }
-        } catch (error) {
-            return { accepted: false, transportError: String(error) }
-        }
+    offer: (unit, { cdpApi }) => sendTransactional(unit, cdpApi),
+}
+
+const BOUNCE_EVENT = 'scenario_bounce'
+
+// The first send goes through an event flow, because cdp-api caches a negative suppression lookup per address. A
+// first send through cdp-api would cache "not suppressed" and let the follow-up through until that cache expires.
+export const bounceFollowup: TrafficKind = {
+    name: 'bounce_followup',
+    params: z.object({}).strict(),
+    profile: Rate,
+    intake: 'event',
+    deliveries: [EMAIL_ACTION],
+    flow: async (teamId, emailIntegrationId) =>
+        oneStepFlow(
+            teamId,
+            'Scenario bounce email',
+            eventTrigger(BOUNCE_EVENT),
+            EMAIL_ACTION,
+            await emailStep(emailIntegrationId, 'event.properties.email')
+        ),
+    offer: (unit, context) => produce(context, unit, BOUNCE_EVENT, { email: unitAddress(unit) }),
+    followUp: {
+        flow: transactionalEmail.flow,
+        offer: async (unit, { sesFeedback, cdpApi }) => {
+            const notSent = await sesFeedback.settled(unit.unitId)
+            return notSent === undefined ? sendTransactional(unit, cdpApi) : { notSent }
+        },
     },
 }
 
-export const TRAFFIC: TrafficKind[] = [eventEmail, eventWebhook, transactionalEmail]
+async function sendTransactional(unit: Unit, cdpApi: OfferContext['cdpApi']): Promise<JournalEntry['answer']> {
+    try {
+        const response = await internalFetch(
+            `${cdpApi.url}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
+            {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${cdpApi.jwt.mint({ team_id: unit.teamId, hog_flow_id: unit.flowId })}`,
+                },
+                body: JSON.stringify({ to: unitAddress(unit), distinct_id: unit.unitId, variables: {} }),
+            }
+        )
+        const body = await response.text()
+        return response.status >= 200 && response.status < 300
+            ? { accepted: true }
+            : { accepted: false, status: response.status, outcome: errorOf(body) }
+    } catch (error) {
+        return { accepted: false, transportError: String(error) }
+    }
+}
+
+export const TRAFFIC: TrafficKind[] = [eventEmail, eventWebhook, transactionalEmail, bounceFollowup]

@@ -10,13 +10,7 @@ const definitions: Definitions = {
     valves: [
         ...DEFINITIONS.valves,
         { name: 'pg.drop_connections', params: z.object({ share: z.number() }).strict(), target: z.string() },
-        {
-            name: 'ses.reject',
-            params: z.object({ type: z.enum(['bounce', 'rejected']), share: z.number() }).strict(),
-            target: z.string(),
-        },
     ],
-    invariants: [...DEFINITIONS.invariants, { name: 'bounced_suppressed', params: z.object({}).strict() }],
     measurements: [{ name: 'role_cpu_seconds', params: z.object({}).strict() }],
 }
 
@@ -219,7 +213,9 @@ describe('load', () => {
             'bounced_suppressed without a bounce',
             {
                 ...card,
-                valves: [{ ...emailWorkerKill, valve: 'ses.reject', dose: { type: 'rejected', share: 0.3 } }],
+                valves: [
+                    { ...emailWorkerKill, valve: 'ses.reject', target: 'ses', dose: { type: 'rejected', share: 0.3 } },
+                ],
                 invariants: [{ name: 'at_least_once' }, { name: 'bounced_suppressed' }],
             },
             undefined,

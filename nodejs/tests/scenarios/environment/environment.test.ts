@@ -24,7 +24,7 @@ import { Environment, createEnvironment } from './environment'
 import * as processes from './processes'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
-import { STACK, forgetSesBucket, membersOf, pingRedis, scratchSchema, seekFailures, withPostgres } from './stack'
+import { STACK, forgetSesBucket, lagOf, membersOf, pingRedis, scratchSchema, seekFailures, withPostgres } from './stack'
 import { createSupervisor } from './supervisor'
 
 const SELF = 100
@@ -424,25 +424,29 @@ describe('scenario environment', () => {
         })
     })
 
-    it.each<[string, string, number | null]>([
+    it.each<[string, string, number | null, number | null]>([
         [
             'a group with members',
-            'GROUP        cdp-processed-events-consumer\nCOORDINATOR  0\nSTATE        Stable\nBALANCER     range\nMEMBERS      2\nTOTAL-LAG    0\n',
+            'GROUP        cdp-processed-events-consumer\nCOORDINATOR  0\nSTATE        Stable\nBALANCER     range\nMEMBERS      2\nTOTAL-LAG    3\n',
             2,
+            3,
         ],
         [
             'an empty group',
             'GROUP        cdp-processed-events-consumer\nSTATE        Empty\nMEMBERS      0\nTOTAL-LAG    0\n',
+            0,
             0,
         ],
         [
             'a group that never existed',
             'GROUP        cdp-processed-events-consumer\nCOORDINATOR  0\nSTATE        Dead\nBALANCER     \nMEMBERS      0\nTOTAL-LAG    0\n',
             0,
+            0,
         ],
-        ['output it cannot read', 'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n', null],
-    ])('reads the members of %s from rpk', (_name, output, members) => {
+        ['output it cannot read', 'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n', null, null],
+    ])('reads the members and lag of %s from rpk', (_name, output, members, lag) => {
         expect(membersOf(output)).toBe(members)
+        expect(lagOf(output)).toBe(lag)
     })
 
     it.each<[string, NodeJS.ProcessEnv, Record<string, string>, { group: string; topics: string[] }[]]>([
@@ -451,29 +455,36 @@ describe('scenario environment', () => {
             {},
             {},
             [
-                {
-                    group: 'cdp-processed-events-consumer',
-                    topics: ['clickhouse_events_json'],
-                },
+                { group: 'cdp-processed-events-consumer', topics: ['clickhouse_events_json'] },
+                { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
             ],
         ],
         [
             'the group the runner env overrides',
             { CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-events' },
             {},
-            [{ group: 'scenario-events', topics: ['clickhouse_events_json'] }],
+            [
+                { group: 'scenario-events', topics: ['clickhouse_events_json'] },
+                { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+            ],
         ],
         [
             'the events topic under the Kafka prefix the roles inherit',
             { KAFKA_PREFIX: 'scenario_' },
             {},
-            [{ group: 'cdp-processed-events-consumer', topics: ['scenario_clickhouse_events_json'] }],
+            [
+                { group: 'cdp-processed-events-consumer', topics: ['scenario_clickhouse_events_json'] },
+                { group: 'cdp-ses-webhooks-consumer', topics: ['scenario_cdp_ses_webhooks'] },
+            ],
         ],
         [
             'the group and topic a profile sets',
             {},
             { CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-events', CDP_EVENTS_CONSUMER_TOPIC: 'scenario_events_json' },
-            [{ group: 'scenario-events', topics: ['scenario_events_json'] }],
+            [
+                { group: 'scenario-events', topics: ['scenario_events_json'] },
+                { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+            ],
         ],
     ])('moves %s', (_name, env, settings, groups) => {
         expect(consumerGroupsOf(roleSpecs(env, { url: 'http://edge' }, secretsOf({}), STATE_DIR, settings))).toEqual(
@@ -1032,12 +1043,12 @@ describe('scenario environment', () => {
                     ).rows.map((row) => row.status),
                 cyclotronUrl
             )
-        const eventsGroup = (): { group: string; topic: string } => {
-            const [{ group, topics }] = consumerGroupsOf(
-                roleSpecs(process.env, { url: 'http://edge' }, secretsOf({}), STATE_DIR)
+        const everyGroupAtEnd = (): Record<string, Record<string, string>> =>
+            Object.fromEntries(
+                consumerGroupsOf(roleSpecs(process.env, { url: 'http://edge' }, secretsOf({}), STATE_DIR)).map(
+                    ({ group, topics }) => [group, Object.fromEntries(topics.map((topic) => [topic, 'end']))]
+                )
             )
-            return { group, topic: topics[0] }
-        }
         const offsetsOf = (): Record<string, Record<string, string>> =>
             existsSync(path.join(fakes, 'offsets.json'))
                 ? parseJSON(readFileSync(path.join(fakes, 'offsets.json'), 'utf8'))
@@ -1436,7 +1447,6 @@ describe('scenario environment', () => {
         it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog", async () => {
             const { limiter, close } = sesLimiterOn(testRedis)
             const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
-            const { group, topic } = eventsGroup()
             environment = environmentOf()
             await environment.up()
             await withPostgres(
@@ -1466,7 +1476,7 @@ describe('scenario environment', () => {
                 }).toEqual({
                     jobs: ['completed'],
                     tokens: 5,
-                    offsets: { [group]: { [topic]: 'end' } },
+                    offsets: everyGroupAtEnd(),
                     sends: [201, 'MessageRejected', 'sent'],
                 })
             } finally {
@@ -1476,7 +1486,6 @@ describe('scenario environment', () => {
         }, 30_000)
 
         it('waits for a stopped role to leave the events group before it moves the group to the end', async () => {
-            const { group, topic } = eventsGroup()
             environment = environmentOf()
             await environment.up()
             holdDeadMember()
@@ -1491,7 +1500,7 @@ describe('scenario environment', () => {
 
             expect({ reset: await reset, offsets: offsetsOf() }).toEqual({
                 reset: 'reset',
-                offsets: { [group]: { [topic]: 'end' } },
+                offsets: everyGroupAtEnd(),
             })
         }, 45_000)
 

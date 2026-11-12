@@ -13,6 +13,8 @@ import { OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
 
 export type SeedState = { teamIds: number[]; flowIds: Record<string, Record<number, string>> }
 
+const followUpFlowKey = (name: string): string => `${name}.followup`
+
 export type DriveSummary = { targetUnits: number; offeredUnits: number }
 
 export type DriveContext = OfferContext & { runId: string }
@@ -61,8 +63,15 @@ export async function seed({ card }: LoadedCard, postgres: PostgresRouter): Prom
             config: { ...SENDER, verified: true },
         })
         for (const { name } of card.drive.traffic) {
-            const flow = await insertHogFlow(postgres, await trafficKind(name).flow(team.id, integration.id))
-            flowIds[name] = { ...flowIds[name], [team.id]: flow.id }
+            const kind = trafficKind(name)
+            const flows = [{ key: name, flow: kind.flow }]
+            if (kind.followUp) {
+                flows.push({ key: followUpFlowKey(name), flow: kind.followUp.flow })
+            }
+            for (const { key, flow } of flows) {
+                const inserted = await insertHogFlow(postgres, await flow(team.id, integration.id))
+                flowIds[key] = { ...flowIds[key], [team.id]: inserted.id }
+            }
         }
         teamIds.push(team.id)
     }
@@ -101,13 +110,23 @@ export async function drive(
             break
         }
         const teamId = chance.pickone(seeded.teamIds)
-        const flowId = seeded.flowIds[kind.name]?.[teamId]
-        if (flowId === undefined) {
-            throw new Error(`Team ${teamId} has no seeded ${kind.name} flow`)
+        const flowIdOf = (key: string): string => {
+            const flowId = seeded.flowIds[key]?.[teamId]
+            if (flowId === undefined) {
+                throw new Error(`Team ${teamId} has no seeded ${key} flow`)
+            }
+            return flowId
         }
+        const flowId = flowIdOf(kind.name)
+        const followUpFlowId = kind.followUp && flowIdOf(followUpFlowKey(kind.name))
         const unitId = `${context.runId}-${n + 1}`
         const offeredAt = Date.now()
-        const offer = kind.offer({ unitId, teamId, flowId }, context).then((answer) => {
+        const offer = kind.offer({ unitId, teamId, flowId }, context).then(async (answer) => {
+            const answeredAt = Date.now()
+            const followUp =
+                kind.followUp && followUpFlowId !== undefined && answer.accepted && !stop.aborted
+                    ? await kind.followUp.offer({ unitId, teamId, flowId: followUpFlowId }, context)
+                    : undefined
             if (stop.aborted) {
                 return
             }
@@ -118,8 +137,9 @@ export async function drive(
                 offeredAt,
                 answer,
                 expect: { deliveries: kind.deliveries },
+                ...(followUp && { followUp }),
             })
-            if ((answer.accepted || kind.intake !== 'event') && Date.now() <= end) {
+            if ((answer.accepted || kind.intake !== 'event') && answeredAt <= end) {
                 offeredUnits += 1
             }
         })

@@ -8,6 +8,8 @@ const HostMatch = z.object({ host: z.string().optional() }).strict()
 
 export const SesThrottleParams = z.object({ rate: z.number().int().min(1) }).strict()
 
+export const SesRejectParams = z.object({ type: z.enum(['rejected', 'bounce']) }).strict()
+
 const Dose = z.union([
     z.object({ count: z.number().int().min(1) }).strict(),
     z.object({ share: z.number().gt(0).max(1) }).strict(),
@@ -17,7 +19,7 @@ export const CardFault = z.discriminatedUnion('name', [
     z
         .object({
             name: z.literal('ses.reject'),
-            params: z.object({ type: z.enum(['rejected', 'bounce']) }).strict(),
+            params: SesRejectParams,
             match: RecipientMatch.optional(),
             dose: Dose,
             for: Duration.optional(),

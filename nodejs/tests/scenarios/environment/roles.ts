@@ -13,7 +13,10 @@ export const ROLE_PORTS: Record<Role, number> = {
     'cdp-cyclotron-worker-hogflow': 6761,
     'cdp-cyclotron-worker-email': 6762,
     'cdp-cyclotron-v2-janitor': 6763,
+    'cdp-ses-webhooks': 6764,
 }
+
+export const SES_WEBHOOKS_GROUP = 'cdp-ses-webhooks-consumer'
 
 export const PERSONHOG_ADDR = '127.0.0.1:50052'
 
@@ -79,10 +82,24 @@ export function roleSpecs(
 
 export function consumerGroupsOf(specs: RoleSpec[]): ConsumerGroup[] {
     const defaults = getDefaultCdpConfig()
-    return specs
-        .filter(({ role }) => role === 'cdp-processed-events')
-        .map(({ env }) => ({
-            group: env.CDP_EVENTS_CONSUMER_GROUP_ID || defaults.CDP_EVENTS_CONSUMER_GROUP_ID,
-            topics: [env.CDP_EVENTS_CONSUMER_TOPIC || `${env.KAFKA_PREFIX || ''}clickhouse_events_json`],
-        }))
+    return specs.flatMap(({ role, env }): ConsumerGroup[] => {
+        switch (role) {
+            case 'cdp-processed-events':
+                return [
+                    {
+                        group: env.CDP_EVENTS_CONSUMER_GROUP_ID || defaults.CDP_EVENTS_CONSUMER_GROUP_ID,
+                        topics: [env.CDP_EVENTS_CONSUMER_TOPIC || `${env.KAFKA_PREFIX || ''}clickhouse_events_json`],
+                    },
+                ]
+            case 'cdp-ses-webhooks':
+                return [
+                    {
+                        group: SES_WEBHOOKS_GROUP,
+                        topics: [env.CDP_SES_WEBHOOKS_TOPIC || `${env.KAFKA_PREFIX || ''}cdp_ses_webhooks`],
+                    },
+                ]
+            default:
+                return []
+        }
+    })
 }

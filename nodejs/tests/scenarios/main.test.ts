@@ -54,6 +54,7 @@ function environmentWhoseResetFails(): Environment {
         health: () => Promise.resolve({ healthy: true, down: [] }),
         actuate: () => Promise.reject(new Error('the main test schedules no valves')),
         exits: () => [],
+        groupLag: () => Promise.resolve(0),
         down: () => Promise.resolve(),
     }
 }

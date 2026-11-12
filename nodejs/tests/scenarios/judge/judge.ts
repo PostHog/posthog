@@ -9,16 +9,21 @@ import type { CyclotronProbe } from '../probe/cyclotron-probe'
 import type { TruthPage, TruthRecord } from '../provider-edge'
 import { INVARIANTS, deliveryKey } from './invariants'
 
+export type IntakeAnswer =
+    | { accepted: true }
+    | { accepted: false; transportError: string }
+    | { accepted: false; status: number; outcome?: string }
+
+export type FollowUpAnswer = IntakeAnswer | { notSent: string }
+
 export type JournalEntry = {
     unitId: string
     kind: 'event' | 'transactional'
     teamId: number
     offeredAt: number
-    answer:
-        | { accepted: true }
-        | { accepted: false; transportError: string }
-        | { accepted: false; status: number; outcome?: string }
+    answer: IntakeAnswer
     expect: { deliveries: string[] }
+    followUp?: FollowUpAnswer
 }
 
 export type Convergence = { converged: boolean; unfinishedJobs: number; unrecorded: string[]; tookMs: number }

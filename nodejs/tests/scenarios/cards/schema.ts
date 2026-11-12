@@ -8,6 +8,7 @@ export const CdpRole = z.enum([
     'cdp-cyclotron-worker-email',
     'cdp-api',
     'cdp-cyclotron-v2-janitor',
+    'cdp-ses-webhooks',
 ])
 
 export const Named = z.object({ name: z.string(), params: z.record(z.string(), z.unknown()).default({}) }).strict()

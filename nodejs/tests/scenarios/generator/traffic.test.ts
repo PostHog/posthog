@@ -10,7 +10,7 @@ import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { UNIT_EMAIL_DOMAIN } from '../provider-edge'
-import { OfferContext, transactionalEmail } from './traffic'
+import { OfferContext, bounceFollowup, transactionalEmail } from './traffic'
 
 const SECRET = 'scenario-transactional-secret'
 const UNIT = { unitId: 'run-a-1', teamId: 7, flowId: 'flow-7' }
@@ -46,10 +46,11 @@ function startCdpApi(answer: Answer): Promise<{ url: string; received: object[];
     )
 }
 
-const contextFor = (url: string): OfferContext => ({
+const contextFor = (url: string, settled: string | undefined = undefined): OfferContext => ({
     producer: { produce: () => Promise.reject(new Error('the transactional kind never produces')) },
     eventsTopic: 'unused',
     cdpApi: { url, jwt: new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, SECRET) },
+    sesFeedback: { settled: (unitId) => Promise.resolve(unitId === UNIT.unitId ? settled : 'another unit') },
 })
 
 describe('transactional_email traffic', () => {
@@ -85,5 +86,30 @@ describe('transactional_email traffic', () => {
             accepted: false,
             transportError: expect.stringContaining('ECONNREFUSED'),
         })
+    })
+})
+
+describe('bounce_followup traffic', () => {
+    it.each<[string, string | undefined, object, number]>([
+        [
+            'sends the follow-up through the template route once its feedback settled',
+            undefined,
+            { accepted: false, status: 422, outcome: 'recipient_suppressed' },
+            1,
+        ],
+        [
+            'leaves the follow-up unsent when its feedback did not settle',
+            'the edge recorded no SES feedback within 60s',
+            { notSent: 'the edge recorded no SES feedback within 60s' },
+            0,
+        ],
+    ])('%s', async (_story, settled, expected, sends) => {
+        const cdpApi = await startCdpApi({ status: 422, body: { error: 'recipient_suppressed' } })
+        try {
+            expect(await bounceFollowup.followUp!.offer(UNIT, contextFor(cdpApi.url, settled))).toEqual(expected)
+            expect(cdpApi.received).toHaveLength(sends)
+        } finally {
+            await cdpApi.close()
+        }
     })
 })

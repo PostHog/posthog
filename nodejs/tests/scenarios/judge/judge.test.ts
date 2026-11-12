@@ -5,7 +5,7 @@ import { internalFetch } from '~/common/utils/request'
 
 import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
 import { atLeastOnce } from './invariants'
-import { JournalEntry, Judge, createJudge } from './judge'
+import { FollowUpAnswer, JournalEntry, Judge, createJudge } from './judge'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const UNIT = 'run-a-1'
@@ -289,6 +289,59 @@ describe('judge', () => {
         )
 
         expect(result).toMatchObject({ name: 'refused_at_intake', ...expected })
+    })
+
+    it.each<[string, 'bounce' | 'rejected' | undefined, FollowUpAnswer, object]>([
+        [
+            'bounced, then refused as suppressed',
+            'bounce',
+            { accepted: false, status: 422, outcome: 'recipient_suppressed' },
+            { passed: true, observed: 0, unitIds: [] },
+        ],
+        [
+            'bounced, then not followed up',
+            'bounce',
+            { notSent: 'the edge recorded no SES feedback within 60s' },
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT}: the follow-up was not sent: the edge recorded no SES feedback within 60s`,
+                unitIds: [UNIT],
+            },
+        ],
+        [
+            'bounced, then accepted again',
+            'bounce',
+            { accepted: true },
+            { passed: false, observed: 1, violation: `${UNIT}: cdp-api accepted the follow-up` },
+        ],
+        [
+            'bounced, then refused for another reason',
+            'bounce',
+            { accepted: false, status: 503 },
+            { passed: false, observed: 1, violation: `${UNIT}: cdp-api answered the follow-up 503` },
+        ],
+        ['never bounced, then accepted again', undefined, { accepted: true }, { passed: true, observed: 0 }],
+        [
+            'rejected rather than bounced, then not followed up',
+            'rejected',
+            { notSent: 'the edge recorded no SES feedback within 60s' },
+            { passed: true, observed: 0 },
+        ],
+    ])('bounced_suppressed for a unit %s', async (_story, rejectType, followUp, expected) => {
+        if (rejectType) {
+            await internalFetch(`${edge.url}/_faults`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ name: 'ses.reject', params: { type: rejectType }, dose: { count: 1 } }),
+            })
+        }
+        await deliver(UNIT)
+        judge.record({ ...offered(), followUp })
+
+        const [result] = await judge.check([{ name: 'bounced_suppressed', params: {} }], {})
+
+        expect(result).toMatchObject({ name: 'bounced_suppressed', ...expected })
     })
 
     it('ignores what the edge recorded before the run opened', async () => {

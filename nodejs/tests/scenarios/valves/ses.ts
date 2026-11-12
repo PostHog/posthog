@@ -5,7 +5,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
 import type { Actuation } from '../environment/environment'
-import { CardFault, SesThrottleParams } from '../provider-edge'
+import { CardFault, SesRejectParams, SesThrottleParams } from '../provider-edge'
 import type { ApplyContext, ValveDefinition } from './valves'
 
 async function edgeFault(
@@ -60,4 +60,16 @@ export const sesThrottle: ValveDefinition = {
     target: z.literal('ses'),
     apply: (context, _target, dose) =>
         edgeFault(context, { name: 'ses.throttle', params: SesThrottleParams.parse(dose) }),
+}
+
+const SesRejectDose = z.object({ type: SesRejectParams.shape.type, share: z.number().gt(0).max(1).default(1) }).strict()
+
+export const sesReject: ValveDefinition = {
+    name: 'ses.reject',
+    params: SesRejectDose,
+    target: z.literal('ses'),
+    apply: (context, _target, dose) => {
+        const { type, share } = SesRejectDose.parse(dose)
+        return edgeFault(context, { name: 'ses.reject', params: { type }, dose: { share } })
+    },
 }

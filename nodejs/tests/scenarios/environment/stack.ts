@@ -149,6 +149,20 @@ export async function groupMembers(group: string, docker: string): Promise<numbe
     return members
 }
 
+export function lagOf(rpkDescribe: string): number | null {
+    const lag = /^TOTAL-LAG\s+(\d+)\s*$/m.exec(rpkDescribe)
+    return lag ? Number(lag[1]) : null
+}
+
+export async function groupLag(group: string, docker: string): Promise<number> {
+    const output = await rpk(docker, ['group', 'describe', group])
+    const lag = lagOf(output)
+    if (lag === null) {
+        throw new Error(`Could not read the lag of ${group} from rpk:\n${output}`)
+    }
+    return lag
+}
+
 export function seekFailures(rpkSeek: string): string[] {
     const lines = rpkSeek.split('\n').filter((line) => line.trim() !== '')
     const header = lines[0] ?? ''

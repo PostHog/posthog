@@ -6,7 +6,7 @@ import { CdpRole, ValveEntry } from '../cards/schema'
 import { durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
-import { sesThrottle } from './ses'
+import { sesReject, sesThrottle } from './ses'
 
 export type ValveContext = {
     environment: Pick<Environment, 'actuate'>
@@ -45,7 +45,7 @@ export const roleKill: ValveDefinition = {
     apply: ({ environment }, target) => environment.actuate({ kind: 'kill', role: CdpRole.parse(target) }),
 }
 
-export const VALVES: ValveDefinition[] = [roleKill, sesThrottle]
+export const VALVES: ValveDefinition[] = [roleKill, sesThrottle, sesReject]
 
 const POLL_MS = 1000
 const FAULT_OBSERVED_WITHIN_MS = 30_000
