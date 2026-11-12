@@ -191,7 +191,11 @@ function RelevanceNote({ note }: { note?: string }): JSX.Element | null {
     if (!note?.trim()) {
         return null
     }
-    return <span className="block text-secondary text-xs">{note}</span>
+    return (
+        <LemonMarkdown className="text-xs text-secondary" disableImages>
+            {note}
+        </LemonMarkdown>
+    )
 }
 
 /** A read-only highlighted code block sized for the activity log. */
@@ -214,7 +218,11 @@ function ActivityBodyCard({ children }: { children: React.ReactNode }): JSX.Elem
 }
 
 function ReasoningBody({ text }: { text: string }): JSX.Element {
-    return <p className="m-0 text-xs leading-relaxed text-secondary">{text}</p>
+    return (
+        <LemonMarkdown className="text-xs leading-relaxed text-secondary" disableImages>
+            {text}
+        </LemonMarkdown>
+    )
 }
 
 function NoteBody({ note, author }: { note: string; author?: string }): JSX.Element {
@@ -404,7 +412,9 @@ function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Elem
     }
     return (
         <div className="flex w-full flex-col items-start gap-1">
-            <span className="text-xs text-default">{content.explanation}</span>
+            <LemonMarkdown className="text-xs text-default" disableImages>
+                {content.explanation}
+            </LemonMarkdown>
             {content.outcome === 'inconclusive' ? (
                 <span className="text-xs text-tertiary">{inconclusiveReasonLabel(content.reason)}</span>
             ) : null}

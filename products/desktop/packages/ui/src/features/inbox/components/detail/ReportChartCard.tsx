@@ -19,6 +19,7 @@ import {
 import { getCloudUrlFromRegion } from "@posthog/shared";
 import type { SignalReportChart } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { AgentTextMarkdown } from "@posthog/ui/features/inbox/components/utils/AgentTextMarkdown";
 import { useReportChartData } from "@posthog/ui/features/inbox/hooks/useReportChartData";
 import { Button } from "@posthog/ui/primitives/Button";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
@@ -279,7 +280,7 @@ export function ReportChartCardView({
       </div>
       {caption && (
         <figcaption className="m-0 text-[12px] text-gray-10">
-          {caption}
+          <AgentTextMarkdown content={caption} />
         </figcaption>
       )}
     </figure>

@@ -104,6 +104,22 @@ describe("deriveHeadline", () => {
     );
   });
 
+  it.each([
+    {
+      name: "a Markdown link label without its syntax or URL",
+      summary:
+        "Errors rose after [the checkout deploy](https://example.com/deploys/1). More detail follows.",
+      headline: "Errors rose after the checkout deploy.",
+    },
+    {
+      name: "a leading heading without its marker",
+      summary: "## Checkout errors doubled\n\nMore detail follows.",
+      headline: "Checkout errors doubled",
+    },
+  ])("shows $name", ({ summary, headline }) => {
+    expect(deriveHeadline(summary)).toBe(headline);
+  });
+
   it("truncates long single sentences with an ellipsis", () => {
     const longSentence = `${"a".repeat(160)}`;
     const headline = deriveHeadline(longSentence);

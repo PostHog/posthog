@@ -35,6 +35,7 @@ import type {
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { ArtefactCommit } from "@posthog/ui/features/inbox/components/detail/ArtefactCommit";
 import { ArtefactTaskRun } from "@posthog/ui/features/inbox/components/detail/ArtefactTaskRun";
+import { AgentTextMarkdown } from "@posthog/ui/features/inbox/components/utils/AgentTextMarkdown";
 import { SignalReportActionabilityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportActionabilityBadge";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
@@ -136,7 +137,12 @@ function CodeRefBlock({ code, language }: { code: string; language: string }) {
 
 function RelevanceNote({ note }: { note: string }) {
   if (!note.trim()) return null;
-  return <span className="block text-(--gray-11) text-[13px]">{note}</span>;
+  return (
+    <AgentTextMarkdown
+      content={note}
+      className="text-(--gray-11) text-[13px]"
+    />
+  );
 }
 
 /** Judgment explanations are often paragraphs — collapsed by default behind a toggle. */
@@ -159,7 +165,10 @@ function CollapsibleReasoning({ text }: { text: string }) {
         {expanded ? "Hide reasoning" : "Show reasoning"}
       </button>
       {expanded ? (
-        <span className="block text-(--gray-11) text-[13px]">{text}</span>
+        <AgentTextMarkdown
+          content={text}
+          className="text-(--gray-11) text-[13px]"
+        />
       ) : null}
     </div>
   );

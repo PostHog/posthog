@@ -2,6 +2,7 @@ import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { inboxReportKeys } from "@posthog/core/inbox/inboxQuery";
 import type { CommitContent } from "@posthog/shared/types";
 import { DiffBlock } from "@posthog/ui/features/inbox/components/detail/DiffBlock";
+import { AgentTextMarkdown } from "@posthog/ui/features/inbox/components/utils/AgentTextMarkdown";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Box, Flex, Text } from "@radix-ui/themes";
@@ -43,9 +44,10 @@ export function ArtefactCommit({
         {content.branch}
       </Text>
       {content.note?.trim() ? (
-        <Text className="block text-(--gray-11) text-[12px]">
-          {content.note}
-        </Text>
+        <AgentTextMarkdown
+          content={content.note}
+          className="text-(--gray-11) text-[12px]"
+        />
       ) : null}
 
       {!hideDiff && (

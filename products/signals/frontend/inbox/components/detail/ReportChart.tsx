@@ -5,6 +5,7 @@ import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -191,7 +192,11 @@ export function ReportChartCard({ chart }: { chart: ReportChartApi }): JSX.Eleme
                     <Query query={query} uniqueKey={uniqueKey} readOnly embedded />
                 )}
             </div>
-            {chart.caption ? <p className="m-0 text-xs text-tertiary">{chart.caption}</p> : null}
+            {chart.caption ? (
+                <LemonMarkdown className="text-xs text-tertiary" disableImages>
+                    {chart.caption}
+                </LemonMarkdown>
+            ) : null}
         </LemonCard>
     )
 }

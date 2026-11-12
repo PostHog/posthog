@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { cn } from 'lib/utils/css-classes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
@@ -22,7 +23,7 @@ export interface ScoutSuggestionCardProps {
 /**
  * The row carries the motivation only, because the create form already
  * holds the draft, the schedule and the output setting, and is where editing happens. Pressing the
- * body opens that form, so a person reads the offer before anything is written.
+ * title opens that form, so a person reads the offer before anything is written.
  */
 export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps): JSX.Element {
     const { busySuggestionIds } = useValues(scoutSuggestionsLogic)
@@ -35,7 +36,7 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
 
     const [expanded, setExpanded] = useState(false)
     const [overflowing, setOverflowing] = useState(false)
-    const motivationRef = useRef<HTMLParagraphElement>(null)
+    const motivationRef = useRef<HTMLDivElement>(null)
     const motivationId = `scout-suggestion-motivation-${item.id}`
 
     useLayoutEffect(() => {
@@ -67,8 +68,8 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
                         'flex max-w-full flex-col items-start gap-1 text-left',
                         !bodyDisabled && 'cursor-pointer'
                     )}
-                    // A name built from the children would lead with the "Turn on" tag and then read the
-                    // whole motivation, for a press that only opens the form.
+                    // A name built from the children would also read every tag, for a press that only opens
+                    // the form.
                     aria-label={`${reviewActionLabel(item)}: ${item.title}`}
                     data-attr="scout-suggestion-body"
                 >
@@ -76,14 +77,14 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
                         <span className="min-w-0 truncate text-sm font-semibold leading-snug">{item.title}</span>
                         <SuggestionTags item={item} />
                     </div>
-                    <p
-                        ref={motivationRef}
-                        id={motivationId}
-                        className={cn('m-0 text-xs leading-snug text-secondary', !expanded && 'line-clamp-2')}
-                    >
-                        {item.why_here}
-                    </p>
                 </button>
+                {/* Outside the row button, because the motivation can cite reports as links and a link
+                    inside a button is not valid HTML. */}
+                <div ref={motivationRef} id={motivationId} className={cn('max-w-full', !expanded && 'line-clamp-2')}>
+                    <LemonMarkdown className="text-xs leading-snug text-secondary" disableImages>
+                        {item.why_here}
+                    </LemonMarkdown>
+                </div>
                 <div className="flex flex-wrap items-center gap-x-2 text-[11px]">
                     <span className="text-tertiary">{suggestionMetaLine(item.proposed_config)}</span>
                     {/* Outside the row button, so keyboard and touch users can read the full motivation. */}
