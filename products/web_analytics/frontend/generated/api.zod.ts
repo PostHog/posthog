@@ -324,13 +324,15 @@ export const aeoSetupCreateBodyEnginesItemMax = 64
 export const aeoSetupCreateBodyEnginesMax = 20
 
 export const aeoSetupCreateBodyRunFirstCheckDefault = false
+export const aeoSetupCreateBodyOnlyFirstRunDefault = false
 
 export const AeoSetupCreateBody = /* @__PURE__ */ zod.object({
     domain: zod
         .string()
         .max(aeoSetupCreateBodyDomainMax)
+        .optional()
         .describe(
-            "The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords."
+            "The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords. Required unless only_first_run is true."
         ),
     brand: zod
         .string()
@@ -356,6 +358,12 @@ export const AeoSetupCreateBody = /* @__PURE__ */ zod.object({
         .default(aeoSetupCreateBodyRunFirstCheckDefault)
         .describe(
             'Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the brand, prompts and keywords and the daily schedule runs the first checks.'
+        ),
+    only_first_run: zod
+        .boolean()
+        .default(aeoSetupCreateBodyOnlyFirstRunDefault)
+        .describe(
+            'Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine.'
         ),
 })
 
