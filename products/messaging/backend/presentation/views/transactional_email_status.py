@@ -33,6 +33,7 @@ from products.messaging.backend.facade.transactional_email import (
     EmailSendStatus,
     EmailStatus,
     RescheduleTooFar,
+    ScheduledEmailCursor,
     ScheduledEmailPage,
     TransactionalEmailError,
     cancel_email,
@@ -149,7 +150,7 @@ class ScheduledEmailListQuerySerializer(serializers.Serializer):
         required=False, default=100, min_value=1, max_value=100, help_text="How many emails a page holds, 1 to 100."
     )
 
-    def validate_cursor(self, value: str) -> tuple[datetime, str]:
+    def validate_cursor(self, value: str) -> ScheduledEmailCursor:
         try:
             due, message_id = json.loads(base64.urlsafe_b64decode(value.encode()))
             if not (isinstance(due, str) and isinstance(message_id, str)):
@@ -160,7 +161,7 @@ class ScheduledEmailListQuerySerializer(serializers.Serializer):
             due_at = due_at.astimezone(UTC)
             if not _EARLIEST_CLICKHOUSE_TIME <= due_at < _LATEST_CLICKHOUSE_TIME_EXCLUSIVE:
                 raise ValueError
-            return due_at, str(UUID(message_id))
+            return ScheduledEmailCursor(scheduled_at=due_at, message_id=str(UUID(message_id)))
         except (binascii.Error, UnicodeDecodeError, TypeError, ValueError, OverflowError):
             raise serializers.ValidationError("This cursor isn't one a page returned. Start again without it.")
 
@@ -183,8 +184,8 @@ class ScheduledEmailPageSerializer(serializers.Serializer):
 def _cursor(page: ScheduledEmailPage) -> str | None:
     if page.next_after is None:
         return None
-    due, message_id = page.next_after
-    return base64.urlsafe_b64encode(json.dumps([due.isoformat(), message_id]).encode()).decode()
+    cursor = [page.next_after.scheduled_at.isoformat(), page.next_after.message_id]
+    return base64.urlsafe_b64encode(json.dumps(cursor).encode()).decode()
 
 
 MANAGE_ACTIONS = ("cancel", "partial_update")
@@ -266,8 +267,8 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="List scheduled emails",
         description=(
             "List the emails that wait for their time, soonest first, a page at a time. An email leaves the list "
-            "when it goes out or is canceled. A new email, a cancel or a move can take up to a minute to show in "
-            "the list. "
+            "when it goes out or is canceled. A new email, a cancel or a move usually shows in the list within a "
+            "minute. "
             "Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` "
             "also works, but that scope reaches the rest of Workflows too."
         ),

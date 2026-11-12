@@ -368,9 +368,15 @@ class ScheduledEmail:
 
 
 @frozen
+class ScheduledEmailCursor:
+    scheduled_at: datetime
+    message_id: str
+
+
+@frozen
 class ScheduledEmailPage:
     results: tuple[ScheduledEmail, ...]
-    next_after: tuple[datetime, str] | None
+    next_after: ScheduledEmailCursor | None
 
 
 class EmailLogEventKind(LabeledStrEnum):

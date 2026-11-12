@@ -12,7 +12,13 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
-from products.messaging.backend.facade.contracts import EmailSendStatus, EmailStatus, ScheduledEmail, ScheduledEmailPage
+from products.messaging.backend.facade.contracts import (
+    EmailSendStatus,
+    EmailStatus,
+    ScheduledEmail,
+    ScheduledEmailCursor,
+    ScheduledEmailPage,
+)
 from products.messaging.backend.models.email_status_sql import (
     EMAIL_STATUS_EVENTS_TABLE,
     EMAIL_STATUS_READ_DAYS,
@@ -105,7 +111,7 @@ def _datetime64_with_microseconds(value: datetime) -> str:
     return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
-def list_scheduled_emails(team_id: int, *, after: tuple[datetime, str] | None, limit: int) -> ScheduledEmailPage:
+def list_scheduled_emails(team_id: int, *, after: ScheduledEmailCursor | None, limit: int) -> ScheduledEmailPage:
     """The team's emails that wait for their time, soonest first, starting after the `after` email."""
     now = datetime.now(UTC)
     params: dict[str, Any] = {
@@ -115,7 +121,8 @@ def list_scheduled_emails(team_id: int, *, after: tuple[datetime, str] | None, l
         "limit": limit + 1,
     }
     if after is not None:
-        params["after_at"], params["after_id"] = _datetime64_with_microseconds(after[0]), after[1]
+        params["after_at"] = _datetime64_with_microseconds(after.scheduled_at)
+        params["after_id"] = after.message_id
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
     rows = cast(
         list,
@@ -138,5 +145,7 @@ def list_scheduled_emails(team_id: int, *, after: tuple[datetime, str] | None, l
     has_more = len(rows) > limit
     return ScheduledEmailPage(
         results=emails,
-        next_after=(emails[-1].scheduled_at, emails[-1].message_id) if has_more else None,
+        next_after=ScheduledEmailCursor(scheduled_at=emails[-1].scheduled_at, message_id=emails[-1].message_id)
+        if has_more
+        else None,
     )
