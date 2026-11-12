@@ -12,7 +12,7 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.fields import RepeatedOrCommaSeparatedListField
+from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedListField
 
 from ..facade import contracts
 from ..facade.enums import (
@@ -1014,6 +1014,25 @@ class StamphogOwnersFileSerializer(serializers.Serializer):
     )
 
 
+_OUTCOME_VALUES = [outcome.value for outcome in RoutingOwnerOutcome]
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string", "enum": _OUTCOME_VALUES},
+            {"type": "array", "items": {"type": "string", "enum": _OUTCOME_VALUES}},
+        ]
+    }
+)
+class RoutingOutcomeQueryField(RepeatedOrCommaSeparatedListField, JSONTolerantListField):
+    """Owner outcomes as one value, a list, a comma-separated value or a JSON-encoded array.
+
+    The generated TS client sends a comma-separated value and the MCP client a JSON-encoded array.
+    The JSON parse runs before the comma split, so the array's own commas never split it.
+    """
+
+
 class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
     """Query parameters for listing reviewer routing runs."""
 
@@ -1028,11 +1047,11 @@ class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
             "'team-devex', or a GitHub login such as '@octocat'."
         ),
     )
-    outcome = RepeatedOrCommaSeparatedListField(
+    outcome = RoutingOutcomeQueryField(
         child=serializers.ChoiceField(choices=RoutingOwnerOutcome.choices),
         required=False,
         help_text=(
-            "Keep only runs where an owner got one of these outcomes. Pass several as a comma-separated list or repeat the parameter. "
+            "Keep only runs where an owner got one of these outcomes. Pass one, or several as a list: a comma-separated value, a JSON-encoded array, or the repeated parameter. "
             "With `owner`, that owner must have one of them, so `owner=team-devex&outcome=cut` lists the runs "
             "that cut team-devex."
         ),
