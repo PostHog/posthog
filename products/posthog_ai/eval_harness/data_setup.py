@@ -120,6 +120,12 @@ def create_isolated_demo_data(
     return org, team, user
 
 
+def _case_org_name(label: str, suffix: str) -> str:
+    # Organization.name holds 64 characters, so a long case name is cut to fit. The suffix keeps names unique.
+    max_label = Organization._meta.get_field("name").max_length - len(f"Hedgebox (-{suffix})")
+    return f"Hedgebox ({label[:max_label]}-{suffix})"
+
+
 def create_demo_org_team_user(django_db_blocker) -> tuple[Organization, Team, User]:
     """Create or reuse demo data for CI evals. Thin wrapper for backward compat."""
     return create_isolated_demo_data(django_db_blocker, label="ci")
@@ -184,7 +190,7 @@ def ensure_master_demo_team(django_db_blocker) -> int:
 def create_empty_eval_project(django_db_blocker: NullDbBlocker, *, label: str) -> tuple[Team, User]:
     suffix = uuid.uuid4().hex[:8]
     with django_db_blocker.unblock(), transaction.atomic():
-        org = Organization.objects.create(name=f"Hedgebox ({label}-{suffix})")
+        org = Organization.objects.create(name=_case_org_name(label, suffix))
         user = User.objects.create_and_join(
             org,
             f"eval-{label}-{suffix}@posthog.test",
@@ -214,7 +220,7 @@ def copy_demo_data_to_new_team(
     """
 
     suffix = uuid.uuid4().hex[:8]
-    org_name = f"Hedgebox ({label}-{suffix})"
+    org_name = _case_org_name(label, suffix)
     email = f"eval-{label}-{suffix}@posthog.test"
 
     with django_db_blocker.unblock():
