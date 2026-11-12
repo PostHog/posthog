@@ -31,6 +31,7 @@ def create_starter_dashboard(*, team_id: int) -> Dashboard:
     from posthog.helpers.dashboard_templates import create_from_template  # noqa: PLC0415
     from posthog.models.team import Team  # noqa: PLC0415
 
+    # The customization module loads the widget registry, which imports the dashboards facade.
     from products.dashboards.backend.customization import stored_customization  # noqa: PLC0415
 
     # Signup calls this in the transaction that inserts the team, which a read replica cannot see yet.
@@ -42,6 +43,8 @@ def create_starter_dashboard(*, team_id: int) -> Dashboard:
         pinned=True,
         team=team,
         description=template.dashboard_description or "",
+        # With the template's values set here, the template step logs no second "updated" activity entry.
+        filters=template.dashboard_filters,
         customization=stored_customization(template.customization),
     )
     create_from_template(dashboard, template)

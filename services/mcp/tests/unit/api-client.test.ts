@@ -710,7 +710,13 @@ describe('ApiClient', () => {
             'keeps $transport transport diagnostics value-free without changing the request',
             async ({ transport, attempts }) => {
                 const privateValue = 'private-person@example.com'
-                const send = vi.fn().mockRejectedValue(new TypeError(`Invalid request: ${privateValue}`))
+                const send = vi.fn().mockRejectedValue(
+                    Object.assign(new TypeError(`Invalid request: ${privateValue}`), {
+                        cause: Object.assign(new Error(`connect ECONNREFUSED ${privateValue}`), {
+                            code: 'ECONNREFUSED',
+                        }),
+                    })
+                )
                 vi.stubGlobal('fetch', send)
                 const client = new ApiClient({
                     apiToken: 'phx_test',
@@ -723,8 +729,14 @@ describe('ApiClient', () => {
                         : client.request({ method: 'GET', path, responseType: transport })
                 const error = (await settle(pending)) as PostHogTransportError
                 expect(error).toBeInstanceOf(PostHogTransportError)
-                expect(error).toMatchObject({ attempts, retryable: true, timedOut: false })
+                expect(error).toMatchObject({
+                    attempts,
+                    retryable: true,
+                    timedOut: false,
+                    failure: 'TypeError > Error(ECONNREFUSED)',
+                })
                 expect(error).not.toHaveProperty('cause')
+                expect(error.message).not.toContain('ECONNREFUSED')
                 const diagnostics = JSON.stringify([
                     error.message,
                     vi.mocked(console.warn).mock.calls,

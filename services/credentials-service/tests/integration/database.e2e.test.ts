@@ -4,12 +4,14 @@
 import { serve } from '@hono/node-server'
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import { SignJWT } from 'jose'
+import { generateKeyPairSync, randomBytes } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Pool } from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { PostgresReplayStore } from '@/auth/replay-postgres'
 import { AUDIENCE } from '@/auth/types'
 import {
     getIntegration,
@@ -20,10 +22,15 @@ import {
     type NewIntegration,
 } from '@/db/integrations'
 import { runMigrations } from '@/db/migrate'
-import type { Config, DatabaseConfig } from '@/lib/config'
+import type { Config, DatabaseConfig, KmsConfig } from '@/lib/config'
 import { CredentialsServer } from '@/server'
 
-const MIGRATIONS = ['1794323815130_initial-schema', '1794323815131_runtime-role-grants']
+const MIGRATIONS = [
+    '1794323815130_initial-schema',
+    '1794323815131_runtime-role-grants',
+    '1794323815132_idempotency-deployment',
+    '1794400000000_integrations-changes-index',
+]
 const TABLES = ['audit_log', 'audit_log_default', 'auth_jti', 'idempotency_keys', 'integration_secrets', 'integrations']
 const TEAM: IntegrationOwner = { type: 'team', id: 1 }
 const OTHER_TEAM: IntegrationOwner = { type: 'team', id: 2 }
@@ -134,8 +141,63 @@ describe('runtime role grants', () => {
     })
 })
 
+describe('postgres replay store', () => {
+    let db: Pool
+    let store: PostgresReplayStore
+
+    beforeAll(async () => {
+        const url = await createDatabase('replay_store')
+        await runMigrations({ databaseUrl: url, direction: 'up' })
+        db = new Pool({ connectionString: url })
+        store = new PostgresReplayStore(db)
+    })
+
+    afterAll(async () => {
+        await db?.end()
+    })
+
+    it('accepts a token id once per deployment', async () => {
+        const expires = Date.now() + 60_000
+        expect(await store.claim('web', 'jti-1', expires)).toBe(true)
+        expect(await store.claim('web', 'jti-1', expires)).toBe(false)
+        expect(await store.claim('worker', 'jti-1', expires)).toBe(true)
+    })
+
+    it('accepts only one of many concurrent claims of the same id', async () => {
+        const results = await Promise.all(
+            Array.from({ length: 8 }, () => store.claim('web', 'jti-race', Date.now() + 60_000))
+        )
+        expect(results.filter(Boolean)).toHaveLength(1)
+    })
+
+    it('deletes expired rows and keeps live ones', async () => {
+        await store.claim('web', 'jti-old', Date.now() - 1000)
+        await store.claim('web', 'jti-live', Date.now() + 60_000)
+        await store.deleteExpired()
+        const rows = await db.query<{ jti: string }>(`SELECT jti FROM auth_jti WHERE jti IN ('jti-old', 'jti-live')`)
+        expect(rows.rows.map((row) => row.jti)).toEqual(['jti-live'])
+    })
+})
+
 describe('integrations queries', () => {
     let db: Pool
+
+    it('serves the change feed page from the (updated_at, id) index', async () => {
+        await db.query(
+            `INSERT INTO integrations (owner_type, owner_id, kind, external_id, auth_type)
+             SELECT 'team', n % 50, 'hubspot', 'feed-' || n, 'oauth' FROM generate_series(1, 2000) AS n`
+        )
+        await db.query('ANALYZE integrations')
+        const plan = await db.query(
+            `EXPLAIN SELECT id FROM integrations
+             WHERE owner_type = 'team' AND updated_at <= statement_timestamp() - interval '30 seconds'
+               AND (updated_at, id) > (now() - interval '1 hour', gen_random_uuid())
+             ORDER BY updated_at, id LIMIT 100`
+        )
+        const text = plan.rows.map((row) => row['QUERY PLAN']).join('\n')
+        expect(text).toContain('integrations_updated_at_id')
+        expect(text).not.toContain('Sort')
+    })
 
     beforeAll(async () => {
         const url = await createDatabase('integrations_queries')
@@ -271,8 +333,8 @@ describe('integrations queries', () => {
 
     it('expires idempotency keys 24 hours after they are stored', async () => {
         const result = await db.query<{ seconds: string }>(
-            `INSERT INTO idempotency_keys (owner_type, owner_id, operation, key, request_hash)
-             VALUES ('team', 1, 'create', 'key-1', '\\x00')
+            `INSERT INTO idempotency_keys (deployment, owner_type, owner_id, operation, key, request_hash)
+             VALUES ('posthog-django', 'team', 1, 'create', 'key-1', '\\x00')
              RETURNING extract(epoch FROM expires_at - created_at)::text AS seconds`
         )
         expect(Number(result.rows[0]?.seconds)).toBe(24 * 60 * 60)
@@ -290,7 +352,12 @@ describe('server readiness with a database', () => {
         await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
     })
 
-    async function boot(database: DatabaseConfig | undefined, env = 'test'): Promise<number> {
+    async function boot(
+        database: DatabaseConfig | undefined,
+        kms?: KmsConfig,
+        withIntegrationKeys = false,
+        env = 'test'
+    ): Promise<number> {
         const mountDir = await mkdtemp(join(tmpdir(), 'credentials-db-e2e-'))
         dirs.push(mountDir)
         await writeFile(join(mountDir, KEY), 'not-a-real-secret')
@@ -307,6 +374,19 @@ describe('server readiness with a database', () => {
         }
         if (database) {
             config.database = database
+        }
+        if (kms) {
+            config.kms = kms
+        }
+        if (withIntegrationKeys) {
+            const integrationKeysDir = await mkdtemp(join(tmpdir(), 'credentials-integration-keys-e2e-'))
+            dirs.push(integrationKeysDir)
+            const { publicKey } = generateKeyPairSync('ed25519')
+            await writeFile(
+                join(integrationKeysDir, 'posthog-web-django.pub'),
+                publicKey.export({ type: 'spki', format: 'pem' })
+            )
+            config.integrationCallerPublicKeysDir = integrationKeysDir
         }
 
         let announce!: (port: number) => void
@@ -361,6 +441,19 @@ describe('server readiness with a database', () => {
         expect(await resolveStatus(port)).toBe(200)
     })
 
+    // Integration routes need a database, a KMS, and public keys.
+    it.each([
+        ['a database, a KMS, and public keys', true, true, 401],
+        ['a database and a KMS without public keys', true, false, 404],
+        ['a database and no KMS', false, true, 404],
+    ])('with %s, the integration routes answer %i', async (_label, withKms, withKeys, status) => {
+        const kms: KmsConfig | undefined = withKms ? { provider: 'local', keys: [randomBytes(32)] } : undefined
+        const port = await boot({ url: container.getConnectionUri(), poolSize: 2 }, kms, withKeys)
+
+        expect((await fetch(`http://127.0.0.1:${port}/v1/integrations`)).status).toBe(status)
+        expect(await resolveStatus(port)).toBe(200)
+    })
+
     describe('runtime role check', () => {
         const RUNTIME_ROLE = 'credentials_guard_runtime'
         const PASSWORD = 'not-a-real-password'
@@ -409,11 +502,25 @@ describe('server readiness with a database', () => {
         ] as [string, string, () => DatabaseConfig, boolean][])(
             'in %s with %s, integrations enabled is %s',
             async (env, _label, database, enabled) => {
-                const port = await boot(database(), env)
+                const port = await boot(database(), undefined, false, env)
 
                 expect(bootedServer().integrationsPool() !== undefined).toBe(enabled)
                 expect((await fetch(`http://127.0.0.1:${port}/_readiness`)).status).toBe(200)
                 expect(await resolveStatus(port)).toBe(200)
+            }
+        )
+
+        it.each([
+            ['prod-us', () => ({ url: migratedUrl, poolSize: 2 }), 404],
+            ['prod-us', () => ({ url: runtimeUrl, poolSize: 2 }), 401],
+            ['dev', () => ({ url: migratedUrl, poolSize: 2 }), 401],
+        ] as [string, () => DatabaseConfig, number][])(
+            'in %s, the integration routes answer %i with the role as configured',
+            async (env, database, status) => {
+                const kms: KmsConfig = { provider: 'local', keys: [randomBytes(32)] }
+                const port = await boot(database(), kms, true, env)
+
+                expect((await fetch(`http://127.0.0.1:${port}/v1/integrations`)).status).toBe(status)
             }
         )
 
@@ -441,7 +548,7 @@ describe('server readiness with a database', () => {
                 await db.end()
             }
 
-            await boot({ url: url.toString(), poolSize: 2 }, 'prod-us')
+            await boot({ url: url.toString(), poolSize: 2 }, undefined, false, 'prod-us')
 
             expect(bootedServer().integrationsPool()).toBeUndefined()
         })
@@ -467,7 +574,7 @@ describe('server readiness with a database', () => {
                 await db.query(`GRANT SELECT, INSERT ON audit_log TO ${role}`)
                 await db.query(`ALTER SCHEMA "${nspname}" OWNER TO ${role}`)
 
-                await boot({ url: url.toString(), poolSize: 2 }, 'prod-us')
+                await boot({ url: url.toString(), poolSize: 2 }, undefined, false, 'prod-us')
 
                 expect(bootedServer().integrationsPool()).toBeUndefined()
             } finally {
@@ -477,7 +584,7 @@ describe('server readiness with a database', () => {
         })
 
         it.each(['Prod-us', 'prod_us', 'PRODUCTION'])('treats the typo %s as production', async (env) => {
-            await boot({ url: migratedUrl, poolSize: 2 }, env)
+            await boot({ url: migratedUrl, poolSize: 2 }, undefined, false, env)
 
             expect(bootedServer().integrationsPool()).toBeUndefined()
         })
