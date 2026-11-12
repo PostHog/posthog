@@ -357,7 +357,7 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 groups=groups(self.organization, self.team),
             )
         except Exception as e:
-            logger.warning("Failed to capture transactional email event", event=event, error=str(e))
+            logger.warning("Failed to capture transactional email event", analytics_event=event, error=str(e))
 
 
 def _require_project_secret_api_key(request: Request) -> None:
