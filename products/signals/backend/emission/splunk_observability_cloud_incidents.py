@@ -1,7 +1,8 @@
 """Signal emitter for splunk_observability_cloud `incidents` (record kind: incident).
 
 One row is one detector incident, which groups the trigger and clear events of one anomaly.
-`detector_name` names the detector and `detect_label` the rule in it that fired.
+`detect_label` names the rule that fired. The incident row has no detector name: the API puts
+`detectorName` only on each entry of `events`, so the query reads it from the first event as `detector_name`.
 The row has no creation column: the trigger time is the earliest epoch-millisecond `timestamp` in the
 `events` JSON list, so that is the partition field. A row with no timestamped event reads as 1970 and is never fetched.
 """
@@ -17,9 +18,12 @@ TRIGGERED_AT_SQL = (
     "arrayMap(entry -> JSONExtractInt(entry, 'timestamp'), JSONExtractArrayRaw(events)))), 1000))"
 )
 
+# Every event of an incident comes from the same detector.
+DETECTOR_NAME_SQL = "JSONExtractString(events, 1, 'detectorName')"
+
 SPLUNK_OBSERVABILITY_CLOUD_FIELDS = (
     "incident_id",
-    "detector_name",
+    f"{DETECTOR_NAME_SQL} AS detector_name",
     "detect_label",
     "severity",
     "anomaly_state",

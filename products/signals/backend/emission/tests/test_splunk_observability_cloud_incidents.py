@@ -9,14 +9,14 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from products.signals.backend.emission.splunk_observability_cloud_incidents import TRIGGERED_AT_SQL
+from products.signals.backend.emission.splunk_observability_cloud_incidents import DETECTOR_NAME_SQL, TRIGGERED_AT_SQL
 
 _TRIGGER_MS = 1767225600000
 _CLEAR_MS = 1767229200000
 
 
 @pytest.mark.django_db
-class TestSplunkIncidentTriggeredAt(ClickhouseTestMixin, BaseTest):
+class TestSplunkIncidentExpressions(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             (
@@ -39,6 +39,31 @@ class TestSplunkIncidentTriggeredAt(ClickhouseTestMixin, BaseTest):
         # The partition field is the only place the incident's start time exists, so a wrong pick
         # either re-emits old incidents or never emits new ones.
         expression = TRIGGERED_AT_SQL.replace("JSONExtractArrayRaw(events)", "JSONExtractArrayRaw({events})")
+
+        result = execute_hogql_query(
+            f"SELECT {expression}",
+            team=self.team,
+            placeholders={"events": ast.Constant(value=json.dumps(events))},
+        )
+
+        assert result.results[0][0] == expected
+
+    @parameterized.expand(
+        [
+            (
+                "name_comes_from_the_first_event",
+                [
+                    {"detectorName": "Checkout latency", "timestamp": _TRIGGER_MS},
+                    {"detectorName": "Checkout latency", "timestamp": _CLEAR_MS},
+                ],
+                "Checkout latency",
+            ),
+            ("no_events_reads_as_empty", [], ""),
+        ]
+    )
+    def test_detector_name_is_read_from_the_events(self, _name, events, expected):
+        # The incident row has no detector name of its own, so the title exists only inside `events`.
+        expression = DETECTOR_NAME_SQL.replace("events", "{events}", 1)
 
         result = execute_hogql_query(
             f"SELECT {expression}",
