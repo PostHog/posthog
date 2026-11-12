@@ -104280,6 +104280,18 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * * `authored` - Authored
+     * * `edited` - Edited
+     */
+    export type ReportInvolvementEnum = typeof ReportInvolvementEnum[keyof typeof ReportInvolvementEnum];
+
+
+    export const ReportInvolvementEnum = {
+      Authored: 'authored',
+      Edited: 'edited',
+    } as const;
+
     export interface ReportKeyClauses {
       /** The clauses that state the problem or its cause in the lead. */
       lead: KeyClause[];
@@ -109410,6 +109422,37 @@ export namespace Schemas {
       summary: string;
       /** Charts the scout attached. The summary places one inline with a `[label](chart:<chart_id>)` link; any it does not place render after the body. */
       charts: ReportChart[];
+    }
+
+    /**
+     * One discussion a person opened on a report your scout emitted or edited.
+     */
+    export interface ScoutReportDiscussion {
+      /** The report the discussion is about. */
+      report_id: string;
+      /** The report's title, truncated. */
+      report_title: string;
+      /** `authored` when your scout emitted the report, `edited` when it only edited it.
+       *
+       * * `authored` - Authored
+       * * `edited` - Edited */
+      involvement: ReportInvolvementEnum;
+      /** The discussion task. */
+      task_id: string;
+      /** When the discussion started. */
+      created_at: string;
+      /** When the discussion last changed, for example when a run wrote its summary. Rows sort by it, newest first. */
+      active_at: string;
+      /**
+         * Status of the discussion's latest run, for example `in_progress` or `completed`. Null before it runs.
+         * @nullable
+         */
+      status: string | null;
+      /**
+         * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project.
+         * @nullable
+         */
+      task_summary: string | null;
     }
 
     /**
@@ -140996,6 +141039,23 @@ export namespace Schemas {
      * When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.
      */
     summary_only?: boolean;
+    };
+
+    export type SignalsScoutReportDiscussionsListParams = {
+    /**
+     * Maximum rows to return, newest first. Defaults to 20.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Narrow to discussions on one report. Returns nothing for a report your scout never emitted or edited.
+     */
+    report_id?: string;
+    /**
+     * Only discussions started or updated at or after this time, so a discussion that began earlier but concluded since is included. Defaults to 14 days ago. Pass the `completed_at` of your newest completed run to read only what changed since then.
+     */
+    since?: string;
     };
 
     export type SignalsScoutRunsListParams = {
