@@ -11759,6 +11759,12 @@ class TestEnableCDC(APIBaseTest):
         assert response.status_code == 400
         assert "cdc_management_mode" in response.json()["message"]
 
+    @parameterized.expand(
+        [
+            ("json", "json", False),
+            ("multipart", "multipart", "false"),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
@@ -11772,12 +11778,6 @@ class TestEnableCDC(APIBaseTest):
     )
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_cdc_slot_cleanup_schedule"
-    )
-    @parameterized.expand(
-        [
-            ("json", "json", False),
-            ("multipart", "multipart", "false"),
-        ]
     )
     def test_enable_cdc_passes_scalar_settings_for_any_request_format(
         self, _name: str, request_format: str, auto_drop_value, _ensure, _sync, mock_setup_cdc_resources, mock_check
