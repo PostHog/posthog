@@ -12,7 +12,9 @@ import re
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import datetime, timedelta
+from functools import cached_property
 from typing import Literal, Union, cast
 
 from django.conf import settings
@@ -41,6 +43,7 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.modifiers import materialized_view_engine_scope
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, _process_query_request
@@ -75,10 +78,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.user_query_errors import USER_QUERY_ERRORS
 from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.schema_enums import MaterializedViewEngine
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
 from products.data_modeling.backend.facade.api import materialize_saved_query, saved_query_materialized_at
+from products.data_modeling.backend.facade.flags import is_trino_view_copies_enabled
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logic.materialized_serving import serving_state_for_version
@@ -104,6 +109,9 @@ from common.hogvm.python.utils import HogVMException
 logger = structlog.get_logger(__name__)
 
 LAST_EXECUTED_THROTTLE = timedelta(minutes=30)
+
+# Staff only: picks the engine whose copy of a view the run reads, over what the feature flag decides.
+VIEW_ENGINE_STAFF_PARAM = "materialized_view_engine"
 
 ExecutionType = Literal["materialized", "materialized_fallback", "inline"]
 
@@ -344,6 +352,21 @@ class EndpointExecutionService(PydanticModelMixin):
     def __init__(self, team: Team, request: Request):
         self.team = team
         self.request = request
+
+    @cached_property
+    def view_engine(self) -> MaterializedViewEngine | None:
+        """The engine whose copy of a materialized view this run reads, or None to follow the default.
+
+        The run endpoint is public, and a Trino copy is not verified yet. A staff user can ask for either
+        engine with a query parameter, and the team's feature flag turns Trino on for everyone else. A
+        parameter from any other caller changes nothing.
+        """
+        if getattr(self.request.user, "is_staff", False):
+            try:
+                return MaterializedViewEngine(self.request.query_params.get(VIEW_ENGINE_STAFF_PARAM))
+            except ValueError:
+                pass
+        return MaterializedViewEngine.TRINO if is_trino_view_copies_enabled(self.team) else None
 
     # ------------------------------------------------------------------
     # Validation
@@ -1094,18 +1117,19 @@ class EndpointExecutionService(PydanticModelMixin):
         endpoint_feature = Feature.ENDPOINT_PLAYGROUND if self._is_interactive_session() else Feature.ENDPOINT_EXECUTION
         tag_queries(product=Product.ENDPOINTS, feature=endpoint_feature)
 
-        result = process_query_model(
-            self.team,
-            query,
-            variables_override=variables_override,
-            limit_context=limit_context,
-            execution_mode=execution_mode,
-            query_id=client_query_id,
-            user=cast(User, self.request.user),
-            is_query_service=is_api_key_access_method(get_query_tag_value("access_method")),
-            cache_age_seconds=cache_age_seconds,
-            analytics_props=get_request_analytics_properties(self.request),
-        )
+        with materialized_view_engine_scope(self.view_engine) if self.view_engine else nullcontext():
+            result = process_query_model(
+                self.team,
+                query,
+                variables_override=variables_override,
+                limit_context=limit_context,
+                execution_mode=execution_mode,
+                query_id=client_query_id,
+                user=cast(User, self.request.user),
+                is_query_service=is_api_key_access_method(get_query_tag_value("access_method")),
+                cache_age_seconds=cache_age_seconds,
+                analytics_props=get_request_analytics_properties(self.request),
+            )
 
         if isinstance(result, BaseModel):
             result = result.model_dump(by_alias=True)

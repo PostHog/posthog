@@ -7,6 +7,7 @@ parseability, and variable placeholder <-> definition consistency.
 
 import re
 import uuid
+from contextlib import nullcontext
 from typing import Optional
 
 from django.conf import settings
@@ -19,13 +20,16 @@ from posthog.schema import EndpointRequest, HogQLQuery, HogQLVariable
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.modifiers import materialized_view_engine_scope
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.variables import replace_variables
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.schema_enums import MaterializedViewEngine
 
+from products.data_modeling.backend.facade.flags import is_trino_view_copies_enabled
 from products.endpoints.backend.constants import (
     DATA_FRESHNESS_BUCKET_SPECS,
     ENDPOINT_NAME_REGEX,
@@ -121,10 +125,13 @@ def _validate_query_access(
         resolvable_ast = replace_variables(ast_node, list(query.variables.values()), team)
 
     context = HogQLContext(team_id=team.pk, user=user, enable_select_queries=True)
+    # A view that runs raw Trino SQL resolves only through its Trino copy, which a run reads for a flagged team.
+    reads_trino_copies = is_trino_view_copies_enabled(team)
     try:
         # Using prepare_ast_for_printing instead of prepare_and_print_ast
         # because table/view access is enforced during resolution
-        prepare_ast_for_printing(node=resolvable_ast, context=context, dialect="clickhouse")
+        with materialized_view_engine_scope(MaterializedViewEngine.TRINO) if reads_trino_copies else nullcontext():
+            prepare_ast_for_printing(node=resolvable_ast, context=context, dialect="clickhouse")
     except ExposedHogQLError as err:
         # Surfaces "You don't have access to table `X`." (QueryError) and other resolver errors.
         raise ValidationError({"query": f"Invalid HogQL query: {err}"}) from err
