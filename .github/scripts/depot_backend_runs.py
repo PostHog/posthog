@@ -96,6 +96,23 @@ def depot(*args: str, timeout: int = CLI_TIMEOUT_SECONDS) -> str:
     return result.stdout
 
 
+def depot_read(*args: str, retry_timeout: bool = False) -> str:
+    """A JSON read, retried once. The Depot API now and then drops a connection mid-call
+    (`unavailable: unexpected EOF`), and such a call fails fast, so the retry is cheap.
+    A timed-out call is retried only on request: retrying every one would let the lane reads
+    outlast their step timeout.
+    """
+    retried: tuple[type[subprocess.SubprocessError], ...] = (subprocess.CalledProcessError,)
+    if retry_timeout:
+        retried += (subprocess.TimeoutExpired,)
+    try:
+        return depot(*args, "--output", "json")
+    except retried as error:
+        sys.stderr.write(f"depot ci {' '.join(args)}: {error!r}, retrying\n")
+        time.sleep(1)
+        return depot(*args, "--output", "json")
+
+
 def commits_on_master(shas: Iterable[str], repo: str = REPO) -> frozenset[str]:
     """A commit GitHub cannot resolve fails the whole query."""
     candidates = sorted({sha for sha in shas if COMMIT_SHA.fullmatch(sha)})
@@ -132,10 +149,7 @@ def listed_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str
     for status in statuses:
         args += ["--status", status]
     # The CLI prints `null` when nothing matches.
-    try:
-        output = depot(*args, "--output", "json")
-    except subprocess.TimeoutExpired:
-        output = depot(*args, "--output", "json")
+    output = depot_read(*args, retry_timeout=True)
     workflows = cast(list[ListedWorkflow], json.loads(output or "null") or [])
     return sorted(workflows, key=lambda w: w["created_at"], reverse=True)
 
@@ -156,11 +170,11 @@ def master_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str
 
 
 def show(workflow_id: str) -> ShownWorkflow:
-    return cast(ShownWorkflow, json.loads(depot("workflow", "show", workflow_id, "--output", "json")))
+    return cast(ShownWorkflow, json.loads(depot_read("workflow", "show", workflow_id)))
 
 
 def artifacts(run_id: str) -> list[Artifact]:
-    listed = json.loads(depot("artifacts", "list", run_id, "--output", "json") or "null") or {}
+    listed = json.loads(depot_read("artifacts", "list", run_id) or "null") or {}
     return cast(list[Artifact], listed.get("artifacts") or [])
 
 
