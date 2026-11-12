@@ -24,6 +24,8 @@ from products.messaging.backend.services.transactional_email_status import get_e
 
 logger = structlog.get_logger(__name__)
 
+_WAITING = (EmailSendStatus.SCHEDULED, EmailSendStatus.QUEUED)
+
 
 def cancel_email(team_id: int, message_id: UUID) -> None:
     """Cancel the email, or confirm a cancel that already happened. Raises EmailNotFound, AlreadySending or
@@ -38,10 +40,13 @@ def cancel_email(team_id: int, message_id: UUID) -> None:
         raise AlreadySending()
     if response.status_code == 404 and refusal == "not_found":
         # The CDP service deletes a job once it is done with it, so a repeat cancel can find nothing there. The
-        # status says whether the email went away as a cancel.
+        # status says whether the email went away as a cancel. The status row lands a few seconds after the job
+        # goes, so a status that still waits means the outcome isn't known yet, and the caller must retry.
         email_status = get_email_status(team_id, message_id)
         if email_status is not None and email_status.status == EmailSendStatus.CANCELED:
             return
+        if email_status is not None and email_status.status in _WAITING:
+            raise DeliveryUnavailable()
         raise EmailNotFound()
     raise _unexpected("cancel", team_id, message_id, response)
 

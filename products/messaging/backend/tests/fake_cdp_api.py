@@ -9,16 +9,20 @@ from typing import Any
 
 from unittest.mock import MagicMock
 
+from django.conf import settings
+
 import jwt
 import requests
 
 from posthog.dataclasses import frozen
-from posthog.plugins.plugin_server_api import WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL_JWT_PURPOSE
 
 RECIPIENT_ADDRESS_PATTERN = re.compile(
     r"^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*"
     r"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$"
 )
+
+# The audience the CDP service checks, written out so a change to the Django minter fails the manage tests.
+CDP_MANAGE_AUDIENCE = "posthog:workflows:manage_transactional_email"
 
 Issues = list[dict[str, Any]]
 Check = Callable[[Any, list[Any]], Issues]
@@ -253,8 +257,11 @@ class FakeCdpApi:
         self, team_id: int, message_id: str, action: str, request: dict[str, Any], headers: dict[str, str]
     ) -> requests.Response:
         try:
-            claims = WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL_JWT_PURPOSE.verify(
-                headers.get("Authorization", "").removeprefix("Bearer ")
+            claims = jwt.decode(
+                headers.get("Authorization", "").removeprefix("Bearer "),
+                settings.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRETS[0],
+                algorithms=["HS256"],
+                audience=CDP_MANAGE_AUDIENCE,
             )
         except jwt.PyJWTError:
             claims = {}
