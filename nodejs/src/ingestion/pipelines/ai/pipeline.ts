@@ -178,7 +178,7 @@ export function createAiIngestionPipeline<
             // events count under token:client_ip.
             .pipeChunk(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
-            .parseMessage()
+            .parseMessage({ measureEventBytes: true })
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())
             .pipe(createValidateAiEventTokensStep())

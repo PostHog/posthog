@@ -28,6 +28,8 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
 
 import {
+    type MeasuredEventBytes,
+    type ParseKafkaMessageOptions,
     type ParsedKafkaMessage,
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -317,18 +319,34 @@ export class CommonPreTeamStage<
      *
      * Parse timing and raw message sizes are always recorded to topHog
      * (`parseMessageTopHogMetrics`); `options.topHog` appends
-     * pipeline-specific metric factories on top.
+     * pipeline-specific metric factories on top. `measureEventBytes` adds
+     * `eventBytes`, the UTF-8 size of the event body, for pipelines that bill by size.
      */
+    parseMessage(
+        options: ParseKafkaMessageOptions
+    ): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & ParsedKafkaMessage & MeasuredEventBytes>
     parseMessage(options?: {
         topHog?: TopHogMetricFactory<TCurrent, TCurrent & ParsedKafkaMessage>[]
-    }): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & ParsedKafkaMessage> {
+    }): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & ParsedKafkaMessage>
+    parseMessage(
+        options?: Partial<ParseKafkaMessageOptions> & {
+            topHog?: TopHogMetricFactory<TCurrent, TCurrent & ParsedKafkaMessage>[]
+        }
+    ):
+        | CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & ParsedKafkaMessage>
+        | CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & ParsedKafkaMessage & MeasuredEventBytes> {
+        if (options?.measureEventBytes) {
+            return this.pipeParseStep(createParseKafkaMessageStep<TCurrent>({ measureEventBytes: true }))
+        }
+        return this.pipeParseStep(createParseKafkaMessageStep<TCurrent>(), options?.topHog)
+    }
+
+    private pipeParseStep<TParsed extends TCurrent & ParsedKafkaMessage>(
+        step: ProcessingStep<TCurrent, TParsed>,
+        extraTopHog: TopHogMetricFactory<TCurrent, TParsed>[] = []
+    ): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TParsed> {
         const topHog = createTopHogWrapper(this.config.topHog)
-        return this.pipe(
-            topHog(createParseKafkaMessageStep<TCurrent>(), [
-                ...parseMessageTopHogMetrics<TCurrent, TCurrent & ParsedKafkaMessage>(),
-                ...(options?.topHog ?? []),
-            ])
-        )
+        return this.pipe(topHog(step, [...parseMessageTopHogMetrics<TCurrent, TParsed>(), ...extraTopHog]))
     }
 
     /**
