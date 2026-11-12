@@ -75,6 +75,7 @@ describe('releaseLogic', () => {
             name: 'Quiet theme',
             feature_flag_ids: [],
             broadcast_ids: ['b1'],
+            broadcasts: [],
             has_hidden_flags: false,
             created_at: '2026-11-01T00:00:00Z',
         }
@@ -90,7 +91,11 @@ describe('releaseLogic', () => {
         logic.actions.autoLinkBroadcasts('r1')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(mockedHogFlowsList).toHaveBeenCalledWith(expect.any(String), { source_record: 'release:r1', limit: 20 })
+        expect(mockedHogFlowsList).toHaveBeenCalledWith(expect.any(String), {
+            source_record: 'release:r1',
+            limit: 50,
+            offset: 0,
+        })
         if (expected) {
             expect(mockedPartialUpdate).toHaveBeenCalledWith(expect.any(String), 'r1', { broadcast_ids: expected })
         } else {

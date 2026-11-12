@@ -187,6 +187,8 @@ const RELOAD_WINDOW_MS = 2000
 const FLAG_SEARCH_LIMIT = 50
 const FLAG_FETCH_CONCURRENCY = 8
 const ID_CHUNK = 100
+const MAX_LINKED_BROADCASTS = 100
+const BROADCAST_LOOKUP_PAGE = 50
 
 type ListPage<T> = { results?: T[]; next?: string | null } | T[]
 
@@ -921,19 +923,33 @@ export const releaseLogic = kea<releaseLogicType>([
             }
         },
         autoLinkBroadcasts: async ({ id }) => {
+            const projectId = String(values.currentProjectId)
+            const started: string[] = []
+            try {
+                for (let offset = 0; offset < MAX_LINKED_BROADCASTS; offset += BROADCAST_LOOKUP_PAGE) {
+                    const page = await hogFlowsList(projectId, {
+                        source_record: releaseSourceRecord(id),
+                        limit: BROADCAST_LOOKUP_PAGE,
+                        offset,
+                    })
+                    started.push(...(page.results ?? []).map((flow) => flow.id))
+                    if (!page.next) {
+                        break
+                    }
+                }
+            } catch {
+                return
+            }
             const release = values.releases.find((item) => item.id === id)
             if (!release) {
                 return
             }
-            const page = await hogFlowsList(String(values.currentProjectId), {
-                source_record: releaseSourceRecord(id),
-                limit: 20,
-            })
-            const missing = (page.results ?? []).filter((flow) => !release.broadcast_ids.includes(flow.id))
+            const room = Math.max(MAX_LINKED_BROADCASTS - release.broadcast_ids.length, 0)
+            const missing = started.filter((flowId) => !release.broadcast_ids.includes(flowId)).slice(0, room)
             if (missing.length) {
                 actions.updateRelease(
                     id,
-                    { broadcast_ids: [...release.broadcast_ids, ...missing.map((flow) => flow.id)] },
+                    { broadcast_ids: [...release.broadcast_ids, ...missing] },
                     missing.length === 1
                         ? 'Linked the broadcast you started here'
                         : 'Linked the broadcasts you started here'

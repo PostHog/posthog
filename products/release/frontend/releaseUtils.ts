@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -11,7 +13,11 @@ import { getExperimentStatus } from 'products/experiments/frontend/experimentSta
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
-import { urlForNewBroadcastWithAudience } from 'products/workflows/frontend/Broadcasts/broadcastAudiencePrefill'
+import {
+    NAME_PREFILL_PARAM,
+    SOURCE_PREFILL_PARAM,
+    SOURCE_RECORD_PREFILL_PARAM,
+} from 'products/workflows/frontend/Broadcasts/broadcastAudiencePrefill'
 import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 import { scheduleSendTimes } from 'products/workflows/frontend/SendCalendar/sendCalendarUtils'
 
@@ -1136,12 +1142,11 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             suggestion.key === 'broadcast'
                 ? {
                       ...suggestion,
-                      to: urlForNewBroadcastWithAudience({
-                          properties: [],
-                          name: release.name,
-                          source: 'release',
-                          sourceRecord: releaseSourceRecord(release.id),
-                      }),
+                      to: combineUrl(urls.broadcastNew(), {
+                          [NAME_PREFILL_PARAM]: release.name,
+                          [SOURCE_PREFILL_PARAM]: 'release',
+                          [SOURCE_RECORD_PREFILL_PARAM]: releaseSourceRecord(release.id),
+                      }).url,
                   }
                 : suggestion
         ),
