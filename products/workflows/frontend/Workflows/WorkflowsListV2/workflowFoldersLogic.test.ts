@@ -90,6 +90,14 @@ describe('workflowFoldersLogic', () => {
 
     afterEach(() => logic.unmount())
 
+    const remount = (): void => {
+        logic.unmount()
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        logic = workflowFoldersLogic()
+        logic.mount()
+    }
+
     it('opens a project folder with counted subfolders and only its direct workflows', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Billing')
@@ -213,7 +221,8 @@ describe('workflowFoldersLogic', () => {
                 ],
             },
         })
-        await logic.asyncActions.loadBrowser()
+        remount()
+        await waitFor(() => expect(logic.values.browserReady).toBe(true))
         logic.actions.openFolder('Unfiled')
         expect(logic.values.folderTemplates.map((entry) => entry.ref)).toContain('synthetic-unfiled-email')
         expect(logic.values.folderPaths).toContain('Unfiled')
@@ -909,7 +918,7 @@ describe('workflowFoldersLogic', () => {
         useMocks({ get: { [stalled]: () => new Promise(() => {}) } })
         jest.useFakeTimers()
         try {
-            logic.actions.loadBrowser()
+            remount()
             await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
             expect(logic.values.browserReadyLoading).toBe(false)
             expect(logic.values.browserLoadFailed).toBe(true)
@@ -1083,6 +1092,52 @@ describe('workflowFoldersLogic', () => {
         ['a new folder that differs only in case', 'billing', undefined, ['Billing'], EXISTS],
     ])('validates %s', (_, name, renaming, paths, error) => {
         expect(folderNameError(name, '', paths, renaming)).toEqual(error)
+    })
+
+    it("counts other products' files at a folder's new path when it moves while they load", async () => {
+        await waitFor(() => expect(logic.values.otherFileCounts).not.toBeNull())
+        let releaseCounts!: () => void
+        const countsHeld = new Promise<void>((resolve) => (releaseCounts = resolve))
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/folder_counts/': async () => {
+                    requests++
+                    if (requests === 1) {
+                        await countsHeld
+                        return [200, { results: [{ folder: 'Reports', count: 1 }] }]
+                    }
+                    return [200, { results: [{ folder: 'Archive', count: 1 }] }]
+                },
+            },
+        })
+        logic.actions.loadOtherFiles()
+        await waitFor(() => expect(requests).toBe(1))
+        projectTreeDataLogic.actions.movedItem(
+            { id: 'dashboards', path: 'Archive', type: 'folder' },
+            'Reports',
+            'Archive'
+        )
+        releaseCounts()
+        await waitFor(() => expect(logic.values.otherFileCountsLoading).toBe(false))
+        expect(logic.values.otherFileCounts).toEqual({ Archive: 1 })
+    })
+
+    it('files unfiled project files once, not again for each recovery scan', async () => {
+        await waitFor(() => expect(logic.values.browserReady).toBe(true))
+        let unfiledRequests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/unfiled/': () => {
+                    unfiledRequests++
+                    return [200, { count: 0 }]
+                },
+            },
+        })
+        logic.actions.loadBrowser()
+        await waitFor(() => expect(logic.values.browserReadyLoading).toBe(false))
+        expect(logic.values.browserReady).toBe(true)
+        expect(unfiledRequests).toBe(0)
     })
 
     it.each([

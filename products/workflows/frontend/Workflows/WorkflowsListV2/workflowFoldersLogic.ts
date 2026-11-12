@@ -736,10 +736,14 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         return false
                     }
                     const teamId = String(values.currentTeamId)
-                    await withDeadline('filing unfiled project files', (signal) =>
-                        fileSystemUnfiledRetrieve(teamId, { signal })
-                    )
-                    breakpoint()
+                    // The backfill walks every file in the project, so a recovery scan after a prune skips it.
+                    if (!cache.unfiledFiled) {
+                        await withDeadline('filing unfiled project files', (signal) =>
+                            fileSystemUnfiledRetrieve(teamId, { signal })
+                        )
+                        cache.unfiledFiled = true
+                        breakpoint()
+                    }
                     for (let attempt = 0; attempt < MAX_INDEX_LOADS; attempt++) {
                         const changesBefore = cache.changes
                         const entries = (
@@ -769,11 +773,17 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         return null
                     }
                     const teamId = String(values.currentTeamId)
-                    const { results } = await withDeadline('counting project files', (signal) =>
-                        fileSystemFolderCountsRetrieve(teamId, { search: OTHER_FILES_SEARCH }, { signal })
-                    )
-                    breakpoint()
-                    return Object.fromEntries(results.map(({ folder, count }) => [folder, count]))
+                    for (let attempt = 0; attempt < MAX_INDEX_LOADS; attempt++) {
+                        const folderMovesBefore = cache.folderMoves
+                        const { results } = await withDeadline('counting project files', (signal) =>
+                            fileSystemFolderCountsRetrieve(teamId, { search: OTHER_FILES_SEARCH }, { signal })
+                        )
+                        breakpoint()
+                        if (cache.folderMoves === folderMovesBefore) {
+                            return Object.fromEntries(results.map(({ folder, count }) => [folder, count]))
+                        }
+                    }
+                    throw new Error('Folders kept moving while their files were counted')
                 },
             },
         ],
@@ -1255,6 +1265,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         [projectTreeDataLogic.actionTypes.dropStaleItems]: ({ items }) => forgetFiles(cache, items),
         [projectTreeDataLogic.actionTypes.movedItem]: ({ item, oldPath, newPath }) => {
             cache.changes = (cache.changes ?? 0) + 1
+            if (item.type === 'folder') {
+                cache.folderMoves = (cache.folderMoves ?? 0) + 1
+            }
             const index = fileIndex(cache)
             for (const [id, entry] of index) {
                 const path = item.type === 'folder' ? reparentPath(entry.path, oldPath, newPath) : null
