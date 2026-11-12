@@ -51,6 +51,7 @@ import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogf
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
+import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
@@ -69,6 +70,15 @@ import {
     isRecipientFormatIssue,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
+import {
+    TRANSACTIONAL_PUSH_EVENT,
+    TRANSACTIONAL_PUSH_TOKEN_CLAIMS,
+    TransactionalPushOutcome,
+    TransactionalPushRequestSchema,
+    sendsOnlyPush,
+    transactionalPushFingerprint,
+    transactionalPushRequestsTotal,
+} from './services/hogflows/transactional-push'
 import { ScheduledTransactionalSends, TransactionalSends } from './services/hogflows/transactional-sends'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
@@ -311,6 +321,7 @@ export class CdpApi {
     private transactionalEmailJwt: ScopedServiceJwt
     private manageTransactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
+    private transactionalPushIdempotencyKeys: IdempotencyKeys
     private attachmentUploads: AttachmentUploads
     private emailSuppressionService: EmailSuppressionService
     private emailValidationService: EmailValidationService
@@ -413,6 +424,10 @@ export class CdpApi {
         this.transactionalEmailIdempotencyKeys = new IdempotencyKeys(
             deps.idempotencyValkey ?? null,
             'transactional-email'
+        )
+        this.transactionalPushIdempotencyKeys = new IdempotencyKeys(
+            deps.idempotencyValkey ?? null,
+            'transactional-push'
         )
         this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.idempotencyValkey ?? null, {
             teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
@@ -522,6 +537,7 @@ export class CdpApi {
             '/api/projects/:team_id/hog_flows/:id/transactional_email/send',
             asyncHandler(this.postTransactionalEmail(AcceptedSendRequestSchema, CODE_SEND_TOKEN_CLAIMS))
         )
+        router.post('/api/projects/:team_id/hog_flows/:id/transactional_push', asyncHandler(this.postTransactionalPush))
         router.post(
             '/api/projects/:team_id/transactional_email/attachments/uploads',
             asyncHandler(this.postAttachmentUploads)
@@ -1594,6 +1610,132 @@ export class CdpApi {
         }
         const { status, body } = await this.attachmentUploads.prepare(parseInt(req.params.team_id), req.body)
         return res.status(status).json(body)
+    }
+
+    private postTransactionalPush = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        const reply = (outcome: TransactionalPushOutcome, status: number, body: Record<string, unknown>) => {
+            transactionalPushRequestsTotal.inc({ outcome })
+            return res.status(status).json(body)
+        }
+        try {
+            if (!this.transactionalEmailJwt.enabled) {
+                return reply('not_configured', 503, {
+                    error: 'Transactional push auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
+                })
+            }
+            if (
+                !this.verifyScopedWorkflowJwt(
+                    this.transactionalEmailJwt,
+                    req,
+                    res,
+                    'transactional push',
+                    TRANSACTIONAL_PUSH_TOKEN_CLAIMS
+                )
+            ) {
+                transactionalPushRequestsTotal.inc({ outcome: 'unauthorized' })
+                return
+            }
+            const parsed = TransactionalPushRequestSchema.safeParse(req.body)
+            if (!parsed.success) {
+                logger.warn('⚠️', 'Transactional push request failed validation', {
+                    team_id: req.params.team_id,
+                    hog_flow_id: req.params.id,
+                    issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
+                })
+                return reply('invalid_request', 400, { error: 'invalid_request' })
+            }
+            const { distinct_id: distinctId, variables, idempotency_key: idempotencyKey } = parsed.data
+
+            const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
+            if (!team) {
+                return reply('not_found', 404, { error: 'Team not found' })
+            }
+            const hogFlow = await this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return reply('not_found', 404, { error: 'Workflow not found' })
+            }
+            if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active' || !sendsOnlyPush(hogFlow)) {
+                return reply('not_sendable', 400, { error: 'not_sendable' })
+            }
+
+            const event: HogFunctionInvocationGlobals['event'] = {
+                uuid: new UUIDT().toString(),
+                event: TRANSACTIONAL_PUSH_EVENT,
+                distinct_id: distinctId,
+                timestamp: DateTime.now().toISO(),
+                url: '',
+                properties: {},
+                elements_chain: '',
+            }
+            const triggerGlobals: HogFunctionInvocationGlobals = {
+                event,
+                project: {
+                    id: team.id,
+                    name: team.name,
+                    url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                },
+                variables,
+            }
+            const filterGlobals = convertToHogFunctionFilterGlobal({ event, person: undefined, groups: {}, variables })
+            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+            invocation.state.triggerMetricPending = true
+
+            const idempotencyKeys = this.transactionalPushIdempotencyKeys
+            const fingerprint = transactionalPushFingerprint(hogFlow.id, parsed.data)
+            if (idempotencyKey) {
+                const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, invocation.id)
+                switch (reservation.status) {
+                    case 'replayed':
+                        return reply('replayed', 202, {
+                            status: 'queued',
+                            invocation_id: reservation.invocationId,
+                            replayed: true,
+                        })
+                    case 'in_flight':
+                        return reply('idempotency_key_in_flight', 409, { error: 'idempotency_key_in_flight' })
+                    case 'conflict':
+                        return reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
+                    case 'unavailable':
+                        return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
+                }
+            }
+            try {
+                if ((await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)).isLimited) {
+                    if (idempotencyKey) {
+                        await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                    }
+                    return reply('quota_limited', 429, { error: 'quota_limited' })
+                }
+                this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+                try {
+                    await this.hogflowQueue.queueInvocations([invocation])
+                } catch (error) {
+                    this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
+                    throw error
+                }
+            } catch (error) {
+                if (idempotencyKey) {
+                    await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                }
+                throw error
+            }
+            if (idempotencyKey) {
+                await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
+            }
+            // Best-effort rows, so the 202 waits for the hand-off to Kafka but not the acks.
+            const { produced } = await this.invocationResultsService.invocationResultsRowsService.handOffQueuedRows()
+            void produced.catch((error: unknown) =>
+                logger.warn('⚠️', 'Transactional push telemetry flush failed', {
+                    error: error instanceof Error ? error.message : String(error),
+                    invocation_id: invocation.id,
+                })
+            )
+
+            return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
+        } catch (e) {
+            logger.error('Error queueing transactional push', { error: e instanceof Error ? e.message : String(e) })
+            return reply('error', 500, { error: e instanceof Error ? e.message : String(e) })
+        }
     }
 
     private transactionalSendsForRequest(): TransactionalSends {
