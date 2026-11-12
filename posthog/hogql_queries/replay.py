@@ -183,7 +183,9 @@ def compile_logged_query(logged: LoggedQuery) -> CompiledQuery:
     captured: list[str] = []
     blocked: list[str] = []
 
-    def record(sql: str, values: Mapping[str, Any] | None = None, **_: Any) -> tuple[list[Any], list[Any]]:
+    def record(
+        sql: str, values: Mapping[str, Any] | None = None, **_: Any
+    ) -> tuple[list[Any], list[Any]]:  # nosemgrep: tuple-return-prefer-dataclass -- stands in for sync_execute
         captured.append(substitute_params(sql, dict(values or {})))
         return [], []
 
