@@ -17,6 +17,7 @@ from redis.exceptions import LockNotOwnedError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ConnectionInfo
+from posthog.clickhouse.workload import Workload
 
 from products.customer_analytics.backend.logic.membership import MembershipKey, get_membership_cleanup_lease
 from products.customer_analytics.backend.logic.membership_deletion import (
@@ -97,6 +98,39 @@ class TestMembershipDeletion(MembershipTestCase):
             assert self.run_deletion().recovered == 1
         assert self.get_rows() == [(self.key.distinct_id,)]
         assert not MembershipCleanupCandidate.objects.for_team(self.team.pk).exists()
+
+    @parameterized.expand([("single", 1, 400000), ("batch", 25, 12000)])
+    def test_large_group_keys_do_not_block_membership_erasure(self, _: str, count: int, key_length: int) -> None:
+        self.create_mapping(self.create_person())
+        self.create_membership()
+        surviving_key = MembershipKey(
+            group_type_index=0, group_key="surviving-account", distinct_id=self.key.distinct_id
+        )
+        self.create_group(surviving_key.group_key)
+        self.create_membership(surviving_key)
+        for index in range(count):
+            self.create_membership(
+                MembershipKey(
+                    group_type_index=0,
+                    group_key=f"large-account-{index}-" + "a" * key_length,
+                    distinct_id=self.key.distinct_id,
+                )
+            )
+        self.run_discovery()
+        candidates = MembershipCleanupCandidate.objects.for_team(self.team.pk)
+        candidates.update(first_missing_at=self.now - timedelta(days=2))
+        with patch.dict(
+            "products.customer_analytics.backend.logic.membership.QUERY_SETTINGS", {"max_query_size": "65536"}
+        ):
+            result = self.run_deletion()
+        assert result.deleted == count + 1
+        assert result.failed_batches == 0
+        assert not candidates.exists()
+        assert sync_execute(
+            "SELECT group_type_index, group_key, distinct_id FROM person_group_membership WHERE team_id = %(team_id)s",
+            {"team_id": self.team.pk},
+            workload=Workload.OFFLINE,
+        ) == [(surviving_key.group_type_index, surviving_key.group_key, surviving_key.distinct_id)]
 
     @parameterized.expand([(True, True), (False, False)])
     def test_deletion_requires_both_controls(self, dry_run: bool, allow_delete: bool) -> None:

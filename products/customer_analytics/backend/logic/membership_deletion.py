@@ -1,6 +1,7 @@
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import timedelta
+from hashlib import sha256
 from time import monotonic
 
 from django.conf import settings
@@ -135,8 +136,16 @@ class MembershipDeletionStore:
         predicate = "team_id = %(team_id)s"
         parameters: dict[str, object] = {"team_id": team_id}
         if keys is not None:
-            predicate += " AND (group_type_index, group_key, distinct_id) IN %(keys)s"
-            parameters["keys"] = [(key.group_type_index, key.group_key, key.distinct_id) for key in keys]
+            # Fixed-size digests keep mutation SQL independent of identifier length.
+            predicate += " AND (group_type_index, hex(SHA256(group_key)), hex(SHA256(distinct_id))) IN %(key_hashes)s"
+            parameters["key_hashes"] = [
+                (
+                    key.group_type_index,
+                    sha256(key.group_key.encode()).hexdigest().upper(),
+                    sha256(key.distinct_id.encode()).hexdigest().upper(),
+                )
+                for key in keys
+            ]
         with self.timings.measure("resolve_storage"):
             cluster = _get_cleanup_cluster(
                 settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST or settings.CLICKHOUSE_HOST, self.deadline
