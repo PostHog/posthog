@@ -197,6 +197,8 @@ def rebuttable_threads(pr: PRData) -> dict[str, str]:
     A thread qualifies when GitHub marks its root comment's author as a bot that is not the PR author,
     every comment in it comes from that bot or the PR author, and the PR author replied in it. A
     person's comment anywhere in the thread keeps it out, so a person's concern never resolves this way.
+    Each comment matches on its login and GitHub's bot flag together, because dropping `[bot]` lets a
+    person and a bot share a login. Commenters the trust gate drops never reach this check.
     """
     author = bot_handle(pr.author)
     by_thread: dict[str, list[dict]] = {}
@@ -209,8 +211,8 @@ def rebuttable_threads(pr: PRData) -> dict[str, str]:
         bot = bot_handle(root.get("user") or "")
         if root.get("in_reply_to_id") is not None or not root.get("is_bot") or not bot or bot == author:
             continue
-        logins = {bot_handle(c.get("user") or "") for c in comments}
-        if logins == {bot, author}:
+        actors = {(bot_handle(c.get("user") or ""), bool(c.get("is_bot"))) for c in comments}
+        if actors == {(bot, True), (author, pr.author_is_bot)}:
             rebuttable[thread] = bot
     return rebuttable
 

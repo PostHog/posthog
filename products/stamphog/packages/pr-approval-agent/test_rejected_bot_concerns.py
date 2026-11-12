@@ -77,7 +77,22 @@ class _JudgingReviewer(openai_reviewer.OpenAIReviewer):
             "REFUSED",
             id="a-person-joined-the-thread",
         ),
+        pytest.param(
+            [_BOT_ROOT, _AUTHOR_REPLY], {**_rejected(), "thread": "[T1]"}, "APPROVED", id="thread-id-as-tagged"
+        ),
+        pytest.param(
+            [_BOT_ROOT, _AUTHOR_REPLY, _thread_comment("posthog", "I still think it can be empty.")],
+            _rejected(),
+            "REFUSED",
+            id="a-person-with-the-bots-login-joined",
+        ),
         pytest.param([_BOT_ROOT], _rejected(), "REFUSED", id="author-never-replied"),
+        pytest.param(
+            [_BOT_ROOT, _thread_comment("alice", "Not a bug.", is_bot=True)],
+            _rejected(),
+            "REFUSED",
+            id="a-bot-with-the-authors-login-replied",
+        ),
         pytest.param(
             [_thread_comment("alice", _FINDING, is_bot=True), _AUTHOR_REPLY],
             _rejected(),

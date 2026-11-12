@@ -94,7 +94,7 @@ class RejectedConcern:
         if not isinstance(item["rejection_holds"], bool):
             raise InvalidFactsError("rejected_bot_concerns rejection_holds is not a boolean")
         return cls(
-            thread=item["thread"].strip(),
+            thread=item["thread"].strip().strip("[]"),
             concern=item["concern"].strip(),
             category=item["category"],
             rejection_holds=item["rejection_holds"],
