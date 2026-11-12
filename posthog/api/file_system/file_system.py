@@ -128,9 +128,12 @@ def validate_file_system_path(path: Any) -> str:
         raise serializers.ValidationError("Path must be a string.")
     if len(path) > MAX_PATH_LENGTH:
         raise serializers.ValidationError(f"Path must be {MAX_PATH_LENGTH} characters or fewer.")
-    if len(split_path(path)) > MAX_PATH_SEGMENTS:
+    segments = [segment for segment in split_path(path) if segment.strip()]
+    if not segments:
+        raise serializers.ValidationError("Path must include a name.")
+    if len(segments) > MAX_PATH_SEGMENTS:
         raise serializers.ValidationError(f"Path can be at most {MAX_PATH_SEGMENTS} levels deep.")
-    return path
+    return join_path(segments)
 
 
 class FileSystemListQuerySerializer(serializers.Serializer):
