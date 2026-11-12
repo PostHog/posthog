@@ -25,8 +25,8 @@ Every service that uses the store reads these. The leader refuses `PROPERTY_STOR
 | `PROPERTY_STORE_COMPRESSION` | `zstd` | SST compression: `none`, `lz4` or `zstd` |
 | `PROPERTY_STORE_MIN_FILTER_KEYS` | `1` | Smallest SST that gets a bloom filter |
 | `PROPERTY_STORE_FILTER_BITS_PER_KEY` | `10` | Bloom filter size |
-| `PROPERTY_STORE_BLOCK_CACHE_BYTES` | `0` | In-memory block cache, shared by a process's shards. Off by default; the leader's person cache already holds what it would |
-| `PROPERTY_STORE_META_CACHE_BYTES` | `67108864` | In-memory cache of SST indexes and filters |
+| `PROPERTY_STORE_BLOCK_CACHE_BYTES` | `0` | In-memory block cache, shared by a process's shards. Off by default; the leader's person cache already holds what it would. Readers only |
+| `PROPERTY_STORE_META_CACHE_BYTES` | `67108864` | In-memory cache of SST indexes and filters. Readers only |
 | `PROPERTY_STORE_READER_POLL_MS` | `5000` | How often a reader checks for new data, and how far it can lag |
 | `PROPERTY_STORE_READER_SKIP_WAL` | `false` | Readers skip WAL files and see a write only after the next memtable flush. Replicas only |
 | `PROPERTY_STORE_READER_MEMTABLE_BYTES` | `8388608` | Largest in-memory table a reader buffers replayed WAL in |
@@ -51,6 +51,8 @@ Writer side:
 | `personhog_property_store_ownership_total{event}` | counter | Partition shards `assigned`, `revoked`, `fenced` by another writer, or `reopened` after a fence while still assigned |
 | `personhog_property_store_shard_open_ms` | histogram | Opening one shard for writing |
 | `personhog_property_store_shard_open_failures_total{kind}` | counter | Shard opens that failed, `data` or `unavailable` |
+| `personhog_property_store_erased_keys_total` | counter | Keys deleted by erasing deleted teams |
+| `personhog_property_store_erase_failures_total{kind}` | counter | Shards an erasure pass left for the next one, by error class (`unavailable`, which includes a timed-out batch, or `data`) |
 | `personhog_property_store_memtable_flushes_total{outcome}` | counter | Timed memtable flushes: `flushed`, `failed`, `timed_out` |
 | `personhog_property_store_full_compactions_total{stage, outcome}` | counter | Full compaction stages (`l0`, `runs`) `submitted`, `completed`, `failed`, or `submit_failed` |
 | `personhog_property_store_full_compaction_stage_seconds{stage, outcome}` | histogram | How long a stage ran, to about one maintenance tick |

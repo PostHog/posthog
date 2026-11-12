@@ -48,6 +48,10 @@ pub struct Config {
     #[envconfig(default = "/personhog/")]
     pub etcd_prefix: String,
 
+    /// Must exceed the changelog's retention and the longest backfill.
+    #[envconfig(default = "30")]
+    pub deleted_teams_retention_days: u64,
+
     /// Storage backend to use. Currently supported: "postgres"
     #[envconfig(default = "postgres")]
     pub storage_backend: String,

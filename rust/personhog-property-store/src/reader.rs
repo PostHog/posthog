@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use bytes::Bytes;
 use futures::future::join_all;
 use metrics::{counter, gauge, histogram};
 use slatedb::config::DbReaderOptions;
@@ -166,6 +167,26 @@ impl PropertyReader {
                 return Err(PropertyStoreError::ShardUnavailable { shard, reason });
             }
         }
+    }
+
+    /// Whether any shard still holds a key of the team.
+    pub async fn team_has_keys(&self, team_id: i64) -> Result<bool, PropertyStoreError> {
+        let start = Bytes::copy_from_slice(&encode_key(team_id, 0));
+        let end = Bytes::copy_from_slice(&encode_key(team_id, i64::MAX));
+        for shard in 0..self.shards {
+            let found = async {
+                let reader = self.reader(shard).await?;
+                let mut keys = reader.scan(start.clone()..=end.clone()).await?;
+                Ok::<_, PropertyStoreError>(keys.next().await?.is_some())
+            };
+            match tokio::time::timeout(self.open_timeout, found).await {
+                Ok(Ok(true)) => return Ok(true),
+                Ok(Ok(false)) => {}
+                Ok(Err(e)) => return Err(e),
+                Err(_) => return Err(PropertyStoreError::Timeout),
+            }
+        }
+        Ok(false)
     }
 
     pub async fn open_partition(

@@ -956,3 +956,194 @@ async fn a_read_abandoned_during_an_outage_stops_retrying() {
     assert_eq!(tables.table_reads.load(Ordering::SeqCst), settled);
     reader.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn erasing_a_team_removes_its_keys_and_no_others() {
+    let dir = tempfile::tempdir().unwrap();
+    let writer = assigned_writer(&dir, 1).await;
+    let key = sole_partition();
+    let other_team = PropertyRecord {
+        team_id: 8,
+        ..record(1, 1, "{}")
+    };
+    writer
+        .put(
+            &key,
+            1,
+            &[record(1, 1, "{}"), record(2, 1, "{}"), other_team],
+        )
+        .await
+        .unwrap();
+    let reader = PropertyReader::new(&config(), store(&dir));
+    read_at_version(&reader, 2, 1).await.unwrap();
+    assert!(reader.team_has_keys(7).await.unwrap());
+
+    assert_eq!(writer.erase_team(7).await.unwrap(), 2);
+
+    assert_eq!(reader.get_fresh(7, 1).await.unwrap(), None);
+    assert_eq!(reader.get_fresh(7, 2).await.unwrap(), None);
+    assert!(reader.get_fresh(8, 1).await.unwrap().is_some());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while reader.team_has_keys(7).await.unwrap() {
+        assert!(
+            Instant::now() < deadline,
+            "the reader never saw the erasure"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(reader.team_has_keys(8).await.unwrap());
+    writer.close().await;
+    reader.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_team_larger_than_one_batch_is_erased_in_full() {
+    let dir = tempfile::tempdir().unwrap();
+    let writer = assigned_writer(&dir, 1).await;
+    let persons: Vec<PropertyRecord> = (1..=7).map(|id| record(id, 1, "{}")).collect();
+    writer.put(&sole_partition(), 1, &persons).await.unwrap();
+
+    assert_eq!(
+        writer
+            .erase_team_in_batches(7, 2, Duration::from_secs(30))
+            .await
+            .unwrap(),
+        7
+    );
+
+    let reader = PropertyReader::new(&config(), store(&dir));
+    for id in 1..=7 {
+        assert_eq!(reader.get_fresh(7, id).await.unwrap(), None, "person {id}");
+    }
+    writer.close().await;
+    reader.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_erasure_leaves_a_shard_whose_store_does_not_answer_and_erases_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let person_in = |shard: u32| (1..).find(|&id| shard_for(7, id, SHARDS) == shard).unwrap();
+    let writer = assigned_writer(&dir, 1).await;
+    writer
+        .put(
+            &sole_partition(),
+            1,
+            &[record(person_in(0), 1, "{}"), record(person_in(1), 1, "{}")],
+        )
+        .await
+        .unwrap();
+    // In SSTs, so the erasure's scan has to read the store rather than a replayed memtable.
+    writer.flush_memtables().await;
+    writer.close().await;
+    // Shard 0 stalls and comes first, so the healthy shard is only reached by going on past it.
+    let slow = PropertyWriter::new(
+        &config(),
+        Arc::new(StalledShard {
+            inner: store(&dir),
+            shard: "shard-00000".to_string(),
+            fail: false,
+            delay: Some(Duration::from_millis(400)),
+        }),
+    );
+    slow.assign(&sole_partition(), 2, 1, || true).await.unwrap();
+
+    let erased = tokio::time::timeout(
+        Duration::from_secs(20),
+        slow.erase_team_in_batches(7, 2, Duration::from_millis(100)),
+    )
+    .await
+    .expect("every batch is bounded");
+
+    assert!(
+        matches!(erased, Err(PropertyStoreError::Timeout)),
+        "{erased:?}"
+    );
+    let reader = PropertyReader::new(&config(), store(&dir));
+    assert!(
+        reader.get_fresh(7, person_in(0)).await.unwrap().is_some(),
+        "the stalled shard keeps its keys for the next pass"
+    );
+    assert_eq!(
+        reader.get_fresh(7, person_in(1)).await.unwrap(),
+        None,
+        "the healthy shard after it was erased"
+    );
+    slow.close().await;
+    reader.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_erasure_on_a_slow_store_advances_by_smaller_batches() {
+    let dir = tempfile::tempdir().unwrap();
+    let writer = assigned_writer(&dir, 1).await;
+    // A value of a block each, so every key the scan reaches costs the store one request.
+    let value: &'static str =
+        Box::leak(format!(r#"{{"blob":"{}"}}"#, "x".repeat(64 * 1024)).into_boxed_str());
+    let persons: Vec<i64> = (1..)
+        .filter(|&id| shard_for(7, id, SHARDS) == 0)
+        .take(20)
+        .collect();
+    let records: Vec<PropertyRecord> = persons.iter().map(|&id| record(id, 1, value)).collect();
+    writer.put(&sole_partition(), 1, &records).await.unwrap();
+    writer.flush_memtables().await;
+    writer.close().await;
+    let slow = PropertyWriter::new(
+        &config(),
+        Arc::new(StalledShard {
+            inner: store(&dir),
+            shard: "shard-00000".to_string(),
+            fail: false,
+            delay: Some(Duration::from_millis(200)),
+        }),
+    );
+    slow.assign(&sole_partition(), 2, 1, || true).await.unwrap();
+
+    let erased = slow
+        .erase_team_in_batches(7, 100, Duration::from_secs(3))
+        .await;
+
+    assert_eq!(erased.unwrap(), persons.len());
+    let reader = PropertyReader::new(&config(), store(&dir));
+    for id in &persons {
+        assert_eq!(reader.get_fresh(7, *id).await.unwrap(), None, "person {id}");
+    }
+    slow.close().await;
+    reader.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_erasure_scan_abandoned_during_an_outage_stops_reading() {
+    use std::sync::atomic::Ordering;
+    let dir = tempfile::tempdir().unwrap();
+    let tables = Arc::new(FailingTables {
+        inner: store(&dir),
+        failing: std::sync::atomic::AtomicBool::new(false),
+        table_reads: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let earlier = assigned_writer(&dir, 1).await;
+    earlier
+        .put(&sole_partition(), 1, &[record(1, 1, "{}")])
+        .await
+        .unwrap();
+    earlier.flush_memtables().await;
+    earlier.close().await;
+    // A new owner has none of the table's metadata cached, so the scan has to load it.
+    let writer = PropertyWriter::new(&config(), tables.clone());
+    writer
+        .assign(&sole_partition(), 2, 1, || true)
+        .await
+        .unwrap();
+    tables.failing.store(true, Ordering::SeqCst);
+
+    let erased = writer
+        .erase_team_in_batches(7, 100, Duration::from_millis(200))
+        .await;
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    let settled = tables.table_reads.load(Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    assert!(erased.is_err(), "{erased:?}");
+    assert!(settled > 0, "the scan never reached the failing tables");
+    assert_eq!(tables.table_reads.load(Ordering::SeqCst), settled);
+    writer.close().await;
+}

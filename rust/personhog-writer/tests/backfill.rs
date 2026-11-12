@@ -443,6 +443,7 @@ async fn verification_judges_each_person_by_version() {
     let verifier = Verifier {
         pool: &pool,
         reader: &reader,
+        live_pool: None,
         verification: &verification,
         limits: limits(),
     };
@@ -463,6 +464,33 @@ async fn verification_judges_each_person_by_version() {
         counts,
         "a finished range is reported, not redone"
     );
+
+    // A deleted team that still has keys is a divergence of its own.
+    sqlx::query("INSERT INTO personhog_deleted_teams (team_id) VALUES ($1) ON CONFLICT DO NOTHING")
+        .bind(team as i32)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let teams = Verification::new(Arc::clone(&store), "verify-test-teams").unwrap();
+    let verifier = Verifier {
+        pool: &pool,
+        reader: &reader,
+        live_pool: None,
+        verification: &teams,
+        limits: limits(),
+    };
+    let counts = verifier.run_worker(&run, 0, 1, 1000, 1).await.unwrap();
+    assert_eq!(counts.deleted_teams_present, 1);
+    assert_eq!(
+        (counts.erased_team, counts.missing, counts.differs),
+        (counts.checked, 0, 0),
+        "a listed team's rows are not judged"
+    );
+    sqlx::query("DELETE FROM personhog_deleted_teams WHERE team_id = $1")
+        .bind(team as i32)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     reader.close().await;
     writer.close().await;

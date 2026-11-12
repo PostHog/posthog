@@ -252,9 +252,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    let pool = if mode.writes_postgres() {
+    let pool = if mode.writes_postgres() || mode == PropertyStorageMode::Backfill {
         let pool_config = PoolConfig {
-            max_connections: config.pg_max_connections,
+            max_connections: if mode.writes_postgres() {
+                config.pg_max_connections
+            } else {
+                2
+            },
             pool_name: Some("personhog-writer".to_string()),
             statement_timeout_ms: Some(30_000),
             ..Default::default()
@@ -400,26 +404,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    if let (Some(pool), Some(writer)) = (&pool, &property_writer) {
+        personhog_writer::deleted_teams::spawn(pool.clone(), Arc::clone(writer));
+    }
+
     // Writer lanes: each lane gets its own channel, store, and task, and
     // commits offsets only for the partitions routed to it.
     let mut lane_txs = Vec::with_capacity(lanes);
     for writer_handle in writer_handles {
         let (flush_tx, flush_rx) = mpsc::channel(config.flush_channel_capacity);
-        let store = pool.as_ref().map(|pool| {
-            let pg = if mode.writes_postgres_properties() {
-                PgStore::new(pool.clone(), config.pg_target_table.clone())
-            } else {
-                PgStore::without_properties(pool.clone(), config.pg_target_table.clone())
-            };
-            PersonWriteStore::new(
-                pg,
-                personhog_writer::store::StoreConfig {
-                    chunk_size: config.upsert_batch_size,
-                    row_fallback_concurrency: config.row_fallback_concurrency,
-                },
-                Arc::clone(&upsert_permits),
-            )
-        });
+        let store = pool
+            .as_ref()
+            .filter(|_| mode.writes_postgres())
+            .map(|pool| {
+                let pg = if mode.writes_postgres_properties() {
+                    PgStore::new(pool.clone(), config.pg_target_table.clone())
+                } else {
+                    PgStore::without_properties(pool.clone(), config.pg_target_table.clone())
+                };
+                PersonWriteStore::new(
+                    pg,
+                    personhog_writer::store::StoreConfig {
+                        chunk_size: config.upsert_batch_size,
+                        row_fallback_concurrency: config.row_fallback_concurrency,
+                    },
+                    Arc::clone(&upsert_permits),
+                )
+            });
         let mut writer_task =
             WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
         if let Some(properties) = &property_writer {

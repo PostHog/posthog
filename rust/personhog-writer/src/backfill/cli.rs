@@ -81,6 +81,9 @@ struct VerifyArgs {
     /// Checks one row in every N of each page; 1 checks every row.
     #[arg(long, default_value_t = 1)]
     sample_every: usize,
+    /// The live database, which lists a team deleted after the snapshot in DATABASE_URL.
+    #[arg(long)]
+    live_database_url: Option<String>,
 }
 
 pub async fn run(backfill: Backfill, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
@@ -169,6 +172,18 @@ async fn verify(config: &Config, args: VerifyArgs) -> Result<(), Box<dyn std::er
     serve_metrics(config.metrics_port);
     let pool = pool(config)?;
     let limits = limits(config);
+    let live_pool = match &args.live_database_url {
+        Some(url) => Some(get_pool_with_config(
+            url,
+            PoolConfig {
+                max_connections: 2,
+                pool_name: Some("personhog-writer-verify-live".to_string()),
+                statement_timeout_ms: Some(10_000),
+                ..Default::default()
+            },
+        )?),
+        None => None,
+    };
     let state = state_store(config)?;
     let run = Run::new(Arc::clone(&state), &args.run_id)?;
     let verification = Verification::new(state, &args.run_id)?;
@@ -186,6 +201,7 @@ async fn verify(config: &Config, args: VerifyArgs) -> Result<(), Box<dyn std::er
     let counts = verify::Verifier {
         pool: &pool,
         reader: &reader,
+        live_pool: live_pool.as_ref(),
         verification: &verification,
         limits,
     }
