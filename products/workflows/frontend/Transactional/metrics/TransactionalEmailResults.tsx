@@ -5,6 +5,7 @@ import { LemonBanner, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
+import { TransactionalTemplatesLoadError } from '../TransactionalTemplatesLoadError'
 import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailResultsStats } from './TransactionalEmailResultsStats'
@@ -13,9 +14,7 @@ export function TransactionalEmailResults(): JSX.Element {
     const { resultsQuery, results, resultsLoading, resultsFailed, canLoadResults } =
         useValues(transactionalEmailMetricsLogic)
     const { setResultsQuery, loadResults } = useActions(transactionalEmailMetricsLogic)
-    const { transactionalTemplates, transactionalTemplatesLoading, transactionalTemplatesFailed } =
-        useValues(transactionalTemplatesLogic)
-    const { loadTransactionalTemplates } = useActions(transactionalTemplatesLogic)
+    const { transactionalTemplates, transactionalTemplatesFailed } = useValues(transactionalTemplatesLogic)
 
     const emailOptions = transactionalTemplates
         .filter((template) => template.transactional_hog_flow_id)
@@ -72,17 +71,11 @@ export function TransactionalEmailResults(): JSX.Element {
                     data-attr="transactional-email-results-revenue"
                 />
             </div>
-            {transactionalTemplatesFailed && !transactionalTemplatesLoading ? (
-                <LemonBanner
-                    type="error"
-                    action={{
-                        children: 'Try again',
-                        onClick: () => loadTransactionalTemplates(),
-                        'data-attr': 'transactional-email-results-templates-retry',
-                    }}
-                >
-                    Your emails couldn't load, so there's nothing to pick yet. Check your connection and try again.
-                </LemonBanner>
+            {transactionalTemplatesFailed ? (
+                <TransactionalTemplatesLoadError
+                    message="Your emails couldn't load, so there's nothing to pick yet. Check your connection and try again."
+                    dataAttr="transactional-email-results-templates-retry"
+                />
             ) : !canLoadResults ? (
                 <p className="text-secondary text-sm m-0">
                     Choose an email and the event that counts as a conversion, such as a signup or a purchase.

@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import type { TransactionalEmailLogEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { EmailDirectionToggle } from '../comingSoon/EmailDirectionToggle'
+import { TransactionalTemplatesLoadError } from '../TransactionalTemplatesLoadError'
 import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import { EMAIL_STATUS_DESCRIPTION, EMAIL_STATUS_LABEL, EMAIL_STATUS_TAG, emailReasonText } from './emailLogStatus'
 import { QuillTransactionalEmailLogFilters } from './QuillTransactionalEmailLogFilters'
@@ -106,6 +107,10 @@ export function TransactionalEmailLog(): JSX.Element {
                     </div>
                 </div>
             )}
+            <TransactionalTemplatesLoadError
+                message="Your emails couldn't load, so you can't filter by email yet. Check your connection and try again."
+                dataAttr="transactional-email-log-templates-retry"
+            />
             {pageFailed && (
                 <LemonBanner
                     type="error"
