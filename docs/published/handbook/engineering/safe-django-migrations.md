@@ -250,10 +250,14 @@ Removing a product (`products/<name>/`) is the phased table drop above — once 
 Safe order:
 
 1. Strip all usage and the model classes, and drop the tables via the [phased approach](#dropping-tables) (state-only `DeleteModel`, wait a deploy cycle, then `SafeDropTable`). Keep the app in `INSTALLED_APPS` so its migrations still run.
-2. Only after the drop migration has deployed everywhere, remove the app from `INSTALLED_APPS` and delete the `products/<name>/` folder.
+   Do not keep the model classes to protect the migration graph. Migrations in other apps depend on this app's migration files, not on its models.
+   Once the models are out of Django's state, the next migration squash writes an empty initial migration for the app, and no new squash file depends on it.
+2. Remove the app from `INSTALLED_APPS` and delete the `products/<name>/` folder only after the drop migration has deployed everywhere and no migration file outside the app names one of its migrations as a dependency.
+   Django resolves a dependency by app label and migration name, and loads migrations only from installed apps.
+   Each squash writes `schema_addons` files that depend on every app that still had models at that squash. Those references go away only when that squash's files are deleted.
 3. Optionally `DELETE FROM django_migrations WHERE app = '<app_label>'` to clear the orphan rows.
 
-Leaving the table in place — code gone, table dropped in a follow-up — is a legitimate shortcut for a small retired product: it dodges the rolling-deploy window where in-flight requests hit a dropped table. Just make the leftover table a tracked follow-up, not an accident.
+Leaving the table in place — code and model classes gone, table dropped in a follow-up — is a legitimate shortcut for a small retired product: it dodges the rolling-deploy window where in-flight requests hit a dropped table. Just make the leftover table a tracked follow-up, not an accident.
 
 ## Dropping Columns
 
