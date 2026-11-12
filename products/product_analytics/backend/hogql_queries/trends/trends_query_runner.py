@@ -57,6 +57,7 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -132,6 +133,18 @@ ADDITIVE_MATHS: frozenset[str | None] = frozenset(
         PropertyMathType.SUM,
     }
 )
+
+
+@frozen
+class _ResultSeries:
+    order: int | None
+    compare_label: str | None
+
+
+@frozen
+class _ResultSeriesBreakdown:
+    series: _ResultSeries
+    breakdown_value_repr: str
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
@@ -642,8 +655,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             if total is not None:
                 item["count"] = total
 
-    def _named_breakdowns_by_series(self, results: list[dict[str, Any]]) -> defaultdict[tuple[Any, Any], set[str]]:
-        named: defaultdict[tuple[Any, Any], set[str]] = defaultdict(set)
+    def _named_breakdowns_by_series(self, results: list[dict[str, Any]]) -> defaultdict[_ResultSeries, set[str]]:
+        named: defaultdict[_ResultSeries, set[str]] = defaultdict(set)
         for item in results:
             breakdown_value = item.get("breakdown_value")
             if breakdown_value is not None and not self._is_other_breakdown(breakdown_value):
@@ -651,12 +664,14 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return named
 
     @staticmethod
-    def _range_total_series(item: dict[str, Any]) -> tuple[Any, Any]:
-        return item.get("order"), item.get("compare_label")
+    def _range_total_series(item: dict[str, Any]) -> _ResultSeries:
+        return _ResultSeries(order=item.get("order"), compare_label=item.get("compare_label"))
 
-    @staticmethod
-    def _range_total_key(item: dict[str, Any]) -> tuple[Any, str, Any]:
-        return item.get("order"), repr(item.get("breakdown_value")), item.get("compare_label")
+    @classmethod
+    def _range_total_key(cls, item: dict[str, Any]) -> _ResultSeriesBreakdown:
+        return _ResultSeriesBreakdown(
+            series=cls._range_total_series(item), breakdown_value_repr=repr(item.get("breakdown_value"))
+        )
 
     def format_results(self, returned_results: list[list[dict[str, Any]]]) -> tuple[list[dict[str, Any]], bool]:
         """Format pre-computed per-series results into a flat result list.
