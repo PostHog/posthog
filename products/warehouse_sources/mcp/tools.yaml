@@ -142,12 +142,12 @@ tools:
         description: >
             Read one table's destination override. `inherits_from_source` tells you whether the table follows its
             source; `effective_destination_ids` is where it actually syncs once inheritance is resolved.
-        feature_flag: warehouse-multi-destination
         param_overrides:
             id:
                 aliases:
                     - schema_id
                     - schemaId
+        feature_flag: warehouse-multi-destination
     external-data-schemas-incremental-fields-create:
         operation: external_data_schemas_incremental_fields_create
         enabled: true
@@ -449,12 +449,12 @@ tools:
             source nobody configured destinations for writes to the PostHog warehouse by default and reports it here, so
             a list with only the PostHog warehouse can be a default or an explicit choice. An empty list means the
             project has no PostHog warehouse destination yet. Links to paused destinations are not listed.
-        feature_flag: warehouse-multi-destination
         param_overrides:
             id:
                 aliases:
                     - source_id
                     - sourceId
+        feature_flag: warehouse-multi-destination
     external-data-sources-destinations-update:
         operation: external_data_sources_destinations_partial_update
         enabled: true
@@ -628,15 +628,15 @@ tools:
             prefix, all table schemas with their sync statuses, latest error, and last sync timestamp. Per-schema column
             definitions are omitted to keep the payload small — use external-data-schemas-retrieve for a single table's
             columns.
-        response:
-            exclude:
-                - schemas.*.table.columns
-                - schemas.*.available_columns
         param_overrides:
             id:
                 aliases:
                     - source_id
                     - sourceId
+        response:
+            exclude:
+                - schemas.*.table.columns
+                - schemas.*.available_columns
     external-data-sources-update-webhook-inputs-create:
         operation: external_data_sources_update_webhook_inputs_create
         enabled: true
