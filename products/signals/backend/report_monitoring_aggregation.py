@@ -10,6 +10,7 @@ class MonitoringMemberState(StrEnum):
     FAILED = "failed"
     INCONCLUSIVE = "inconclusive"
     EXHAUSTED = "exhausted"
+    CANCELLED = "cancelled"
 
 
 class MonitoringAggregation(models.TextChoices):
@@ -20,10 +21,13 @@ class MonitoringAggregation(models.TextChoices):
 
 
 def aggregate_monitoring_members(members: Collection[MonitoringMemberState]) -> MonitoringAggregation:
-    states = frozenset(members)
+    # A cancelled check leaves the snapshot. With none left, the report resolves as if it never had checks.
+    states = frozenset(members) - {MonitoringMemberState.CANCELLED}
     if MonitoringMemberState.FAILED in states:
         return MonitoringAggregation.FAILED
-    if not states or MonitoringMemberState.WAITING in states:
+    if not states:
+        return MonitoringAggregation.PASSED if members else MonitoringAggregation.WAITING
+    if MonitoringMemberState.WAITING in states:
         return MonitoringAggregation.WAITING
     if states == {MonitoringMemberState.PASSED}:
         return MonitoringAggregation.PASSED
