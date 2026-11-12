@@ -30,6 +30,7 @@ const savedView: WorkflowViewApi = {
     deleted: false,
     created_at: '2026-10-07T00:00:00Z',
     updated_at: '2026-10-07T00:00:00Z',
+    user_access_level: 'editor',
 }
 
 describe('saved workflow view actions', () => {

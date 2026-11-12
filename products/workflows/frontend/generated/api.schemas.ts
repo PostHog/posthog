@@ -3376,6 +3376,8 @@ export interface WorkflowViewApi {
     readonly created_at: string
     /** When the shared view was last changed. */
     readonly updated_at: string
+    /** Your workflow access in the owning project. */
+    readonly user_access_level: string
 }
 
 export interface PaginatedWorkflowViewListApi {

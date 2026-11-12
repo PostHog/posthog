@@ -37,6 +37,7 @@ const savedView: WorkflowViewApi = {
     deleted: false,
     created_at: '2026-10-07T00:00:00Z',
     updated_at: '2026-10-07T00:00:00Z',
+    user_access_level: AccessControlLevel.Editor,
 }
 
 const myWorkflows: WorkflowViewApi = {
@@ -62,12 +63,14 @@ describe('workflowsSavedViewsLogic', () => {
     let requests: string[]
     let storedViews: WorkflowViewApi[]
     let writes: unknown[]
+    let ownerAccess: AccessControlLevel
 
     beforeEach(() => {
         localStorage.clear()
         requests = []
         storedViews = [savedView]
         writes = []
+        ownerAccess = AccessControlLevel.Editor
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flows/summaries/': ({ request }) => [
@@ -77,11 +80,14 @@ describe('workflowsSavedViewsLogic', () => {
                 '/api/projects/:team_id/hog_flows/metrics/global/': () => [200, FIXTURE_METRICS],
                 '/api/projects/:team_id/workflow_views/': ({ request }) => {
                     requests.push(request.url)
-                    return [200, paginated(storedViews)]
+                    return [200, paginated(storedViews.map((view) => ({ ...view, user_access_level: ownerAccess })))]
                 },
             },
             post: {
-                '/api/projects/:team_id/workflow_views/initialize/': () => [200, myWorkflows],
+                '/api/projects/:team_id/workflow_views/initialize/': () => [
+                    200,
+                    { ...myWorkflows, user_access_level: ownerAccess },
+                ],
                 '/api/projects/:team_id/workflow_views/': async ({ request }) => {
                     const body = (await request.json()) as WorkflowViewCreateApi
                     writes.push(body)
@@ -734,8 +740,9 @@ describe('workflowsSavedViewsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
         workflowsListV2Logic.actions.setValue({ filters: [], text: 'mine' })
         await logic.asyncActions.updateActiveView()
-        window.POSTHOG_APP_CONTEXT!.resource_access_control!.hog_flow = AccessControlLevel.Viewer
-        userLogic.actions.loadUserSuccess({ ...userLogic.values.user! })
+        ownerAccess = AccessControlLevel.Viewer
+        logic.actions.loadSavedViews()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
         expect(logic.values.writeDisabledReason).toBeTruthy()
         await logic.asyncActions.resetView()
         expect(logic.values.activeView.name).toEqual('Latest')
@@ -1717,7 +1724,7 @@ describe('workflowsSavedViewsLogic', () => {
     })
 
     it('lets a viewer select shared views but prevents all shared writes', async () => {
-        window.POSTHOG_APP_CONTEXT!.resource_access_control!.hog_flow = AccessControlLevel.Viewer
+        ownerAccess = AccessControlLevel.Viewer
         useMocks({
             patch: {
                 '/api/projects/:team_id/workflow_views/:id/': () => {
@@ -1756,6 +1763,23 @@ describe('workflowsSavedViewsLogic', () => {
         expect(workflowsListV2Logic.values.value).toEqual({ filters: savedView.state.filters, text: '' })
     })
 
+    it('lets a project editor change shared views from an environment where workflows are view-only', async () => {
+        window.POSTHOG_APP_CONTEXT!.resource_access_control!.hog_flow = AccessControlLevel.Viewer
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/workflow_views/:id/': async ({ request }) => {
+                    writes.push(await request.json())
+                    return [200, { ...savedView, name: 'Renamed flows', version: 2 }]
+                },
+            },
+        })
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        expect(logic.values.writeDisabledReason).toBeUndefined()
+        await logic.asyncActions.renameView(VIEW_ID, 'Renamed flows')
+        expect(writes).toEqual([{ name: 'Renamed flows', version: 1 }])
+    })
     it('waits for a completed flag evaluation before exposing persisted saved-view flags', async () => {
         window.POSTHOG_APP_CONTEXT!.persisted_feature_flags = [FEATURE_FLAGS.WORKFLOWS_LIST_V2]
         initKeaTests()

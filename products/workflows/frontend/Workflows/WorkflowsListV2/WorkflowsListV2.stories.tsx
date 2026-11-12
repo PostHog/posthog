@@ -153,6 +153,7 @@ const withSavedViews: Decorator = (Story, context) => {
         deleted: false,
         created_at: '2026-10-07T00:00:00Z',
         updated_at: '2026-10-07T00:00:00Z',
+        user_access_level: 'editor',
     }
     let nextId = 10
     let views: WorkflowViewApi[] = [

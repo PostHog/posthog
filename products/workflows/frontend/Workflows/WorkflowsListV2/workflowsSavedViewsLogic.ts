@@ -24,11 +24,10 @@ import { uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import type { FileSystemEntry } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, type UserType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import * as api from '../../generated/api'
 import type { WorkflowViewApi, WorkflowViewCreateApi } from '../../generated/api.schemas'
@@ -69,7 +68,6 @@ export interface workflowsSavedViewsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
     savedItems: FileSystemEntry[] // projectTreeDataLogic
-    user: UserType | null // userLogic
     currentTeamId: number | null // workflowsListV2Logic
     facets: FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
     facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
@@ -249,7 +247,7 @@ export interface workflowsSavedViewsLogicMeta {
             savedViewsLoadFailed: boolean,
             searchParams: Record<string, any>
         ) => boolean
-        writeDisabledReason: (currentTeamId: number | null, user: UserType | null) => string | undefined
+        writeDisabledReason: (savedViews: WorkflowViewApi[] | null) => string | undefined
         views: (savedViews: WorkflowViewApi[] | null) => WorkflowSavedView[]
         activeView: (views: WorkflowSavedView[], activeViewId: string) => WorkflowSavedView
         activeViewChanges: (
@@ -273,7 +271,7 @@ export interface workflowsSavedViewsLogicMeta {
         viewCounts: (
             views: WorkflowSavedView[],
             viewFiles: WorkflowFolderFileRow[],
-            facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[], // workflowsListV2Logic
+            facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[],
             matchesText: MatchesText<WorkflowListRow>,
             serverSearch: ServerSearchResult | null,
             metricsLoaded: boolean,
@@ -321,8 +319,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 'metricsLoaded',
                 'listLoaded',
             ],
-            userLogic,
-            ['user'],
             projectTreeDataLogic,
             ['savedItems'],
         ],
@@ -503,10 +499,14 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 enabled && savedViews === null && !loadFailed && !!searchParams.view && searchParams.view !== 'all',
         ],
         writeDisabledReason: [
-            (s) => [s.currentTeamId, s.user],
-            (): string | undefined =>
-                getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ??
-                undefined,
+            // Views live on the owning project, so its access decides, not a child environment's own rules.
+            (s) => [s.savedViews],
+            (savedViews: WorkflowViewApi[] | null): string | undefined =>
+                getAccessControlDisabledReason(
+                    AccessControlResourceType.Workflow,
+                    AccessControlLevel.Editor,
+                    savedViews?.[0]?.user_access_level as AccessControlLevel | undefined
+                ) ?? undefined,
         ],
         views: [
             (s) => [s.savedViews],
@@ -620,9 +620,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             const keys = new Set(filters.map(pillKey))
             return [...filters, ...more.filter((filter) => !keys.has(pillKey(filter)))]
         }
-        // Applying a view replaces the filters and columns, so edits made before the views arrive are kept
-        // to apply again after the view. They belong to the view link they were made on: nothing on the page
-        // can change that link while the views load, so a different one means a navigation replaced them.
+        // Applying a view replaces the filters and columns, so edits made before the views arrive apply again after
+        // it. They belong to the view link they were made on, which only a navigation changes while the views load.
         const viewInUrl = (): string => new URLSearchParams(router.values.location.search).get('view') ?? 'all'
         const editsWhileViewsLoad = (): EditsWhileViewsLoad => {
             if (cache.editsWhileViewsLoad?.view !== viewInUrl()) {
@@ -924,9 +923,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 const explicit = raw.has('q') || raw.has('text') || raw.has('columns') || raw.has('added')
                 if (!values.available) {
                     if (cache.followedLink) {
-                        // A followed link replaces an earlier view-only link, and with its own state also the edits
-                        // made while the views load. The list replaces the URL with its own edits, and a failed load
-                        // syncs without any navigation, so both of those keep them.
+                        // A followed link replaces an earlier view-only link and, with its own state, the edits
+                        // made while the views load. The list's own URL edits and a failed load keep them.
                         cache.viewOnlyLink = undefined
                         cache.editsWhileViewsLoad = explicit ? undefined : cache.editsWhileViewsLoad
                     }
