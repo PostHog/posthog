@@ -40,6 +40,8 @@ const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 
+const latestDueAtOf = (messageId: string): Date => new Date(uuidtCreatedAt(messageId).getTime() + MAX_SCHEDULE_AHEAD_MS)
+
 const transactionalEmailFingerprint = (
     hogFlowId: string,
     { to, distinct_id, variables }: TransactionalEmailRequest,
@@ -181,7 +183,6 @@ export class TransactionalSends {
             invocation.queueScheduledAt = DateTime.fromJSDate(scheduledAt)
             invocation.state.scheduledAt = scheduledAt.toISOString()
         }
-        const latestDueAt = new Date(uuidtCreatedAt(invocation.id).getTime() + MAX_SCHEDULE_AHEAD_MS)
         const statusAt = new Date()
         const { shape } = files
         if (shape && 'refused' in shape) {
@@ -210,7 +211,7 @@ export class TransactionalSends {
                     })),
                     (deadline) => files.sizeMessageBodies(invocation, shape.emailStep, deadline),
                     files.deadline,
-                    latestDueAt
+                    latestDueAtOf(invocation.id)
                 )
                 if ('refused' in accepted) {
                     await releaseKey()
@@ -245,7 +246,7 @@ export class TransactionalSends {
                 invocation.id,
                 attachmentTotals,
                 scheduledAt?.toISOString(),
-                latestDueAt
+                scheduledAt ? latestDueAtOf(invocation.id) : undefined
             )
         }
         stages.start('metrics_flush')
@@ -276,7 +277,7 @@ export class TransactionalSends {
         request: TransactionalEmailRequest,
         send: AcceptedSend | undefined
     ) {
-        const { to, distinct_id: distinctId, variables } = request
+        const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey } = request
         const event: HogFunctionInvocationGlobals['event'] = {
             uuid: new UUIDT().toString(),
             event: TRANSACTIONAL_EMAIL_EVENT,
@@ -307,6 +308,9 @@ export class TransactionalSends {
         if (send) {
             const { attachments: _references, ...queuedSend } = send
             invocation.state.send = queuedSend
+        }
+        if (idempotencyKey) {
+            invocation.state.idempotencyKeyHash = IdempotencyKeys.hash(idempotencyKey)
         }
         // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
         // worker counts it instead.
@@ -370,6 +374,7 @@ export class TransactionalSends {
 
 export type ScheduledTransactionalSendsDeps = {
     jobs: Pick<CyclotronV2JobProducer, 'cancelUnclaimed' | 'rescheduleUnclaimed'>
+    idempotencyKeys: Pick<IdempotencyKeys, 'replayUntilDayAfter'>
     hogFlows: Pick<HogFlowManagerService, 'getHogFlowCheckingPrimaryOnMiss'>
     invocationResults: Pick<InvocationResultsService, 'monitoringService' | 'invocationResultsRowsService'>
     emailStatus: EmailStatusService
@@ -408,7 +413,7 @@ export class ScheduledTransactionalSends {
             return { outcome: 'not_found' }
         }
         const now = new Date()
-        if (requestedAt > now && requestedAt.getTime() > uuidtCreatedAt(messageId).getTime() + MAX_SCHEDULE_AHEAD_MS) {
+        if (requestedAt > now && requestedAt > latestDueAtOf(messageId)) {
             return { outcome: 'invalid_scheduled_at' }
         }
         const scheduledAt = requestedAt > now ? requestedAt : now
@@ -417,6 +422,15 @@ export class ScheduledTransactionalSends {
             return { outcome: result.outcome }
         }
         const job = v2JobToInvocation(result.job)
+        const idempotencyKeyHash = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.idempotencyKeyHash
+        if (idempotencyKeyHash) {
+            await this.deps.idempotencyKeys.replayUntilDayAfter(
+                teamId,
+                idempotencyKeyHash,
+                messageId,
+                latestDueAtOf(messageId)
+            )
+        }
         writeStatus(this.deps.emailStatus, {
             teamId,
             messageId,

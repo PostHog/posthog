@@ -21,6 +21,8 @@ const RELEASE_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.deco
 // Records the queued run when the key is absent or still holds this request's reservation. The key is
 // absent when the queue write took longer than the pending TTL, and the run is queued all the same.
 const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or cjson.decode(v).invocationId == ARGV[2] then redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3]) return 1 end return 0`
+// Lengthens the replay window only while the key still holds this run's queued record, and never shortens it.
+const REPLAY_UNTIL_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.decode(v).invocationId == ARGV[1] and cjson.decode(v).queued then if redis.call('PTTL', KEYS[1]) < tonumber(ARGV[2]) then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end return 1 end return 0`
 const MARK_QUEUED_INLINE_ATTEMPTS = 2
 const MARK_QUEUED_RETRY_FIRST_DELAY_MS = 250
 const MARK_QUEUED_RETRY_MAX_DELAY_MS = 5000
@@ -39,7 +41,7 @@ const idempotencyValkeyDurationSeconds = new Histogram({
     buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1],
 })
 
-type IdempotencyOperation = 'reserve' | 'mark_queued' | 'release'
+type IdempotencyOperation = 'reserve' | 'mark_queued' | 'release' | 'replay_until'
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
     let timeoutId: NodeJS.Timeout | undefined
@@ -140,8 +142,8 @@ const pendingCompletionKey = ({ redisKey, value }: PendingCompletion): string =>
 
 /**
  * Caller-supplied idempotency keys, scoped to a team. A key reserves a run before it is queued, and
- * holds the run's id until 24 hours after the latest time the run can be due. A queue failure
- * releases the key, so the caller's retry can queue the run.
+ * holds the run's id for 24 hours once it is, or until a day after a scheduled or moved run can last
+ * be due. A queue failure releases the key, so the caller's retry can queue the run.
  */
 export class IdempotencyKeys {
     private pendingCompletions = new Map<string, PendingCompletion>()
@@ -332,6 +334,30 @@ export class IdempotencyKeys {
         }
     }
 
+    static hash(key: string): string {
+        return createHash('sha256').update(key).digest('hex')
+    }
+
+    async replayUntilDayAfter(teamId: number, keyHash: string, invocationId: string, latestDueAt: Date): Promise<void> {
+        const ttlMs = latestDueAt.getTime() + QUEUED_TTL_SECONDS * 1000 - Date.now()
+        try {
+            const kept = await this.timed(
+                'replay_until',
+                () =>
+                    this.valkey?.useClient({ name: 'idempotency-replay-until' }, (client) =>
+                        client.eval(REPLAY_UNTIL_SCRIPT, 1, this.redisKeyOf(teamId, keyHash), invocationId, ttlMs)
+                    ) ?? Promise.resolve(null)
+            )
+            this.count('replay_until', kept === 1 ? 'kept' : 'not_owned')
+        } catch (error) {
+            logger.error('🔑', 'idempotency key replay window not extended', {
+                scope: this.scope,
+                error: String(error),
+            })
+            this.count('replay_until', 'failed')
+        }
+    }
+
     private count(operation: IdempotencyOperation, outcome: string): void {
         idempotencyOperationsTotal.inc({ scope: this.scope, operation, outcome })
     }
@@ -347,7 +373,10 @@ export class IdempotencyKeys {
 
     private redisKey(teamId: number, key: string): string {
         // Hashed so a long or unusual caller key can't shape the Valkey key.
-        const keyHash = createHash('sha256').update(key).digest('hex')
+        return this.redisKeyOf(teamId, IdempotencyKeys.hash(key))
+    }
+
+    private redisKeyOf(teamId: number, keyHash: string): string {
         return `@posthog/idempotency/${this.scope}/${teamId}/${keyHash}`
     }
 }

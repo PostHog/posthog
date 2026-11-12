@@ -4507,12 +4507,14 @@ describe('CDP API', () => {
                 )
             })
 
+            const HOUR_MS = DAY_MS / 24
             it.each([
-                ['accepted to go out now', undefined],
-                ['scheduled a day ahead', 1],
+                ['a send accepted to go out now and moved 30 days ahead', undefined, 29.9, 31 * DAY_MS - HOUR_MS, true],
+                ['a send scheduled a day ahead and moved 30 days ahead', 1, 29.9, 31 * DAY_MS - HOUR_MS, true],
+                ['a send accepted to go out now and never moved', undefined, null, DAY_MS + HOUR_MS, false],
             ])(
-                'replays a retry of a send %s until a day after the latest time a reschedule can move it to',
-                async (_desc, scheduledInDays) => {
+                'replays a retry of %s only until a day after the latest time it can be due',
+                async (_desc, scheduledInDays, movedToDays, retryAfterMs, replays) => {
                     const keys = api['transactionalEmailIdempotencyKeys']
                     const valkey = keys['valkey']!
                     const scope = `scope-${new UUIDT().toString()}`
@@ -4538,17 +4540,23 @@ describe('CDP API', () => {
                         const sendFirstRequest = () =>
                             send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, request)
                         const first = await sendFirstRequest()
-                        const moved = await manage('reschedule', first.body.invocation_id, {
-                            scheduled_at: inDays(29.9),
-                        })
-                        await letStoreTimePass(31 * DAY_MS - 60 * 60 * 1000)
+                        expect(first.status).toEqual(202)
+                        if (movedToDays !== null) {
+                            const moved = await manage('reschedule', first.body.invocation_id, {
+                                scheduled_at: inDays(movedToDays),
+                            })
+                            expect(moved.status).toEqual(200)
+                        }
+                        await letStoreTimePass(retryAfterMs)
 
                         const retry = await sendFirstRequest()
 
-                        expect(first.status).toEqual(202)
-                        expect(moved.status).toEqual(200)
                         expect(retry.status).toEqual(202)
-                        expect(retry.body).toEqual({ ...first.body, replayed: true })
+                        expect(retry.body).toEqual({
+                            ...first.body,
+                            invocation_id: replays ? first.body.invocation_id : expect.any(String),
+                            replayed: replays,
+                        })
                     } finally {
                         api['transactionalEmailIdempotencyKeys'] = keys
                     }
