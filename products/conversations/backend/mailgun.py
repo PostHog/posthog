@@ -11,6 +11,8 @@ import structlog
 
 from posthog.models.instance_setting import get_instance_setting
 
+from products.conversations.backend.models import MailgunDomainRegistration
+
 logger = structlog.get_logger(__name__)
 
 MAILGUN_API_BASE = "https://api.mailgun.net/v3"
@@ -105,6 +107,7 @@ def add_domain(domain: str) -> MailgunDnsRecords:
     )
 
     if resp.status_code in (200, 201):
+        MailgunDomainRegistration.objects.get_or_create(domain=domain.lower())
         data = resp.json()
         return {
             "sending_dns_records": _filter_sending_records(data.get("sending_dns_records", [])),
@@ -201,6 +204,30 @@ def verify_domain(domain: str) -> dict[str, Any]:
     }
 
 
+MAILGUN_LIST_DOMAINS_MAX_PAGES = 50
+
+
+def list_domains(page_size: int = 1000) -> list[dict[str, Any]]:
+    """Return every domain registered in our Mailgun account."""
+    api_key = _get_api_key()
+    domains: list[dict[str, Any]] = []
+    for page in range(MAILGUN_LIST_DOMAINS_MAX_PAGES):
+        resp = requests.get(
+            f"{MAILGUN_API_BASE}/domains",
+            auth=("api", api_key),
+            params={"limit": page_size, "skip": page * page_size},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("items") or []
+        domains.extend(items)
+        total_count = data.get("total_count")
+        if len(items) < page_size or (isinstance(total_count, int) and len(domains) >= total_count):
+            return domains
+    raise MailgunError(f"Mailgun domain listing did not end after {MAILGUN_LIST_DOMAINS_MAX_PAGES} pages")
+
+
 def delete_domain(domain: str) -> None:
     """Remove a sending domain from Mailgun."""
     resp = requests.delete(
@@ -210,8 +237,9 @@ def delete_domain(domain: str) -> None:
     )
     if resp.status_code == 404:
         logger.info("mailgun_domain_not_found_on_delete", domain=domain)
-        return
-    resp.raise_for_status()
+    else:
+        resp.raise_for_status()
+    MailgunDomainRegistration.objects.filter(domain=domain.lower()).delete()
 
 
 def mime_bytes_with_crlf(email_message: EmailMessage) -> bytes:

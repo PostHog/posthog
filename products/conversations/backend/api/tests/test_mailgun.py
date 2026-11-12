@@ -14,6 +14,7 @@ from products.conversations.backend.mailgun import (
     get_domain,
     send_mime,
 )
+from products.conversations.backend.models import MailgunDomainRegistration
 
 
 def _mailgun_response(status_code: int, body: dict | None = None) -> MagicMock:
@@ -44,7 +45,10 @@ class TestAddDomain:
         with pytest.raises(MailgunDomainConflict, match="another Mailgun account"):
             add_domain("example.com")
 
-    def test_success_returns_sending_dns_records(self, mock_post: MagicMock, _mock_key: MagicMock):
+    @pytest.mark.django_db
+    def test_success_returns_sending_dns_records_and_records_registration(
+        self, mock_post: MagicMock, _mock_key: MagicMock
+    ):
         mock_post.return_value = _mailgun_response(
             201,
             {
@@ -55,9 +59,10 @@ class TestAddDomain:
             },
         )
 
-        result = add_domain("example.com")
+        result = add_domain("Example.com")
 
         assert [r["record_type"] for r in result["sending_dns_records"]] == ["TXT"]
+        assert list(MailgunDomainRegistration.objects.values_list("domain", flat=True)) == ["example.com"]
 
     def test_case_insensitive_already_exists_match(self, mock_post: MagicMock, _mock_key: MagicMock):
         mock_post.return_value = _mailgun_response(400, {"message": "Domain Already EXISTS"})
