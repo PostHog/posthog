@@ -57,6 +57,7 @@ from products.signals.backend.enums import (
     SignalSourceProduct,
     SignalSourceType,
     SuggestedSourceProduct,
+    signal_source_product_choices,
 )
 from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.hybrid_search import SearchMode
@@ -96,7 +97,7 @@ from products.signals.backend.report_search import (
 )
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
-from products.signals.backend.source_filters import compile_source_filter
+from products.signals.backend.source_filters import SourceFilterPreviewStatus, compile_source_filter
 from products.signals.backend.source_issues import source_issues_by_report
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
@@ -143,6 +144,7 @@ from .models import (
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
+    signal_source_type_choices,
 )
 from .personal_ranking.list_sort import PersonalListOrder, PersonalRowNote
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
@@ -570,6 +572,143 @@ class AlertPatternPreviewResponseSerializer(serializers.Serializer):
         ),
     )
     has_more = serializers.BooleanField(help_text="True when the project has more enabled alerts than `alerts` lists.")
+
+
+class SignalFilterFieldType(TextChoices):
+    STRING = "string", "string"
+    INTEGER = "integer", "integer"
+    NUMBER = "number", "number"
+    BOOLEAN = "boolean", "boolean"
+    DATETIME = "datetime", "datetime"
+    ARRAY_STRING = "array<string>", "array<string>"
+    ARRAY_INTEGER = "array<integer>", "array<integer>"
+    ARRAY_NUMBER = "array<number>", "array<number>"
+    ARRAY_BOOLEAN = "array<boolean>", "array<boolean>"
+
+
+class SourceFilterCatalogFieldSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name to use for this field in a filter expression.")
+    type = serializers.ChoiceField(
+        choices=SignalFilterFieldType.choices,
+        help_text="Type of the field's value. Compare it with values of the same type.",
+    )
+    description = serializers.CharField(
+        help_text="What the field holds, and its value when the record has none (null, or an empty array)."
+    )
+
+
+class SourceFilterCatalogSerializer(serializers.Serializer):
+    source_product = serializers.ChoiceField(
+        choices=signal_source_product_choices(), help_text="Source product the filter applies to."
+    )
+    source_type = serializers.ChoiceField(
+        choices=signal_source_type_choices(), help_text="Source type the filter applies to."
+    )
+    catalog_version = serializers.IntegerField(
+        help_text="Catalog version a filter saved now is pinned to. A saved filter keeps the meaning of its version."
+    )
+    filter_fields = serializers.ListField(
+        child=SourceFilterCatalogFieldSerializer(),
+        help_text="Fields a filter expression can use.",
+    )
+    starter_expressions = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Example expressions that are valid for this source.",
+    )
+
+
+class SourceFilterCatalogListSerializer(serializers.Serializer):
+    results = serializers.ListField(
+        child=SourceFilterCatalogSerializer(),
+        help_text=(
+            "One entry per source whose filter this project can set. A source that is missing does not take a filter."
+        ),
+    )
+
+
+# Wider than the expression limit, so a long expression reads back as an `invalid_expression` preview, not a 400.
+_SOURCE_FILTER_PREVIEW_MAX_LENGTH = 16384
+
+
+class SourceFilterPreviewRequestSerializer(serializers.Serializer):
+    source_product = serializers.ChoiceField(
+        choices=signal_source_product_choices(), help_text="Source product of the filter to preview."
+    )
+    source_type = serializers.ChoiceField(
+        choices=signal_source_type_choices(), help_text="Source type of the filter to preview."
+    )
+    expression = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=_SOURCE_FILTER_PREVIEW_MAX_LENGTH,
+        help_text=(
+            "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the "
+            "fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. "
+            "An empty expression lets every record through."
+        ),
+    )
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string"},
+            {"type": "integer"},
+            {"type": "array", "items": {"type": "string"}},
+        ],
+        "nullable": True,
+    }
+)
+class _SourceFilterFieldValueField(serializers.JSONField):
+    pass
+
+
+class SourceFilterPreviewRecordSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="The record's id in the source.")
+    identifier = serializers.CharField(allow_null=True, help_text="Short identifier people use for the record.")
+    title = serializers.CharField(allow_null=True, help_text="The record's title.")
+    url = serializers.CharField(allow_null=True, help_text="Link to the record in the source.")
+    created_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the record was created, as emission reads it."
+    )
+    malformed = serializers.BooleanField(
+        help_text="True when a field the expression uses holds a value that cannot be read, so the record never passes."
+    )
+    field_values = serializers.DictField(
+        source="fields",
+        child=_SourceFilterFieldValueField(),
+        help_text="Each catalog field's value for this record. A malformed value reads as null, or an empty array.",
+    )
+
+
+class SourceFilterPreviewResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=SourceFilterPreviewStatus.choices,
+        help_text=(
+            "`ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. "
+            "`not_connected` when the project has no syncing import for the source. `not_synced` when the import has "
+            "not finished a first sync. `access_denied` when you cannot read the source's warehouse table. "
+            "`incompatible_table` when the table does not have the columns the filter fields read. "
+            "`query_failed` when the preview query did not run."
+        ),
+    )
+    error = serializers.CharField(allow_null=True, help_text="Why the status is not `ok`, when there is a reason.")
+    catalog_version = serializers.IntegerField(help_text="Catalog version the expression was checked against.")
+    lookback_days = serializers.IntegerField(help_text="The preview reads records created in this many past days.")
+    total_count = serializers.IntegerField(
+        help_text="Records in the window that emission would read before the filter. 0 unless `status` is `ok`."
+    )
+    passing_count = serializers.IntegerField(help_text="Records in the window that pass the filter.")
+    excluded_count = serializers.IntegerField(help_text="Records in the window that the filter excludes.")
+    malformed_count = serializers.IntegerField(
+        help_text="Excluded records that hold a value the filter cannot read. Included in `excluded_count`."
+    )
+    passing = SourceFilterPreviewRecordSerializer(
+        many=True, help_text="The newest records that pass the filter, at most 10."
+    )
+    excluded = SourceFilterPreviewRecordSerializer(
+        many=True, help_text="The newest records that the filter excludes, at most 10."
+    )
 
 
 # A team overrides the base branch for a handful of its repos; a map larger than this is abuse,
