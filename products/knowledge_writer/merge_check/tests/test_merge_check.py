@@ -36,7 +36,8 @@ from products.knowledge_writer.merge_check.judge import JudgeVerdict, Variant
 from products.knowledge_writer.merge_check.sources import LandedChange
 
 COMPONENT_PATH = "products/feature_flags/frontend/FlagBanner.tsx"
-COMPONENT_CHUNK = f"diff --git a/{COMPONENT_PATH} b/{COMPONENT_PATH}\n-old\n+new\n"
+DIFF_QUOTE = "showLegacyRollout = false"
+COMPONENT_CHUNK = f"diff --git a/{COMPONENT_PATH} b/{COMPONENT_PATH}\n-old\n+{DIFF_QUOTE}\n"
 SCRIPT_CHUNK = "diff --git a/bin/start b/bin/start\n-old\n+new\n"
 GENERATED_CHUNK = "diff --git a/posthog/schema.py b/posthog/schema.py\n-old\n+new\n"
 FLAGS_PATHS = [f"feature-flags/page-{number}" for number in range(200)]
@@ -206,6 +207,7 @@ def merge_facts(
     *,
     rests_only_on_release_marker: bool = False,
     changed_page_paths: tuple[str, ...] = (),
+    changed_page_quote: str = DIFF_QUOTE,
 ) -> MergeFacts:
     return MergeFacts(
         release_state=ReleaseStateFact(
@@ -216,7 +218,7 @@ def merge_facts(
         generated_only=YesNoFact(value=False, quote=""),
         no_public_page_fits=YesNoFact(value=False, quote=""),
         changed_pages=[
-            ChangedPage(page_path=page_path, change_kind=DocsChangeKind.UPDATE, quote="drop legacy rollout")
+            ChangedPage(page_path=page_path, change_kind=DocsChangeKind.UPDATE, quote=changed_page_quote)
             for page_path in changed_page_paths
         ],
     )
@@ -546,6 +548,29 @@ def test_the_decision_reads_named_pages_and_trusts_only_quoted_sentences(
 
     assert (report.needs_docs, report.page_urls, report.low_confidence) == expected
     assert all(OUTDATED_SENTENCE in request["messages"][0]["content"] for request in judge_requests)
+
+
+@pytest.mark.parametrize(
+    "changed_page_quote, expected_page_urls",
+    [
+        pytest.param(DIFF_QUOTE, (FLAGS_PAGES[0],), id="quote_from_the_diff"),
+        pytest.param("chore: drop legacy rollout", (), id="quote_from_the_pull_request_title"),
+    ],
+)
+def test_only_a_diff_quote_names_a_changed_page(changed_page_quote: str, expected_page_urls: tuple[str, ...]) -> None:
+    commit_sha = "8" * 40
+    github = FakePostHogGitHub(commit_sha, page_text_by_path={FLAGS_PATHS[0]: FLAGS_PAGE_TEXT})
+    facts = merge_facts(changed_page_paths=ONE_NAMED_PAGE, changed_page_quote=changed_page_quote)
+    finding = PageFinding(
+        page_path=FLAGS_PATHS[0], outdated_sentence=OUTDATED_SENTENCE, missing_detail="", diff_quote=""
+    )
+    unused_verdict = JudgeVerdict(needs_docs=False, change_kind=None, page_urls=[], reason="unused")
+
+    report = check_merge(
+        commit_sha, github, judge_recording(unused_verdict, [], facts, (finding,)), variant=Variant.RULES
+    )
+
+    assert report.page_urls == expected_page_urls
 
 
 def test_malformed_judge_output_declines_instead_of_raising() -> None:
