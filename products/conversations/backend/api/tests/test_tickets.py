@@ -274,8 +274,12 @@ class TestTicketAPI(APIBaseTest):
                 {"tags_all": '["alpha"]', "tags_exclude": '["beta"]'},
                 {"alpha"},
             ),
-            ("malformed_json_ignored", {"tags_all": "not-json"}, {"alpha_beta", "alpha", "beta_gamma"}),
             ("oversized_list_capped_not_500", {"tags_all": json.dumps([f"t{i}" for i in range(200)])}, set()),
+            ("tags_single_name", {"tags": "gamma"}, {"beta_gamma"}),
+            ("tags_comma_separated", {"tags": "alpha, delta"}, {"alpha_beta", "alpha"}),
+            ("tags_all_comma_separated", {"tags_all": "alpha,beta"}, {"alpha_beta"}),
+            ("tags_exclude_comma_separated", {"tags_exclude": "beta,gamma"}, {"alpha"}),
+            ("blank_entries_dropped", {"tags_all": " ,beta,, "}, {"alpha_beta", "beta_gamma"}),
         ]
     )
     def test_filter_tags(self, mock_on_commit, _name, params, expected_keys):
@@ -289,6 +293,19 @@ class TestTicketAPI(APIBaseTest):
         }
         ids = self._list_ids(**params)
         self.assertEqual({key for key, ticket in fixture.items() if str(ticket.id) in ids}, expected_keys)
+
+    @parameterized.expand(
+        [
+            ("tags", '["alpha"'),
+            ("tags_all", '["alpha", {"name": "beta"}]'),
+            ("tags_exclude", "[null]"),
+        ]
+    )
+    def test_malformed_tag_list_is_rejected(self, mock_on_commit, param, raw):
+        self._ticket_with_tags("alpha")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data={param: raw})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], param)
 
     def test_list_tickets_only_returns_team_tickets(self, mock_on_commit):
         other_ticket = Ticket.objects.create_with_number(

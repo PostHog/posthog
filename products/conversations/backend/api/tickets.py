@@ -1172,19 +1172,28 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 "tags",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description='JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `["billing","urgent"]`.',
+                description=(
+                    "Tag names; returns tickets with ANY of them (OR). Accepts a single tag, a comma-separated list "
+                    '(`billing,urgent`), or a JSON-encoded array (`["billing","urgent"]`) for names that contain commas.'
+                ),
             ),
             OpenApiParameter(
                 "tags_all",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description='JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `["billing","urgent"]`.',
+                description=(
+                    "Tag names; returns tickets that have ALL of them (AND). Accepts a single tag, a comma-separated "
+                    'list (`billing,urgent`), or a JSON-encoded array (`["billing","urgent"]`).'
+                ),
             ),
             OpenApiParameter(
                 "tags_exclude",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description='JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.',
+                description=(
+                    "Tag names; returns tickets that have NONE of them (NOT). Accepts a single tag, a comma-separated "
+                    'list (`escalated,spam`), or a JSON-encoded array (`["escalated"]`).'
+                ),
             ),
             OpenApiParameter(
                 "ai_triage_result",
