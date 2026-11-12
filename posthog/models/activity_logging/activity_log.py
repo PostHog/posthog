@@ -151,6 +151,8 @@ ActivityScope = Literal[
     "DataWarehouseJoin",
     "Billing",
     "Loop",
+    "SandboxEnvironment",
+    "SandboxCustomImage",
     "StamphogRepoConfig",
     "ReviewRepository",
     "ReviewProjectSettings",
@@ -484,6 +486,8 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
     # readable through activity_log:read. Record that the rubrics changed, never their contents.
     "SignalScoutConfig": ["rubrics"],
+    "SandboxEnvironment": ["environment_variables"],
+    "SandboxCustomImage": ["spec"],
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
@@ -623,6 +627,18 @@ platform_alert_runtime_fields = [
     "updated_at",
 ]
 
+sandbox_custom_image_machine_fields = [
+    "status",
+    "version",
+    "modal_image_name",
+    "base_image_reference",
+    "base_image_refresh_reference",
+    "scan_result",
+    "error",
+    "build_log",
+    "builder_task",
+]
+
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
@@ -678,6 +694,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     ],
     # Inserts bump these on every use. They are not a settings edit.
     "TicketMacro": ["usage_count", "last_used_at"],
+    "SandboxCustomImage": [*sandbox_custom_image_machine_fields, "updated_at"],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -1212,6 +1229,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "organization",
         "user",
     ],
+    "SandboxCustomImage": sandbox_custom_image_machine_fields,
 }
 
 

@@ -20,6 +20,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
@@ -2087,6 +2088,7 @@ class TestFacadeReadsAndMappers(TestCase):
         # The encrypted JSON field round-trips an empty dict as None; either way, no env vars.
         self.assertFalse(env.environment_variables)
         self.assertEqual(env.repositories, [])
+        self.assertFalse(ActivityLog.objects.filter(scope="SandboxEnvironment").exists())
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_task_returns_contract(self, _mock_workflow):
