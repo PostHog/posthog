@@ -1407,6 +1407,34 @@ class VitallyConversationSignalInput(SignalInputBase):
     extra: VitallyConversationSignalExtra
 
 
+class IntercomTicketsTicketSignalExtra(SignalExtraBase):
+    ticket_id: str | None
+    category: str | None
+    ticket_state_category: str | None
+    ticket_type_name: str | None
+    created_at: str | None
+
+
+class IntercomTicketsTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.INTERCOM_TICKETS]
+    extra: IntercomTicketsTicketSignalExtra
+
+
+class PylonTicketSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    type: str | None
+    link: str | None
+    created_at: str | None
+
+
+class PylonTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.PYLON]
+    extra: PylonTicketSignalExtra
+
+
 # ── Incident management / on-call ─────────────────────────────────────────────────
 
 
@@ -1792,34 +1820,6 @@ class CursorIssueSignalInput(SignalInputBase):
     extra: CursorIssueSignalExtra
 
 
-# ── App reviews and error-report feedback ──────────────────────────────────────
-
-
-class AppStoreConnectReviewSignalExtra(SignalExtraBase):
-    app_id: str | None
-    rating: str | None
-    territory: str | None
-    created_date: str | None
-
-
-class AppStoreConnectReviewSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.REVIEW]
-    source_product: Literal[SignalSourceProduct.APP_STORE_CONNECT]
-    extra: AppStoreConnectReviewSignalExtra
-
-
-class SentryFeedbackSignalExtra(SignalExtraBase):
-    project_slug: str | None
-    event_id: str | None
-    date_created: str | None
-
-
-class SentryFeedbackSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.FEEDBACK]
-    source_product: Literal[SignalSourceProduct.SENTRY_FEEDBACK]
-    extra: SentryFeedbackSignalExtra
-
-
 # ── Error monitors ─────────────────────────────────────────────────────────────
 
 
@@ -2183,6 +2183,8 @@ SignalInput = Annotated[
     | HelpscoutConversationSignalInput
     | DecagonConversationSignalInput
     | VitallyConversationSignalInput
+    | IntercomTicketsTicketSignalInput
+    | PylonTicketSignalInput
     | PagerdutyIncidentSignalInput
     | OpsgenieAlertSignalInput
     | IncidentIoIncidentSignalInput
@@ -2210,8 +2212,6 @@ SignalInput = Annotated[
     | AzureApplicationInsightsIssueSignalInput
     | AppsignalIssueSignalInput
     | CursorIssueSignalInput
-    | AppStoreConnectReviewSignalInput
-    | SentryFeedbackSignalInput
     | TriggerDevErrorSignalInput
     | ChecklyErrorGroupSignalInput
     | RoarkIssueSignalInput
@@ -2305,6 +2305,8 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     HelpscoutConversationSignalInput,
     DecagonConversationSignalInput,
     VitallyConversationSignalInput,
+    IntercomTicketsTicketSignalInput,
+    PylonTicketSignalInput,
     PagerdutyIncidentSignalInput,
     OpsgenieAlertSignalInput,
     IncidentIoIncidentSignalInput,
@@ -2332,8 +2334,6 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AzureApplicationInsightsIssueSignalInput,
     AppsignalIssueSignalInput,
     CursorIssueSignalInput,
-    AppStoreConnectReviewSignalInput,
-    SentryFeedbackSignalInput,
     TriggerDevErrorSignalInput,
     ChecklyErrorGroupSignalInput,
     RoarkIssueSignalInput,

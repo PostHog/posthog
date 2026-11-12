@@ -1120,6 +1120,8 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `helpscout` - Help Scout
  * * `decagon` - Decagon
  * * `vitally` - Vitally
+ * * `intercom_tickets` - Intercom tickets
+ * * `pylon` - Pylon
  * * `usersnap` - Usersnap
  * * `typeform` - Typeform
  * * `qualtrics` - Qualtrics
@@ -1137,8 +1139,6 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `github_dependabot` - GitHub Dependabot
  * * `github_code_scanning` - GitHub code scanning
  * * `github_secret_scanning` - GitHub secret scanning
- * * `app_store_connect` - App Store Connect
- * * `sentry_feedback` - Sentry user feedback
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1242,6 +1242,8 @@ export const SignalSourceProductEnumApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -1259,8 +1261,6 @@ export const SignalSourceProductEnumApi = {
     GithubDependabot: 'github_dependabot',
     GithubCodeScanning: 'github_code_scanning',
     GithubSecretScanning: 'github_secret_scanning',
-    AppStoreConnect: 'app_store_connect',
-    SentryFeedback: 'sentry_feedback',
 } as const
 
 /**
@@ -1415,6 +1415,8 @@ export interface InboxOnboardingSourceApi {
      * * `helpscout` - Help Scout
      * * `decagon` - Decagon
      * * `vitally` - Vitally
+     * * `intercom_tickets` - Intercom tickets
+     * * `pylon` - Pylon
      * * `usersnap` - Usersnap
      * * `typeform` - Typeform
      * * `qualtrics` - Qualtrics
@@ -1431,9 +1433,7 @@ export interface InboxOnboardingSourceApi {
      * * `cursor` - Cursor
      * * `github_dependabot` - GitHub Dependabot
      * * `github_code_scanning` - GitHub code scanning
-     * * `github_secret_scanning` - GitHub secret scanning
-     * * `app_store_connect` - App Store Connect
-     * * `sentry_feedback` - Sentry user feedback */
+     * * `github_secret_scanning` - GitHub secret scanning */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -4321,6 +4321,8 @@ export interface SignalReportLeaveReviewersApi {
  * * `helpscout` - helpscout
  * * `decagon` - decagon
  * * `vitally` - vitally
+ * * `intercom_tickets` - intercom_tickets
+ * * `pylon` - pylon
  * * `usersnap` - usersnap
  * * `typeform` - typeform
  * * `qualtrics` - qualtrics
@@ -4338,8 +4340,6 @@ export interface SignalReportLeaveReviewersApi {
  * * `github_dependabot` - github_dependabot
  * * `github_code_scanning` - github_code_scanning
  * * `github_secret_scanning` - github_secret_scanning
- * * `app_store_connect` - app_store_connect
- * * `sentry_feedback` - sentry_feedback
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4443,6 +4443,8 @@ export const SignalSourceProductApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -4460,8 +4462,6 @@ export const SignalSourceProductApi = {
     GithubDependabot: 'github_dependabot',
     GithubCodeScanning: 'github_code_scanning',
     GithubSecretScanning: 'github_secret_scanning',
-    AppStoreConnect: 'app_store_connect',
-    SentryFeedback: 'sentry_feedback',
 } as const
 
 /**
@@ -5287,6 +5287,22 @@ export interface VitallyConversationSignalExtraApi {
     created_at: string | null
 }
 
+export interface IntercomTicketsTicketSignalExtraApi {
+    ticket_id: string | null
+    category: string | null
+    ticket_state_category: string | null
+    ticket_type_name: string | null
+    created_at: string | null
+}
+
+export interface PylonTicketSignalExtraApi {
+    number: string | null
+    state: string | null
+    type: string | null
+    link: string | null
+    created_at: string | null
+}
+
 export interface PagerdutyIncidentSignalExtraApi {
     status: string | null
     urgency: string | null
@@ -5499,19 +5515,6 @@ export interface CursorIssueSignalExtraApi {
     bugs_found: string | null
     publication_status: string | null
     timestamp: string | null
-}
-
-export interface AppStoreConnectReviewSignalExtraApi {
-    app_id: string | null
-    rating: string | null
-    territory: string | null
-    created_date: string | null
-}
-
-export interface SentryFeedbackSignalExtraApi {
-    project_slug: string | null
-    event_id: string | null
-    date_created: string | null
 }
 
 export interface TriggerDevErrorSignalExtraApi {
@@ -5749,6 +5752,8 @@ export type SignalExtraApi =
     | HelpscoutConversationSignalExtraApi
     | DecagonConversationSignalExtraApi
     | VitallyConversationSignalExtraApi
+    | IntercomTicketsTicketSignalExtraApi
+    | PylonTicketSignalExtraApi
     | PagerdutyIncidentSignalExtraApi
     | OpsgenieAlertSignalExtraApi
     | IncidentIoIncidentSignalExtraApi
@@ -5776,8 +5781,6 @@ export type SignalExtraApi =
     | AzureApplicationInsightsIssueSignalExtraApi
     | AppsignalIssueSignalExtraApi
     | CursorIssueSignalExtraApi
-    | AppStoreConnectReviewSignalExtraApi
-    | SentryFeedbackSignalExtraApi
     | TriggerDevErrorSignalExtraApi
     | ChecklyErrorGroupSignalExtraApi
     | RoarkIssueSignalExtraApi
@@ -5942,6 +5945,8 @@ export interface SignalNodeApi {
      * * `helpscout` - helpscout
      * * `decagon` - decagon
      * * `vitally` - vitally
+     * * `intercom_tickets` - intercom_tickets
+     * * `pylon` - pylon
      * * `usersnap` - usersnap
      * * `typeform` - typeform
      * * `qualtrics` - qualtrics
@@ -5958,9 +5963,7 @@ export interface SignalNodeApi {
      * * `cursor` - cursor
      * * `github_dependabot` - github_dependabot
      * * `github_code_scanning` - github_code_scanning
-     * * `github_secret_scanning` - github_secret_scanning
-     * * `app_store_connect` - app_store_connect
-     * * `sentry_feedback` - sentry_feedback */
+     * * `github_secret_scanning` - github_secret_scanning */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *

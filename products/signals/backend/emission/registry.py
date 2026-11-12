@@ -161,7 +161,6 @@ def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str,
 def _register_all_emitters() -> None:
     # Tier-3 feedback / reviews
     from products.signals.backend.emission.aha_ideas import AHA_CONFIG
-    from products.signals.backend.emission.app_store_connect_customer_reviews import APP_STORE_CONNECT_CONFIG
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
     from products.signals.backend.emission.appsignal_exception_incidents import APPSIGNAL_CONFIG
@@ -219,6 +218,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.incident_io_incidents import INCIDENT_IO_CONFIG
     from products.signals.backend.emission.instatus_incidents import INSTATUS_CONFIG
     from products.signals.backend.emission.intercom_conversations import INTERCOM_CONFIG
+    from products.signals.backend.emission.intercom_tickets import INTERCOM_TICKETS_CONFIG
     from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
@@ -239,6 +239,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.plain_threads import PLAIN_CONFIG
     from products.signals.backend.emission.plane_work_items import PLANE_CONFIG
     from products.signals.backend.emission.productboard_notes import PRODUCTBOARD_CONFIG
+    from products.signals.backend.emission.pylon_issues import PYLON_CONFIG
     from products.signals.backend.emission.qualtrics_survey_responses import QUALTRICS_CONFIG
 
     # Tier-2 security scanners
@@ -249,7 +250,6 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.rollbar_items import ROLLBAR_CONFIG
     from products.signals.backend.emission.semgrep_sast_findings import SEMGREP_CONFIG
     from products.signals.backend.emission.sentry_issues import SENTRY_CONFIG
-    from products.signals.backend.emission.sentry_user_feedback import SENTRY_FEEDBACK_CONFIG
     from products.signals.backend.emission.servicenow_incidents import SERVICENOW_CONFIG
     from products.signals.backend.emission.shortcut_stories import SHORTCUT_CONFIG
     from products.signals.backend.emission.sleekplan_posts import SLEEKPLAN_CONFIG
@@ -343,6 +343,8 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.HELPSCOUT, "conversations", HELPSCOUT_CONFIG)
     register_signal_source(ExternalDataSourceType.DECAGON, "conversations", DECAGON_CONFIG)
     register_signal_source(ExternalDataSourceType.VITALLY, "Conversations", VITALLY_CONFIG)
+    register_signal_source(ExternalDataSourceType.INTERCOM, "tickets", INTERCOM_TICKETS_CONFIG)
+    register_signal_source(ExternalDataSourceType.PYLON, "issues", PYLON_CONFIG)
     # Search analytics (record kind: search_opportunity)
     register_signal_source(
         ExternalDataSourceType.GOOGLESEARCHCONSOLE, "search_analytics_by_query_page", GOOGLE_SEARCH_CONSOLE_CONFIG
@@ -415,10 +417,6 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", AZURE_EXCEPTIONS_CONFIG)
     register_signal_source(ExternalDataSourceType.APPSIGNAL, "exception_incidents", APPSIGNAL_CONFIG)
     register_signal_source(ExternalDataSourceType.CURSOR, "bugbot_reviews", CURSOR_CONFIG)
-    # App reviews and error-report feedback. Sentry feedback is its own product so the Sentry
-    # issues toggle stays independent.
-    register_signal_source(ExternalDataSourceType.APPSTORECONNECT, "customer_reviews", APP_STORE_CONNECT_CONFIG)
-    register_signal_source(ExternalDataSourceType.SENTRY, "project_user_feedback", SENTRY_FEEDBACK_CONFIG)
 
 
 _register_all_emitters()

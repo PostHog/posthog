@@ -92,6 +92,8 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.HELPSCOUT, "conversations", "helpscout", "ticket"),
     (ExternalDataSourceType.DECAGON, "conversations", "decagon", "ticket"),
     (ExternalDataSourceType.VITALLY, "Conversations", "vitally", "ticket"),
+    (ExternalDataSourceType.INTERCOM, "tickets", "intercom_tickets", "ticket"),
+    (ExternalDataSourceType.PYLON, "issues", "pylon", "ticket"),
     # Tier-2 security tools
     (ExternalDataSourceType.LACEWORK, "alerts", "lacework", "scanner_finding"),
     (ExternalDataSourceType.ORCASECURITY, "alerts", "orca_security", "scanner_finding"),
@@ -130,9 +132,6 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.GITHUB, "dependabot_alerts", "github_dependabot", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "code_scanning_alerts", "github_code_scanning", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "secret_scanning_alerts", "github_secret_scanning", "scanner_finding"),
-    # App reviews and error-report feedback
-    (ExternalDataSourceType.APPSTORECONNECT, "customer_reviews", "app_store_connect", "review"),
-    (ExternalDataSourceType.SENTRY, "project_user_feedback", "sentry_feedback", "feedback"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
