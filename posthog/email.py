@@ -180,7 +180,6 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "workload_trust_policy_changed": "01a19e4f-595d-0000-bb58-5b9ae018bceb",
 }
 
-# Read by the weekly digest send.
 WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG = "transactional-emails-via-workflows"
 
 # 422 codes for an email the send API refused before queueing it because the address can't receive email: the syntax
@@ -639,8 +638,8 @@ def raise_if_delivery_rejected(campaign_key: str, email: str) -> None:
 
 # `utm_tags` carries hardcoded query-string fragments (`a=1&b=2`) and is never
 # user-controlled. It must pass through verbatim so the `&` separators don't
-# get HTML-escaped before reaching the email template, and mail clients expect
-# the literal `&` between query parameters.
+# get HTML-escaped before reaching the email template. Liquid renders the value raw,
+# and mail clients expect the literal `&` between query parameters.
 _PASSTHROUGH_KEYS = {"utm_tags"}
 
 # Keys whose values are PostHog-generated URLs (built from `settings.SITE_URL`

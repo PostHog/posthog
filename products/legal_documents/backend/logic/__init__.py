@@ -378,8 +378,8 @@ def delete_document(document: LegalDocument, *, strict_pandadoc: bool = False) -
     document.delete()
 
 
-# Template name for the email sent to org owners when we auto opt them out of
-# AI data processing because they signed a BAA. Wired through
+# Template name of the email sent to org owners when we auto opt
+# them out of AI data processing because they signed a BAA. Wired through
 # WORKFLOWS_TEMPLATE_ID_MAP in posthog/email.py.
 BAA_SIGNED_AI_DISABLED_TEMPLATE = "baa_signed_ai_disabled"
 

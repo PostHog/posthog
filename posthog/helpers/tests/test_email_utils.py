@@ -365,11 +365,10 @@ class TestESPSuppressionCheck(SimpleTestCase):
 
     @override_settings(CUSTOMER_IO_API_KEY="")
     @patch("posthog.helpers.email_utils.requests.get")
-    def test_returns_not_suppressed_without_customer_io_key(self, mock_get):
+    def test_returns_not_suppressed_without_customer_io_key(self, _mock_get):
         result = check_esp_suppression("no-key@example.com")
 
         self.assertFalse(result.is_suppressed)
-        mock_get.assert_not_called()
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")

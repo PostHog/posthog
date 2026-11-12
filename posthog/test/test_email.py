@@ -130,7 +130,6 @@ class TestEmail(BaseTest):
                 POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="http://us.posthog.com", DEBUG=False
             ),
         ):
-            # The Workflows request carries the secret key and links such as password resets, so plain http is refused.
             with self.assertRaises(ImproperlyConfigured):
                 EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
 
