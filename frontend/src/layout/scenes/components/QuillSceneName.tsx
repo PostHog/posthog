@@ -1,8 +1,9 @@
-import { type ReactNode, useEffect, useId, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { Button, Input, SkeletonText, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
+import { useNameErrorTooltip } from './useNameErrorTooltip'
 import { useSceneNameEditing } from './useSceneNameEditing'
 
 export interface QuillSceneNameProps {
@@ -50,23 +51,11 @@ export function QuillSceneName({
         renameDebounceMs,
         saveOnBlur,
         isGeneratingMetadata,
+        error,
     })
     const editable = !!onChange && canEdit
-    // The effect opens the field for good, so typing that clears the error does not unmount the field mid-word.
-    const fieldOpen = editable && !isLoading && (isEditing || !!error)
-    useEffect(() => {
-        if (error && !isEditing) {
-            startEditing()
-        }
-    }, [error, isEditing, startEditing])
-    const [errorTooltipOpen, setErrorTooltipOpen] = useState(false)
-    // A field that unmounts while focused fires no blur, so the tooltip would otherwise reopen on its own later.
-    useEffect(() => {
-        if (!fieldOpen) {
-            setErrorTooltipOpen(false)
-        }
-    }, [fieldOpen])
-    const errorId = useId()
+    const fieldOpen = editable && isEditing
+    const errorTooltip = useNameErrorTooltip(error, fieldOpen)
     const label = name || <span className="text-muted-foreground">Unnamed</span>
 
     if (isLoading) {
@@ -87,13 +76,12 @@ export function QuillSceneName({
                 data-attr="scene-name-edit-row"
             >
                 {/* Always mounted, because wrapping the input only while there is an error remounts it and drops focus. */}
-                <Tooltip open={!!error && errorTooltipOpen} onOpenChange={setErrorTooltipOpen}>
+                <Tooltip open={errorTooltip.open} onOpenChange={errorTooltip.onOpenChange}>
                     <TooltipTrigger
                         render={
                             <Input
                                 aria-label="Name"
-                                aria-invalid={error ? true : undefined}
-                                aria-describedby={error ? errorId : undefined}
+                                {...errorTooltip.inputProps}
                                 name="name"
                                 value={name || ''}
                                 readOnly={isGeneratingMetadata}
@@ -111,8 +99,6 @@ export function QuillSceneName({
                                         cancel()
                                     }
                                 }}
-                                onFocus={() => setErrorTooltipOpen(true)}
-                                onBlur={() => setErrorTooltipOpen(false)}
                                 autoFocus={!forceEdit}
                                 data-attr="scene-title-textarea"
                                 className={cn(
@@ -123,13 +109,11 @@ export function QuillSceneName({
                             />
                         }
                     />
-                    {error && <TooltipContent side="bottom">{error}</TooltipContent>}
+                    <TooltipContent side="bottom">{error}</TooltipContent>
                 </Tooltip>
-                {error && (
-                    <span id={errorId} className="sr-only">
-                        {error}
-                    </span>
-                )}
+                <span id={errorTooltip.errorId} className="sr-only">
+                    {error}
+                </span>
                 {onGenerateMetadata && (
                     <Tooltip>
                         <TooltipTrigger
