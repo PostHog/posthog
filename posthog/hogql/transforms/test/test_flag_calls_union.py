@@ -42,6 +42,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.test.test_prompt_jev import gateway_response
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import swaps_flag_calls
 from posthog.hogql.transforms.flag_calls_union import rename_flag_call_scans_to_union
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -1085,6 +1086,14 @@ class TestReadFlagCallsWithUnion(BaseTest):
         sql = self._sql(_scan_of_events_in(events), mode=ONLY, union=union)
 
         assert expected in sql
+
+    def test_swaps_flag_calls_when_a_list_constant_names_them(self):
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
+            context = HogQLContext(team_id=self.team.pk, database=Database.create_for(team=self.team))
+
+            assert swaps_flag_calls(_scan_of_events_in(["$pageview", "$feature_flag_called"]), context)
+            assert not swaps_flag_calls(_scan_of_events_in(["$pageview"]), context)
 
     @parameterized.expand([("list", ["$pageview", "$feature_flag_called"]), ("tuple", ("$feature_flag_called",))])
     def test_counts_a_flag_call_read_from_events_that_a_list_constant_names(

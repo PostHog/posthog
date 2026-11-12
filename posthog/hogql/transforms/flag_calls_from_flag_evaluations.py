@@ -760,9 +760,7 @@ def filter_conjuncts(node: ast.SelectQuery) -> list[ast.Expr]:
 
 def names_flag_called_event(node: ast.AST) -> bool:
     """Whether `$feature_flag_called` appears as a constant anywhere in `node`."""
-    finder = _FlagCalledConstantFinder()
-    finder.visit(node)
-    return finder.found
+    return _has_constant(node, names_flag_called)
 
 
 def boolean_operands(expr: ast.Expr, operator: type[ast.And] | type[ast.Or]) -> list[ast.Expr] | None:
@@ -977,14 +975,21 @@ class _AliasCollector(SyntaxVisitor):
         super().visit_alias(node)
 
 
-class _FlagCalledConstantFinder(SyntaxVisitor):
-    def __init__(self) -> None:
+class _ConstantFinder(SyntaxVisitor):
+    def __init__(self, matches: Callable[[object], bool]) -> None:
         super().__init__()
+        self.matches = matches
         self.found = False
 
     def visit_constant(self, node: ast.Constant) -> None:
-        if names_flag_called(node.value):
+        if self.matches(node.value):
             self.found = True
+
+
+def _has_constant(node: ast.AST, matches: Callable[[object], bool]) -> bool:
+    finder = _ConstantFinder(matches)
+    finder.visit(node)
+    return finder.found
 
 
 def names_flag_called(value: object) -> bool:
@@ -1002,25 +1007,9 @@ def _flag_called_lists_as_arrays(node: _T_AST) -> _T_AST:
     """`node` with each list or tuple constant that names `$feature_flag_called` written as an array or a tuple of
     constants. A query builder can write `event IN ['$pageview', '$feature_flag_called']` as one list constant, and
     the rules that find flag calls read only the items of an array or a tuple. Both forms match the same rows."""
-    if not _has_flag_called_list(node):
+    if not _has_constant(node, _is_flag_called_list):
         return node
     return _FlagCalledListExpander().visit(node)
-
-
-def _has_flag_called_list(node: ast.AST) -> bool:
-    finder = _FlagCalledListFinder()
-    finder.visit(node)
-    return finder.found
-
-
-class _FlagCalledListFinder(SyntaxVisitor):
-    def __init__(self) -> None:
-        super().__init__()
-        self.found = False
-
-    def visit_constant(self, node: ast.Constant) -> None:
-        if _is_flag_called_list(node.value):
-            self.found = True
 
 
 class _FlagCalledListExpander(CloningVisitor):
