@@ -67467,6 +67467,24 @@ export namespace Schemas {
       Raw: 'raw',
     } as const;
 
+    export interface LogsSigningSecret {
+      /**
+         * Raw secret that a server uses to sign log requests (HMAC). Null until one exists.
+         * @nullable
+         */
+      readonly secret: string | null;
+      /**
+         * When the secret last changed, or null when no secret exists yet.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /**
+         * Until when the previous secret stays valid after a rotation, or null when no grace period is active.
+         * @nullable
+         */
+      readonly previous_secret_valid_until: string | null;
+    }
+
     /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
      */

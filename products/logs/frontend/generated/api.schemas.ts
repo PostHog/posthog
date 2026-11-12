@@ -3243,6 +3243,24 @@ export interface _LogsServicesResponseApi {
     next?: _LogsNextStepApi[]
 }
 
+export interface LogsSigningSecretApi {
+    /**
+     * Raw secret that a server uses to sign log requests (HMAC). Null until one exists.
+     * @nullable
+     */
+    readonly secret: string | null
+    /**
+     * When the secret last changed, or null when no secret exists yet.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    /**
+     * Until when the previous secret stays valid after a rotation, or null when no grace period is active.
+     * @nullable
+     */
+    readonly previous_secret_valid_until: string | null
+}
+
 /**
  * * `severity` - severity
  * * `service` - service
