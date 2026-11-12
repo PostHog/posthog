@@ -561,6 +561,16 @@ class TestEmailDomainClaimedByAnotherOrganization(EmailDomainApiTestCase):
             )
         assert self.world.ses.identities[DOMAIN].mail_from_domain == f"feedback.{DOMAIN}"
 
+    def test_an_organization_that_published_its_record_can_change_the_mail_from_subdomain(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), "organization")
+
+        EmailIntegration(Integration.objects.get(id=sender)).update_native_integration(
+            {"mail_from_subdomain": "bounce"}, self.team.id
+        )
+
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"bounce.{DOMAIN}"
+
 
 class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
     def test_dmarc_record_hosted_in_another_zone_through_a_cname_counts(self) -> None:

@@ -261,11 +261,12 @@ class EmailIntegration:
             # The identity at the provider is shared by every organization that added the domain, so a claim that has
             # not proven ownership must not change it for the others. Under the domain lock, a verification that
             # releases this claim either finishes before the check or waits until the change is made.
+            proven = self._organization_proof_published()
             with transaction.atomic():
                 with connection.cursor() as cursor:
                     lock_sender_domain(cursor, domain)
                 current = row_writes.reread_row(self.integration)
-                if not current.config.get("verified") and self._requires_organization_proof(current):
+                if not current.config.get("verified") and self._requires_organization_proof(current) and not proven:
                     raise ValidationError(
                         "Another organization also added this domain. Verify the domain before you change its MAIL FROM subdomain."
                     )
@@ -347,6 +348,8 @@ class EmailIntegration:
         if verification_result.get("status") != "success":
             return verification_result
 
+        # DNS lookups can be slow, so they run before the domain lock is taken.
+        proven = self._organization_proof_published()
         # Under the domain lock, a claim added by another organization either commits before this check or waits
         # until this verification is recorded, so two organizations cannot each release the other's claim.
         with transaction.atomic():
@@ -355,9 +358,7 @@ class EmailIntegration:
             claimants = self._other_organization_senders()
             if self._requires_organization_proof(row_writes.reread_row(self.integration)):
                 proof_token = self._organization_proof_token()
-                if any(claimant.config.get("verified") is True for claimant in claimants) or not _proof_published(
-                    domain, proof_token
-                ):
+                if any(claimant.config.get("verified") is True for claimant in claimants) or not proven:
                     return {
                         "status": "pending",
                         "dnsRecords": [*verification_result["dnsRecords"], _proof_record(domain, proof_token)],
@@ -373,6 +374,11 @@ class EmailIntegration:
 
     def _other_organization_senders(self) -> list[model.Integration]:
         return _senders_of_other_organizations(self.integration.config["domain"], self._organization_id())
+
+    def _organization_proof_published(self) -> bool:
+        if not self._requires_organization_proof(self.integration):
+            return False
+        return _proof_published(self.integration.config["domain"], self._organization_proof_token())
 
     def _requires_organization_proof(self, sender: IntegrationRecord) -> bool:
         return bool(sender.config.get(ORGANIZATION_PROOF_REQUIRED_KEY)) or bool(self._other_organization_senders())
