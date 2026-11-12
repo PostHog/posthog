@@ -32,6 +32,7 @@ describe('LoginTurnstileWidget', () => {
         cleanup()
         logic.unmount()
         jest.useRealTimers()
+        delete (window as any).turnstile
     })
 
     function renderWidget(): ReturnType<typeof render> {
@@ -60,13 +61,32 @@ describe('LoginTurnstileWidget', () => {
         expect(logic.values.turnstileClientStatus).toEqual('script_failed')
     })
 
-    it('stays pending after 10 seconds once the script has loaded', () => {
+    it('marks script_failed after 10 seconds when the script tag exists but the Turnstile API never arrives', () => {
         renderWidget()
 
-        act(() => mockTurnstileProps.onLoadScript())
+        act(() => mockTurnstileProps.onLoadScript?.())
+        act(() => jest.advanceTimersByTime(10_000))
+
+        expect(logic.values.turnstileClientStatus).toEqual('script_failed')
+    })
+
+    it('stays pending after 10 seconds once the Turnstile API is on the page', () => {
+        renderWidget()
+
+        ;(window as any).turnstile = {}
         act(() => jest.advanceTimersByTime(10_000))
 
         expect(logic.values.turnstileClientStatus).toEqual('pending')
+    })
+
+    it('keeps script_failed when the widget remounts after a script error', () => {
+        const { unmount } = renderWidget()
+        act(() => mockTurnstileProps.scriptOptions.onError())
+        unmount()
+
+        renderWidget()
+
+        expect(logic.values.turnstileClientStatus).toEqual('script_failed')
     })
 
     it('stores the token on success', () => {

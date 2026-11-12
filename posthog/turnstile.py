@@ -25,7 +25,8 @@ logger = structlog.get_logger(__name__)
 TURNSTILE_VERIFY_TIMEOUT = 5.0
 CHALLENGE_NONCE_TTL_SECONDS = 300
 
-LOGIN_SITEVERIFY_TIMEOUT_SECONDS = 2.0
+# Connect and read timeouts apply separately, so this pair keeps the whole call near 2 seconds.
+LOGIN_SITEVERIFY_TIMEOUT_SECONDS = (0.5, 1.5)
 LOGIN_TURNSTILE_ACTION = "login"
 TURNSTILE_TOKEN_MAX_LENGTH = 2048
 # Cloudflare's published test secrets return no `action`, so the action check cannot apply to them.

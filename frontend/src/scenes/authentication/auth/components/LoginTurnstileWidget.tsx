@@ -1,21 +1,22 @@
 import { Turnstile } from '@marsidev/react-turnstile'
-import { useActions } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { loginLogic } from '../loginLogic'
 
 const SCRIPT_LOAD_TIMEOUT_MS = 10_000
 
 export function LoginTurnstileWidget({ siteKey }: { siteKey: string }): JSX.Element {
+    const { turnstileScriptFailed } = useValues(loginLogic)
     const { setTurnstileToken, setTurnstileClientStatus } = useActions(loginLogic)
-    const scriptLoaded = useRef(false)
 
     useEffect(() => {
         setTurnstileToken(null)
-        setTurnstileClientStatus('pending')
-        // A blocker extension often stops the script without an error event, so a script that never loads is a failure
+        setTurnstileClientStatus(turnstileScriptFailed ? 'script_failed' : 'pending')
+        // A blocker extension often stops the script without an error event. `onLoadScript` fires when the
+        // script tag is added, not when it runs, so only `window.turnstile` proves the script loaded.
         const timer = window.setTimeout(() => {
-            if (!scriptLoaded.current) {
+            if (typeof (window as any).turnstile === 'undefined') {
                 setTurnstileClientStatus('script_failed')
             }
         }, SCRIPT_LOAD_TIMEOUT_MS)
@@ -24,7 +25,8 @@ export function LoginTurnstileWidget({ siteKey }: { siteKey: string }): JSX.Elem
             setTurnstileToken(null)
             setTurnstileClientStatus('not_rendered')
         }
-    }, [setTurnstileToken, setTurnstileClientStatus])
+        // Runs once per mount, so a status change does not restart the script timer
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const dropToken = (status: 'error' | 'expired' | 'unsupported'): void => {
         setTurnstileToken(null)
@@ -35,9 +37,6 @@ export function LoginTurnstileWidget({ siteKey }: { siteKey: string }): JSX.Elem
         <Turnstile
             siteKey={siteKey}
             options={{ action: 'login', appearance: 'interaction-only', theme: 'auto' }}
-            onLoadScript={() => {
-                scriptLoaded.current = true
-            }}
             scriptOptions={{ onError: () => setTurnstileClientStatus('script_failed') }}
             onSuccess={(token) => {
                 setTurnstileToken(token)

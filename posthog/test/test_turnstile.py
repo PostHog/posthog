@@ -203,7 +203,7 @@ class TestVerifyLoginTurnstileToken(SimpleTestCase):
         siteverify.assert_not_called()
 
     @override_settings(CLOUDFLARE_TURNSTILE_SECRET_KEY=REAL_SECRET)
-    def test_sends_the_secret_token_and_ip_with_a_two_second_timeout(self):
+    def test_sends_the_secret_token_and_ip_with_a_two_second_total_timeout(self):
         with patch(
             "posthog.turnstile.turnstile_siteverify_request",
             return_value=_siteverify_response(200, {"success": True, "action": "login"}),
@@ -213,5 +213,5 @@ class TestVerifyLoginTurnstileToken(SimpleTestCase):
         siteverify.assert_called_once_with(
             {"secret": REAL_SECRET, "response": "tok", "remoteip": "1.2.3.4"},
             source="login_turnstile",
-            timeout=2.0,
+            timeout=(0.5, 1.5),
         )

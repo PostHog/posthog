@@ -30,6 +30,8 @@ SITEVERIFY_SECONDS = Histogram(
     "posthog_login_turnstile_siteverify_seconds",
     "Time the login path spent on Cloudflare siteverify, by result",
     labelnames=["result"],
+    # Fine steps up to the 2-second timeout, so the panel shows where slow calls cluster.
+    buckets=(0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 4.0),
 )
 
 

@@ -840,12 +840,17 @@ describe('loginLogic', () => {
             expect(body).not.toHaveProperty('turnstile_token')
         })
 
-        it('sends not_rendered when no widget ran, for example after a failed precheck', async () => {
-            useMocks({ post: { '/api/login/precheck': () => [429, {}] } })
-            logic.actions.precheck({ email: 'user@example.com' })
-            await expectLogic(logic).toDispatchActions(['precheckSuccess'])
+        it('keeps the token when the form fails validation and sends no request', async () => {
+            logic.actions.setTurnstileToken('tok')
+            logic.actions.setLoginValues({ password: '' })
+            const widgetKeyBefore = logic.values.turnstileWidgetKey
 
-            expect((await submit()).turnstile_client_status).toEqual('not_rendered')
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure'])
+
+            expect(loginBodies).toEqual([])
+            expect(logic.values.turnstileToken).toEqual('tok')
+            expect(logic.values.turnstileWidgetKey).toEqual(widgetKeyBefore)
         })
 
         it('drops the spent token and remounts the widget after a failed login', async () => {

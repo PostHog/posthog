@@ -135,6 +135,31 @@ class TestLoginTurnstileShadow(APIBaseTest):
         assert _outcomes(capture) == ["passed"]
         assert verify.call_args.args[0] == "tok"
 
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("number", 123),
+            ("object", {"a": 1}),
+            ("list", ["a"]),
+            ("nul_character", "to\x00ken"),
+        ]
+    )
+    def test_non_string_turnstile_fields_are_ignored_like_on_master(self, _name, value):
+        for mode in ("off", "shadow"):
+            with override_instance_config("LOGIN_TURNSTILE_MODE", mode), override_settings(**KEYS):
+                response = APIClient().post(
+                    "/api/login",
+                    {
+                        "email": self.CONFIG_EMAIL,
+                        "password": self.CONFIG_PASSWORD,
+                        "turnstile_token": value,
+                        "turnstile_client_status": value,
+                    },
+                    format="json",
+                )
+
+            assert (response.status_code, response.json()) == (200, {"success": True})
+
     @override_settings(**KEYS)
     def test_an_error_inside_the_step_does_not_break_login(self):
         with (

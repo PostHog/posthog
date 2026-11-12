@@ -19,7 +19,9 @@ class CloudflareTurnstileClient(RecordedEgressClient):
 _cloudflare_turnstile_client = CloudflareTurnstileClient()
 
 
-def turnstile_siteverify_request(data: dict[str, str], *, source: str, timeout: float) -> requests.Response:
+def turnstile_siteverify_request(
+    data: dict[str, str], *, source: str, timeout: float | tuple[float, float]
+) -> requests.Response:
     # One secret key for the whole instance, so the identity is constant.
     return _cloudflare_turnstile_client.request(
         "POST",

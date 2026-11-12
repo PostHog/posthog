@@ -32,7 +32,8 @@ from axes.exceptions import AxesBackendPermissionDenied
 from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session, restore_original_login
 from requests import RequestException
 from rest_framework import exceptions, mixins, permissions, serializers, status, viewsets
@@ -315,20 +316,30 @@ def is_email_verified_for_login(user: User) -> bool:
     return True
 
 
+@extend_schema_field(OpenApiTypes.STR)
+class _IgnoreInvalidStringField(serializers.Field):
+    # Login ignored these fields before they existed, so a value that is not a plain string reads as
+    # empty instead of turning the login into a 400.
+    def to_internal_value(self, data: Any) -> str:
+        return data if isinstance(data, str) and "\x00" not in data else ""
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
-    turnstile_token = serializers.CharField(
+    turnstile_token = _IgnoreInvalidStringField(
         required=False,
-        allow_blank=True,
+        allow_null=True,
         default="",
         write_only=True,
-        trim_whitespace=False,
         help_text="Cloudflare Turnstile token from the login widget, when the browser got one.",
     )
-    turnstile_client_status = serializers.CharField(
+    turnstile_client_status = _IgnoreInvalidStringField(
         required=False,
-        allow_blank=True,
+        allow_null=True,
         default="",
         write_only=True,
         help_text=(
@@ -417,8 +428,8 @@ class LoginSerializer(serializers.Serializer):
             email=validated_data["email"],
             existing_user=existing_user,
             is_reauth=was_authenticated_before_login_attempt,
-            token=validated_data.get("turnstile_token", ""),
-            client_status=validated_data.get("turnstile_client_status", ""),
+            token=validated_data.get("turnstile_token") or "",
+            client_status=validated_data.get("turnstile_client_status") or "",
         )
 
         # Initialize axes handler via proxy so request metadata is populated consistently

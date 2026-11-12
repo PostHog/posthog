@@ -71,7 +71,7 @@ export interface PrecheckResponseType {
     turnstile_site_key?: string
 }
 
-// What the login Turnstile widget reported at submit, sent so the server can tell a blocked widget from a script
+// What the login Turnstile widget reported at submit, sent so the server can tell a blocked widget from a non-browser client
 export type TurnstileClientStatus =
     | 'token'
     | 'pending'
@@ -169,6 +169,7 @@ export interface loginLogicValues {
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
     turnstileClientStatus: TurnstileClientStatus
+    turnstileScriptFailed: boolean
     turnstileToken: string | null
     turnstileWidgetKey: number
     wasSignedOutForSessionRisk: boolean
@@ -470,6 +471,13 @@ export const loginLogic = kea<loginLogicType>([
                 setTurnstileClientStatus: (_, { status }) => status,
             },
         ],
+        // The Turnstile script loads once per page, so a remounted widget cannot see an earlier load failure
+        turnstileScriptFailed: [
+            false,
+            {
+                setTurnstileClientStatus: (failed, { status }) => failed || status === 'script_failed',
+            },
+        ],
         // A Turnstile token is single use, so the widget remounts under a new key after each submit
         turnstileWidgetKey: [
             0,
@@ -596,6 +604,7 @@ export const loginLogic = kea<loginLogicType>([
                         ...(values.turnstileToken ? { turnstile_token: values.turnstileToken } : {}),
                     })
                 } catch (e) {
+                    actions.resetTurnstile()
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
                         const next: string | undefined = router.values.searchParams.next
@@ -742,13 +751,9 @@ export const loginLogic = kea<loginLogicType>([
     })),
     listeners(({ values, actions }) => ({
         submitLoginSuccess: () => {
-            actions.resetTurnstile()
             // A logged-in session reads the address from the user, so drop the stored one
             clearPendingVerificationEmail()
             redirectAfterLogin()
-        },
-        submitLoginFailure: () => {
-            actions.resetTurnstile()
         },
         submitCodeVerificationSuccess: () => {
             clearPendingVerificationEmail()

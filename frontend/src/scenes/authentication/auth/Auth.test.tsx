@@ -10,6 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { Auth } from './Auth'
+import { loginLogic } from './loginLogic'
 
 jest.mock('@marsidev/react-turnstile', () => ({
     Turnstile: () => require('react').createElement('div', { 'data-attr': 'turnstile-mock' }),
@@ -19,11 +20,15 @@ describe('Auth', () => {
     let signupRequestBody: Record<string, any> | null
     let accountExists: boolean
     let turnstileSiteKey: string | null
+    let precheckFails: boolean
+    let loginRequestBody: Record<string, any> | null
 
     beforeEach(() => {
         signupRequestBody = null
         accountExists = false
         turnstileSiteKey = null
+        precheckFails = false
+        loginRequestBody = null
         useMocks({
             get: {
                 // An instance that cannot create organizations sends unknown emails to the login step
@@ -32,14 +37,21 @@ describe('Auth', () => {
                 '/api/users/@me/': () => [401, { detail: 'Not authenticated' }],
             },
             post: {
-                '/api/login/precheck': () => [
-                    200,
-                    {
-                        account_exists: accountExists,
-                        saml_available: false,
-                        ...(turnstileSiteKey ? { turnstile_site_key: turnstileSiteKey } : {}),
-                    },
-                ],
+                '/api/login/precheck': () =>
+                    precheckFails
+                        ? [429, {}]
+                        : [
+                              200,
+                              {
+                                  account_exists: accountExists,
+                                  saml_available: false,
+                                  ...(turnstileSiteKey ? { turnstile_site_key: turnstileSiteKey } : {}),
+                              },
+                          ],
+                '/api/login': async (info) => {
+                    loginRequestBody = (await info.request.clone().json()) as Record<string, any>
+                    return [400, { code: 'invalid_credentials', detail: 'Invalid email or password.' }]
+                },
                 '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }],
                 // 400 rather than 201 so the submit handler never assigns `location.href`,
                 // which jsdom does not implement. The request body is captured before the response.
@@ -116,6 +128,22 @@ describe('Auth', () => {
 
         expect(await screen.findByTestId('password-login')).toBeInTheDocument()
         expect(screen.getByTestId('turnstile-mock')).toBeInTheDocument()
+    })
+
+    it('sends not_rendered once a failed precheck removes the turnstile widget', async () => {
+        accountExists = true
+        turnstileSiteKey = 'site'
+        await submitEmail('test@example.com')
+        expect(await screen.findByTestId('turnstile-mock')).toBeInTheDocument()
+
+        precheckFails = true
+        loginLogic.actions.precheck({ email: 'other@example.com' })
+        await waitFor(() => expect(screen.queryByTestId('turnstile-mock')).not.toBeInTheDocument())
+        loginLogic.actions.setLoginValues({ email: 'other@example.com', password: 'a-password' })
+        loginLogic.actions.submitLogin()
+
+        await waitFor(() => expect(loginRequestBody).not.toBeNull())
+        expect(loginRequestBody?.turnstile_client_status).toEqual('not_rendered')
     })
 
     it('a too-short password blocks the auth panel; a valid one advances to onboarding', async () => {
