@@ -1,6 +1,8 @@
+import sys
 import time
 import uuid
 from argparse import ArgumentParser
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +21,9 @@ class Command(BaseCommand):
         sample.add_argument("--out", type=Path, required=True)
         sample.add_argument("--query-id", action="append", default=[])
         sample.add_argument("--sample", type=int, default=0)
+
+        scenarios = actions.add_parser("scenarios", help="Read queries to test from standard input, one JSON per line")
+        scenarios.add_argument("--out", type=Path, required=True)
 
         compile_ = actions.add_parser("compile", help="Compile selected queries to SQL without running them")
         compile_.add_argument("--sample-file", type=Path, required=True)
@@ -52,6 +57,11 @@ class Command(BaseCommand):
         logged = replay.load_logged_queries(options["query_id"], options["sample"])
         replay.write_jsonl(options["out"], logged)
         self.stdout.write(f"Selected {len(logged)} queries")
+
+    def _scenarios(self, options: dict[str, Any]) -> None:
+        queries = replay.scenario_queries(sys.stdin, datetime.now(UTC))
+        replay.write_jsonl(options["out"], queries)
+        self.stdout.write(f"Read {len(queries)} scenarios")
 
     def _compile(self, options: dict[str, Any]) -> None:
         logged = replay.read_logged_queries(options["sample_file"])

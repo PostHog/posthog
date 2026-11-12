@@ -16,6 +16,17 @@ Without `--query-id` it samples 200 queries from the last 7 days.
 A query ID must be from the last 30 days.
 Change the size with `--sample`.
 
+To test queries of your own, write them to a file and pass `--scenario-file`.
+Each line is JSON with a team ID and either HogQL text or a full query:
+
+```json
+{"team_id": 2, "query": "select count() from events where timestamp > now() - interval 1 day"}
+{"team_id": 2, "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}}
+```
+
+A scenario has no production SQL to check against, so it is compared between the base and the head only.
+It runs against that team's real data.
+
 You need Tailscale, a `prod-us` kubernetes context, and an image for the pull request from Container Images CI.
 The command claims two pods from the `posthog-hogql-replay` pool, puts the pull request's image on one, and deletes both when it finishes.
 The pool only has read access to Postgres and ClickHouse.
@@ -63,9 +74,9 @@ The pull request image tag moves with every push, so check that the head image i
 
 ## How it works
 
-The management command `hogql_replay` has five actions, and `hogli replay:hogql` runs them in the pods.
+The management command `hogql_replay` has six actions, and `hogli replay:hogql` runs them in the pods.
 
-1. `sample` reads query IDs or a sample from `query_log_archive`.
+1. `sample` reads query IDs or a sample from `query_log_archive`. `scenarios` reads your own queries instead.
 2. `compile` runs in both pods. It builds each query through its query runner at the time the query originally ran, and records the SQL without sending it to ClickHouse.
 3. `upload` and `download` pass the sample and the compiled SQL between the two pods through the bucket.
 4. `run` runs in the base pod. It runs the base SQL twice and the head SQL once, compares the columns and the rows, and reads the bytes each run read from the query log.

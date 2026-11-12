@@ -9,6 +9,7 @@ import json
 import time
 import argparse
 import subprocess
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -30,8 +31,10 @@ VIEWER_NAMESPACE = "posthog-hogql-replay-viewer"
 MAX_CLAIM_RETRIES = 3
 
 
-def kubectl(context: str, *args: str) -> str:
-    result = subprocess.run(kubectl_cmd(*args, context=context), check=True, capture_output=True, text=True)
+def kubectl(context: str, *args: str, stdin: str | None = None) -> str:
+    result = subprocess.run(
+        kubectl_cmd(*args, context=context), check=True, capture_output=True, text=True, input=stdin
+    )
     return result.stdout.strip()
 
 
@@ -110,7 +113,12 @@ def replay(context: str, base_pod: str, head_pod: str, args: argparse.Namespace,
 
     for pod in (base_pod, head_pod):
         kubectl(context, "exec", "-n", NAMESPACE, pod, "--", "mkdir", "-p", WORK_DIR)
-    manage(context, base_pod, "sample", "--out", sample, *selection)
+    if args.scenario_file:
+        scenarios = args.scenario_file.read_text()
+        command = ("python", "manage.py", "hogql_replay", "scenarios", "--out", sample)
+        print(kubectl(context, "exec", "-i", "-n", NAMESPACE, base_pod, "--", *command, stdin=scenarios))  # noqa: T201
+    else:
+        manage(context, base_pod, "sample", "--out", sample, *selection)
     manage(context, base_pod, "upload", "--path", sample, "--key", f"{run_key}/sample.jsonl")
     manage(context, base_pod, "compile", "--sample-file", sample, "--out", base)
     manage(context, head_pod, "download", "--key", f"{run_key}/sample.jsonl", "--path", sample)
@@ -180,6 +188,11 @@ def main() -> None:
     parser.add_argument("--query-id", action="append", default=[], help="A query_log_archive query ID. Repeatable.")
     parser.add_argument(
         "--sample", type=int, default=200, help="How many recent queries to sample when no ID is given."
+    )
+    parser.add_argument(
+        "--scenario-file",
+        type=Path,
+        help='Queries to test in place of logged ones. One JSON per line: {"team_id": 2, "query": "select ..."}.',
     )
     parser.add_argument("--head-image", help="Image for the pull request's code. Defaults to the pull request image.")
     parser.add_argument("--base-image", help="Image for the base code. Defaults to the image the pool runs.")

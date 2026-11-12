@@ -64,7 +64,7 @@ class LoggedQuery:
     team_id: int
     kind: str
     query_json: str
-    prod_sql: str
+    prod_sql: str | None
     started_at: datetime
 
 
@@ -190,6 +190,24 @@ class _MetadataOnlyClient:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._client, name)
+
+
+def scenario_queries(lines: Iterable[str], now: datetime) -> list[LoggedQuery]:
+    scenarios = [json.loads(line) for line in lines if line.strip()]
+    queries = [
+        s["query"] if isinstance(s["query"], dict) else {"kind": "HogQLQuery", "query": s["query"]} for s in scenarios
+    ]
+    return [
+        LoggedQuery(
+            query_id=f"scenario-{index}",
+            team_id=scenario["team_id"],
+            kind=query.get("kind", ""),
+            query_json=json.dumps(query),
+            prod_sql=None,
+            started_at=now,
+        )
+        for index, (scenario, query) in enumerate(zip(scenarios, queries), start=1)
+    ]
 
 
 def compile_logged_query(logged: LoggedQuery) -> CompiledQuery:
@@ -348,8 +366,10 @@ def _judge(
     def outcome(verdict: Verdict, **fields: Any) -> Outcome:
         return Outcome(logged=logged, verdict=verdict, base_sql=base_sql, head_sql=head_sql, **fields)
 
-    if base_sql is None or normalize_sql(base_sql) != normalize_sql(logged.prod_sql):
+    if base_sql is None:
         return outcome(Verdict.COULD_NOT_MODEL, error=base.error if base else None)
+    if logged.prod_sql is not None and normalize_sql(base_sql) != normalize_sql(logged.prod_sql):
+        return outcome(Verdict.COULD_NOT_MODEL)
     if head_sql is None:
         return outcome(Verdict.HEAD_ONLY_ERROR, error=head.error if head else "Missing from the head compile")
     if base_sql == head_sql:

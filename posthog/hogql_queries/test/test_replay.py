@@ -113,6 +113,24 @@ class TestReplay(ClickhouseTestMixin, APIBaseTest):
         assert outcomes[0].verdict is verdict
         assert len(calls) == expected_runs
 
+    def test_scenarios_are_judged_without_production_sql(self):
+        lines = [
+            json.dumps({"team_id": self.team.pk, "query": "select 1"}),
+            json.dumps({"team_id": self.team.pk, "query": {"kind": "TrendsQuery", "series": []}}),
+        ]
+
+        text, trends = replay.scenario_queries(lines, STARTED_AT)
+        outcomes = replay.run_replay(
+            [text],
+            {text.query_id: CompiledQuery(query_id=text.query_id, sql="BASE")},
+            {text.query_id: CompiledQuery(query_id=text.query_id, sql="HEAD")},
+            lambda sql, team_id, tag: ROWS,
+        )
+
+        assert json.loads(text.query_json) == {"kind": "HogQLQuery", "query": "select 1"}
+        assert trends.kind == "TrendsQuery"
+        assert outcomes[0].verdict is Verdict.SAME_RESULTS
+
     def test_execution_cap_leaves_the_rest_not_run(self):
         sample = [
             LoggedQuery(query_id=f"q{i}", team_id=1, kind="k", query_json="{}", prod_sql="PROD", started_at=STARTED_AT)
