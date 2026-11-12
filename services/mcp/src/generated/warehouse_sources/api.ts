@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 40 enabled ops
+ * PostHog API - MCP 41 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1052,6 +1052,74 @@ export const WarehouseMigrationsConnectionsCreateBody = () => zod.object({
         .optional()
         .describe(
             'At most 25 connections. A connection uploaded again replaces its plan, unless it is already created in PostHog or skipped.'
+        ),
+})
+
+/**
+ * Estimate the monthly rows and cost of moving the connections, from the usage the user reported.
+ */
+export const warehouseMigrationsCostEstimateCreatePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+export const WarehouseMigrationsCostEstimateCreateParams = () => zod.object({
+    id: zod.string().regex(warehouseMigrationsCostEstimateCreatePathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const warehouseMigrationsCostEstimateCreateBodyUsageItemConnectionNameMax = 400
+
+export const warehouseMigrationsCostEstimateCreateBodyUsageItemMonthlyRowsMin = 0
+
+export const warehouseMigrationsCostEstimateCreateBodyUsageItemDestinationIdMax = 400
+
+export const warehouseMigrationsCostEstimateCreateBodyUsageItemSchemaNameMax = 400
+
+export const warehouseMigrationsCostEstimateCreateBodyUsageItemTableNameMax = 400
+
+export const warehouseMigrationsCostEstimateCreateBodyUsageMax = 10000
+
+export const WarehouseMigrationsCostEstimateCreateBody = () => zod.object({
+    usage: zod
+        .array(
+            zod.object({
+                connection_name: zod
+                    .string()
+                    .max(warehouseMigrationsCostEstimateCreateBodyUsageItemConnectionNameMax)
+                    .describe(
+                        "The Fivetran connection name, which is also its destination schema. `connection_name` in the Fivetran Platform Connector's `INCREMENTAL_MAR` table."
+                    ),
+                monthly_rows: zod
+                    .number()
+                    .min(warehouseMigrationsCostEstimateCreateBodyUsageItemMonthlyRowsMin)
+                    .describe(
+                        'Monthly active rows (MAR) Fivetran counted in a typical month, for the table or, without `table_name`, the whole connection.'
+                    ),
+                destination_id: zod
+                    .string()
+                    .max(warehouseMigrationsCostEstimateCreateBodyUsageItemDestinationIdMax)
+                    .nullish()
+                    .describe('The Fivetran destination (group) id. Needed only when two connections share a name.'),
+                schema_name: zod
+                    .string()
+                    .max(warehouseMigrationsCostEstimateCreateBodyUsageItemSchemaNameMax)
+                    .nullish()
+                    .describe('The destination schema the table lands in, as `schema_name` in `INCREMENTAL_MAR`.'),
+                table_name: zod
+                    .string()
+                    .max(warehouseMigrationsCostEstimateCreateBodyUsageItemTableNameMax)
+                    .nullish()
+                    .describe('The table. Leave it out when the number covers the whole connection.'),
+            })
+        )
+        .max(warehouseMigrationsCostEstimateCreateBodyUsageMax)
+        .optional()
+        .describe(
+            'Monthly active rows the user reported, per connection or per table. Send it empty to get `usage_query` and the prices before the user has numbers.'
         ),
 })
 

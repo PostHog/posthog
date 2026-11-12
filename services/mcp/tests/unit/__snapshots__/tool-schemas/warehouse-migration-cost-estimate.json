@@ -1,0 +1,68 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+        },
+        "usage": {
+            "description": "Monthly active rows the user reported, per connection or per table. Send it empty to get `usage_query` and the prices before the user has numbers.",
+            "items": {
+                "properties": {
+                    "connection_name": {
+                        "description": "The Fivetran connection name, which is also its destination schema. `connection_name` in the Fivetran Platform Connector's `INCREMENTAL_MAR` table.",
+                        "maxLength": 400,
+                        "type": "string"
+                    },
+                    "destination_id": {
+                        "anyOf": [
+                            {
+                                "maxLength": 400,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "The Fivetran destination (group) id. Needed only when two connections share a name."
+                    },
+                    "monthly_rows": {
+                        "description": "Monthly active rows (MAR) Fivetran counted in a typical month, for the table or, without `table_name`, the whole connection.",
+                        "minimum": 0,
+                        "type": "number"
+                    },
+                    "schema_name": {
+                        "anyOf": [
+                            {
+                                "maxLength": 400,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "The destination schema the table lands in, as `schema_name` in `INCREMENTAL_MAR`."
+                    },
+                    "table_name": {
+                        "anyOf": [
+                            {
+                                "maxLength": 400,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "The table. Leave it out when the number covers the whole connection."
+                    }
+                },
+                "required": ["connection_name", "monthly_rows"],
+                "type": "object"
+            },
+            "maxItems": 10000,
+            "type": "array"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

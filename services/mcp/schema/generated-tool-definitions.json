@@ -17133,6 +17133,22 @@
         },
         "feature_flag": "warehouse-migration-import"
     },
+    "warehouse-migration-cost-estimate": {
+        "description": "Estimate the rows PostHog syncs each month for a Fivetran migration, and their cost at PostHog's list price, per connection and in total. Fivetran's API has no row counts, so pass the monthly active rows the user reported in 'usage': the rows 'usage_query' returns from the Fivetran Platform Connector tables in their warehouse, or one number per connection from the Usage tab in Fivetran. Call it with an empty 'usage' first to get 'usage_query'. Each item has a 'confidence': 'reported', 'estimated' (read its 'notes'), or 'unknown' (nothing reported, so no rows and no cost). The price ignores discounts, credits and rows the project already syncs. Syncs in a source's first 'free_first_sync_days' days are free.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Estimate the PostHog cost of a Fivetran migration",
+        "title": "Estimate the PostHog cost of a Fivetran migration",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_migrations/{id}/cost_estimate/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
     "warehouse-migration-get": {
         "description": "Get one Fivetran migration. While status is 'pending' or 'crawling', PostHog is still reading the Fivetran account; poll again every 15 to 30 seconds. 'ready' means the items are planned. 'failed' means the read failed: tell the user what 'latest_error' says.",
         "category": "Warehouse sources",
