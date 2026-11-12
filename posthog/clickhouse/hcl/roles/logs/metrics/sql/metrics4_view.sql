@@ -23,3 +23,4 @@ SELECT
 FROM
   posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
 WHERE time_bucket >= toDateTime('2026-09-14 00:00:00')
+  AND reinterpretAsUInt64(point_value) != 9218868437227405314
