@@ -4,7 +4,8 @@ import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton, LemonTag
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag'
+import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
+import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { checkPromptVersion, engineLabel } from './utils'
 
@@ -23,7 +24,10 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                     size="small"
                     value={selectedCheck ? undefined : (activeEngine ?? undefined)}
                     onChange={selectEngine}
-                    options={engines.map((engine) => ({ value: engine, label: engineLabel(engine) }))}
+                    options={engines.map((engine) => ({
+                        value: engine,
+                        label: <ContentAutopilotEngineLabel engine={engine} />,
+                    }))}
                     data-attr="content-autopilot-prompt-answer-engine"
                 />
                 {selectedCheck ? (
@@ -44,7 +48,7 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                         {shownCheck.mode === 'no_search' && !shownCheck.check_failed ? (
                             <LemonTag type="muted">No search</LemonTag>
                         ) : (
-                            <ContentAutopilotCheckResultTag
+                            <ContentAutopilotCheckResult
                                 cited={shownCheck.cited}
                                 checkFailed={shownCheck.check_failed}
                                 position={shownCheck.target_best_position}

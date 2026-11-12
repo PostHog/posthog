@@ -4,9 +4,10 @@ import { LemonBanner, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon
 
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
-import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag'
+import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
+import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { PROMPT_CHECKS_PAGE_SIZE, contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
-import { checkPromptVersion, engineLabel } from './utils'
+import { checkPromptVersion } from './utils'
 
 export const ContentAutopilotPromptChecks = (): JSX.Element => {
     const { checks, checksLoading, checksFailed, checksPage, selectedCheck } = useValues(
@@ -62,7 +63,7 @@ export const ContentAutopilotPromptChecks = (): JSX.Element => {
                     {
                         title: 'Engine',
                         key: 'engine',
-                        render: (_, { engine }) => <span className="whitespace-nowrap">{engineLabel(engine)}</span>,
+                        render: (_, { engine }) => <ContentAutopilotEngineLabel engine={engine} />,
                     },
                     {
                         title: 'Version',
@@ -78,7 +79,7 @@ export const ContentAutopilotPromptChecks = (): JSX.Element => {
                                     <LemonTag type="muted">No search</LemonTag>
                                 </Tooltip>
                             ) : (
-                                <ContentAutopilotCheckResultTag
+                                <ContentAutopilotCheckResult
                                     cited={cited}
                                     checkFailed={check_failed}
                                     position={target_best_position}
