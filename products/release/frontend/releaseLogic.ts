@@ -932,7 +932,11 @@ export const releaseLogic = kea<releaseLogicType>([
                         limit: BROADCAST_LOOKUP_PAGE,
                         offset,
                     })
-                    started.push(...(page.results ?? []).map((flow) => flow.id))
+                    started.push(
+                        ...(page.results ?? [])
+                            .filter((flow) => !!values.user && flow.created_by?.id === values.user.id)
+                            .map((flow) => flow.id)
+                    )
                     if (!page.next) {
                         break
                     }

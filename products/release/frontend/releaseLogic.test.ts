@@ -1,7 +1,10 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -64,12 +67,19 @@ describe('releaseLogic', () => {
 
     it.each([
         [
-            'links the broadcasts started from the release and keeps the linked ones',
-            ['b1', 'b2', 'b3'],
-            ['b1', 'b2', 'b3'],
+            'links the broadcasts the viewer started and keeps the linked ones',
+            [
+                ['b1', 1],
+                ['b2', 1],
+                ['b3', 2],
+            ],
+            ['b1', 'b2'],
         ],
-        ['changes nothing when every broadcast is already linked', ['b1'], null],
+        ['changes nothing when every broadcast is already linked', [['b1', 1]], null],
+        ['ignores broadcasts someone else pointed at the release', [['b3', 2]], null],
     ])('%s', async (_name, started, expected) => {
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, id: 1 })
         const release = {
             id: 'r1',
             name: 'Quiet theme',
@@ -80,7 +90,9 @@ describe('releaseLogic', () => {
             created_at: '2026-11-01T00:00:00Z',
         }
         mockedReleasesList.mockResolvedValue({ results: [release], count: 1, next: null } as never)
-        mockedHogFlowsList.mockResolvedValue({ results: started.map((id) => ({ id })) } as never)
+        mockedHogFlowsList.mockResolvedValue({
+            results: (started as [string, number][]).map(([id, creator]) => ({ id, created_by: { id: creator } })),
+        } as never)
         mockedPartialUpdate.mockReset()
         mockedPartialUpdate.mockImplementation(async (_project, _id, changes) => ({ ...release, ...changes }) as never)
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
