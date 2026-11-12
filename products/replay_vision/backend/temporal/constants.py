@@ -15,8 +15,9 @@ ADMISSION_BUDGET_TTL = dt.timedelta(seconds=15)
 # Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
 # Must exceed the worst-case failure chain in `workflow.py`, where every phase spends its full schedule_to_close
 # budget before the terminal mark runs: create 3m + mark running 3m + fetch 5m + rasterize 40m + upload 20m +
-# provider 25m + terminal mark 3m + cleanup 1m = 100m. The 10m headroom covers task-queue scheduling latency
-# between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
+# provider 25m + terminal mark 3m + cleanup 1m = 100m. The folded chain is create 3m + prepare 5m + rasterize 40m +
+# upload 20m + provider 25m + finalize 8m + terminal mark 3m + cleanup 1m = 105m. The headroom covers task-queue
+# scheduling latency between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
 # row is stranded in `running` until the reaper's cutoff below.
 APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=110)
 
@@ -133,6 +134,9 @@ RECONCILER_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
 LIST_ENABLED_SCANNERS_TIMEOUT = dt.timedelta(seconds=60)
 LIST_SCANNER_SCHEDULES_TIMEOUT = dt.timedelta(seconds=120)
 RECONCILE_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
+# Caps each of the upsert and delete fan-outs per reconciler tick, so a fleet-wide fingerprint change rolls
+# out over several ticks instead of one workflow scheduling an activity per scanner past the history limit.
+RECONCILE_MAX_SCHEDULE_OPS_PER_TICK = 1000
 
 # Short attempts so one stranded on a dying worker reruns on a live one instead of holding the tick.
 REAPER_OP_TIMEOUT = dt.timedelta(seconds=45)
@@ -173,6 +177,17 @@ COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
 CREATE_OBSERVATION_TIMEOUT = dt.timedelta(seconds=30)
 
 CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
+
+# Covers signal emission (up to 2 minutes), the result write and the delivery steps after it.
+FINALIZE_OBSERVATION_TIMEOUT = dt.timedelta(minutes=5)
+FINALIZE_OBSERVATION_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=8)
+
+# The candidate query budgets its ClickHouse time from its own start, so the gates before it get extra time.
+SWEEP_SCANNER_TICK_TIMEOUT = (
+    FIND_SCANNER_CANDIDATES_TIMEOUT + CHECK_SCANNER_BUDGET_TIMEOUT + COUNT_IN_FLIGHT_APPLIES_TIMEOUT
+)
+# Fits two timed-out attempts plus backoff, so a third attempt only follows fast admission rejections.
+SWEEP_SCANNER_TICK_SCHEDULE_TO_CLOSE = 2 * SWEEP_SCANNER_TICK_TIMEOUT + dt.timedelta(seconds=40)
 
 
 # Slots at each cap that scheduled dispatch (sweep, backfill) must leave free, so a user-initiated
