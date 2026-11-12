@@ -427,8 +427,6 @@ class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
     access_method: Optional[AccessMethod] = None
-    # Only session authentication sets this. Celery query tasks restore it with the other request tags,
-    # so a missing value means the work has no browser session behind it.
     browser_session: Optional[bool] = None
     api_key_mask: Optional[str] = None
     api_key_label: Optional[str] = None

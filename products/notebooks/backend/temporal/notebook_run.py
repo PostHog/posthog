@@ -129,9 +129,7 @@ def advance_notebook_run_activity(input: NotebookRunCellInput) -> None:
 
 
 def _browser_session_of(notebook_run: NotebookRun) -> AbstractContextManager[None]:
-    # Cells dispatch from this worker, which has none of the request tags. A run started in the editor
-    # passed the browser-session check for raw organization-grant cells when it started, so its cells
-    # keep that session for the same check in the query runner.
+    # This worker has no request tags. An editor run passed the raw-cell session check when it started.
     if notebook_run.trigger == NotebookRun.Trigger.UI:
         return tags_context(browser_session=True)
     return nullcontext()

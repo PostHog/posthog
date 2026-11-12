@@ -127,9 +127,7 @@ def _default_query_hash(
     try:
         query_hash = calculate_cache_key(insight, dashboard=dashboard if tile is not None else None)
     except ExposedHogQLError:
-        # The runner refuses some queries before it has a key, for example raw warehouse SQL outside a
-        # browser session. The execution step records that refusal on this insight alone, so the other
-        # insights in the delivery still go out.
+        # The execution step below records this refusal on the insight alone, so the delivery still goes out.
         query_hash = None
     if query_hash is None:
         query_hash = insight.filters_hash

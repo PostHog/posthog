@@ -47,9 +47,8 @@ def raw_query_uses_organization_grant(source: ExternalDataSource) -> bool:
 
 
 def require_browser_session_for_organization_grant() -> None:
-    # Token credentials can restrict projects while the warehouse grant spans the organization. Background
-    # work, such as an export or an alert, runs with no request tags at all, so a missing token is not
-    # proof of a session. Only a positive session tag passes.
+    # Tokens can restrict projects while this grant spans the organization, and background work such as
+    # an export or an alert carries no request tags, so a missing token is not proof of a session.
     tags = get_query_tags()
     if tags.access_method is not None or not tags.browser_session:
         raise ExposedHogQLError(RAW_QUERY_BROWSER_SESSION_ERROR)
