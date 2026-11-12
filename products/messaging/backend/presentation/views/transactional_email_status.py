@@ -10,7 +10,7 @@ from uuid import UUID
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ErrorDetail, NotFound
@@ -139,6 +139,8 @@ class ScheduledEmailListQuerySerializer(serializers.Serializer):
     def validate_cursor(self, value: str) -> tuple[datetime, str]:
         try:
             due, message_id = json.loads(base64.urlsafe_b64decode(value.encode()))
+            if not (isinstance(due, str) and isinstance(message_id, str)):
+                raise ValueError
             return datetime.fromisoformat(due), str(UUID(message_id))
         except (binascii.Error, UnicodeDecodeError, TypeError, ValueError):
             raise serializers.ValidationError("This cursor isn't one a page returned. Start again without it.")
@@ -151,6 +153,7 @@ class ScheduledEmailSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the send was made.")
 
 
+@extend_schema_serializer(many=False)
 class ScheduledEmailPageSerializer(serializers.Serializer):
     results = ScheduledEmailSerializer(many=True, help_text="The emails, soonest first.")
     next = serializers.CharField(

@@ -1,3 +1,4 @@
+import base64
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -578,7 +579,9 @@ class TestListScheduledEmails(EmailsApiTestBase):
         super().setUp()
         self.list_url = f"/api/projects/{self.team.id}/messaging/emails/"
 
-    def _email(self, to: str, hours_ago: int, rows: list[tuple[str, int, int | None]], team: Team | None = None) -> str:
+    def _email(
+        self, to: str, hours_ago: int, rows: list[tuple[str, int, float | None]], team: Team | None = None
+    ) -> str:
         """Insert (status, seconds after the send, hours from now it is due) rows of one email."""
         created_at = datetime.now(UTC) - timedelta(hours=hours_ago)
         message_id = self._message_id(created_at)
@@ -654,9 +657,9 @@ class TestListScheduledEmails(EmailsApiTestBase):
 
     def test_walks_the_pages_with_the_cursor(self, _flag):
         due_together = sorted(
-            self._email(f"user{hours}@example.com", hours, [("scheduled", 0, 24)]) for hours in (1, 2)
+            self._email(f"user{hours}@example.com", hours, [("scheduled", 0, 24 + 0.5 / 3600)]) for hours in (1, 2)
         )
-        last = self._email("last@example.com", 3, [("scheduled", 0, 30)])
+        last = self._email("last@example.com", 3, [("scheduled", 0, 24 + 0.75 / 3600)])
 
         ids: list[str] = []
         query = "status=scheduled&limit=1"
@@ -669,11 +672,27 @@ class TestListScheduledEmails(EmailsApiTestBase):
 
         assert ids == [*due_together, last]
 
+    def test_the_schema_describes_one_page(self, _flag):
+        schema = self.client.get("/api/schema/").data
+
+        listing = schema["paths"]["/api/projects/{project_id}/messaging/emails/"]["get"]
+        page = listing["responses"]["200"]["content"]["application/json"]["schema"]
+        assert set(schema["components"]["schemas"][page["$ref"].rsplit("/", 1)[-1]]["properties"]) == {
+            "results",
+            "next",
+        }
+
     @parameterized.expand(
         [
             ("no_status", "", "status", "required"),
             ("another_status", "status=sent", "status", "invalid_choice"),
             ("a_made_up_cursor", "status=scheduled&cursor=not-a-cursor", "cursor", "invalid_input"),
+            (
+                "a_cursor_with_a_number_for_an_id",
+                f"status=scheduled&cursor={base64.urlsafe_b64encode(b'["2026-06-16T12:00:00+00:00", 123]').decode()}",
+                "cursor",
+                "invalid_input",
+            ),
             ("too_many", "status=scheduled&limit=101", "limit", "max_value"),
         ]
     )

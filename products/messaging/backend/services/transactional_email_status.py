@@ -94,10 +94,16 @@ WHERE team_id = %(team_id)s
       WHERE team_id = %(team_id)s AND created_at >= %(start)s AND status = 'scheduled'
   )
 GROUP BY message_id
-HAVING argMax(status, version) = 'scheduled' AND due > %(now)s {{after}}
+HAVING argMax(status, version) = 'scheduled' AND due > toDateTime64(%(now)s, 6, 'UTC') {{after}}
 ORDER BY due, id
 LIMIT %(limit)s
 """
+
+
+def _microseconds(value: datetime) -> str:
+    # The ClickHouse driver binds a datetime to whole seconds, and `scheduled_at` keeps microseconds. A cursor cut to
+    # the second would return its own email again on the next page.
+    return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
 def list_scheduled_emails(team_id: int, *, after: tuple[datetime, str] | None, limit: int) -> ScheduledEmailPage:
@@ -106,16 +112,18 @@ def list_scheduled_emails(team_id: int, *, after: tuple[datetime, str] | None, l
     params: dict[str, Any] = {
         "team_id": team_id,
         "start": now - _LONGEST_WAIT - _CLOCK_SKEW,
-        "now": now,
+        "now": _microseconds(now),
         "limit": limit + 1,
     }
     if after is not None:
-        params["after_at"], params["after_id"] = after
+        params["after_at"], params["after_id"] = _microseconds(after[0]), after[1]
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
     rows = cast(
         list,
         sync_execute(
-            _SCHEDULED_EMAILS_QUERY.format(after="AND (due, id) > (%(after_at)s, %(after_id)s)" if after else ""),
+            _SCHEDULED_EMAILS_QUERY.format(
+                after="AND (due, id) > (toDateTime64(%(after_at)s, 6, 'UTC'), %(after_id)s)" if after else ""
+            ),
             params,
             workload=Workload.OFFLINE,
             team_id=team_id,
