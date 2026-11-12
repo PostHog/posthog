@@ -7,12 +7,12 @@ from products.warehouse_sources.sources.twitter_ads.settings import (
 )
 
 _VIDEO_DESCRIPTIONS = {
-    "video_total_views": "Video views where the video was fully in view for 3 seconds or manually played.",
+    "video_total_views": "Video views where the video was 100% in view for at least 3 seconds, plus views a user started by clicking play.",
     "video_views_25": "Video views that reached 25% of the video.",
     "video_views_50": "Video views that reached 50% of the video.",
     "video_views_75": "Video views that reached 75% of the video.",
     "video_views_100": "Video views that reached the end of the video.",
-    "video_3s100pct_views": "Video views where the whole player was in view for at least 3 seconds.",
+    "video_3s100pct_views": "Video views where at least 3 seconds played while the video was 100% in view, without click-to-play views. X's original view definition.",
     "video_6s_views": "Video views that lasted at least 6 seconds.",
     "video_15s_views": "Video views that lasted at least 15 seconds or 95% of the video.",
     "video_content_starts": "Video views where playback started.",

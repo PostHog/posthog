@@ -77,7 +77,7 @@ def _day_count(values: object, offset: int, column: str) -> int:
     value = _day_value(values, offset)
     if value is None:
         return 0
-    if isinstance(value, int | float | str) and not isinstance(value, bool):
+    if isinstance(value, int | float) and not isinstance(value, bool):
         return int(value)
     raise ValueError(f"X Ads returned a non-numeric value for {column}")
 

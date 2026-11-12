@@ -5,6 +5,7 @@ PAGE_SIZES = {"lead_forms": 200}
 UNSORTABLE_TABLES = ("media_creatives", "lead_forms")
 STATS_TABLES = {"campaign_stats": "CAMPAIGN", "line_item_stats": "LINE_ITEM"}
 PLACEMENTS = ("ALL_ON_TWITTER", "SPOTLIGHT", "TREND")
+LOOKBACK_SECONDS = 3 * 24 * 60 * 60
 STATS_METRIC_GROUPS = "ENGAGEMENT,BILLING"
 VIDEO_AND_CONVERSION_METRIC_GROUPS = "VIDEO,WEB_CONVERSION"
 VIDEO_AND_CONVERSION_FLAG = "warehouse-twitter-ads-video-conversions"
@@ -42,8 +43,6 @@ def conversion_column(metric: str, attribution: str) -> str:
     return metric if attribution == "metric" else f"{metric}_{attribution}"
 
 
-# Re-read X's 14-day billing window on every incremental sync.
-LOOKBACK_SECONDS = 15 * 24 * 60 * 60
 # The synchronous stats endpoint we use rejects dates further back than this with a 400;
 # X's docs say onboarding backfills should use the (unimplemented) async analytics endpoint instead.
 MAX_STATS_BACKFILL_DAYS = 90

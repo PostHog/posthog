@@ -83,7 +83,7 @@ class TwitterAdsAdapter(MarketingSourceAdapter[HierarchicalNativeAdsConfig]):
         )
 
     def _get_reported_conversion_field(self) -> ast.Expr:
-        # The source imports ENGAGEMENT and BILLING metrics, not conversion reports.
+        # The source syncs conversion columns only behind a rollout flag, so they may be missing.
         return ast.Constant(value=0)
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
