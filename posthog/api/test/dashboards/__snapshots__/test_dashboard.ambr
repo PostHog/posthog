@@ -8635,6 +8635,7 @@
          "posthog_identityproviderconfig"."scim_slug",
          "posthog_identityproviderconfig"."scim_enabled",
          "posthog_identityproviderconfig"."scim_bearer_token",
+         "posthog_identityproviderconfig"."scim_token_digest",
          "posthog_identityproviderconfig"."id_jag_issuer_url",
          "posthog_identityproviderconfig"."id_jag_jwks_url",
          "posthog_identityproviderconfig"."id_jag_allowed_clients"
@@ -9117,6 +9118,7 @@
          "posthog_identityproviderconfig"."scim_slug",
          "posthog_identityproviderconfig"."scim_enabled",
          "posthog_identityproviderconfig"."scim_bearer_token",
+         "posthog_identityproviderconfig"."scim_token_digest",
          "posthog_identityproviderconfig"."id_jag_issuer_url",
          "posthog_identityproviderconfig"."id_jag_jwks_url",
          "posthog_identityproviderconfig"."id_jag_allowed_clients"

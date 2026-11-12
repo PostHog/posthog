@@ -6,6 +6,7 @@ from rest_framework.request import Request
 
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.scim_provisioned_user import SCIMProvisionedUser
+from posthog.models.utils import hash_key_value
 
 from .auth import generate_scim_token
 
@@ -97,6 +98,7 @@ def enable_scim_for_config(config: IdentityProviderConfig) -> str:
 
     config.scim_enabled = True
     config.scim_bearer_token = token.hashed
+    config.scim_token_digest = hash_key_value(token.plain)
     config.save()
 
     return token.plain
@@ -108,6 +110,7 @@ def disable_scim_for_config(config: IdentityProviderConfig) -> None:
     """
     config.scim_enabled = False
     config.scim_bearer_token = None
+    config.scim_token_digest = None
     config.save()
 
 
@@ -119,6 +122,7 @@ def regenerate_scim_token_for_config(config: IdentityProviderConfig) -> str:
     token = generate_scim_token()
 
     config.scim_bearer_token = token.hashed
+    config.scim_token_digest = hash_key_value(token.plain)
     config.save()
 
     return token.plain

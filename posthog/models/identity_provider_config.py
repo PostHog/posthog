@@ -224,6 +224,10 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     scim_bearer_token = models.CharField(
         max_length=255, blank=True, null=True, help_text="Hashed bearer token for SCIM authentication"
     )
+    # Unsalted SHA-256 of the same token, so a request carrying only the bearer token can find its
+    # config without the slug in the URL. Null for tokens issued before this column existed;
+    # backfilled on first use.
+    scim_token_digest = models.CharField(max_length=128, blank=True, null=True, unique=True)
 
     # ---- ID-JAG (XAA) attributes ----
     id_jag_issuer_url = models.CharField(

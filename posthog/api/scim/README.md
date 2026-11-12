@@ -11,6 +11,9 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 - SCIM configuration is stored on the `IdentityProviderConfig`
 - Each identity provider configuration has a bearer token and `scim_slug` for authentication
 - URL structure: `/scim/v2/{scim_slug}/Users`, where `scim_slug` comes from the `IdentityProviderConfig`
+- The same resources are also served without the slug (`/scim/v2/Users`), for IdPs that only let you
+  configure one base URL and a token. There the bearer token alone names the config. Both shapes are
+  supported permanently; the slugged URLs stay the canonical ones in the setup instructions
 - The config is the SCIM tenant: it can back several `OrganizationDomain` rows, and a request names
   none of them, so requests are scoped by the config's organization. SCIM still requires at least
   one verified domain on the config
@@ -41,7 +44,8 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 
 ### Models
 
-- `posthog/models/identity_provider_config.py` - Stores `scim_enabled`, `scim_bearer_token`, and `scim_slug`
+- `posthog/models/identity_provider_config.py` - Stores `scim_enabled`, `scim_bearer_token`,
+  `scim_token_digest`, and `scim_slug`
 - `posthog/models/scim_provisioned_user.py` - One provisioning record per (user, config)
 - `posthog/models/scim_request_log.py` - Request log per config, listed per domain in the UI
 
@@ -106,6 +110,10 @@ GET    /scim/v2/{scim_slug}/ResourceTypes          # Resource types
 GET    /scim/v2/{scim_slug}/Schemas                # SCIM schemas
 ```
 
+Every one of those is also served without the slug, with the tenant resolved from the bearer token:
+`/scim/v2/Users`, `/scim/v2/Users/{id}`, `/scim/v2/Groups`, `/scim/v2/Groups/{id}`,
+`/scim/v2/ServiceProviderConfig`, `/scim/v2/ResourceTypes`, `/scim/v2/Schemas`.
+
 ### Management Endpoints (PostHog UI)
 
 ```text
@@ -153,11 +161,20 @@ Response mirrors JIT disabling: `scim_enabled` becomes `false` and no token is r
 ## Authentication Flow
 
 1. IdP makes request to SCIM endpoint with `Authorization: Bearer {token}`
-2. `SCIMBearerTokenAuthentication` extracts `scim_slug` from the URL
-3. Retrieves the `IdentityProviderConfig` with that slug, requires SCIM enabled on at least one
-   verified domain, and validates the token (hashed comparison)
+2. `SCIMBearerTokenAuthentication` resolves the `IdentityProviderConfig` from the `scim_slug` in the
+   URL, or, on the slug-free routes, from `scim_token_digest` (an unsalted SHA-256 of the token, the
+   same scheme personal API keys use — safe to index because the token is 256 bits of `secrets`
+   output)
+3. Requires SCIM enabled on at least one verified domain, and validates the token (salted hash
+   comparison) — the digest only narrows the lookup, it never replaces the check
 4. Returns the config as `request.auth` for tenant scoping
 5. Views filter all queries by `config.organization`
+
+`scim_token_digest` is written whenever a token is issued or regenerated. Tokens issued before the
+column existed have no digest and are reachable by slug only, so the first slugged request after
+deploy backfills it from the verified token — no customer has to rotate their token to use the
+slug-free URL. A config with neither a slug nor a digest fails closed rather than scanning every
+config's salted hash.
 
 ## PATCH Operations Support
 

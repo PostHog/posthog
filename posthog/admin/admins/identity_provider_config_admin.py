@@ -18,7 +18,7 @@ class IdentityProviderConfigAdmin(admin.ModelAdmin):
     )
     list_filter = ("scim_enabled",)
     search_fields = ("name", "organization__name", "linked_identity_provider_configs__organization_domain__domain")
-    readonly_fields = ("id", "created_at", "updated_at", "linked_domains")
+    readonly_fields = ("id", "created_at", "updated_at", "linked_domains", "scim_bearer_token")
     autocomplete_fields = ["organization"]
     fieldsets = (
         (None, {"fields": ("id", "organization", "name", "created_at", "updated_at", "linked_domains")}),
