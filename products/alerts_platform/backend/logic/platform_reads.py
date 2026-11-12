@@ -24,7 +24,9 @@ from products.alerts_platform.backend.facade.contracts import (
     NativeConfigurationMatch,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
+    PlatformAlertEvents,
     PlatformAlertHistory,
+    PlatformAlertListHistory,
     PlatformAlertRuntime,
     PlatformAlertSnapshot,
     PlatformCheckEntry,
@@ -124,9 +126,11 @@ def list_configurations(
     offset: int,
     legacy_configuration_id: UUID | None = None,
     configuration_ids: Collection[UUID] | None = None,
+    created_by_uuid: UUID | None = None,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations, newest first, with the total behind it. With a
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
+    With `created_by_uuid`, only the ones that user created.
 
     The page is taken in the database rather than in the caller, so a team with many alerts
     costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
@@ -137,6 +141,8 @@ def list_configurations(
         readable = readable.filter(legacy_configuration_id=legacy_configuration_id)
     if configuration_ids is not None:
         readable = readable.filter(id__in=list(configuration_ids))
+    if created_by_uuid is not None:
+        readable = readable.filter(created_by__uuid=created_by_uuid)
     return PlatformAlertConfigurationPage(
         configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
         total=readable.count(),
@@ -474,6 +480,31 @@ def control_changes_by_public_id(
     if platform_id is None:
         return None
     return platform_alert_events.control_changes(team_id, platform_id, kinds=kinds, limit=limit)
+
+
+def alert_list_history(
+    *, team_id: int, configuration_ids: Collection[UUID], since: datetime, until: datetime
+) -> PlatformAlertListHistory:
+    """What an alert list shows of each configuration's checks, keyed by configuration id: its newest
+    check, its state changes in `[since, until)` across every group, and its control-plane changes."""
+    return PlatformAlertListHistory(
+        last_checks=platform_alert_events.last_checks(team_id, configuration_ids, all_groups=True),
+        histories=platform_alert_events.history(team_id, configuration_ids, since=since, until=until, all_groups=True),
+        controls=platform_alert_events.control_history(team_id, configuration_ids, since=since, until=until),
+    )
+
+
+def alert_events(*, team_id: int, configuration_id: UUID, since: datetime, limit: int) -> PlatformAlertEvents:
+    """A configuration's checks across every group that moved its state or failed since `since`, and
+    its control-plane changes since then, each newest first."""
+    return PlatformAlertEvents(
+        checks=platform_alert_events.notable_checks(
+            team_id, configuration_id, since=since, limit=limit, all_groups=True
+        ),
+        changes=platform_alert_events.control_changes(
+            team_id, configuration_id, kinds=tuple(ControlChangeKind), limit=limit, since=since
+        ),
+    )
 
 
 def control_history_by_public_id(
