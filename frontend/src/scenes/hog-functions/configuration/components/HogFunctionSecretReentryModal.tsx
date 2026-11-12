@@ -63,7 +63,7 @@ export function HogFunctionSecretReentryModal(): JSX.Element {
                                             type="password"
                                             className="flex-2 min-w-0 ph-no-capture"
                                             autoFocus={index === 0 && entryIndex === 0}
-                                            aria-label={`Value for ${entryKey}`}
+                                            aria-label={`${label}: ${entryKey}`}
                                             value={secretEntryValues[key]?.[entryKey] ?? ''}
                                             onChange={(value) => setSecretEntry(key, entryKey, value)}
                                             onPressEnter={confirmSecretReentry}

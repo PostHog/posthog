@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { tryJsonParse } from 'lib/utils/json'
+import { SecretReentryRefusal, parseSecretReentryRefusal } from 'lib/utils/secretReentryRefusal'
 
 import { groupsModel } from '~/models/groupsModel'
 import { CyclotronJobInvocationGlobals, CyclotronJobTestInvocationResult } from '~/types'
@@ -29,13 +30,15 @@ import {
     SecretReentryConfiguration,
     SecretReentrySource,
     hogFunctionSecretReentryLogic,
+    withEnteredSecrets,
 } from './hogFunctionSecretReentryLogic'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
-import { SecretReentryRefusal, parseSecretReentryRefusal } from './secretReentryRefusal'
 
 export type HogFunctionTestInvocationForm = {
     globals: string // CyclotronJobInvocationGlobals
     mock_async_functions: boolean
+    // Set only on the retry of a refused test run, so the form never holds the secrets the dialog asked for.
+    secret_inputs?: EnteredSecretInputs
 }
 
 export type HogTransformationEvent = {
@@ -524,7 +527,9 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 }
 
                 const parsedData = tryJsonParse(data.globals)
-                const configuration = sanitizeConfiguration(values.configuration) as Record<string, any>
+                const configuration = sanitizeConfiguration(
+                    withEnteredSecrets(values.configuration, data.secret_inputs)
+                ) as Record<string, any>
                 configuration.template_id = values.templateId
                 configuration.hog = values.currentHogCode
 
@@ -552,7 +557,9 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 } catch (e: any) {
                     const refusal = parseSecretReentryRefusal(e)
                     if (refusal) {
-                        actions.requireSecretReentry(refusal, 'test', () => actions.submitTestInvocation())
+                        actions.requireSecretReentry(refusal, 'test', (entered) =>
+                            actions.submitTestInvocationRequest({ ...values.testInvocation, secret_inputs: entered })
+                        )
                         return
                     }
                     lemonToast.error(testInvocationFailureMessage(e))

@@ -5,6 +5,7 @@ import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { SecretReentryRefusal, parseSecretReentryRefusal } from 'lib/utils/secretReentryRefusal'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogFunctionType, HogFunctionTypeType } from '~/types'
@@ -25,7 +26,6 @@ import {
     SecretReentrySource,
     hogFunctionSecretReentryLogic,
 } from './hogFunctionSecretReentryLogic'
-import { SecretReentryRefusal, parseSecretReentryRefusal } from './secretReentryRefusal'
 
 export type HogFunctionDraftAction = 'publish' | 'discard'
 
