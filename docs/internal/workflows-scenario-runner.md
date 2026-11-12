@@ -112,17 +112,17 @@ flowchart TB
 Cards say what a run does, the Generator and Valves do it, the Judge decides, and the Scorecard keeps the result.
 The Environment holds everything that differs between a local box and a cloud slice, and the provider edge runs the same in both places, so a card never knows where it runs.
 
-| Module              | Seam                                                                                    | Owns                                                                                                                                                                                    |
-| ------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Runner**          | `up`, `run(card)`, `down`                                                               | The run lifecycle: reset, seed, drive with valves alongside, converge, judge, write evidence, publish. Watching dependency health and role exits during the run. The status.            |
-| **Cards**           | `load`                                                                                  | The YAML schema (zod), the checks across a card and its profile, profiles, and the card and profile hashes.                                                                             |
-| **Environment**     | `up`, `reset`, `edgeUrl`, `role`, `actuate`, `health`, `exits`, `down`                  | Starting the stack for one target, leftovers and strangers, applying profile settings, every actuation, restarting killed roles, dependency health, and recording role exits.           |
-| **Provider edge**   | `startProviderEdge`, and HTTP: SES v2, CONNECT proxy, `/_faults`, `/_truth`, `/_health` | Faking providers, applying dosed faults, emitting signed SNS feedback, and the append-only truth.                                                                                       |
-| **Valves**          | `start`, `releaseAll`, `timeline`                                                       | The valve definitions, scheduling by `at` or `when`, translating each valve into an Environment action or an edge fault, and the timeline of requested, applied, observed and released. |
-| **Generator**       | `seed`, `drive`                                                                         | The traffic kinds: seeding teams, email integrations and flows, sampling the profile, offering units, and recording each unit with the Judge.                                           |
-| **Judge**           | `open`, `record`, `converge`, `check`, `evidence`, and the `measure()` function         | The journal, convergence, and the invariant and measurement definitions.                                                                                                                |
-| **Cyclotron probe** | `unfinishedJobs`, `runningJobs`                                                         | Two SQL counts against `cyclotron_jobs`. They reach past Cyclotron's seam on purpose, and the probe is the only place that does.                                                        |
-| **Scorecard**       | `scorecardOf`, `publish`                                                                | The scorecard properties, the provenance they carry, and capturing the event and reading it back.                                                                                       |
+| Module              | Seam                                                                                            | Owns                                                                                                                                                                                    |
+| ------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Runner**          | `up`, `run(card)`, `down`                                                                       | The run lifecycle: reset, seed, drive with valves alongside, converge, judge, write evidence, publish. Watching dependency health and role exits during the run. The status.            |
+| **Cards**           | `load`                                                                                          | The YAML schema (zod), the checks across a card and its profile, profiles, and the card and profile hashes.                                                                             |
+| **Environment**     | `up`, `reset`, `edgeUrl`, `role`, `actuate`, `health`, `exits`, `groupLag`, `down`              | Starting the stack for one target, leftovers and strangers, applying profile settings, every actuation, restarting killed roles, dependency health, and recording role exits.           |
+| **Provider edge**   | `startProviderEdge`, `hold`, and HTTP: SES v2, CONNECT proxy, `/_faults`, `/_truth`, `/_health` | Faking providers, applying dosed faults, emitting signed SNS feedback, and the append-only truth.                                                                                       |
+| **Valves**          | `start`, `releaseAll`, `timeline`                                                               | The valve definitions, scheduling by `at` or `when`, translating each valve into an Environment action or an edge fault, and the timeline of requested, applied, observed and released. |
+| **Generator**       | `seed`, `drive`                                                                                 | The traffic kinds: seeding teams, email integrations and flows, sampling the profile, offering units, and recording each unit with the Judge.                                           |
+| **Judge**           | `open`, `record`, `converge`, `check`, `evidence`, and the `measure()` function                 | The journal, convergence, and the invariant and measurement definitions.                                                                                                                |
+| **Cyclotron probe** | `unfinishedJobs`, `runningJobs`                                                                 | Two SQL counts against `cyclotron_jobs`. They reach past Cyclotron's seam on purpose, and the probe is the only place that does.                                                        |
+| **Scorecard**       | `scorecardOf`, `publish`                                                                        | The scorecard properties, the provenance they carry, and capturing the event and reading it back.                                                                                       |
 
 **One definition per name.**
 Each valve, traffic kind, invariant and measurement is one definition that holds its name, its parameter schema and its implementation, in Valves, Generator and Judge.
@@ -153,7 +153,7 @@ Nothing in the runner runs in production.
 
 The first slice is local only, on real time.
 
-- **Roles.** `cdp-processed-events`, `cdp-cyclotron-worker-hogflow`, `cdp-cyclotron-worker-email`, `cdp-api`, `cdp-cyclotron-v2-janitor`. Every card runs against all five. The bounce card also needs `cdp-ses-webhooks`, which records SES feedback, and it joins the roles with the SES feedback.
+- **Roles.** `cdp-processed-events`, `cdp-cyclotron-worker-hogflow`, `cdp-cyclotron-worker-email`, `cdp-api`, `cdp-cyclotron-v2-janitor`, `cdp-ses-webhooks`. Every card runs against all six. `cdp-ses-webhooks` runs cdp-api's SES webhook consumer, which records SES feedback.
 - **Traffic.** Events into event-triggered flows with email and webhook steps, and transactional email sends. Every job lives in the hogflow and email queues of `cyclotron_jobs`: a flow's webhook step runs inside the hogflow worker and retries by rescheduling its own row. The flows read the recipient from event properties, so the slice seeds no persons.
 - **Valves.** `role.kill`, `role.freeze`, `pg.drop_connections`, `ses.reject`, `ses.throttle`, `dest.status`.
 - **SES feedback.** cdp-api verifies SES feedback and queues it, and the `cdp-ses-webhooks` consumer records it. The runner changes no setting to shorten that path.
@@ -161,27 +161,27 @@ The first slice is local only, on real time.
 
 ### Traffic kinds
 
-| Kind                  | Intake                                                                                                                                                                                               | Flow                                                                                      | Expected per unit                           |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `event_email`         | An event on the events topic, with the recipient in `properties.email`                                                                                                                               | Event trigger, then an email step                                                         | One email delivery                          |
-| `event_webhook`       | An event on the events topic                                                                                                                                                                         | Event trigger, then a webhook step to `https://hooks.example.com/u/<unit id>/<action id>` | One webhook delivery                        |
-| `transactional_email` | cdp-api's template route `/transactional_email`, with `{ to, distinct_id, variables }` and a JWT the generator mints per team and flow                                                               | API trigger, then an email step reading `properties.to`                                   | One email delivery                          |
-| `bounce_followup`     | After an `event_email` unit that the bounce fault answered: wait for the feedback's 200 in the truth and for the `cdp-ses-webhooks` consumer to catch up, then a template-route send to that address | The transactional flow                                                                    | Refusal `recipient_suppressed`, no delivery |
+| Kind                  | Intake                                                                                                                                                                                                                                                                           | Flow                                                                                      | Expected per unit                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `event_email`         | An event on the events topic, with the recipient in `properties.email`                                                                                                                                                                                                           | Event trigger, then an email step                                                         | One email delivery                                                    |
+| `event_webhook`       | An event on the events topic                                                                                                                                                                                                                                                     | Event trigger, then a webhook step to `https://hooks.example.com/u/<unit id>/<action id>` | One webhook delivery                                                  |
+| `transactional_email` | cdp-api's template route `/transactional_email`, with `{ to, distinct_id, variables }` and a JWT the generator mints per team and flow                                                                                                                                           | API trigger, then an email step reading `properties.to`                                   | One email delivery                                                    |
+| `bounce_followup`     | An event on the events topic, with the recipient in `properties.email`. Once the send is accepted, a follow-up: wait for cdp-api's 200 to the bounce feedback in the truth and for zero lag on the `cdp-ses-webhooks` consumer group, then a template-route send to that address | Event trigger, then an email step; the follow-up goes through the transactional flow      | One email delivery; the follow-up refused with `recipient_suppressed` |
 
 ### First cards
 
 Each card is drawn from a failure class on the delivery path.
 `smoke` ships with the runner; each other card lands with the valves and traffic kinds it uses, and only cards in `cards/` can run.
 
-| Card                     | Traffic                                               | Valves                                                            | Invariants                                                                | Failure class                                |
-| ------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------- |
-| `smoke`                  | `event_email`, `event_webhook`, `transactional_email` | none                                                              | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0) | Baseline: proves the judging loop            |
-| `email-worker-killed`    | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`     | `at_least_once`, `duplicate_sends` (gated), `refused_at_intake`           | A worker dying mid-batch                     |
-| `hogflow-worker-frozen`  | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds                | `at_least_once`, `duplicate_sends` (gated), `refused_at_intake`           | A frozen pod losing sends                    |
-| `pg-connections-dropped` | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1, `when` 5 jobs run on `hogflow`     | `at_least_once`, `duplicate_sends` (gated), `refused_at_intake`           | A dropped Postgres connection stranding jobs |
-| `destination-errors`     | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5 | `at_least_once`, `refused_at_intake`                                      | Destination 429 and 503 retry storms         |
-| `ses-throttled`          | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                        | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`          | SES throttling                               |
-| `ses-bounce-suppresses`  | `event_email`, `bounce_followup`                      | `ses.reject` with type `bounce`, share 0.3                        | `at_least_once`, `bounced_suppressed`, `refused_at_intake`                | Dropped SES feedback, so no suppression      |
+| Card                     | Traffic                                               | Valves                                                                                                   | Invariants                                                                             | Failure class                                |
+| ------------------------ | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `smoke`                  | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                     | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)              | Baseline: proves the judging loop            |
+| `email-worker-killed`    | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                            | `at_least_once`, `duplicate_sends` (gated), `refused_at_intake`                        | A worker dying mid-batch                     |
+| `hogflow-worker-frozen`  | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                       | `at_least_once`, `duplicate_sends` (gated), `refused_at_intake`                        | A frozen pod losing sends                    |
+| `pg-connections-dropped` | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1 for 5 seconds, `when` 1 job runs on `hogflow`                              | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                       | A dropped Postgres connection stranding jobs |
+| `destination-errors`     | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                       | Destination 429 and 503 retry storms         |
+| `ses-throttled`          | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                               | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                       | SES throttling                               |
+| `ses-bounce-suppresses`  | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                             | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed` | Dropped SES feedback, so no suppression      |
 
 ## Call paths
 
@@ -335,7 +335,7 @@ sequenceDiagram
     participant V as Valves
     participant J as Judge
     participant S as Scorecard
-    alt a dependency died, a valve was never observed, or the generator fell short
+    alt a dependency died, a valve was never observed or never released, or the generator fell short
         E-->>R: dependency down
         V-->>R: requested, not observed
         Note over R: invalid
@@ -377,8 +377,6 @@ Only the Environment has two implementations, and only it knows how a role is fo
 
 The card format and the scorecard event are the external contracts: other people and tools read them, so they change only with a schema version.
 The other interfaces are internal seams; each module keeps the responsibilities in the module table.
-
-These contracts cover the whole first slice, so some members are not in the code yet; later stacks add them: the `role.freeze` and `pg.drop_connections` valves with the `freeze` and `pg.terminate` actuations, the `cdp-ses-webhooks` role, the edge's SNS feedback with `ses.reject` type `bounce` and `ses.throttle`, the `bounce_followup` traffic kind, the `bounced_suppressed` invariant, and the cards other than `smoke` and `email-worker-killed`.
 
 ### Cards
 
@@ -423,7 +421,7 @@ measure:
   - name: delivery_latency_ms
 ```
 
-A valve entry names a valve, its target (a role, `postgres` or a provider host), its dose, exactly one of `at` (an offset from the start of the drive) or `when`, and `for`.
+A valve entry names a valve, its target (a role, `postgres`, `ses` or `hooks.example.com`), its dose, exactly one of `at` (an offset from the start of the drive) or `when`, and `for`.
 `when` takes one predicate, `running_on_queue` with `queue` and `atLeast`.
 
 `load` returns the card, the profile and their hashes, or throws one `CardError` that lists every problem at once.
@@ -433,6 +431,7 @@ It rejects:
 - a `role.kill`, `role.freeze` or `pg.drop_connections` card whose `convergeWithin` does not exceed the janitor's stall timeout, its sweep interval, its first-retry spread and its backoff for repeated stalls, plus the role restart backoff, read from the profile settings or the repository defaults;
 - a `pg.drop_connections` entry scheduled by `at`: the main pools close idle connections quickly, so it waits for running jobs with `when`;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;
+- a card whose traffic is answered at its intake rather than on Kafka, such as `transactional_email`, without `refused_at_intake`, because such a unit counts as offered whatever its intake answered;
 - a profile setting no role or the load producer reads, and traffic rates that fail their kind's profile schema.
 
 **Hashes.**
@@ -464,8 +463,10 @@ export interface Runner {
 - **Order.** `run` calls `reset`, `seed`, `Judge.open`, then `drive` and `Valves.start` together, `Valves.releaseAll`, `converge`, `check` and `measure`, writes the evidence, and publishes the scorecard.
 - **A failed reset stops the environment.** Later cards of the same invocation are skipped; run the command again.
 - **Status rules.**
-  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so this outranks a failed invariant.
+  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, a valve was applied and never released, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so this outranks a failed invariant.
   - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a valve causing it, even if every delivery later arrives.
+    An unexplained exit outranks a valve that was never observed: the run fails, and the reason also lists every unobserved valve.
+    An exit while `pg.drop_connections` is applied still counts as unexplained; its reason names the drop.
   - `passed` otherwise.
 - **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back, or when the scorecard files could not be written. A run interrupted after the capture keeps the status's code, unless its files could not be written.
 
@@ -481,8 +482,15 @@ export interface Environment {
   actuate(action: Action): Promise<Actuation>
   health(): Promise<{ healthy: boolean; down: string[] }>
   exits(): RoleExit[]
+  groupLag(group: string): Promise<number>
   down(): Promise<void>
 }
+
+export type Action =
+  | { kind: 'kill'; role: Role }
+  | { kind: 'freeze'; role: Role }
+  | { kind: 'pg.terminate'; share: number }
+  | { kind: 'edge.fault'; rule: FaultRule }
 
 export type RoleHandle = { name: Role; url: string; metricsUrl: string }
 ```
@@ -500,13 +508,18 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
   3. Clear the edge's faults.
   4. Delete unfinished jobs from `cyclotron_jobs`.
   5. Clear the SES rate limiter's bucket.
-  6. Move the roles' consumer groups to the end of their topics with `rpk group seek <group> --to end --topics <topics> --allow-new-topics`. Without the topic list, a group that never committed is not moved.
+  6. Move the roles' consumer groups, the events consumer's and the SES webhook consumer's, to the end of their topics with `rpk group seek <group> --to end --topics <topics> --allow-new-topics`. Without the topic list, a group that never committed is not moved.
   7. Start the roles with the profile's settings and wait for each role's `/_health`.
 
   Stopping first means no in-flight batch from an earlier run can recreate jobs after the clear.
 
 - **Killed roles come back.** After any exit the Environment restarts the role after 2 seconds, as Kubernetes would, and records the exit, marked as caused by a valve or not.
-- **Actuation.** `kill` sends `SIGKILL` to the role's process group and is observed when the old process is gone. `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`. `pg.terminate` runs `pg_terminate_backend` on role backends only and is observed when at least one was terminated.
+- **Actuation.** Each action is observed within 10 seconds or not at all.
+  - `kill` sends `SIGKILL` to the role's process group and is observed when the old process is gone.
+  - `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`. Overlapping freezes of one role resume it only when the last of them releases.
+  - `pg.terminate` runs `pg_terminate_backend` on the `share` of role backends, rounded up, on every Postgres server the role settings name with a `postgres://` or `postgresql://` URL, such as a read replica. Loopback names and the default port count as one server. It is observed when at least one backend was terminated.
+  - `edge.fault` holds a fault rule on the edge and lifts it on release. It is observed once the edge answered one request with it, and stops waiting when the drive ends.
+- **Consumer lag.** `groupLag(group)` reads a consumer group's total lag with `rpk group describe`.
 - **Connection drops spare the runner.** Every role starts with `PGAPPNAME=scenario-<role>`, which node-postgres uses for pools that set no `application_name`, Cyclotron's pools included. `pg.terminate` only terminates backends whose `application_name` is a role's mode or starts with `scenario-`; the runner's own connections use another name.
 - **Health.** `health` checks Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog and the edge's `/_health`.
 - **The roles' environment.** Every role starts from `src/index.ts` with `tsx` in development mode, as its own process group, with:
@@ -527,11 +540,13 @@ export function startProviderEdge(options: {
   trackingKeys?: string // ENCRYPTION_SALT_KEYS, to read the action id from the tracking code
   caDir?: string // creates the CA and leaf certificates; without it the edge serves plain HTTP only
   region?: string // the SNS certificate's host is sns.<region>.amazonaws.com; us-east-1 when unset
+  feedbackUrl?: string // cdp-api's SES webhook, where a bounce fault posts its feedback
 }): Promise<ProviderEdge>
 ```
 
 ```text
-POST   /_faults      { name, params, match?: { host? | recipient? }, dose: { count } | { share }, for? }  -> 201 { id }
+POST   /_faults      { name, params, match?: { host? | recipient? }, dose?: { count } | { share }, for? }  -> 201 { id }, or 400 { problems }
+GET    /_faults/:id  -> 200 { id, applied }, the requests the fault answered; 404 once removed
 DELETE /_faults/:id
 DELETE /_faults      clears every fault
 GET    /_truth?after=<seq>&limit=<n>   -> { records: TruthRecord[], next: number }, at most 1000 records a page
@@ -551,21 +566,34 @@ export type TruthRecord = {
 }
 ```
 
-- **Card faults.** `ses.reject` (type `bounce` or `rejected`), `ses.throttle` (`rate` per second; sends over the rate get SES's throttling error) and `dest.status` (`code`). A dose is a count or a share of matching requests; `for` bounds it in time. The fake-ses adapter's own faults, such as a dropped connection, stay outside this vocabulary.
+- **Card faults.** `ses.reject` (type `bounce` or `rejected`), `ses.throttle` (`rate` per second, no dose; sends over the rate get SES's throttling error) and `dest.status` (`code`). A dose is a count or a share of matching requests; `for` bounds it in time. A throttle answers before every other fault, whatever order they were added in, and every send it lets through counts against its rate, bounced sends included. The fake-ses adapter's own faults, such as a dropped connection, stay outside this vocabulary.
 - **Correlation.** The generator puts the unit id where the delivery path carries it unchanged, so the edge parses ids and the Judge never parses payloads:
   - email: the recipient `<unit id>@www.example.com`. The domain has an address record, so the pre-send MX check lets it through. The edge reads the action id from the `X-PostHog-Tracking-Code` header with the tracking code signer and the roles' `ENCRYPTION_SALT_KEYS`;
   - webhooks: the path `/u/<unit id>/<action id>` on `hooks.example.com`, with the action id written into each seeded webhook step.
-- **Feedback.** On a `bounce` the edge answers the send, then posts a signed SNS notification (signature version 1) to cdp-api's SES webhook: a `Permanent` bounce with the recipient in `bouncedRecipients`, carrying the original send's message id, destination, configuration set, tags and headers.
+- **Feedback.** On a `bounce` the edge answers the send, then posts a signed SNS notification (signature version 1) to `feedbackUrl`: a `Permanent` bounce with the recipient in `bouncedRecipients`, carrying the original send's message id, destination, configuration set, tags and headers.
+  - It posts for every send that names a configuration set, as SES publishes events only for those. For a send that names none it posts nothing and records an `ses.feedback` with status 0.
+  - It refuses a bounce fault, 400 on `params.type`, unless it has both a feedback URL and a `caDir` to sign with.
+- **In-process holds.** `ProviderEdge.hold(rule)` adds a fault without HTTP, for the Environment's `edge.fault` action.
 - **Proxy and certificates.** With `caDir`, the edge creates its certificate authority and leaf certificates with the `openssl` CLI. Its CONNECT proxy terminates TLS for `hooks.example.com` and `sns.<region>.amazonaws.com`, where it serves its SNS signing certificate, and tunnels every other host unchanged. cdp-api only accepts a certificate URL on that host, so the edge serves it under the real name rather than the runner changing production code.
 
 ### Valves
 
 ```ts
 // nodejs/tests/scenarios/valves/valves.ts
+export type ValveContext = {
+  environment: Pick<Environment, 'actuate'>
+  probe: Pick<CyclotronProbe, 'runningJobs'>
+  teams: number[]
+  edgeUrl: string // for valves that act through the edge's /_faults API
+}
+
+export type ApplyContext = ValveContext & { pollMs: number; faultObservedWithinMs: number; signal: AbortSignal }
+
 export type ValveDefinition = Definition & {
   // Definition holds the name and the params schema
   target: z.ZodType<string>
-  apply(context: ValveContext, target: string, dose: unknown): Promise<Actuation>
+  strandsRunningJobs: boolean // re-check `when` after apply
+  apply(context: ApplyContext, target: string, dose: unknown): Promise<Actuation>
 }
 
 export interface Valves {
@@ -575,8 +603,19 @@ export interface Valves {
 }
 ```
 
-- **Scheduling.** `at` fires at an offset from the drive's start. `when` asks the probe once a second until `running_on_queue` holds; an entry whose predicate never holds before the drive ends is not observed.
-- **Observation.** Each entry must be observed within its valve's window, or the timeline records an error and the run is `invalid`. A broken harness never reads as a passing engine.
+| Valve                 | Target              | Dose                                                 | Acts through              |
+| --------------------- | ------------------- | ---------------------------------------------------- | ------------------------- |
+| `role.kill`           | a role              | none                                                 | `actuate`, `kill`         |
+| `role.freeze`         | a role              | none                                                 | `actuate`, `freeze`       |
+| `pg.drop_connections` | `postgres`          | `share`                                              | `actuate`, `pg.terminate` |
+| `dest.status`         | `hooks.example.com` | `code` from 400 to 599, with a `count` or a `share`  | `actuate`, `edge.fault`   |
+| `ses.throttle`        | `ses`               | `rate` per second                                    | the edge's `/_faults` API |
+| `ses.reject`          | `ses`               | `type` `rejected` or `bounce`; `share`, 1 by default | the edge's `/_faults` API |
+
+- **Scheduling.** `at` fires at an offset from the drive's start. `when` asks the probe once a second until `running_on_queue` holds; an entry whose predicate never holds before the drive ends is not observed. A valve that strands running jobs, `role.kill` or `role.freeze`, asks again once observed, and an entry applied after its predicate stopped holding is not observed.
+- **Holds.** An entry's `for` counts from its apply. `ApplyContext.signal` aborts when the drive ends or the hold passes, which stops a slow apply and its observation.
+- **Observation.** Each entry must be observed within its valve's window, or the timeline records an error and the run is `invalid`. A broken harness never reads as a passing engine. A valve on the `/_faults` API counts as observed only on a hit the edge reports within `faultObservedWithinMs`, 30 seconds.
+- **Release.** An applied entry that is never released makes the run `invalid`. An entry that was never applied has nothing to release.
 - **Adding a valve** is one `ValveDefinition`. Cards name valves, never backends.
 
 ### Generator
@@ -597,8 +636,9 @@ export function drive(
 - **Intakes.** Events go to the topic the events consumer reads. Transactional sends go to cdp-api's template route.
 - **Pacing.** Each traffic kind offers `ratePerSecond` units for the drive's duration, from its profile entry. Sampling uses the card's `seed`, so two runs of one card offer the same sequence of units.
 - **No retries.** Every call, its answer and its expected deliveries are recorded, refusals included. A call that gets no answer is recorded as a transport error.
-- **Load.** `offeredUnits` counts the units whose answer arrived before the drive ended: every event Kafka accepted, and every call to a CDP role's intake, such as cdp-api, whatever it answered. A refusal or transport error from a role is the engine's answer, which `refused_at_intake` judges. A failed Kafka produce does not count, because Kafka is a dependency. So a generator that falls behind, or a Kafka that refuses enough events, makes the run `invalid`.
-- **Waits.** A traffic kind that needs an earlier delivery first reads the edge's truth with a bound. When the bound passes, the unit is recorded as not offered and the run is `invalid`.
+- **Load.** `offeredUnits` counts every call to a CDP role's intake, such as cdp-api, whatever it answered and whenever the answer arrived, and every event Kafka acknowledged before the drive ended. A refusal or transport error from a role is the engine's answer, which `refused_at_intake` judges. A failed or late Kafka produce does not count, because Kafka is a dependency. So a generator that falls behind, or a Kafka that refuses enough events, makes the run `invalid`.
+- **Follow-ups.** `bounce_followup` sends a follow-up only after its unit was accepted. It waits up to 60 seconds for cdp-api's 200 to the bounce feedback in the edge's truth, then for `Environment.groupLag` of the `cdp-ses-webhooks` group to reach zero. When the feedback was refused or the bound passes, the journal records why the follow-up was not sent, and `bounced_suppressed` fails that unit.
+- **Stopping.** When the drive stops, pending follow-ups send nothing, and the drive returns only after every follow-up it started has settled.
 
 ### Judge
 
@@ -609,7 +649,7 @@ export interface Judge {
   record(unit: JournalEntry): void // synchronous; never blocks the generator
   converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
   check(invariants: Named[], gates: Record<string, number>): Promise<InvariantResult[]>
-  evidence(): { journal: JournalEntry[]; truth: TruthRecord[] } // journal.json and truth.json
+  evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number } // journal.json and truth.json
 }
 
 export type InvariantResult = {
@@ -624,10 +664,16 @@ export type InvariantResult = {
 
 - **Converge** polls the truth and the probe until every expected delivery of every accepted unit has a record and no job for the card's teams is unfinished, or the bound passes. Past the bound the Judge still runs the invariants. The job count covers every retry that has not happened yet: webhook steps reschedule their own hogflow row, and a throttled email reschedules until it is sent.
 - **Invariants.**
-  - `at_least_once`: every expected delivery has a 2xx in the truth, unless a fault answered its last attempt with a code the caller never retries: for webhooks, a 4xx or 5xx outside `RETRIABLE_STATUS_CODES` in `cdp-fetch.ts`, which the check imports so the two never drift; for SES, a 4xx other than 429. A retried code that answers every attempt still counts as missed.
+  - `at_least_once`: every expected delivery has a 2xx in the truth, with two exceptions.
+    - A fault answered its last attempt with a code the caller never retries: for webhooks, a 4xx or 5xx outside `RETRIABLE_STATUS_CODES` in `cdp-fetch.ts`, which the check imports so the two never drift; for SES, a 4xx other than 429.
+    - A webhook's faulted attempts reached the hogflow worker's `CDP_FETCH_RETRIES`, read from its settings as the worker reads it. The runner passes it to the Judge as `fetchRetries`.
+
+    A retried SES code that answers every attempt still counts as missed.
+
   - `duplicate_sends`: 2xx answers per unit and action beyond one, at or under `gates.duplicate_sends`. Rejected attempts are evidence, not duplicates.
-  - `bounced_suppressed`: the follow-up to a bounced address is refused with `recipient_suppressed`, and the truth has no 2xx send to that address after the feedback.
+  - `bounced_suppressed`: every unit whose send the `ses.reject` fault bounced has a follow-up that cdp-api refused with 422 `recipient_suppressed`. A follow-up that was not sent, was accepted, could not reach cdp-api or got another answer fails it, and so does a bounced unit with no follow-up.
   - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
+
 - **Measurements.** Each has a unit and a better direction in its definition. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
   - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
   - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
@@ -707,20 +753,20 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 
 **Verdict**
 
-| Property            | Type            | Meaning                                                                                                                |
-| ------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `status`            | string          | `passed`, `failed` or `invalid`                                                                                        |
-| `status_reason`     | string          | Why, in one line                                                                                                       |
-| `started_at`        | string          | ISO 8601 time the run started                                                                                          |
-| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                                |
-| `duration_s`        | number          | Seconds from start to end                                                                                              |
-| `units_target`      | number or null  | Units the profile asked for                                                                                            |
-| `units_offered`     | number or null  | Units whose answer arrived before the drive ended: events Kafka accepted, and role intake calls whatever they answered |
-| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                                    |
-| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                           |
-| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error                   |
-| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                    |
-| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                             |
+| Property            | Type            | Meaning                                                                                                     |
+| ------------------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
+| `status`            | string          | `passed`, `failed` or `invalid`                                                                             |
+| `status_reason`     | string          | Why, in one line                                                                                            |
+| `started_at`        | string          | ISO 8601 time the run started                                                                               |
+| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                     |
+| `duration_s`        | number          | Seconds from start to end                                                                                   |
+| `units_target`      | number or null  | Units the profile asked for                                                                                 |
+| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended |
+| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                         |
+| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                |
+| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error        |
+| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                         |
+| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                  |
 
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:
@@ -825,5 +871,6 @@ These seams are hard to reverse, surprising without context, or a real trade-off
 | **The cloud Environment** and the slice it runs against, with the `cloud-manual` origin and a standalone edge process.                                                                                                                                                                           | Needed          | Built after local cards prove the contract.                           |
 | **Batch workflows and schedules**, with a person seed for audience resolution, and the scheduler and subscription-matcher roles.                                                                                                                                                                 | Needed          | Pulls ClickHouse persons into the seed.                               |
 | **PR runs**: paired base and head runs on one box, the `pr` and `master` origins, and evidence storage.                                                                                                                                                                                          | Needed          | Where they execute is not decided.                                    |
+| **One way to hold an edge fault**: `dest.status` holds through `Environment.actuate` and observes within 10 seconds, while the SES valves call the edge's `/_faults` API and wait up to 30 seconds. One path would give every edge valve the same window.                                        | Worth exploring | Both paths work, and they landed in parallel stacks.                  |
 | **Twilio, FCM and APNs fakes** in the provider edge.                                                                                                                                                                                                                                             | Worth exploring | The first cards exercise SES and webhooks.                            |
 | **A `hogli` command** wrapping the `scenarios` script.                                                                                                                                                                                                                                           | Worth exploring | The pnpm script is enough for agents now.                             |
