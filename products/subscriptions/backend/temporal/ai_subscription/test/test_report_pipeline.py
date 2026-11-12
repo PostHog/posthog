@@ -5,6 +5,8 @@ from typing import Optional
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
@@ -12,6 +14,7 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryErr
 
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.ph_client import PH_EU_HOST, PH_US_HOST
 
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
 from products.subscriptions.backend.logic.report_text import ReportDocument, ReportLinkItem, ReportText, ReportTextItem
@@ -48,6 +51,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     AI_QUERY_PLAN_VERSION,
     ReportWindow,
     StoredPlanInvalidError,
+    ai_subscription_llm_tracing,
 )
 from products.subscriptions.backend.temporal.types import safe_error_message, safe_query_error_details
 
@@ -56,6 +60,7 @@ from ee.hogai.llm import MaxCallbackHandler
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 _RP = "products.subscriptions.backend.temporal.ai_subscription.report_pipeline"
+_SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
 _SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
 # slo_operation emits through posthoganalytics.capture; patch that boundary to inspect the SLO events.
 _SLO_CAPTURE = "posthog.slo.events.posthoganalytics.capture"
@@ -391,11 +396,15 @@ async def test_request_hogql_fix_returns_none_on_wrong_type(mock_chat: MagicMock
     assert result is None
 
 
+@pytest.mark.parametrize("org_privacy_mode", [False, True])
+@patch("products.subscriptions.backend.temporal.ai_subscription.spec_generator.is_privacy_mode_enabled")
 @patch("products.subscriptions.backend.temporal.ai_subscription.spec_generator.posthoganalytics.default_client")
 @patch(f"{_RP}.MaxChatOpenAI")
 async def test_request_hogql_fix_traces_call_as_billable_subscriptions_usage(
-    mock_chat: MagicMock, _mock_client: MagicMock
+    mock_chat: MagicMock, mock_client: MagicMock, mock_privacy_mode: MagicMock, org_privacy_mode: bool
 ) -> None:
+    mock_client.privacy_mode = False
+    mock_privacy_mode.return_value = org_privacy_mode
     structured = mock_chat.return_value.with_structured_output.return_value
     structured.invoke.return_value = HogQLFix(fixed_hogql="SELECT 2")
     await _arequest_hogql_fix(
@@ -411,6 +420,8 @@ async def test_request_hogql_fix_traces_call_as_billable_subscriptions_usage(
     assert mock_chat.call_args.kwargs["posthog_properties"]["ai_product"] == "subscriptions"
     (handler,) = structured.invoke.call_args.kwargs["config"]["callbacks"]
     assert isinstance(handler, MaxCallbackHandler)
+    assert handler.privacy_mode is org_privacy_mode
+    assert handler._groups["instance"] == settings.SITE_URL
     assert handler.properties == {
         "ai_product": "subscriptions",
         "feature": "ai_subscription",
@@ -418,6 +429,25 @@ async def test_request_hogql_fix_traces_call_as_billable_subscriptions_usage(
         "subscription_id": 42,
         "team_id": 7,
     }
+
+
+@pytest.mark.parametrize("region,expected_host", [("EU", PH_EU_HOST), ("US", PH_US_HOST)])
+@patch(f"{_SG}.is_privacy_mode_enabled", return_value=False)
+def test_cloud_subscription_traces_capture_to_the_deployment_region(
+    _mock_privacy_mode: MagicMock, region: str, expected_host: str
+) -> None:
+    with (
+        patch(f"{_SG}.is_cloud", return_value=True),
+        patch(f"{_SG}.get_instance_region", return_value=region),
+        patch(f"{_SG}.posthoganalytics.default_client", MagicMock(host=PH_US_HOST, privacy_mode=False)),
+        patch.dict(f"{_SG}._regional_analytics_clients", clear=True),
+    ):
+        _, config = ai_subscription_llm_tracing(
+            team=MagicMock(id=7), user=MagicMock(distinct_id="user-1"), stage="synthesis", trace_correlation_id=None
+        )
+
+    (handler,) = config["callbacks"]
+    assert handler._ph_client.host == expected_host
 
 
 @patch(f"{_RP}.resolve_prompt", return_value="Fix this query. Intent: {{{description}}} Error: {{{error}}}")

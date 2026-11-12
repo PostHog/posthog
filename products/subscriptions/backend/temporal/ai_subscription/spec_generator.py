@@ -1,5 +1,7 @@
 import re
 import uuid
+import atexit
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
@@ -21,11 +23,15 @@ from posthog.hogql.functions import find_hogql_function
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog import event_usage
+from posthog.cloud_utils import is_cloud
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.models.group_type_mapping import get_group_types_for_project
+from posthog.ph_client import get_client
 from posthog.security.llm_prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
+from posthog.utils import get_instance_region
 
 from products.event_definitions.backend.models import EventDefinition, EventProperty, PropertyDefinition
 from products.posthog_ai.backend.models.assistant import CoreMemory
@@ -48,8 +54,9 @@ from products.subscriptions.backend.temporal.ai_subscription.schemas import (
     RelevantEvents,
 )
 
+from ee.hogai.core.ai_event_truncation import ai_event_truncator
 from ee.hogai.llm import MaxCallbackHandler, MaxChatOpenAI
-from ee.hogai.utils.feature_flags import is_core_memory_disabled
+from ee.hogai.utils.feature_flags import is_core_memory_disabled, is_privacy_mode_enabled
 
 logger = structlog.get_logger(__name__)
 
@@ -114,6 +121,30 @@ _PLANNER_LLM_TIMEOUT_SECONDS = 90.0
 _EVENT_SELECTION_LLM_TIMEOUT_SECONDS = 30.0
 AI_SUBSCRIPTION_AI_PRODUCT = "subscriptions"
 
+_regional_analytics_clients: dict[str, posthoganalytics.Client] = {}
+_regional_analytics_clients_lock = threading.Lock()
+
+
+def _ai_subscription_analytics_client() -> Optional[posthoganalytics.Client]:
+    # The default client always captures to the US project, but AI credit billing reads each region's own
+    # internal project, so cloud generations must go to the deployment region's project to be billed.
+    if not is_cloud():
+        return posthoganalytics.default_client
+    region = get_instance_region()
+    if region is None:
+        return None
+    client = _regional_analytics_clients.get(region)
+    if client is None:
+        with _regional_analytics_clients_lock:
+            client = _regional_analytics_clients.get(region)
+            if client is None:
+                client = get_client(region, before_send=ai_event_truncator)
+                if client is None:
+                    return None
+                atexit.register(client.flush)
+                _regional_analytics_clients[region] = client
+    return client
+
 
 def ai_subscription_llm_tracing(
     *, team: Team, user: User, stage: str, trace_correlation_id: Optional[Union[int, str]]
@@ -125,7 +156,7 @@ def ai_subscription_llm_tracing(
     }
     if trace_correlation_id is not None:
         properties["subscription_id"] = trace_correlation_id
-    client = posthoganalytics.default_client
+    client = _ai_subscription_analytics_client()
     if client is None:
         return properties, {}
     # MaxChatOpenAI only puts these properties in langchain metadata. Without a PostHog callback
@@ -135,6 +166,9 @@ def ai_subscription_llm_tracing(
         distinct_id=str(user.distinct_id),
         trace_id=str(uuid.uuid4()),
         properties={**properties, "team_id": team.id},
+        privacy_mode=is_privacy_mode_enabled(team),
+        # AI credit billing only counts generations whose instance group matches the region URL.
+        groups=event_usage.groups(team=team),
     )
     return properties, {"callbacks": [handler]}
 
