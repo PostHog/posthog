@@ -384,6 +384,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "GlobalRateLimitThresholdConfig",
         "MessagingRecord",
         "UserActivitySummaryQueueCursor",  # one global read position per input source, no rows of a team
+        "MailgunDomainRegistration",  # sending domains this region added to the shared Mailgun account; outlives teams
     }
 
     # Baseline violations — these models SHOULD have team_id but don't yet.

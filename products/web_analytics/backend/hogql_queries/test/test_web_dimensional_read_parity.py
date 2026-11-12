@@ -77,6 +77,17 @@ UNTAGGED_CHANNEL = HogQLQueryModifiers(
     ]
 )
 
+PARTNER_URL_CHANNEL = CustomChannelRule(
+    id="partner",
+    channel_type="Partner",
+    combiner=FilterLogicalOperator.AND_,
+    items=[
+        CustomChannelCondition(
+            id="ref", key=CustomChannelField.URL, op=CustomChannelOperator.ICONTAINS, value="ref=partner"
+        )
+    ],
+)
+
 
 class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
     def setUp(self):
@@ -148,6 +159,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                     "$viewport_width": 1280,
                     "$viewport_height": 720,
                     "$pathname": "/blog",
+                    "$current_url": "https://blog.example.com/blog?ref=partner",
                 },
             )
             flush_persons_and_events()
@@ -342,6 +354,51 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
     @parameterized.expand(
         [
             (
+                "breakdown",
+                WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                [],
+                {"Partner": (1.0, 1.0), "Unknown": (2.0, 3.0)},
+            ),
+            (
+                "filter",
+                WebStatsBreakdown.DEVICE_TYPE,
+                [SessionPropertyFilter(key="$channel_type", value="Partner", operator=PropertyOperator.EXACT)],
+                {"Desktop": (1.0, 1.0)},
+            ),
+        ]
+    )
+    def test_team_channel_rules_are_served_once_rebuilt(self, _name, breakdown, properties, expected_counts):
+        self.team.modifiers = {"customChannelTypeRules": [PARTNER_URL_CHANNEL.model_dump(mode="json")]}
+        self.team.save()
+
+        def run():
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                    properties=properties,
+                    breakdownBy=breakdown,
+                    limit=100,
+                    webQueryModifiers=OPT_IN,
+                ),
+            )
+            return runner, self._sort_results(runner.calculate().results)
+
+        stale_runner, _ = run()
+        assert ready_dimensional_job_ids(stale_runner, DIMENSIONAL_READ_TABLES) is None
+
+        ensure_web_stats_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        runner, dimensional = run()
+
+        assert runner.used_preaggregated_tables
+        assert runner.query_strategy() == "stats_table_dimensional"
+        assert dimensional == self._run_live(breakdown, properties)
+        assert self._counts(dimensional) == expected_counts
+
+    @parameterized.expand(
+        [
+            (
                 "custom_channel_breakdown",
                 DateRange(date_from=DATE_FROM, date_to=DATE_TO),
                 WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
@@ -507,12 +564,29 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
 
         assert failing_query.called
 
-    def test_overview_dimensional_matches_v2(self):
+    @parameterized.expand(
+        [
+            ("no_filter", [], [3, 4, 3]),
+            # Like v2, the overview maps a page filter to the entry page. Only user_c's session has an entry
+            # page in this fixture, because the entry page comes from $current_url.
+            (
+                "pathname_exact",
+                [EventPropertyFilter(key="$pathname", value="/blog", operator=PropertyOperator.EXACT)],
+                [1, 1, 1],
+            ),
+            (
+                "pathname_contains",
+                [EventPropertyFilter(key="$pathname", value="blo", operator=PropertyOperator.ICONTAINS)],
+                [1, 1, 1],
+            ),
+        ]
+    )
+    def test_overview_dimensional_matches_v2(self, _name, properties, expected_counts):
         def run(modifiers, web_query_modifiers):
             runner = WebOverviewQueryRunner(
                 query=WebOverviewQuery(
                     dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
-                    properties=[],
+                    properties=properties,
                     webQueryModifiers=web_query_modifiers,
                 ),
                 team=self.team,
@@ -526,7 +600,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             return [call.kwargs["query_type"] for call in mock_execute.call_args_list], response
 
         v2_query_types, v2 = run(LEGACY, None)
-        dimensional_query_types, dimensional = run(None, OPT_IN)
+        dimensional_query_types, dimensional = run(LEGACY, OPT_IN)
 
         assert v2_query_types == ["web_overview_preaggregated_query"]
         assert dimensional_query_types == ["web_overview_dimensional_query"]
@@ -536,5 +610,5 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert [(item.key, item.value) for item in dimensional.results] == [
             (item.key, item.value) for item in v2.results
         ]
-        # visitors, views, sessions: user_a has 2 pageviews, user_b and user_c have 1 each.
-        assert [item.value for item in dimensional.results[:3]] == [3, 4, 3]
+        # visitors, views, sessions
+        assert [item.value for item in dimensional.results[:3]] == expected_counts

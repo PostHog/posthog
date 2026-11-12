@@ -519,6 +519,25 @@ export const ReportWithFollowUpMetricHidden: Story = {
     },
 }
 
+export const ReportReadyToMonitor: Story = {
+    parameters: {
+        mockDate: '2026-08-29',
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    metrics: reportMetricsFixture.slice(0, 1),
+                    monitoring_started_at: null,
+                })}
+            />
+        </Frame>
+    ),
+}
+
 export const ReportFollowUpPending: Story = {
     parameters: {
         featureFlags: {},

@@ -21,7 +21,6 @@ import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
 import { AccountSessionReplays } from './AccountSessionReplays'
-import type { AccountExpansionTab } from './accountsExpansionLogic'
 import { AccountUsersTable } from './AccountUsersTable'
 import type {
     AccountViewTileConfig,
@@ -31,7 +30,20 @@ import type {
 } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 
-export type AccountViewComponentKind = AccountExpansionTab | 'properties' | 'session_replays'
+export type AccountSystemTabKind =
+    | 'notes'
+    | 'tasks'
+    | 'users'
+    | 'relationships'
+    | 'feature_requests'
+    | 'usage'
+    | 'spend'
+    | 'opportunities'
+    | 'conversations'
+    | 'meetings'
+    | 'automations'
+
+export type AccountViewComponentKind = AccountSystemTabKind | 'properties' | 'session_replays'
 
 interface AccountViewComponentBase {
     tagName: string
@@ -44,8 +56,8 @@ interface AccountViewComponentBase {
 }
 
 export interface AccountSystemTabDefinition extends AccountViewComponentBase {
-    kind: AccountExpansionTab
-    systemTabId: `system:${AccountExpansionTab}`
+    kind: AccountSystemTabKind
+    systemTabId: `system:${AccountSystemTabKind}`
 }
 
 export type AccountViewComponentDefinition =

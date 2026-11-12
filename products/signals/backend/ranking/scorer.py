@@ -14,10 +14,16 @@ model gets its own kinds in its own order. A model that reads a kind the day has
 skipped, so it never scores on all-zero vectors.
 
 A model whose set declares the `priority` state column gets each report's latest priority judgment,
-read once per call and only when a model needs it. The sweep rescores a report when its vector or
-the manifest changes, not when its priority changes, so a priority edited in the inbox after scoring
+read once per call and only when a model needs it. The sweep rescores a report when its vector
+changes, not when its priority, the manifest or the served model changes, so an edited priority
 keeps the old score until the next vector. The summary workflow writes the first priority judgment
 before the rewrite that re-embeds the report, so a newborn's score normally sees that judgment.
+
+A model whose set reads the `report_sources` side input gets the source products of each report's
+live signals, read once per call and only when a model needs it. A failed read skips those models
+with `no_report_sources`, so they never score on all-zero source columns. Like the priority, the
+sources are read when the report is scored, and a signal that joins the report later does not
+rescore it.
 
 A call that persists also records the facts of each report it scores (`report_facts.py`), read once
 per call, so training can later read the values the sweep saw. No model reads them yet. A failed
@@ -43,6 +49,9 @@ from products.signals.backend.ranking.features import (
     EMBEDDING_INSERTED_AT_COLUMN,
     PRIORITY_COLUMN,
     REPORT_EMBEDDINGS_EXTRA,
+    REPORT_LIVE_SOURCES_COLUMNS,
+    REPORT_SOURCES_EXTRA,
+    Extras,
     FeatureSet,
     ProjectInputs,
     ReportEmbeddingsFeatureSet,
@@ -61,18 +70,22 @@ from products.signals.backend.ranking.sinks import persist_scores
 from products.signals.backend.report_embedding_reader import ReportVector, latest_report_vectors
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE_SUMMARY
 from products.signals.backend.report_priority import latest_report_priorities
+from products.signals.backend.report_sources_reader import live_report_sources
 
 logger = structlog.get_logger(__name__)
 
 NO_VECTOR = "no_vector"
 NO_PROJECT_VECTORS = "no_project_vectors"
 PROJECT_VECTOR_KINDS_MISSING = "project_vector_kinds_missing"
+NO_REPORT_SOURCES = "no_report_sources"
 
 # The rendering each embedding side input is the vector of. The dataset dag snapshots the same
 # renderings under the same keys, so a model reads the text it was fit on.
 RENDERING_BY_EXTRA: Mapping[str, str] = {
     REPORT_EMBEDDINGS_EXTRA: EMBEDDING_RENDERING_TITLE_SUMMARY,
 }
+# The side inputs a set may read after its report vector, which the scorer reads at scoring time.
+SERVED_SIDE_INPUTS = frozenset({REPORT_SOURCES_EXTRA})
 
 # A model that did not load has no feature contract this pass could read.
 UNKNOWN_FEATURE_SCHEMA_VERSION = 0
@@ -106,11 +119,14 @@ class _ModelScores:
 
 
 def _served_extra(feature_set: FeatureSet) -> str | None:
-    """The side input a set is served from, or None when this build does not serve the set yet."""
+    """The report-vector side input a set is served from, or None when this build does not serve the
+    set yet. A set's other side inputs must each be one of `SERVED_SIDE_INPUTS`."""
     if not isinstance(feature_set, ReportEmbeddingsFeatureSet):
         return None
-    (extra,) = feature_set.extras_keys
-    return extra if extra in RENDERING_BY_EXTRA else None
+    extra, *others = feature_set.extras_keys
+    if extra not in RENDERING_BY_EXTRA or not set(others) <= SERVED_SIDE_INPUTS:
+        return None
+    return extra
 
 
 def _served_model_extra(served: LoadedModel) -> str:
@@ -153,6 +169,21 @@ def _state_rows(team_id: int, report_ids: Sequence[str], columns: set[str]) -> p
     return rows
 
 
+def _reads_sources(model: LoadedModel) -> bool:
+    return REPORT_SOURCES_EXTRA in model.feature_set.extras_keys
+
+
+def _sources_frame(team_id: int, report_ids: Sequence[str]) -> pd.DataFrame | None:
+    """The live signals of `report_ids` as the `report_sources` side input, or None when the read
+    fails, so it costs only the models that read it."""
+    try:
+        rows = live_report_sources(team_id, report_ids)
+    except Exception:
+        logger.exception("inbox_ranking_report_sources_unreadable", team_id=team_id)
+        return None
+    return pd.DataFrame(rows, columns=list(REPORT_LIVE_SOURCES_COLUMNS), dtype=object)
+
+
 def _report_facts(team_id: int, report_ids: Sequence[str]) -> Mapping[str, ReportFacts]:
     if not settings.INBOX_RANKING_RECORD_REPORT_FACTS or not report_ids:
         return {}
@@ -181,8 +212,10 @@ def _score_model(
     vectors_by_extra: Mapping[str, Mapping[str, ReportVector]],
     team_id: int,
     project_vectors: ProjectVectors | None,
+    sources: pd.DataFrame | None = None,
 ) -> _ModelScores:
-    """`rows` holds the report-state columns of the pass, one row per id of `report_ids`."""
+    """`rows` holds the report-state columns of the pass, one row per id of `report_ids`. `sources`
+    holds the live signals of the call's reports, None when no model reads them or the read failed."""
     extra = _served_extra(model.feature_set)
     if extra is None:
         return _ModelScores(
@@ -195,6 +228,8 @@ def _score_model(
             by_report={},
             skip_reason=f"state columns {unread} of {model.feature_set.name} are not served yet",
         )
+    if _reads_sources(model) and sources is None:
+        return _ModelScores(model=model, by_report={}, skip_reason=NO_REPORT_SOURCES)
     team_project = None
     if model.reads_project_vectors:
         if project_vectors is None or not project_vectors.available:
@@ -202,7 +237,9 @@ def _score_model(
         if project_vectors.missing_kinds(model.project_vector_kinds):
             return _ModelScores(model=model, by_report={}, skip_reason=PROJECT_VECTOR_KINDS_MISSING)
         team_project = project_vectors.for_team(team_id, model.project_vector_kinds)
-    extras = {extra: _extras_frame(report_ids, vectors_by_extra[extra])}
+    extras: Extras = {extra: _extras_frame(report_ids, vectors_by_extra[extra])}
+    if sources is not None and _reads_sources(model):
+        extras = {**extras, REPORT_SOURCES_EXTRA: sources}
     # `as_of=None`: serving scores the latest vector, where training reads the one of its moment.
     buildable = model.feature_set.buildable(rows, extras, as_of=None).to_numpy()
     if not buildable.any():
@@ -276,8 +313,8 @@ def score_reports(
     A caller that scores many teams passes the `serving` set it loaded, one `capture`, and the
     `project_vectors` of every team it scores, so each team does not read the manifest or the
     project vectors from object storage again or flush its own events. A served model that reads
-    project vectors when the pass has none, or reads a kind the pass has no rows for, raises,
-    because no report could get a served score.
+    project vectors when the pass has none, reads a kind the pass has no rows for, or reads report
+    sources the call could not read, raises, because no report could get a served score.
     """
     if serving is None:
         serving = load_serving_set()
@@ -306,8 +343,12 @@ def score_reports(
         extra: latest_report_vectors(team_id, ids, rendering=RENDERING_BY_EXTRA[extra]) for extra in needed_extras
     }
     rows = _state_rows(team_id, ids, {column for model in models for column in model.feature_set.state_columns})
+    sources = _sources_frame(team_id, ids) if any(_reads_sources(model) for model in models) else None
+    if sources is None and _reads_sources(served):
+        raise ScoringError(f"served model {served.entry.key} reads report sources and the pass has none")
     scored_models = {
-        model.entry.key: _score_model(model, ids, rows, vectors_by_extra, team_id, project_vectors) for model in models
+        model.entry.key: _score_model(model, ids, rows, vectors_by_extra, team_id, project_vectors, sources)
+        for model in models
     }
     served_key = serving.manifest.served.key
     served_vectors = vectors_by_extra[served_extra]
