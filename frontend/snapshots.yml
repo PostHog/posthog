@@ -1692,6 +1692,10 @@ snapshots:
         hash: v1.k794b7964.aa77d86fd31f6aaf0c526b0b3c74a1fca7d920d121146cabbb0d68f744e10856.MNZzK-vWvoPLxp6l359XznNCGqewKuovQM5NC5FsRTg
     components-hogcharts-timeserieslinechart--start-at-zero--light:
         hash: v1.k794b7964.f50c1cf3045494b5737721c2894edd3c5f1fca2499329895b038bf8d595d070c.Mnu0CB3ZH-j7zP3z0V-p_m7psM_paJe77IetYMf0lHU
+    components-hogcharts-timeserieslinechart--synced-hover--dark:
+        hash: v1.k794b7964.f21f98ad6d0877bc13e9adf6c0fff75b2c0a0ee5843b7b7168dbf66a20aba5c0.fcR5vbDR6v-Rw4OK2QyCC2SIcB19IPOWn2SBnHARwJc
+    components-hogcharts-timeserieslinechart--synced-hover--light:
+        hash: v1.k794b7964.f64290599dd355825dad1a9bece31aecf120de3753cf42c2e4bb91ba0e58da68.YXrj5FPZTpDhFsGypD5R4wWWo6uhIx_47OoiU5Fd5OM
     components-hogcharts-timeserieslinechart--time-scale--dark:
         hash: v1.k794b7964.c46ad0c4046b940466189423a71e8a7beb2b47ce0c8b8f85c31dca846995debf.OaiYFvNRK8vM3R2Ko7Aw8VvFLVj0riFrNL07ZmojQiU
     components-hogcharts-timeserieslinechart--time-scale--light:
