@@ -30,6 +30,8 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import runs
+
+from products.messaging.backend.provider_imports import resend, runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
 from products.messaging.backend.services.suppression import remove_suppressions
@@ -455,6 +457,13 @@ class TestResendImport(BaseTest):
         items = {item["label"]: item for item in run.progress["automations"]["items"]}
         assert any("stays deleted" in note for note in items["Another copy"]["notes"])
         assert Cohort.objects.filter(team_id=self.team.id, description=cohort.description).count() == 1
+
+    def test_step_and_template_sender_names_stay_literal(self) -> None:
+        template = {**FIXTURES["templates"][0], "from": '"{{ person.properties.a }}" <hello@example.com>'}
+        step = {"from": '"{{ person.properties.b }}" <hello@example.com>', "subject": "Hi"}
+
+        assert resend._imported_email(template, {}).from_name == '{{ "{{" }} person.properties.a }}'
+        assert resend._step_email(step, {}).from_name == '{{ "{{" }} person.properties.b }}'
 
     def test_access_rules_load_once_for_a_page_of_automations(self) -> None:
         second = {**FIXTURES["automations"][0], "id": "a0000000-0000-4000-8000-000000000003", "name": "Copy"}

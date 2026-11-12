@@ -410,7 +410,7 @@ class _Builder:
                 value[field_name] = self._with_variables(key, value[field_name], variables, contact_variables)
         reply_to = config.get("reply_to")
         if reply_to:
-            value["replyTo"] = (
+            value["replyTo"] = _literal_liquid(
                 ", ".join(str(item) for item in reply_to) if isinstance(reply_to, list) else str(reply_to)
             )
         if override.from_email:
@@ -696,6 +696,11 @@ class _Builder:
 
 _LIQUID_TAG = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
 _LIQUID_STRING = re.compile(r"(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*')")
+
+
+def _literal_liquid(text: str) -> str:
+    # The email is rendered as Liquid, so a header value from Resend must not run as a tag.
+    return re.sub(r"\{\{|\{%", lambda match: f'{{{{ "{match.group(0)}" }}}}', text)
 
 
 def _fill_variable(text: str, name: str, replacement: str) -> str:
