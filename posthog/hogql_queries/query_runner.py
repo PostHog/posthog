@@ -81,9 +81,12 @@ from posthog.schema import (
     MarketingAnalyticsTableQuery,
     MCPDashboardQuery,
     MCPHarnessBreakdownQuery,
+    MCPIntentMapQuery,
+    MCPIntentTopicsQuery,
     MCPMissingCapabilitiesQuery,
     MCPModelBreakdownQuery,
     MCPProtocolVersionBreakdownQuery,
+    MCPSimilarToolsQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
@@ -93,6 +96,7 @@ from posthog.schema import (
     MCPToolDescriptionsQuery,
     MCPToolFailureOccurrencesQuery,
     MCPToolFailuresQuery,
+    MCPToolIntentProfileQuery,
     MCPToolNeighborsQuery,
     MCPToolQualityDailyStatsQuery,
     MCPToolQualityRowsQuery,
@@ -718,6 +722,10 @@ RunnableQueryNode = Union[
     MCPToolSampleIntentsQuery,
     MCPToolNeighborsQuery,
     MCPMissingCapabilitiesQuery,
+    MCPIntentTopicsQuery,
+    MCPToolIntentProfileQuery,
+    MCPSimilarToolsQuery,
+    MCPIntentMapQuery,
 ]
 
 
@@ -1591,6 +1599,50 @@ def get_query_runner(
 
         return MCPToolSampleIntentsQueryRunner(
             query=cast(MCPToolSampleIntentsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPIntentTopicsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPIntentTopicsQueryRunner
+
+        return MCPIntentTopicsQueryRunner(
+            query=cast(MCPIntentTopicsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolIntentProfileQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolIntentProfileQueryRunner
+
+        return MCPToolIntentProfileQueryRunner(
+            query=cast(MCPToolIntentProfileQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPSimilarToolsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPSimilarToolsQueryRunner
+
+        return MCPSimilarToolsQueryRunner(
+            query=cast(MCPSimilarToolsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPIntentMapQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPIntentMapQueryRunner
+
+        return MCPIntentMapQueryRunner(
+            query=cast(MCPIntentMapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
