@@ -2,11 +2,18 @@
 
 from rest_framework.routers import DefaultRouter
 
-from .views import MCPFeedbackViewSet, MCPIntentClusterViewSet, MCPMissingCapabilityViewSet, MCPSessionViewSet
+from .views import (
+    MCPCustomHarnessViewSet,
+    MCPFeedbackViewSet,
+    MCPIntentClusterViewSet,
+    MCPMissingCapabilityViewSet,
+    MCPSessionViewSet,
+)
 
 router = DefaultRouter()
 router.register(r"feedback", MCPFeedbackViewSet, basename="mcp-analytics-feedback")
 router.register(r"missing_capabilities", MCPMissingCapabilityViewSet, basename="mcp-analytics-missing-capability")
 router.register(r"sessions", MCPSessionViewSet, basename="mcp-analytics-sessions")
 router.register(r"intent_clusters", MCPIntentClusterViewSet, basename="mcp-analytics-intent-clusters")
+router.register(r"custom_harnesses", MCPCustomHarnessViewSet, basename="mcp-analytics-custom-harnesses")
 urlpatterns = router.urls

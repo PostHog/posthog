@@ -115,6 +115,7 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
+    use_cached_sources = not query.freshSources
     source = get_direct_connection_source(team, query.connectionId, user=user)
     if query.connectionId and source is None:
         response.isValid = False
@@ -129,7 +130,7 @@ def get_hogql_metadata(
             modifiers=query_modifiers,
             connection_id=str(source.id),
             # Editor-assist only: query execution never reads cached sources.
-            use_cached_sources=True,
+            use_cached_sources=use_cached_sources,
         )
 
     heuristic_warnings: list[HogQLNotice] = []
@@ -145,7 +146,7 @@ def get_hogql_metadata(
             modifiers=query_modifiers,
             enable_select_queries=True,
             # Editor-assist only: query execution never reads cached sources.
-            use_cached_sources=True,
+            use_cached_sources=use_cached_sources,
             # A resolved direct-connection source prints with its engine dialect (below), so the
             # context must be marked direct — otherwise the ClickHouse printer's direct-table guard
             # fires and metadata/autocomplete reports a false "can only be queried through its direct
@@ -179,7 +180,7 @@ def get_hogql_metadata(
                             team=team,
                             user=user,
                             modifiers=query_modifiers,
-                            use_cached_sources=True,
+                            use_cached_sources=use_cached_sources,
                             trigger="metadata",
                         )
                         context.database = database
@@ -255,6 +256,8 @@ def get_hogql_metadata(
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}: {str(e)}"))
         else:
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
+        if not isinstance(e, ExposedHogQLError):
+            response.internalError = True
     finally:
         if context is not None:
             response.warnings = [*context.warnings, *heuristic_warnings]
@@ -368,7 +371,7 @@ def _flag_called_notices(
         read_from_both_tables = flag_called_spans_read_from_union(context)
         both_tables_message = (
             FLAG_CALLED_FROM_BOTH_TABLES_NOTICE
-            if context.database is not None and context.database.flag_calls_only_in_flag_evaluations
+            if context.flag_calls_only_in_flag_evaluations()
             else FLAG_CALLED_SPLIT_BY_AGE_NOTICE
         )
         for warning in warnings:

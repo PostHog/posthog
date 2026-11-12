@@ -1,6 +1,5 @@
 """Email outbox send, retry, and periodic flush."""
 
-import html as html_mod
 from datetime import timedelta
 from email.utils import formataddr
 from uuid import UUID
@@ -27,6 +26,9 @@ from products.conversations.backend.mailgun import (
     send_mime,
 )
 from products.conversations.backend.models import EmailMessageMapping, EmailOutboxMessage, Ticket
+from products.conversations.backend.services.mailgun_domain_cleanup import (
+    cleanup_mailgun_domains as run_mailgun_domain_cleanup,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -188,7 +190,11 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         txt_body = rich_content_to_markdown(comment.rich_content, include_images=False)
     else:
         txt_body = comment.content or ""
-        html_body = f"<p>{html_mod.escape(comment.content or '')}</p>"
+        # Deferred: the renderer pulls posthog.api onto the Django startup path.
+        from posthog.helpers.email_formatting import render_markdown_email_html
+
+        # Content-only replies come from the API, MCP, and AI agents, so the text may be model-written.
+        html_body = render_markdown_email_html(txt_body)
 
     subject = ticket.email_subject or "Your support request"
     is_reply = latest_mapping is not None
@@ -328,3 +334,31 @@ def flush_pending_email_replies() -> None:
         _process_outbox_row(outbox)
 
     logger.info("flush_pending_email_replies_completed", count=len(batch))
+
+
+@shared_task(
+    name="products.conversations.backend.tasks.cleanup_mailgun_domains",
+    ignore_result=True,
+)
+@skip_team_scope_audit
+def cleanup_mailgun_domains(dry_run: bool = False) -> None:
+    """Free Mailgun domain slots held by domains this region registered and no live support email setup uses."""
+    try:
+        result = run_mailgun_domain_cleanup(dry_run=dry_run)
+    except MailgunNotConfigured:
+        return
+
+    logger.info(
+        "cleanup_mailgun_domains_completed",
+        dry_run=dry_run,
+        mailgun_domain_count=result.mailgun_domain_count,
+        candidates=result.candidates if dry_run else len(result.candidates),
+        abandoned_setups=result.abandoned_setups if dry_run else len(result.abandoned_setups),
+        unowned_orphans=result.unowned_orphans,
+        kept=result.kept,
+        adopted_registrations=result.adopted_registrations,
+        deleted=result.deleted,
+        failed=result.failed,
+        pruned_registrations=result.pruned_registrations,
+        throttled=result.throttled,
+    )

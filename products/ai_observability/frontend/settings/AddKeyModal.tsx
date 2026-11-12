@@ -242,6 +242,7 @@ export function AddKeyModal(): JSX.Element {
                     <LemonSelect
                         value={provider}
                         onChange={handleProviderChange}
+                        disabled={providerKeysLoading}
                         options={LLM_PROVIDER_SELECT_OPTIONS}
                         className="mt-1"
                         fullWidth

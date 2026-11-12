@@ -4,18 +4,21 @@ import { router } from 'kea-router'
 import { IconCursorClick, IconEye, IconRefresh, IconSearch } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { INVOCATIONS_DATE_OPTIONS } from 'scenes/hog-functions/invocations/invocationsDateOptions'
 import { urls } from 'scenes/urls'
 
 import type { TransactionalEmailLogEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { messageTemplatesLogic } from '../../TemplateLibrary/messageTemplatesLogic'
+import { EmailDirectionToggle } from '../comingSoon/EmailDirectionToggle'
+import { TransactionalTemplatesLoadError } from '../TransactionalTemplatesLoadError'
+import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import { EMAIL_STATUS_DESCRIPTION, EMAIL_STATUS_LABEL, EMAIL_STATUS_TAG, emailReasonText } from './emailLogStatus'
-import { DEFAULT_LOG_FILTERS, LOG_RETENTION_DAYS, transactionalEmailLogLogic } from './transactionalEmailLogLogic'
+import { QuillTransactionalEmailLogFilters } from './QuillTransactionalEmailLogFilters'
+import { TransactionalEmailLogDateFilter } from './TransactionalEmailLogDateFilter'
+import { transactionalEmailLogLogic } from './transactionalEmailLogLogic'
 
 /** Lets a long address wrap before its domain instead of mid-word. */
 function EmailAddress({ address }: { address: string }): JSX.Element {
@@ -43,7 +46,8 @@ const STATUS_OPTIONS = (['delivered', 'sent', 'queued', 'bounced', 'complained',
 export function TransactionalEmailLog(): JSX.Element {
     const { emails, pageLoading, pageFailed, filters, isFiltered, pagination } = useValues(transactionalEmailLogLogic)
     const { setFilters, setPage, refresh, loadEmails } = useActions(transactionalEmailLogLogic)
-    const { transactionalTemplates } = useValues(messageTemplatesLogic)
+    const { transactionalTemplates } = useValues(transactionalTemplatesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const emailOptions = transactionalTemplates
         .filter((template) => template.transactional_hog_flow_id)
@@ -54,64 +58,59 @@ export function TransactionalEmailLog(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-2 justify-between">
-                <div className="flex items-center gap-2 flex-1 min-w-60">
-                    <LemonInput
-                        type="search"
-                        size="small"
-                        placeholder="Search by recipient or message ID"
-                        fullWidth
-                        value={filters.search}
-                        onChange={(search) => setFilters({ search })}
-                        prefix={<IconSearch />}
-                        allowClear
-                        data-attr="transactional-email-log-search"
-                    />
+            <EmailDirectionToggle />
+            {todayRailNav ? (
+                <QuillTransactionalEmailLogFilters emailOptions={emailOptions} statusOptions={STATUS_OPTIONS} />
+            ) : (
+                <div className="flex flex-wrap items-center gap-2 justify-between">
+                    <div className="flex items-center gap-2 flex-1 min-w-60">
+                        <LemonInput
+                            type="search"
+                            size="small"
+                            placeholder="Search by recipient or message ID"
+                            fullWidth
+                            value={filters.search}
+                            onChange={(search) => setFilters({ search })}
+                            prefix={<IconSearch />}
+                            allowClear
+                            data-attr="transactional-email-log-search"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <LemonSelect
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            value={filters.workflowId}
+                            onChange={(workflowId) => setFilters({ workflowId })}
+                            options={[{ value: null, label: 'All emails' }, ...emailOptions]}
+                            data-attr="transactional-email-log-email-filter"
+                        />
+                        <LemonSelect
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            value={filters.status}
+                            onChange={(status) => setFilters({ status })}
+                            options={[{ value: null, label: 'Any status' }, ...STATUS_OPTIONS]}
+                            data-attr="transactional-email-log-status-filter"
+                        />
+                        <TransactionalEmailLogDateFilter />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            loading={pageLoading}
+                            onClick={() => refresh()}
+                            data-attr="transactional-email-log-refresh"
+                        >
+                            Refresh
+                        </LemonButton>
+                    </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                    <LemonSelect
-                        size="small"
-                        dropdownMatchSelectWidth={false}
-                        value={filters.workflowId}
-                        onChange={(workflowId) => setFilters({ workflowId })}
-                        options={[{ value: null, label: 'All emails' }, ...emailOptions]}
-                        data-attr="transactional-email-log-email-filter"
-                    />
-                    <LemonSelect
-                        size="small"
-                        dropdownMatchSelectWidth={false}
-                        value={filters.status}
-                        onChange={(status) => setFilters({ status })}
-                        options={[{ value: null, label: 'Any status' }, ...STATUS_OPTIONS]}
-                        data-attr="transactional-email-log-status-filter"
-                    />
-                    <DateFilter
-                        size="small"
-                        dateFrom={filters.dateFrom}
-                        dateTo={filters.dateTo ?? undefined}
-                        onChange={(dateFrom, dateTo) =>
-                            setFilters({ dateFrom: dateFrom || DEFAULT_LOG_FILTERS.dateFrom, dateTo: dateTo || null })
-                        }
-                        dateOptions={INVOCATIONS_DATE_OPTIONS}
-                        allowTimePrecision
-                        allowFixedRangeWithTime
-                        allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks']}
-                        max={LOG_RETENTION_DAYS}
-                        use24HourFormat
-                        data-attr="transactional-email-log-date-filter"
-                    />
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconRefresh />}
-                        loading={pageLoading}
-                        onClick={() => refresh()}
-                        data-attr="transactional-email-log-refresh"
-                    >
-                        Refresh
-                    </LemonButton>
-                </div>
-            </div>
+            )}
+            <TransactionalTemplatesLoadError
+                message="Your emails couldn't load, so you can't filter by email yet. Check your connection and try again."
+                dataAttr="transactional-email-log-templates-retry"
+            />
             {pageFailed && (
                 <LemonBanner
                     type="error"

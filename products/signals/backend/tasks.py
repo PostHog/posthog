@@ -33,11 +33,15 @@ from posthog.temporal.common.utils import is_stale_connection_read_only_error
 from products.signals.backend import report_assignments
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.billing import current_billing_period_bounds
+from products.signals.backend.claim_takeover_notification import (
+    send_claim_takeover_notification as send_claim_takeover_notification,
+)
 from products.signals.backend.first_report_notification_tasks import (
     dispatch_first_report_notification as dispatch_first_report_notification,
     sweep_first_report_notifications as sweep_first_report_notifications,
 )
 from products.signals.backend.github_writeback_tasks import post_source_issue_links as post_source_issue_links
+from products.signals.backend.handoff_claim_tasks import reconcile_task_handoff_claims as reconcile_task_handoff_claims
 from products.signals.backend.implementation_dispatch_tasks import (
     dispatch_implementation_replacement as dispatch_implementation_replacement,
     sweep_implementation_dispatches as sweep_implementation_dispatches,
@@ -61,6 +65,10 @@ from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
 from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
+from products.signals.backend.rated_usage_tasks import (
+    enqueue_signals_rated_usage as enqueue_signals_rated_usage,
+    report_signals_rated_usage as report_signals_rated_usage,
+)
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
@@ -90,6 +98,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
+from products.signals.backend.spend_recovery import recover_incomplete_spend as recover_incomplete_spend
 from products.signals.backend.support_writeback import (
     post_pull_request_to_tickets,
     task_can_write_support_ticket_update,
@@ -137,6 +146,43 @@ def write_pull_request_to_support_tickets(self: Task, team_id: int, report_id: s
         return
     signals = fetch_signals_for_report_sync(team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE)
     post_pull_request_to_tickets(team, report_id, pr_url, signals)
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError, OperationalError),
+    retry_backoff=True,
+    max_retries=5,
+)
+@with_team_scope()
+def refresh_linked_pull_request_state(self: Task, team_id: int, pr_url: str) -> None:
+    """Read a just-linked pull request from GitHub again and store any state it moved to.
+
+    A webhook that lands between the link's GitHub lookup and its commit finds no stored pull request,
+    so without this re-read the link keeps the stale state until the next webhook, which may never come.
+    """
+    try:
+        details = report_assignments._pull_request_details(team_id, pr_url, raise_on_error=True)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+    if details.state == SignalReportPullRequest.State.UNKNOWN:
+        return
+    stored = (
+        SignalReportPullRequest.objects.for_team(team_id)
+        .filter(repository=details.repository, number=details.number)
+        .values_list("state", flat=True)
+        .first()
+    )
+    if stored is None or stored == details.state:
+        return
+    update_pull_request_state(
+        team_id=team_id,
+        repository=details.repository,
+        number=details.number,
+        state=details.state,
+        merged_at=details.merged_at,
+    )
 
 
 @shared_task(
@@ -350,6 +396,16 @@ def sweep_monitoring_tracker_issues() -> None:
 @skip_team_scope_audit
 def sweep_monitoring_research_requests() -> None:
     emit_due_monitoring_research(deadline=time.monotonic() + 40, limit=100)
+
+
+@shared_task(ignore_result=True, soft_time_limit=120, time_limit=150)
+@skip_team_scope_audit
+def sweep_stuck_research_reports() -> None:
+    from products.signals.backend.research_recovery import (
+        recover_stuck_research_reports,  # noqa: PLC0415 — keeps the temporal deps off the import path
+    )
+
+    recover_stuck_research_reports()
 
 
 @shared_task(

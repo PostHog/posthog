@@ -78,6 +78,9 @@ interface CommandDefinition<Args, Options, Result> {
     // The command runs when posthog.json is invalid, like `hog config check`, which reports why.
     // Every other command stops, so it never runs with settings hog couldn't read.
     allowsInvalidConfig?: boolean
+    // The command needs a person or this machine, like `hog setup`. In CI it fails before it starts,
+    // unless an agent runs it. `reason` finishes "`hog <command>` ...", and `hint` names what to run instead.
+    refusesCI?: { reason: string; hint: string }
     // Personal API key scopes the command needs. `hog commands` lists them, and a 403 names them.
     scopes?: readonly string[]
     notes?: string
@@ -92,6 +95,8 @@ interface CommandDefinition<Args, Options, Result> {
     // Extra properties for the anonymous usage event: counts and names from the result, never
     // values, paths or text the caller typed.
     telemetry?(input: CommandInput<Args, Options> & { result: Result }): Record<string, unknown>
+    // What --raw prints, for a result that holds more than its views show. Defaults to the result.
+    raw?(result: Result): unknown
     // The exit code for a result. Defaults to 0. Failures throw a HogError instead.
     exitCode?(result: Result): number
 }
@@ -111,6 +116,8 @@ export interface Group {
     commands: CommandTree
     // Shorter names that work the same, like `et` for `error-tracking`. Help and agents use the full name.
     aliases?: readonly string[]
+    // Runs when the group is called without a subcommand, as `hog skills`. Without it, that call fails with the group's help.
+    guide?: Command
 }
 
 // A command posthog-cli still owns. hog lists it and points the caller to `use`, with the same arguments.

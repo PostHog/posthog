@@ -10,15 +10,18 @@ the IDE repo dropdown.
 
 from __future__ import annotations
 
+import re
 import sys
 import time
 import uuid
 import base64
 import asyncio
+import hashlib
 import contextlib
+from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote
 
 from django.db import models
@@ -26,12 +29,16 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog import redis as posthog_redis
+from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import github_installation_pace_seconds
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.helpers.async_concurrency import run_parallel_with_backoff
+from posthog.integrations import IntegrationRecord
+from posthog.integrations.lifecycle import register_delete_hook
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
@@ -83,6 +90,97 @@ return 0
 """
 
 
+# Selection reads the activity figures as approximate hints, so a daily refresh is enough.
+ACTIVITY_REFRESH_INTERVAL = timedelta(days=1)
+ACTIVITY_WINDOW = timedelta(days=30)
+# GitHub times out one query that counts commit history for about 100 repositories, so batches stay well below that.
+ACTIVITY_BATCH_SIZE = 25
+ACTIVITY_AUTHOR_SAMPLE = 100
+ACTIVITY_QUERY_TIMEOUT_SECONDS = 30
+TOP_EXTENSION_COUNT = 3
+# Extensions come from repository content and reach an LLM prompt, so only short alphanumeric ones are kept.
+_EXTENSION_PATTERN = re.compile(r"[a-z0-9]{1,10}")
+
+# A fragment can use the variables of the operation that spreads it, so `$since` is declared on the query.
+_ACTIVITY_FRAGMENT = f"""
+fragment activity on Repository {{
+  merged: pullRequests(states: MERGED) {{ totalCount }}
+  defaultBranchRef {{
+    target {{
+      ... on Commit {{
+        recent: history(since: $since) {{ totalCount }}
+        authors: history(first: {ACTIVITY_AUTHOR_SAMPLE}) {{ nodes {{ author {{ name user {{ login }} }} }} }}
+      }}
+    }}
+  }}
+}}
+"""
+
+
+@frozen
+class TreeSummary:
+    file_count: int
+    top_extensions: tuple[str, ...]
+    tree_hash: str | None
+
+
+@frozen
+class RepositoryActivity:
+    commits_last_30_days: int
+    recent_author_count: int
+    merged_pull_request_count: int
+
+
+def summarize_tree(tree_paths: str) -> TreeSummary:
+    """File count, most common file extensions, and a hash of the path set of a newline-separated tree."""
+    paths = [path for path in tree_paths.split("\n") if path]
+    extensions: Counter[str] = Counter()
+    for path in paths:
+        # A leading dot names a dotfile such as `.gitignore`, not an extension.
+        name = path.rsplit("/", 1)[-1].lstrip(".")
+        if "." not in name:
+            continue
+        extension = name.rsplit(".", 1)[1].lower()
+        if _EXTENSION_PATTERN.fullmatch(extension):
+            extensions[extension] += 1
+    top = sorted(extensions.items(), key=lambda item: (-item[1], item[0]))[:TOP_EXTENSION_COUNT]
+    return TreeSummary(
+        file_count=len(paths),
+        top_extensions=tuple(extension for extension, _ in top),
+        tree_hash=hashlib.sha256("\n".join(sorted(paths)).encode()).hexdigest() if paths else None,
+    )
+
+
+def parse_repository_activity(node: Any) -> RepositoryActivity | None:
+    """The activity figures of one repository in an activity query response, or None when GitHub returned none."""
+    if not isinstance(node, dict):
+        return None
+    merged = (node.get("merged") or {}).get("totalCount")
+    if not isinstance(merged, int):
+        return None
+    # An empty repository has no default branch, so it has no commits and no authors.
+    target = (node.get("defaultBranchRef") or {}).get("target") or {}
+    recent = (target.get("recent") or {}).get("totalCount")
+    authors: set[str] = set()
+    for commit in (target.get("authors") or {}).get("nodes") or []:
+        author = (commit or {}).get("author") or {}
+        key = (author.get("user") or {}).get("login") or author.get("name")
+        if isinstance(key, str) and key.strip():
+            authors.add(key.strip().lower())
+    return RepositoryActivity(
+        commits_last_30_days=recent if isinstance(recent, int) else 0,
+        recent_author_count=len(authors),
+        merged_pull_request_count=merged,
+    )
+
+
+def activity_refresh_due(entry: IntegrationRepositoryCacheEntry, now: datetime) -> bool:
+    """Whether `refresh_activity` has work for this row: tree figures to fill, or activity figures past the interval."""
+    if entry.file_count is None:
+        return True
+    return entry.activity_updated_at is None or entry.activity_updated_at < now - ACTIVITY_REFRESH_INTERVAL
+
+
 class SyncFullCacheTimeoutError(Exception):
     """Raised when a follower exceeds SYNC_LOCK_MAX_WAIT_SECONDS waiting for the leader."""
 
@@ -110,6 +208,16 @@ class IntegrationRepositoryCacheEntry(UUIDModel):
     # TODO: when `tree_truncated=True` the path set is incomplete (~50k+ entry repos).
     # Affects <2% of repos, skews to monorepos. Future fix: paginated recursive subtree fetch.
     tree_truncated = models.BooleanField(default=False)
+    # A truncated tree makes `file_count` a floor.
+    file_count = models.IntegerField(null=True, blank=True)
+    top_extensions = models.JSONField(null=True, blank=True)
+    # Equal hashes mean equal file trees, which is how a mirror or export of a repository shows.
+    tree_hash = models.CharField(max_length=64, null=True, blank=True)
+    # Refreshed by `refresh_activity`, so they can be days old. Null means unknown.
+    commits_last_30_days = models.IntegerField(null=True, blank=True)
+    recent_author_count = models.IntegerField(null=True, blank=True)
+    merged_pull_request_count = models.IntegerField(null=True, blank=True)
+    activity_updated_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -305,6 +413,7 @@ class GitHubRepositoryFullCache:
             "readme": readme_text,
             "tree_paths": tree_paths,
             "tree_truncated": tree_truncated,
+            **self._tree_summary_fields(summarize_tree(tree_paths)),
         }
         # UserIntegration spans teams — include team_id so one team's hydrate can't overwrite another's row.
         if isinstance(self.github, UserGitHubIntegration):
@@ -377,6 +486,98 @@ class GitHubRepositoryFullCache:
         if path_log is not None:
             path_log.append("heavy")
         return entry
+
+    @staticmethod
+    def _tree_summary_fields(summary: TreeSummary) -> dict[str, Any]:
+        return {
+            "file_count": summary.file_count,
+            "top_extensions": list(summary.top_extensions),
+            "tree_hash": summary.tree_hash,
+        }
+
+    def refresh_activity(self) -> None:
+        """Fill missing tree figures, then refresh the GitHub activity figures of rows past the refresh interval.
+
+        Best effort, for a background job: repository selection reads these figures as hints and
+        works without them. A failed batch is logged and skipped. A rate limit or an exhausted
+        egress budget stops the refresh, because every later batch would meet the same refusal.
+        Writes go through queryset updates so `updated_at`, which marks the last tree sync, does not move.
+        """
+        entries = self.integration.repository_cache_entries.filter(team_id=self.team_id)
+        # Rows written before the tree figures existed. Reads one tree at a time, because trees can be megabytes.
+        for entry in entries.filter(file_count__isnull=True).only("id", "tree_paths").iterator(chunk_size=10):
+            IntegrationRepositoryCacheEntry.objects.filter(pk=entry.pk).update(
+                **self._tree_summary_fields(summarize_tree(entry.tree_paths))
+            )
+
+        now = timezone.now()
+        due = list(
+            entries.filter(archived=False)
+            .filter(Q(activity_updated_at__isnull=True) | Q(activity_updated_at__lt=now - ACTIVITY_REFRESH_INTERVAL))
+            .order_by("full_name")
+            .values_list("id", "full_name")
+        )
+        since = (now - ACTIVITY_WINDOW).isoformat()
+        refreshed = 0
+        for start in range(0, len(due), ACTIVITY_BATCH_SIZE):
+            batch = due[start : start + ACTIVITY_BATCH_SIZE]
+            try:
+                data = self._fetch_activity([full_name for _, full_name in batch], since)
+            except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
+                logger.warning("github_full_cache.activity_refresh_throttled", integration_id=self.integration.id)
+                break
+            except SoftTimeLimitExceeded:
+                # The task is out of time, and the broad handler below would run on to the hard kill.
+                raise
+            except Exception:
+                logger.warning(
+                    "github_full_cache.activity_batch_failed", integration_id=self.integration.id, exc_info=True
+                )
+                continue
+            for index, (entry_id, _) in enumerate(batch):
+                activity = parse_repository_activity(data.get(f"r{index}"))
+                # A repository GitHub returned nothing for keeps its old figures until the next interval,
+                # so one inaccessible repository is not queried again on every selection.
+                fields: dict[str, Any] = {"activity_updated_at": now}
+                if activity is not None:
+                    refreshed += 1
+                    fields.update(
+                        commits_last_30_days=activity.commits_last_30_days,
+                        recent_author_count=activity.recent_author_count,
+                        merged_pull_request_count=activity.merged_pull_request_count,
+                    )
+                IntegrationRepositoryCacheEntry.objects.filter(pk=entry_id).update(**fields)
+        logger.info(
+            "github_full_cache.activity_refresh",
+            integration_id=self.integration.id,
+            due=len(due),
+            refreshed=refreshed,
+        )
+
+    def _fetch_activity(self, full_names: list[str], since: str) -> dict[str, Any]:
+        """One aliased GraphQL query for the activity of every repository in `full_names`.
+
+        Owner and name pass as variables, so a repository name never becomes query text.
+        """
+        declarations = ["$since: GitTimestamp!"]
+        selections = []
+        variables: dict[str, Any] = {"since": since}
+        for index, full_name in enumerate(full_names):
+            owner, name = full_name.split("/", 1)
+            declarations.append(f"$o{index}: String!, $n{index}: String!")
+            selections.append(f"r{index}: repository(owner: $o{index}, name: $n{index}) {{ ...activity }}")
+            variables[f"o{index}"] = owner
+            variables[f"n{index}"] = name
+        body = "\n".join(selections)
+        query = f"query({', '.join(declarations)}) {{\n{body}\n}}\n{_ACTIVITY_FRAGMENT}"
+        return self.github._gh_graphql(
+            query,
+            variables,
+            endpoint="/graphql:repositoryActivity",
+            timeout=ACTIVITY_QUERY_TIMEOUT_SECONDS,
+            priority=self.priority,
+            raise_rate_limit=True,
+        )
 
     @database_sync_to_async
     def _evict_orphans(self, valid_full_names: set[str]) -> int:
@@ -551,3 +752,11 @@ async def _acquire_sync_lock(integration_id: int) -> AsyncIterator[None]:
             await asyncio.shield(redis.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, lock_token))
         except (Exception, asyncio.CancelledError):
             logger.exception("github_full_cache.sync_lock_release_failed", integration_id=integration_id)
+
+
+def delete_repository_cache_of_integration(row: IntegrationRecord) -> None:
+    # Does the work of the CASCADE foreign key, which goes away when the rows leave this database.
+    IntegrationRepositoryCacheEntry.objects.filter(team_id=row.team_id, integration_id=row.id).delete()
+
+
+register_delete_hook(delete_repository_cache_of_integration)

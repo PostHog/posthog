@@ -1,6 +1,7 @@
 import errno
 
 from django.db import InterfaceError, InternalError, OperationalError
+from django.test import override_settings
 
 import deltalake
 import psycopg.errors
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_delta_maintenance_error,
     is_transient_maintenance_error,
     is_transient_object_store_error,
+    is_warehouse_bucket_error,
 )
 
 
@@ -203,6 +205,16 @@ class TestIsTransientObjectStoreError:
                 ),
                 True,
             ),
+            (
+                # pyarrow's S3FileSystem reports a GetObject body that broke off mid-read under the
+                # AWS SDK's client-side INTERNAL_FAILURE code. A fresh read of the same object succeeds.
+                "pyarrow_get_object_response_stream_broke",
+                OSError(
+                    "AWS Error INTERNAL_FAILURE during GetObject operation: "
+                    "Failed to flush response stream (eof: 0, bad: 1)"
+                ),
+                True,
+            ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
             # further up the stack that catches broadly and re-runs this classifier on the caught
@@ -235,6 +247,76 @@ class TestIsTransientObjectStoreError:
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
         assert is_transient_object_store_error(error) is expected
+
+
+OWN_BUCKET = "example-warehouse-bucket"
+
+OWN_BUCKET_LIST_FORBIDDEN = (
+    "Generic S3 error\n  ↳ Error performing list request\n   ↳ Error performing GET "
+    f"https://{OWN_BUCKET}.s3.us-east-1.amazonaws.com/?list-type=2&prefix=dlt%2Fexample_table%2F_delta_log%2F "
+    "in 22ms - Server returned non-2xx status code\n    ↳ 403 Forbidden\n     ↳ "
+    '<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>AccessDenied</Code><Message>User '
+    "arn:aws:iam::111111111111:user/example-user is not authorized to perform s3:ListBucket on resource "
+    f'"arn:aws:s3:::{OWN_BUCKET}" because no identity-based policy allows the s3:ListBucket action</Message></Error>'
+)
+
+OWN_BUCKET_REDIRECT_WITHOUT_LOCATION = (
+    f"Generic S3 error: Error performing GET https://{OWN_BUCKET}.s3.amazonaws.com/?list-type=2"
+    "&prefix=dlt%2Fexample_table%2F_delta_log%2F in 15ms - Received redirect without LOCATION, "
+    "this normally indicates an incorrectly configured region"
+)
+
+
+class TestIsWarehouseBucketError:
+    @parameterized.expand(
+        [
+            ("own_bucket_list_forbidden", OWN_BUCKET_LIST_FORBIDDEN, True),
+            ("own_bucket_redirect_without_location", OWN_BUCKET_REDIRECT_WITHOUT_LOCATION, True),
+            # The finalizer sees the Temporal-wrapped text with its newlines turned into spaces.
+            ("temporal_wrapped", "NonReportableError: " + OWN_BUCKET_LIST_FORBIDDEN.replace("\n", " "), True),
+            (
+                "pyarrow_access_denied",
+                f"When listing objects under key 'dlt/example_table' in bucket '{OWN_BUCKET}': "
+                "AWS Error ACCESS_DENIED during ListObjectsV2 operation: Access Denied",
+                True,
+            ),
+            # An object-storage source reads the customer's bucket, so its denial stays theirs.
+            ("customer_bucket", OWN_BUCKET_LIST_FORBIDDEN.replace(OWN_BUCKET, "acme-uploads"), False),
+            (
+                "customer_bucket_with_our_name_as_suffix",
+                OWN_BUCKET_LIST_FORBIDDEN.replace(OWN_BUCKET, f"acme-{OWN_BUCKET}"),
+                False,
+            ),
+            (
+                "customer_bucket_with_our_name_as_prefix",
+                OWN_BUCKET_LIST_FORBIDDEN.replace(OWN_BUCKET, f"{OWN_BUCKET}-2"),
+                False,
+            ),
+            # Our bucket name alone, outside an object-store error, says nothing about where it failed.
+            ("no_object_store_shape", f"Access denied: user is not authorized to read {OWN_BUCKET}", False),
+            (
+                "own_bucket_builder_error",
+                f"Generic S3 error: Error performing list request: Error performing GET http://{OWN_BUCKET}/"
+                "?list-type=2 in 8µs - HTTP error: builder error: URL scheme is not allowed",
+                False,
+            ),
+        ]
+    )
+    @override_settings(DATAWAREHOUSE_BUCKET=OWN_BUCKET, BUCKET_URL=f"s3://{OWN_BUCKET}")
+    def test_classifies_warehouse_bucket_errors(self, _name: str, error_text: str, expected: bool):
+        assert is_warehouse_bucket_error(error_text) is expected
+
+    @parameterized.expand(
+        [
+            ("bucket_url_only", "", f"s3://{OWN_BUCKET}/warehouse", True),
+            ("bucket_setting_only", OWN_BUCKET, "", True),
+            # An unset bucket must not turn into an empty pattern that matches every error.
+            ("nothing_configured", "", "", False),
+        ]
+    )
+    def test_reads_the_bucket_from_either_setting(self, _name: str, bucket: str, bucket_url: str, expected: bool):
+        with override_settings(DATAWAREHOUSE_BUCKET=bucket, BUCKET_URL=bucket_url):
+            assert is_warehouse_bucket_error(OWN_BUCKET_LIST_FORBIDDEN) is expected
 
 
 class TestIsTransientDeltaMaintenanceError:

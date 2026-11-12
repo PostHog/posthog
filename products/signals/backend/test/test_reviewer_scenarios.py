@@ -117,8 +117,7 @@ def clear_caches():
 @pytest.fixture
 def organization():
     org = Organization.objects.create(name="test-reviewer-scenarios-org")
-    yield org
-    org.delete()
+    return org
 
 
 @pytest.fixture

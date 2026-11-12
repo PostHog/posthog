@@ -13,7 +13,7 @@ import {
     resultsSettled,
     themeSearchItem,
 } from './commandKSections'
-import { RESULTS_LIMIT } from './commandKSources'
+import { RESULTS_LIMIT, SECONDARY_LIMIT } from './commandKSources'
 
 const dashboard = (id: string, ref: string): SearchItem => ({
     id,
@@ -55,7 +55,6 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     viewAll: null,
     stale: false,
     personsFirst: false,
-    unifiedRanking: false,
     searchCorrection: null,
     ...overrides,
 })
@@ -130,29 +129,26 @@ describe('buildSections', () => {
         category: 'results',
         record: { type: 'ticket', id: '1' },
     }
-    test.each<[string, string, SearchItem[], string[], boolean]>([
+    test.each<[string, string, SearchItem[], string[]]>([
         [
             'file system results with a server rank',
             'type:dashboard revenue',
             [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }],
             ['results/a'],
-            false,
         ],
         [
             'results from a type API that sends no rank, in the order it sent them',
             'type:alert revenue',
             alerts,
             ['results/alert-2', 'results/alert-1'],
-            false,
         ],
         [
-            'a type API result that matched outside its name, with unified ranking',
+            'a type API result that matched outside its name',
             'type:ticket revenue',
             [ticketMatchedInMessage],
             ['results/ticket-1'],
-            true,
         ],
-    ])('keeps the View all row after ranked %s', (_, results, items, rowKeys, unifiedRanking) => {
+    ])('keeps the View all row after ranked %s', (_, results, items, rowKeys) => {
         const viewAll: ViewAll = {
             item: { id: 'view-all', name: 'View all', category: 'results', href: '/list' },
             placement: 'trail',
@@ -160,7 +156,7 @@ describe('buildSections', () => {
         const remote = emptyRemoteSlots()
         remote.results = { cache: { [results]: items } }
         const sections = buildSections(
-            input('search', { remote, remoteQueries: { results }, localQuery: 'revenue', viewAll, unifiedRanking })
+            input('search', { remote, remoteQueries: { results }, localQuery: 'revenue', viewAll })
         )
         expect(sections.find((section) => section.key === 'results')?.rows.map((row) => row.key)).toEqual([
             ...rowKeys,
@@ -302,6 +298,27 @@ describe('buildSections', () => {
         expect(sectionKinds(sections)).toEqual(expected)
     })
 
+    test.each([
+        ['ends with a See all persons row when the person search says more match', true, 'scope'],
+        ['ends with the last person when the person search found every match', false, 'item'],
+    ])('Persons %s', (_, more, lastKind) => {
+        const persons = Array.from({ length: SECONDARY_LIMIT }, (_, index) => ({
+            id: `person-${index}`,
+            name: `person${index}@example.com`,
+            category: 'persons',
+            record: { type: 'person', ref: String(index) },
+        }))
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { 'type:dashboard': [dashboard('a', '1')] } }
+        remote.persons = { cache: { acme: persons }, more: more ? { acme: true } : {} }
+        const sections = buildSections(
+            input('search', { remote, remoteQueries: { results: 'type:dashboard', persons: 'acme' } })
+        )
+        const personRows = sections.find((section) => section.key === 'persons')?.rows ?? []
+        expect(personRows.at(-1)).toMatchObject({ kind: lastKind })
+        expect(personRows.filter((row) => row.kind === 'item')).toHaveLength(SECONDARY_LIMIT)
+    })
+
     it('ranks a person who matches every word of an email search above results that match fewer', () => {
         const person: SearchItem = {
             id: 'person-1',
@@ -326,6 +343,60 @@ describe('buildSections', () => {
 
         expect(sections.map((section) => section.key)).toEqual(['best-matches'])
         expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'persons', item: { id: 'person-1' } }])
+    })
+
+    it('shows one Persons section when a full page of persons leads the list', () => {
+        const persons: SearchItem[] = Array.from({ length: SECONDARY_LIMIT }, (_, index) => ({
+            id: `person-${index}`,
+            name: `person${index}@example.com`,
+            category: 'persons',
+            record: { type: 'person', ref: String(index) },
+        }))
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { 'type:dashboard': [] } }
+        remote.persons = { cache: { '@': persons }, more: { '@': true } }
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'type:dashboard', persons: '@' },
+                personsFirst: true,
+            })
+        )
+
+        expect(sections.filter((section) => section.key === 'persons')).toEqual([
+            expect.objectContaining({
+                rows: [
+                    ...persons.map(() => expect.objectContaining({ kind: 'item' })),
+                    expect.objectContaining({ kind: 'scope' }),
+                ],
+            }),
+        ])
+    })
+
+    it('keeps the See all persons row when every person of a full page ranks into Best matches', () => {
+        const persons: SearchItem[] = Array.from({ length: SECONDARY_LIMIT }, (_, index) => ({
+            id: `person-${index}`,
+            name: `ada.l${index}@example.com`,
+            displayName: `ada.l${index}@example.com`,
+            category: 'persons',
+            record: { type: 'person', ref: String(index) },
+        }))
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { 'ada.l': [] } }
+        remote.persons = { cache: { 'ada.l': persons }, more: { 'ada.l': true } }
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'ada.l', persons: 'ada.l' },
+                localQuery: 'ada.l',
+                personsFirst: true,
+            })
+        )
+
+        expect(sections.map((section) => [section.key, section.rows.map((row) => row.kind)])).toEqual([
+            ['best-matches', Array(SECONDARY_LIMIT).fill('item')],
+            ['persons', ['scope']],
+        ])
     })
 
     test.each(['results', 'accounts'] as const)('waits for both ranked sources when %s loads first', (firstSource) => {
@@ -385,7 +456,7 @@ describe('buildSections', () => {
         }
     })
 
-    it('with unified ranking, a domain search through the sections puts the account that owns the domain first', () => {
+    it('a domain search through the sections puts the account that owns the domain first', () => {
         const account: SearchItem = {
             id: 'account-1',
             name: 'Acme',
@@ -403,7 +474,7 @@ describe('buildSections', () => {
             localQuery: 'example.org',
         })
 
-        const sections = buildSections(input('search', { remote, ...current, unifiedRanking: true }))
+        const sections = buildSections(input('search', { remote, ...current }))
 
         expect(sections[0].rows[0]).toMatchObject({ kind: 'item', item: account })
     })
@@ -473,17 +544,15 @@ describe('buildSections', () => {
             expect(sections.map((section) => section.key)).toEqual(keys)
             const firstItem = sections[0].rows[0]
             expect(firstItem.kind === 'item' ? firstItem.item.id : null).toBe(first)
+            expect(
+                sections.flatMap((section) => section.rows.map((row) => (row.kind === 'item' ? row.item.id : null)))
+            ).toContain('settings-item')
         }
     )
 
-    test.each([
-        [false, []],
-        [true, []],
-        [false, ['Theme']],
-        [true, ['Theme']],
-    ] as [boolean, string[]][])(
-        'keeps the theme shortcut next to a dashboard that matches every word, unified ranking %s, settings %j',
-        (unifiedRanking, settingNames) => {
+    test.each([[[]], [['Theme']]] as [string[]][])(
+        'keeps the theme shortcut next to a dashboard that matches every word, settings %j',
+        (settingNames) => {
             const themeItem = themeSearchItem('dark theme', false, { setTheme: jest.fn(), toggleTheme: jest.fn() })
             const settings: SearchItem[] = settingNames.map((name) => ({
                 id: `settings-${name}`,
@@ -506,7 +575,6 @@ describe('buildSections', () => {
                     remoteQueries: { results: 'dark theme' },
                     localQuery: 'dark theme',
                     themeItem,
-                    unifiedRanking,
                 })
             )
 
@@ -516,69 +584,58 @@ describe('buildSections', () => {
         }
     )
 
-    test.each([
-        [false, false],
-        [true, false],
-        [false, true],
-        [true, true],
-    ])(
-        'shows one Settings group that expands to every match, unified ranking %s, expanded %s',
-        (unifiedRanking, expanded) => {
-            const settings: SearchItem[] = [
-                ...Array.from({ length: 10 }, (_, index) => ({
-                    id: `settings-${index}`,
-                    name: `Settings ${index}`,
-                    displayName: `Settings ${index}`,
-                    category: 'settings',
-                })),
-                { id: 'settings-shared', name: 'Shared settings', category: 'settings' },
-            ]
-            const products: SearchItem[] = [{ id: 'product-shared', name: 'Shared settings', category: 'products' }]
-            const remote = emptyRemoteSlots()
-            remote.results = {
-                cache: {
-                    settings: [
-                        { ...dashboard('a', '1'), name: 'Settings board', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] },
-                    ],
-                },
-            }
-            const sections = buildSections(
-                input('search', {
-                    local: { ...emptyLocal(), settings, products },
-                    remote,
-                    remoteQueries: { results: 'settings' },
-                    localQuery: 'settings',
-                    unifiedRanking,
-                    expandedGroups: expanded ? ['settings'] : [],
-                })
-            )
-
-            const settingsSections = sections.filter((section) => section.label === 'Settings')
-            expect(settingsSections).toHaveLength(1)
-            expect(settingsSections[0].count).toBe(11)
-            const settingRowIds = sections.flatMap((section) =>
-                section.rows.flatMap((row) =>
-                    row.kind === 'item' && row.item.category === 'settings' ? [row.item.id] : []
-                )
-            )
-            const expandRows = settingsSections[0].rows.filter((row) => row.kind === 'expand')
-            expect([settingRowIds.length, expandRows]).toEqual(
-                expanded
-                    ? [11, []]
-                    : [
-                          4,
-                          [
-                              {
-                                  kind: 'expand',
-                                  key: 'group-settings/expand',
-                                  group: 'settings',
-                                  label: 'Show all 11 settings',
-                              },
-                          ],
-                      ]
-            )
+    test.each([false, true])('shows one Settings group that expands to every match, expanded %s', (expanded) => {
+        const settings: SearchItem[] = [
+            ...Array.from({ length: 10 }, (_, index) => ({
+                id: `settings-${index}`,
+                name: `Settings ${index}`,
+                displayName: `Settings ${index}`,
+                category: 'settings',
+            })),
+            { id: 'settings-shared', name: 'Shared settings', category: 'settings' },
+        ]
+        const products: SearchItem[] = [{ id: 'product-shared', name: 'Shared settings', category: 'products' }]
+        const remote = emptyRemoteSlots()
+        remote.results = {
+            cache: {
+                settings: [{ ...dashboard('a', '1'), name: 'Settings board', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }],
+            },
         }
-    )
+        const sections = buildSections(
+            input('search', {
+                local: { ...emptyLocal(), settings, products },
+                remote,
+                remoteQueries: { results: 'settings' },
+                localQuery: 'settings',
+                expandedGroups: expanded ? ['settings'] : [],
+            })
+        )
+
+        const settingsSections = sections.filter((section) => section.label === 'Settings')
+        expect(settingsSections).toHaveLength(1)
+        expect(settingsSections[0].count).toBe(11)
+        const settingRowIds = sections.flatMap((section) =>
+            section.rows.flatMap((row) =>
+                row.kind === 'item' && row.item.category === 'settings' ? [row.item.id] : []
+            )
+        )
+        const expandRows = settingsSections[0].rows.filter((row) => row.kind === 'expand')
+        expect([settingRowIds.length, expandRows]).toEqual(
+            expanded
+                ? [11, []]
+                : [
+                      4,
+                      [
+                          {
+                              kind: 'expand',
+                              key: 'group-settings/expand',
+                              group: 'settings',
+                              label: 'Show all 11 settings',
+                          },
+                      ],
+                  ]
+        )
+    })
 
     const SETTING_ROWS: SearchItem[] = [
         {
@@ -642,18 +699,13 @@ describe('buildSections', () => {
         },
     ]
 
-    test.each(
-        [
-            ['surveys', 'settings-project-surveys'],
-            ['rename project', 'settings-project-customization-display-name'],
-            ['project timezone', 'settings-project-customization-date-and-time'],
-            ['ai', 'settings-project-customization-custom-bots'],
-            ['personal user settings', 'settings-level-user'],
-        ].flatMap(([query, id]) => [
-            [query, id, false],
-            [query, id, true],
-        ]) as [string, string, boolean][]
-    )('finds the setting for %s (%s), unified ranking %s', (query, id, unifiedRanking) => {
+    test.each([
+        ['surveys', 'settings-project-surveys'],
+        ['rename project', 'settings-project-customization-display-name'],
+        ['project timezone', 'settings-project-customization-date-and-time'],
+        ['ai', 'settings-project-customization-custom-bots'],
+        ['personal user settings', 'settings-level-user'],
+    ] as [string, string][])('finds the setting for %s (%s)', (query, id) => {
         const products: SearchItem[] = [
             { id: 'product-surveys', name: 'Surveys', category: 'products', href: '/surveys' },
         ]
@@ -665,7 +717,6 @@ describe('buildSections', () => {
                 remote,
                 remoteQueries: { results: query },
                 localQuery: query,
-                unifiedRanking,
             })
         )
 
@@ -676,54 +727,48 @@ describe('buildSections', () => {
         expect(sections.filter((section) => section.label === 'Settings').length).toBeLessThanOrEqual(1)
     })
 
-    test.each([false, true])(
-        'lists the level landing rows before a nested setting named Settings, unified ranking %s',
-        (unifiedRanking) => {
-            const setting = (id: string, name: string, parentName?: string): SearchItem => ({
-                id,
-                name,
-                displayName: name,
-                category: 'settings',
-                ...(parentName ? { parentName } : {}),
-            })
-            const settings: SearchItem[] = [
-                setting('settings', 'Settings'),
-                setting('settings-activity', 'Settings', 'Project settings › Activity logs'),
-                setting('settings-level-user', 'User settings'),
-                setting('settings-level-project', 'Project settings'),
-                setting('settings-level-organization', 'Organization settings'),
-                ...['Alpha', 'Beta', 'Gamma', 'Delta'].map((name) =>
-                    setting(`settings-${name}`, `${name} settings`, 'Project settings')
-                ),
-            ]
-            const remote = emptyRemoteSlots()
-            remote.results = {
-                cache: {
-                    settings: [
-                        { ...dashboard('a', '1'), name: 'Settings board', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] },
-                    ],
-                },
-            }
-            const sections = buildSections(
-                input('search', {
-                    local: { ...emptyLocal(), settings },
-                    remote,
-                    remoteQueries: { results: 'settings' },
-                    localQuery: 'settings',
-                    unifiedRanking,
-                })
-            )
-
-            const group = sections.find((section) => section.key === 'group-settings')
-            expect(group?.rows.slice(0, 3).map((row) => (row.kind === 'item' ? row.item.id : row.kind))).toEqual([
-                'settings-level-user',
-                'settings-level-project',
-                'settings-level-organization',
-            ])
+    it('lists the level landing rows before a nested setting named Settings', () => {
+        const setting = (id: string, name: string, parentName?: string): SearchItem => ({
+            id,
+            name,
+            displayName: name,
+            category: 'settings',
+            ...(parentName ? { parentName } : {}),
+        })
+        const settings: SearchItem[] = [
+            setting('settings', 'Settings'),
+            setting('settings-activity', 'Settings', 'Project settings › Activity logs'),
+            setting('settings-level-user', 'User settings'),
+            setting('settings-level-project', 'Project settings'),
+            setting('settings-level-organization', 'Organization settings'),
+            ...['Alpha', 'Beta', 'Gamma', 'Delta'].map((name) =>
+                setting(`settings-${name}`, `${name} settings`, 'Project settings')
+            ),
+        ]
+        const remote = emptyRemoteSlots()
+        remote.results = {
+            cache: {
+                settings: [{ ...dashboard('a', '1'), name: 'Settings board', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }],
+            },
         }
-    )
+        const sections = buildSections(
+            input('search', {
+                local: { ...emptyLocal(), settings },
+                remote,
+                remoteQueries: { results: 'settings' },
+                localQuery: 'settings',
+            })
+        )
 
-    it('with unified ranking, a pasted snake_case name ranks its matching setting first', () => {
+        const group = sections.find((section) => section.key === 'group-settings')
+        expect(group?.rows.slice(0, 3).map((row) => (row.kind === 'item' ? row.item.id : row.kind))).toEqual([
+            'settings-level-user',
+            'settings-level-project',
+            'settings-level-organization',
+        ])
+    })
+
+    it('a pasted snake_case name ranks its matching setting first', () => {
         const setting: SearchItem = {
             id: 'settings-api-keys',
             name: 'User: Personal API keys (api keys)',
@@ -741,11 +786,31 @@ describe('buildSections', () => {
                 remote,
                 remoteQueries: { results: 'personal_api_keys' },
                 localQuery: 'personal_api_keys',
-                unifiedRanking: true,
             })
         )
 
         expect(sections[0].rows[0]).toMatchObject({ kind: 'item', item: setting })
+    })
+
+    it('a pasted snake_case name keeps its Health row next to a matching saved object', () => {
+        const health: SearchItem = { id: 'health-pipeline-status', name: 'Pipeline status', category: 'health' }
+        const remote = emptyRemoteSlots()
+        remote.results.cache.pipe_stat = [
+            { ...dashboard('a', '1'), name: 'Pipe stat board', rankKey: [-2, 0, 0, 0, -2, 0, 1, 0, 0] },
+        ]
+        const sections = buildSections(
+            input('search', {
+                local: { ...emptyLocal(), health: [health] },
+                remote,
+                remoteQueries: { results: 'pipe_stat' },
+                localQuery: 'pipe_stat',
+            })
+        )
+
+        const ids = sections.flatMap((section) =>
+            section.rows.flatMap((row) => (row.kind === 'item' ? [row.item.id] : []))
+        )
+        expect(ids).toEqual(expect.arrayContaining(['a', 'health-pipeline-status']))
     })
 
     it('says which words were dropped when a filter is active', () => {

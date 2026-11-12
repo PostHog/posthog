@@ -1,8 +1,8 @@
 import { useMemo, useState, type ReactNode } from 'react'
 
 import type { ChartLegendConfig, ChartTheme, Series } from '../../core/types'
-import type { LegendItem, LegendItemClickModifiers } from './Legend'
-import { legendItemsFromSeries } from './legendItemsFromSeries'
+import type { LegendItem, LegendItemClickModifiers, LegendTableConfig, LegendValue } from './Legend'
+import { legendItemsFromSeries, withLegendValues } from './legendItemsFromSeries'
 
 /** True when the primary pointer is coarse (a touch screen), read live at click time. Guarded like
  *  `prefersReducedMotion` because `matchMedia` is absent in jsdom test workers and other non-browser
@@ -58,6 +58,7 @@ export interface ChartLegendRenderProps {
     onItemClick?: (key: string, modifiers: LegendItemClickModifiers) => void
     hiddenKeys: string[]
     renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
+    table?: LegendTableConfig
 }
 
 export interface ChartLegendState<Meta> {
@@ -92,7 +93,14 @@ export function useChartLegend<Meta>(
 
     const hiddenSet = useMemo(() => new Set(hiddenKeys), [hiddenKeys])
     const visibleSeries = useMemo(() => applyHiddenSeries(series, hiddenSet), [series, hiddenSet])
-    const derivedItems = items ?? legendItemsFromSeries(series, theme)
+    // Keyed on the column names, so an inline `values` array doesn't recompute every series' summaries.
+    const valuesKey = config?.show ? config.table?.values.join(',') : undefined
+    const legendValues = useMemo(() => (valuesKey ? (valuesKey.split(',') as LegendValue[]) : undefined), [valuesKey])
+    const derivedItems = useMemo(
+        () =>
+            items ? withLegendValues(items, series, legendValues) : legendItemsFromSeries(series, theme, legendValues),
+        [items, series, theme, legendValues]
+    )
 
     const interactive = config?.interactive ?? true
 
@@ -174,6 +182,7 @@ export function useChartLegend<Meta>(
             onItemClick: interactive ? handleItemClick : undefined,
             hiddenKeys,
             renderItem,
+            table: legendValues && config?.table ? { ...config.table, values: legendValues } : undefined,
         },
     }
 }

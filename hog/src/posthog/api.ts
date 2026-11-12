@@ -3,11 +3,12 @@ import { z } from 'zod'
 import { HogError } from '@/core/errors'
 import { parseLosslessJson } from '@/core/json'
 import type { RuntimeFetch } from '@/core/runtime'
-import { parseOrThrow } from '@/core/schema'
+import { parseOrThrow, type Schema } from '@/core/schema'
 import { VERSION } from '@/version'
 
 import { hostUrl } from './host'
 import type { KeySession } from './key-session'
+import { challengedScopes, fewestScopes, isScopeName, stepUpCommand, workloadScopesHint } from './scope-challenge'
 
 export const USER_AGENT = `hog/${VERSION}`
 // Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
@@ -29,6 +30,7 @@ export interface HttpResponse {
     ok: boolean
     json: unknown
     text: string
+    headers: Headers
 }
 
 // Sends one JSON request to PostHog. Any failure before the whole body arrives, including the
@@ -58,13 +60,24 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
     } catch (error) {
         throw new HogError(
             'network_error',
-            `hog couldn't reach ${url.origin}: ${error instanceof Error ? error.message : String(error)}`,
+            `hog couldn't reach ${url.origin}${transportReason(error)}.`,
             'Check the host and your network connection.'
         )
     }
     // Callers check `json` against a schema of their own. A body that isn't JSON leaves it undefined.
     const json = text ? parseLosslessJson(text) : undefined
-    return { status: response.status, ok: response.ok, json, text }
+    return { status: response.status, ok: response.ok, json, text, headers: response.headers }
+}
+
+// Bun's fetch message can hold a request header value, such as the whole Authorization header when
+// the token has a character a header can't carry. So the reason comes only from the error's name or
+// its code, like ENOTFOUND or CERT_HAS_EXPIRED, never from its message.
+function transportReason(error: unknown): string {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+        return ' (timed out)'
+    }
+    const code = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
+    return typeof code === 'string' && /^[A-Z][A-Za-z0-9_]*$/.test(code) ? ` (${code})` : ''
 }
 
 // A non-2xx answer from PostHog. `type` is the DRF error type, such as `validation_error`.
@@ -74,14 +87,35 @@ export class ApiError extends HogError {
         readonly type: string | undefined,
         code: string,
         message: string,
-        hint?: string
+        hint?: string,
+        details?: Readonly<Record<string, unknown>>,
+        serverDetail?: string
     ) {
-        super(code, message, hint)
+        super(code, message, hint, undefined, details, serverDetail)
     }
 
     override withHint(hint: string): ApiError {
-        return new ApiError(this.status, this.type, this.code, this.message, hint)
+        return new ApiError(this.status, this.type, this.code, this.message, hint, this.details, this.serverDetail)
     }
+}
+
+export type StepUp = (scopes: readonly string[]) => Promise<boolean>
+
+// A 403, so callers that treat a missing scope as a missing detail keep working.
+export function stepUpRequired(
+    scopes: readonly string[],
+    { host, message = `Your login needs ${scopes.join(', ')} for this.` }: { host?: string; message?: string } = {}
+): ApiError {
+    const named = scopes.filter(isScopeName)
+    const command = stepUpCommand(named, host)
+    return new ApiError(
+        403,
+        undefined,
+        'step_up_required',
+        message,
+        `Run \`${command}\` to add the scopes to your login, then run the command again.`,
+        { scopes: named, command }
+    )
 }
 
 // A DRF error body. `type` is the DRF error type, such as `validation_error`.
@@ -95,7 +129,8 @@ const DRFErrorBody = z.object({
 export class PostHogApi {
     constructor(
         private readonly session: KeySession,
-        private readonly fetchFn: RuntimeFetch
+        private readonly fetchFn: RuntimeFetch,
+        private readonly stepUp?: StepUp
     ) {}
 
     // Paths are relative to the project, so `query` is /api/environments/<project id>/query. A path
@@ -120,35 +155,57 @@ export class PostHogApi {
 
     // Each call names the schema of the answer it expects, so a command never works with a shape
     // PostHog didn't send.
-    get<S extends z.ZodType>(path: string, schema: S): Promise<z.output<S>> {
-        return this.request('GET', path, schema)
+    get<T>(path: string, schema: Schema<T>, options: { timeoutMs?: number } = {}): Promise<T> {
+        return this.request('GET', path, schema, undefined, options.timeoutMs)
     }
 
-    post<S extends z.ZodType>(path: string, body: unknown, schema: S): Promise<z.output<S>> {
-        return this.request('POST', path, schema, body)
+    post<T>(path: string, body: unknown, schema: Schema<T>, options: { timeoutMs?: number } = {}): Promise<T> {
+        return this.request('POST', path, schema, body, options.timeoutMs)
     }
 
-    patch<S extends z.ZodType>(path: string, body: unknown, schema: S): Promise<z.output<S>> {
+    patch<T>(path: string, body: unknown, schema: Schema<T>): Promise<T> {
         return this.request('PATCH', path, schema, body)
     }
 
-    private async request<S extends z.ZodType>(
+    private async request<T>(
         method: Method,
         path: string,
-        schema: S,
-        body?: unknown
-    ): Promise<z.output<S>> {
+        schema: Schema<T>,
+        body?: unknown,
+        timeoutMs?: number
+    ): Promise<T> {
         const url = this.url(path)
-        const response = await this.session.send(
-            (token) => sendRequest(this.fetchFn, url, { method, body, token }),
-            (answer) => answer.status === 401
-        )
-        if (response.text && response.json === undefined) {
-            throw new HogError(
-                'unexpected_response',
-                `PostHog answered with HTTP ${response.status} and a body that isn't JSON.`,
-                response.status === 404 ? 'Check the host and the project ID.' : undefined
+        const send = (): Promise<HttpResponse> =>
+            this.session.send(
+                (token) => sendRequest(this.fetchFn, url, { method, body, token, timeoutMs }),
+                (answer) => answer.status === 401
             )
+        let response = await send()
+        let missing = await this.missingScopes(response)
+        const workload = this.session.current.status().kind === 'workload'
+        // PostHog checks scopes before any work, so one retry is safe for a POST too.
+        if (missing && !workload && (await this.stepUp?.(missing))) {
+            response = await send()
+            missing = await this.missingScopes(response)
+        }
+        if (missing && workload) {
+            throw new ApiError(
+                403,
+                undefined,
+                'missing_scopes',
+                `The job's token needs ${missing.join(', ')} for this.`,
+                workloadScopesHint(missing)
+            )
+        }
+        if (missing) {
+            throw stepUpRequired(missing, { host: this.session.current.host })
+        }
+        if (response.text && response.json === undefined) {
+            const message = `PostHog answered with HTTP ${response.status} and a body that isn't JSON.`
+            const hint = response.status === 404 ? 'Check the host and the project ID.' : undefined
+            throw response.ok
+                ? new HogError('unexpected_response', message, hint)
+                : new ApiError(response.status, undefined, 'unexpected_response', message, hint)
         }
         if (!response.ok) {
             throw this.failure(response.status, response.json)
@@ -158,6 +215,23 @@ export class PostHogApi {
             context: `PostHog's answer to ${method} ${url.pathname} isn't what hog expects.`,
             hint: 'Check that the host runs a recent version of PostHog.',
         })
+    }
+
+    // A login that holds every challenged scope gets the plain 403, since adding them changes nothing.
+    private async missingScopes(response: HttpResponse): Promise<string[] | undefined> {
+        const challenged =
+            response.status === 403 ? challengedScopes(response.headers.get('www-authenticate')) : undefined
+        if (!challenged || !this.stepUp) {
+            return challenged
+        }
+        const { scopesNotCovered } = await import('./scopes')
+        const missing = scopesNotCovered(this.session.current.status().scopes ?? [], challenged)
+        return missing.length > 0 ? fewestScopes(missing) : undefined
+    }
+
+    // For lookups that only add detail: a missing scope fails them without a prompt.
+    withoutStepUp(): PostHogApi {
+        return new PostHogApi(this.session, this.fetchFn)
     }
 
     private failure(status: number, body: unknown): ApiError {
@@ -171,8 +245,10 @@ export class PostHogApi {
             status,
             error.type,
             error.code ?? `http_${status}`,
-            error.detail ?? `PostHog answered with HTTP ${status}.`,
-            hints[status]
+            `PostHog answered with HTTP ${status}.`,
+            hints[status],
+            undefined,
+            error.detail
         )
     }
 }

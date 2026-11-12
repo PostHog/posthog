@@ -46,8 +46,6 @@ const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const TOOLS_SRC_DIR = path.resolve(MCP_ROOT, 'src/tools')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
-const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
-const TOOL_DEFINITIONS_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions.json')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 const SCHEMA_JSON_PATH = path.resolve(REPO_ROOT, 'frontend/src/queries/schema.json')
 
@@ -462,6 +460,7 @@ const CAST_HELPERS = {
     'string-int': 'castStringToInt',
     'boolean-string': 'castBooleanToString',
     'object-json-string': 'castObjectToJsonString',
+    'sync-frequency': 'castSyncFrequency',
 } as const
 
 interface SchemaComposition {
@@ -1574,6 +1573,8 @@ function buildConfirmedActionFactories(args: {
     }
     const prepareArgsExpr =
         resolvedFallbackNames.length > 0 ? `{ ...params, ${resolvedFallbackNames.join(', ')} }` : 'params'
+    const executeResolvedArgsField =
+        resolvedFallbackNames.length > 0 ? `            resolvedArgs: ${JSON.stringify(resolvedFallbackNames)},\n` : ''
 
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
@@ -1583,6 +1584,7 @@ function buildConfirmedActionFactories(args: {
 ${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmedAction(context, {
             args: ${prepareArgsExpr},
             purpose: ${JSON.stringify(toolName)},
+            inputSchema: ${schemaName}(),
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},
             codec: __runtime.codec,
@@ -1597,8 +1599,8 @@ ${prepareScopeField}        })
 ${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ${schemaName}>>>(context, {
             incomingArgs: confirmationParams,
             purpose: ${JSON.stringify(toolName)},
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
+            inputSchema: ${schemaName}(),
+${executeResolvedArgsField}            codec: __runtime.codec,
             stash: __runtime.stash,
 ${executeScopeField}        })
         if (!__guard.ok) {
@@ -2662,19 +2664,12 @@ ${spreads}
     const definitions = sortKeys({ ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions })
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
-    // Combined tool definitions for external consumers (docs site)
-    const handwrittenDefinitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_PATH, 'utf-8'))
-    const allDefinitions = sortKeys({ ...handwrittenDefinitions, ...definitions })
-    fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
-
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
     const totalQueryWrappers = Object.keys(queryWrapperDefinitions).length
-    const totalAllTools = Object.keys(allDefinitions).length
     process.stdout.write(`Generated ${totalTools} tool(s) from ${allCategories.length} category file(s)\n`)
     if (totalQueryWrappers > 0) {
         process.stdout.write(`Generated ${totalQueryWrappers} query wrapper tool(s)\n`)
     }
-    process.stdout.write(`Combined ${totalAllTools} total tool(s) into tool-definitions-all.json\n`)
 
     const generatedTsFiles = [
         ...generatedModules.map((m) => path.join(GENERATED_DIR, `${m}.ts`)),
@@ -2687,7 +2682,7 @@ ${spreads}
     if (format.status !== 0) {
         console.warn(`hogli format:js failed:\n${format.stderr?.toString() ?? ''}${format.stdout?.toString() ?? ''}`)
     }
-    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH, ALL_DEFINITIONS_JSON_PATH], {
+    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH], {
         stdio: 'pipe',
         cwd: REPO_ROOT,
     })

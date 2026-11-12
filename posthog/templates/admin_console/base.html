@@ -1,8 +1,19 @@
 <!DOCTYPE html>
-<html lang="en" data-env="{{ console_env }}">
+<html lang="en"
+      data-env="{{ console_env }}"
+      theme="{% firstof request.user.theme_mode 'light' %}">
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {# Inline and before the stylesheet, so a system dark mode does not flash light on every page load. #}
+        <script nonce="{{ request.csp_nonce }}">
+            if (document.documentElement.getAttribute('theme') === 'system') {
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)')
+                const applyTheme = () => document.documentElement.setAttribute('theme', prefersDark.matches ? 'dark' : 'light')
+                applyTheme()
+                prefersDark.addEventListener('change', applyTheme)
+            }
+        </script>
         <title>{% block title %}PostHog Admin{% endblock %}</title>
         {# Not the static tag: production hashes its URLs, and the CDN only serves unhashed names. #}
         <link rel="stylesheet"
@@ -18,7 +29,11 @@
         <header class="flex flex-wrap items-center gap-4 min-h-12 px-4 py-2 bg-chrome border-b border-border">
             <a href="{% url 'admin_console_home' %}"
                class="flex items-center gap-2 font-extrabold text-[15px] whitespace-nowrap text-foreground no-underline">
-                <img src="/static/posthog-icon.svg" class="h-[18px]" alt="" />PostHog Admin
+                <img src="/static/posthog-icon.svg" class="h-[18px] dark:hidden" alt="" />
+                <img src="/static/admin-console/posthog-icon-mono.svg"
+                     class="h-[18px] hidden dark:block"
+                     alt="" />
+                PostHog Admin
             </a>
             <span class="console-env-pill inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide whitespace-nowrap">
                 <span class="console-env-dot size-[7px] rounded-full"></span>{{ console_env_label }}

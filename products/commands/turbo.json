@@ -7,7 +7,8 @@
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
                 "backend/receivers.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/apps.py"
             ],
             "outputs": [],
             "cache": true

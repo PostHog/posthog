@@ -7,15 +7,19 @@ const turn: ConversationTurn = {
     id: 'trace-1',
     timestamp: '2026-09-01T10:15:00Z',
     error: null,
-    messages: [
-        {
-            id: 'gen-1-out-0',
-            role: 'assistant',
-            parts: [{ kind: 'text', text: 'Two seats were added.' }],
-            isInternal: false,
-            sourceNodeId: 'gen-1',
-        },
-    ],
+    input: { kind: 'messages', messages: [] },
+    output: {
+        kind: 'messages',
+        messages: [
+            {
+                id: 'gen-1-out-0',
+                role: 'assistant',
+                parts: [{ kind: 'text', text: 'Two seats were added.' }],
+                isInternal: false,
+                sourceNodeId: 'gen-1',
+            },
+        ],
+    },
 }
 
 describe('ThreadTurn', () => {
@@ -30,6 +34,20 @@ describe('ThreadTurn', () => {
         )
 
         expect(getByText('Two seats were added.').closest('.opacity-50') !== null).toBe(faded)
+    })
+
+    test('shows a side the server returned as json in its place', () => {
+        const { getByText } = render(
+            <ThreadTurn
+                turn={{ ...turn, input: { kind: 'json', value: 'Why did my invoice go up?' } }}
+                isActive={false}
+                onSelectMessage={() => {}}
+            />
+        )
+
+        expect(getByText('Input')).toBeTruthy()
+        expect(getByText('Why did my invoice go up?')).toBeTruthy()
+        expect(getByText('Two seats were added.')).toBeTruthy()
     })
 
     test.each([

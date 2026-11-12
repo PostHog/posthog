@@ -1,17 +1,19 @@
 """Read flag calls from `posthog.flag_evaluations` when a query asks `events` for them.
 
-On flag_evaluations mode 2, ingestion stops writing `$feature_flag_called` to `events`. This transform swaps a
+On flag_evaluations mode 2, ingestion stops writing `$feature_flag_called` to `events`. The native JSON events table
+holds no flag calls on any mode, so a query that reads it reads flag calls as mode 2 does. This transform swaps a
 query's `events` scan for `posthog.flag_evaluations` when `flag_evaluations` holds every row the scan selects, so
 saved queries keep returning flag calls without a change. A scan spelled `posthog.events` reads the same table and
 swaps the same way.
 
 The swap runs before type resolution, so every rule here is syntactic. A shape the rules cannot classify keeps
-reading `events`. On mode 2, a second pass finds the scans those rules miss in the resolved query.
+reading `events`. When flag calls are only in flag_evaluations, a second pass finds the scans those rules miss in the
+resolved query.
 """
 
 import json
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from fractions import Fraction
 from functools import partial
@@ -157,7 +159,7 @@ def can_read_flag_evaluations(
     `resolve_flag_calls_from_flag_evaluations` checks the rest after resolution: every name in the swapped query
     binds as it did before, and every field that starts with `posthog.events` reads the scan.
     """
-    scan = EventsScan.of(node, lambda: flag_key_compares_as_string, frozenset(node.ctes or ()), database)
+    scan = EventsScan.of(node, lambda: flag_key_compares_as_string, node.ctes or {}, database)
     return scan is not None and _qualifies(
         scan, node, filter_conjuncts(node), now, timezone, only_in_flag_evaluations=only_in_flag_evaluations
     )
@@ -166,26 +168,14 @@ def can_read_flag_evaluations(
 def swaps_flag_calls(node: ast.AST, context: HogQLContext) -> bool:
     """Whether `resolve_flag_calls_from_flag_evaluations` can change where `node` reads flag calls from. It reads
     only the context and the text of `node`, and it resolves nothing."""
-    database = _swap_database(context)
-    return database is not None and _swap_applies(node, context, database)
+    return _swap_database(context) is not None and names_flag_called_event(node)
 
 
 def _swap_database(context: HogQLContext) -> "Database | None":
     """The database when the context allows the swap, or None."""
-    database = context.database
-    if (
-        not context.rewrite_flag_calls_to_flag_evaluations
-        or database is None
-        or not database.read_flag_calls_from_flag_evaluations
-    ):
+    if not context.rewrite_flag_calls_to_flag_evaluations or not context.reads_flag_calls_from_flag_evaluations():
         return None
-    return database
-
-
-def _swap_applies(node: ast.AST, context: HogQLContext, database: "Database") -> bool:
-    if not names_flag_called_event(node):
-        return False
-    return database.flag_calls_only_in_flag_evaluations or not context.uses_new_events_schema()
+    return context.database
 
 
 def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext, resolve: _Resolve[_T_AST]) -> _T_AST:
@@ -203,21 +193,19 @@ def swap_flag_calls(
 
     This returns the changed query only when it resolves, every name in it binds as it does in the original, and
     every field in it that starts with `posthog.events` reads a scan.
-    Otherwise it returns the resolved original. For an organization whose flag calls are only in
-    `flag_evaluations`, it raises a QueryError instead of returning the original. It also raises before it
-    resolves anything when such an organization's query has a scan of flag calls with a shape that neither
-    `flag_evaluations` nor the union can stand in for.
+    Otherwise it returns the resolved original. When the query's flag calls are only in `flag_evaluations`, as on
+    mode 2 or on the native JSON events table, it raises a QueryError instead of returning the original. It also
+    raises before it resolves anything when such a query has a scan of only flag calls with a shape that
+    `flag_evaluations` cannot stand in for. When the union refuses a scan, the query raises only if that scan still
+    reads `events` after `swap_scans_found_by_type`.
 
-    While `events` still gets flag calls, the original query is the answer whenever the two tables can read a row
-    differently:
+    While `events` still gets flag calls, the original query is the answer when it reads a property from a different
+    kind of column there, such as a materialized column. See `_swap_reads_properties_alike`. A project that reads the
+    native JSON events table always reads flag calls from `flag_evaluations`, because that table holds none. The
+    native table decodes JSON escapes in a property value and `flag_evaluations` returns the escaped text, so a
+    filter on such a value can select different rows than the same filter on other events.
 
-    - A project that reads the native-JSON events table keeps reading `events`. That table decodes JSON escapes in a
-      property value. `flag_evaluations` returns the escaped text, so a filter on such a value selects different
-      rows in the two tables.
-    - A query keeps reading `events` when it reads a property from a different kind of column there, such as a
-      materialized column. See `_swap_reads_properties_alike`.
-
-    For an organization whose flag calls are only in `flag_evaluations`, a scan that the syntactic rules miss swaps
+    When the query's flag calls are only in `flag_evaluations`, a scan that the syntactic rules miss swaps
     too when the resolved original shows that its filters pin `event` to flag calls in its WHERE or PREWHERE. The
     query raises when such a scan cannot swap. A scan that the resolver adds, such as one in an inline cohort, is not
     swapped here. On mode 2 with the union enabled, `read_flag_calls_in_inline_cohort` points an inline cohort's scans
@@ -235,7 +223,7 @@ def swap_flag_calls(
     database = _swap_database(context)
     if database is None:
         return FlagCallSwap(source=node, resolved=resolve(node))
-    if _swap_applies(node, context, database):
+    if names_flag_called_event(node):
         swap = _resolve_with_swaps(node, context, resolve, database, view_name)
     else:
         swap = FlagCallSwap(
@@ -244,7 +232,7 @@ def swap_flag_calls(
         )
     # A view's body names flag calls only after resolution when it filters with `matchesAction`, so its swap never
     # runs. The check reads the whole resolved query, so it runs once, for the top-level query.
-    if database.flag_calls_only_in_flag_evaluations and view_name is None:
+    if context.flag_calls_only_in_flag_evaluations() and view_name is None:
         unswapped_view = _view_reading_flag_calls_from_events(swap.resolved)
         if unswapped_view is not None:
             raise flag_calls_only_in_flag_evaluations_error(
@@ -256,7 +244,7 @@ def swap_flag_calls(
 def _resolve_with_swaps(
     node: _T_AST, context: HogQLContext, resolve: _Resolve[_T_AST], database: "Database", view_name: str | None
 ) -> FlagCallSwap[_T_AST]:
-    only_in_flag_evaluations = database.flag_calls_only_in_flag_evaluations
+    only_in_flag_evaluations = context.flag_calls_only_in_flag_evaluations()
     # Deferred: flag_calls_union imports this module.
     from posthog.hogql.transforms.flag_calls_union import (  # noqa: PLC0415
         read_flag_calls_with_union,
@@ -279,16 +267,26 @@ def _resolve_with_swaps(
         )
         swapper.visit(rewritten)
         union = read_flag_calls_with_union(rewritten, context, compares_as_string)
-    refusals = [*swapper.refusals, *union.refusals]
-    if refusals:
-        if only_in_flag_evaluations:
-            raise flag_calls_only_in_flag_evaluations_error(refusals[0], view_name)
-        logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=refusals[0])
+    if only_in_flag_evaluations and swapper.refusals:
+        raise flag_calls_only_in_flag_evaluations_error(swapper.refusals[0], view_name)
+    if not only_in_flag_evaluations and (swapper.refusals or union.refusals):
+        reason = swapper.refusals[0] if swapper.refusals else union.refusals[0].reason
+        logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=reason)
     sources = JoinSources() if only_in_flag_evaluations else None
     original = resolve(node, join_sources=sources)
     if sources is not None:
         with context.timings.measure("flag_calls_from_flag_evaluations_by_type"):
             refusal = swapper.swap_scans_found_by_type(original, sources, clones)
+        # swap_scans_found_by_type can move a scan that the union refused, such as a scan joined after another table,
+        # to flag_evaluations. Each other refused scan still reads flag calls from events.
+        refusal = refusal or next(
+            (
+                union_refusal.reason
+                for union_refusal in union.refusals
+                if _table_chain(union_refusal.join) != ["posthog", "flag_evaluations"]
+            ),
+            None,
+        )
         if refusal is not None:
             raise flag_calls_only_in_flag_evaluations_error(refusal, view_name)
     if not swapper.swapped and not union.renamed:
@@ -316,6 +314,8 @@ def _resolve_with_swaps(
             # A view body's offsets come from the view's own text, not from the query the editor shows.
             if view_name is None:
                 context.flag_called_union_spans.update(union.literal_spans)
+            if swapper.swapped:
+                context.flag_calls_read.add("flag_evaluations")
             return FlagCallSwap(source=rewritten, resolved=swapped)
     if only_in_flag_evaluations:
         # events gets no new flag calls, so the original query would return only calls from before the move.
@@ -430,7 +430,7 @@ class EventsScan:
         cls,
         node: ast.SelectQuery,
         flag_key_compares_as_string: Callable[[], bool],
-        ctes: frozenset[str],
+        ctes: Collection[str],
         database: "Database | None" = None,
     ) -> "EventsScan | None":
         """The scan of `node`, or None when `node` does not read `events`. `ctes` holds the CTE names in scope. The
@@ -443,22 +443,22 @@ class EventsScan:
         table_name = ".".join(parts)
         if table_name not in EVENTS_NAMES or table_name in ctes:
             return None
+        cte_names = frozenset(ctes)
         scan = cls(
             join=join,
             alias=join.alias or "__".join(parts),
             # The resolver reads the head of a chain of two or more parts as one of these tables first.
-            other_tables=ctes.union(_join_names(join.next_join)),
+            other_tables=cte_names.union(_join_names(join.next_join)),
             folded_tables=frozenset(_folded_join_names(join.next_join, database)),
             flag_key_compares_as_string=flag_key_compares_as_string,
         )
-        collector = _AliasCollector(node)
-        collector.visit(node)
+        aliases = select_aliases(node)
         # The resolver tries a joined table's name, a CTE and a select alias before it reads a qualifier such as
         # `posthog.events` as the name of a table.
-        scan.qualifier_shadows = scan.other_tables.union(name for name, _ in collector.aliases)
+        scan.qualifier_shadows = scan.other_tables.union(name for name, _ in aliases)
         # An alias such as `e.timestamp AS timestamp` reads the column it names, so it changes no read.
         scan.shadowed = frozenset(
-            name for name, expr in collector.aliases if name in _SCAN_COLUMNS and scan.column(expr) != [name]
+            name for name, expr in aliases if name in _SCAN_COLUMNS and scan.column(expr) != [name]
         )
         return scan
 
@@ -939,10 +939,22 @@ class SyntaxVisitor(TraversingVisitor):
         pass
 
 
+def select_aliases(node: ast.SelectQuery, *, in_scope_only: bool = False) -> list[tuple[str, ast.Expr]]:
+    """Each alias that `node` defines outside its subqueries, with the expression it names.
+
+    With `in_scope_only`, the list leaves out the aliases that the resolver does not register in the scope of `node`:
+    an alias inside a lambda, and a hidden alias.
+    """
+    collector = _AliasCollector(node, in_scope_only)
+    collector.visit(node)
+    return collector.aliases
+
+
 class _AliasCollector(SyntaxVisitor):
-    def __init__(self, root: ast.SelectQuery) -> None:
+    def __init__(self, root: ast.SelectQuery, in_scope_only: bool) -> None:
         super().__init__()
         self.root = root
+        self.in_scope_only = in_scope_only
         self.aliases: list[tuple[str, ast.Expr]] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -953,8 +965,14 @@ class _AliasCollector(SyntaxVisitor):
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         pass
 
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        # The resolver registers an alias inside a lambda in the scope of that lambda.
+        if not self.in_scope_only:
+            super().visit_lambda(node)
+
     def visit_alias(self, node: ast.Alias) -> None:
-        self.aliases.append((node.alias, node.expr))
+        if not (self.in_scope_only and node.hidden):
+            self.aliases.append((node.alias, node.expr))
         super().visit_alias(node)
 
 
@@ -969,13 +987,14 @@ class _FlagCalledConstantFinder(SyntaxVisitor):
 
 
 class ScanVisitor(SyntaxVisitor):
-    """Calls `visit_scan_query` for each SELECT. `ctes` then holds the CTE names in scope, which `EventsScan.of` needs."""
+    """Calls `visit_scan_query` for each SELECT. `ctes` then holds the CTEs in scope by name, which `EventsScan.of`
+    needs. A subclass reads `ctes` only during the call, because a later CTE of the same WITH changes it in place."""
 
     def __init__(self) -> None:
         super().__init__()
-        # The CTE names in scope, under the resolver's rules. A `FROM events` reads a CTE when one is named `events`.
+        # The CTEs in scope, under the resolver's rules. A `FROM events` reads a CTE when one is named `events`.
         # A name missing here lets a subclass change the scan, and the binding check then rejects the change.
-        self.ctes: frozenset[str] = frozenset()
+        self.ctes: dict[str, ast.CTE] = {}
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         outer = self.ctes
@@ -983,7 +1002,7 @@ class ScanVisitor(SyntaxVisitor):
         self.visit(initial)
         # The resolver gives every later branch the first branch's WITH.
         if isinstance(initial, ast.SelectQuery) and initial.ctes:
-            self.ctes = self.ctes.union(initial.ctes)
+            self.ctes = {**self.ctes, **initial.ctes}
         for subsequent in node.subsequent_select_queries:
             self.visit(subsequent.select_query)
         self.ctes = outer
@@ -994,9 +1013,12 @@ class ScanVisitor(SyntaxVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         outer = self.ctes
-        for cte in (node.ctes or {}).values():
-            self.visit(cte.expr)
-            self.ctes = self.ctes.union([cte.name])
+        if node.ctes:
+            # One copy per WITH keeps a long WITH linear.
+            self.ctes = dict(outer)
+            for cte in node.ctes.values():
+                self.visit(cte.expr)
+                self.ctes[cte.name] = cte
         self.visit_scan_query(node)
         super().visit_select_query(node)
         self.ctes = outer
@@ -1300,9 +1322,8 @@ def _target(current: ast.Type | None) -> tuple[str, ...]:
             current = current.table_type
         elif isinstance(current, ast.LazyJoinType):
             # A join reads another table. The tables can define a join of the same name differently, so the
-            # binding names the join recipe and what it joins on. Under PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-            # events.person joins persons, while flag_evaluations.person reads the person properties stored with the
-            # call. join_table can name the same table as an instance or as a string, so the binding leaves it out.
+            # binding names the join recipe and what it joins on. join_table can name the same table as an instance
+            # or as a string, so the binding leaves it out.
             join = current.lazy_join
             return (
                 "join",

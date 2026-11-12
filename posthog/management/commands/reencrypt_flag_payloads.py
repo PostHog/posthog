@@ -16,7 +16,8 @@ class Command(BaseCommand):
     help = (
         "Re-encrypt remote-config feature flag payloads with the primary key in FLAGS_SECRET_KEYS. "
         "Run after prepending a new key to FLAGS_SECRET_KEYS (keeping the old key in the list) "
-        "and before dropping the old key from FLAGS_SECRET_KEYS. Safe to re-run; idempotent."
+        "and before dropping the old key from FLAGS_SECRET_KEYS. Includes soft-deleted flags, "
+        "because a user can restore them. Safe to re-run; idempotent."
     )
 
     def add_arguments(self, parser):
@@ -85,7 +86,11 @@ class Command(BaseCommand):
         other filter fields between the scan and the write would be silently lost.
         """
         with transaction.atomic():
-            flag = FeatureFlag.objects.select_for_update().only("id", "team_id", "filters").get(pk=flag_pk)
+            flag = (
+                FeatureFlag.objects_including_soft_deleted.select_for_update()
+                .only("id", "team_id", "filters")
+                .get(pk=flag_pk)
+            )
             if self._skip_unsupported(flag):
                 return None
             filters = flag.filters or {}
@@ -95,7 +100,9 @@ class Command(BaseCommand):
             # update() rather than save(): plaintext is unchanged, so we want no
             # activity-log entry and no cache churn (these flags are excluded from
             # the flags cache and the /remote_config endpoint reads live from the DB).
-            FeatureFlag.objects.filter(pk=flag_pk).update(filters={**filters, "payloads": rotated})
+            FeatureFlag.objects_including_soft_deleted.filter(pk=flag_pk).update(
+                filters={**filters, "payloads": rotated}
+            )
             return True
 
     def _rotate_payloads(self, payloads: dict, codec: FlagPayloadCodec) -> dict | None:
@@ -111,7 +118,12 @@ class Command(BaseCommand):
         return {key: codec.rotate(value.encode("utf-8")).decode("utf-8") for key, value in payloads.items()}
 
     def _get_flags(self, team_id: int | None, limit: int | None) -> QuerySet[FeatureFlag]:
-        flags = FeatureFlag.objects.filter(has_encrypted_payloads=True).only("id", "team_id", "filters").order_by("id")
+        # A restored flag must still decrypt after the old key leaves FLAGS_SECRET_KEYS.
+        flags = (
+            FeatureFlag.objects_including_soft_deleted.filter(has_encrypted_payloads=True)
+            .only("id", "team_id", "filters")
+            .order_by("id")
+        )
         if team_id is not None:
             flags = flags.filter(team_id=team_id)
         if limit is not None:

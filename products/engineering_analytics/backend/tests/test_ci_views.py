@@ -1,7 +1,7 @@
 import json
 import tempfile
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -40,6 +40,7 @@ from products.engineering_analytics.backend.logic.views import (
     job_costs,
     pr_friction,
 )
+from products.engineering_analytics.backend.logic.views.incremental_floor import SEED_LOOKBACK
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
@@ -130,10 +131,6 @@ def _create_table(test: BaseTest, base_name: str, columns: dict, rows: list[dict
 
 
 class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
-    """The generated ci_job_history SQL must expose exactly the FIELDS columns and correctly derive
-    commit attribution — the substrate the green/red boundary analysis reads. Skips when object
-    storage is unreachable so the suite still runs without the dev stack."""
-
     def test_exposes_fields_and_derives_commit_attribution(self) -> None:
         jobs_table = _create_table(
             self,
@@ -142,11 +139,9 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
             [
                 _job_row(1, run_id=100, name="job-a"),
                 _job_row(2, run_id=200, name="job-b"),
-                # A job whose run row is missing — the LEFT JOIN must keep it with NULL attribution.
+                # No run row exists for run 999.
                 _job_row(3, run_id=999, name="job-c"),
                 _job_row(4, run_id=300, name="job-d"),
-                # A first-attempt job whose run row was upserted by a re-run (run_attempt 2): the
-                # run_id-only join must still attach the run's attribution.
                 _job_row(5, run_id=400, name="job-e"),
             ],
         )
@@ -164,18 +159,16 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
                         "message": "fix(ci): thing (#4242)",
                     },
                 ),
-                # No pull_requests association (a master push): pr_number stays 0, and the only PR
-                # attribution comes from the (#NNNN) squash-merge suffix — here deliberately absent.
+                # A master push with no pull_requests association and no (#NNNN) squash-merge suffix.
                 _run_row(
                     200,
                     head_sha="runsha200",
                     pr_numbers=[],
                     head_commit={"author": {"name": "Bob"}, "message": "chore: no pr suffix"},
                 ),
-                # The real master-push shape: GitHub attaches the fork network's PRs (same head SHA,
-                # foreign base repo), which must NOT become pr_number — the commit suffix is the only
-                # attribution. Also a revert, so the reverted PR's (#N) sits inside the quoted title
-                # alongside the revert PR's own suffix and the anchored extraction must pick the latter.
+                # On a master push GitHub attaches the fork network's PRs, which share the head SHA and
+                # have a foreign base repo. The commit is also a revert, so its message quotes the
+                # reverted PR's (#N) before the reverting PR's own suffix.
                 _run_row(
                     300,
                     head_sha="runsha300",
@@ -186,8 +179,8 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
                         "message": 'Revert "feat(ci): thing (#4242)" (#4300)\n\nThis reverts commit abc.',
                     },
                 ),
-                # The runs snapshot keeps only the newest attempt's row per id — this run was re-run,
-                # so its row carries run_attempt 2 while the seeded job above is attempt 1.
+                # The runs snapshot keeps only the newest attempt's row per id, so this re-run row
+                # carries run_attempt 2 while job-e is attempt 1.
                 _run_row(
                     400,
                     head_sha="runsha400",
@@ -220,8 +213,6 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
         def value(job_name: str, field: str) -> Any:
             return by_job[job_name][field_index[field]]
 
-        # Run with a PR association + a (#NNNN) merge suffix: both PR keys resolve, commit attribution
-        # comes off head_commit, and head_sha is the run's (not the job's) sha.
         assert value("job-a", "pr_number") == 5
         assert value("job-a", "commit_author_name") == "Alice"
         assert value("job-a", "commit_author_email") == "alice@x.com"
@@ -229,38 +220,31 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
         assert value("job-a", "commit_pr_number") == 4242
         assert (value("job-a", "repo_owner"), value("job-a", "repo_name")) == ("PostHog", "posthog")
         assert value("job-a", "head_sha") == "runsha100"
-        # created_at_raw carries the unparsed source string (the scan-pruning floor rides on this),
-        # not the parsed datetime — so it must equal the raw value, distinct from parsed created_at.
+        # Scan floors compare created_at_raw as a string, so it must stay the unparsed source value.
         assert value("job-a", "created_at_raw") == _BASE
 
-        # Master push: pr_number 0 (builder semantics kept, not nulled), no (#NNNN) → commit_pr_number NULL.
         assert value("job-b", "pr_number") == 0
         assert value("job-b", "commit_author_name") == "Bob"
         assert value("job-b", "commit_pr_number") is None
         assert value("job-b", "commit_message") == "chore: no pr suffix"
 
-        # Revert commit: two (#N) occurrences — the anchored extraction must credit the reverting
-        # PR (#4300), never the reverted one quoted in the title (#4242). Its run also carries the
-        # fork network's PRs; crediting one of those to this repo is the bug pr_number 0 guards.
+        # The reverting PR gets the credit, not the reverted PR quoted in the title, and a fork
+        # network PR never becomes pr_number.
         assert value("job-d", "commit_pr_number") == 4300
         assert value("job-d", "pr_number") == 0
 
-        # Unjoined run: the LEFT JOIN keeps the job attempt (an INNER join would drop it — the guard
-        # here). ClickHouse fills the unmatched run side with type defaults, so attribution is empty
-        # (not a real repo) and no PR resolves off the absent commit message.
+        # ClickHouse fills the unmatched side of the LEFT JOIN with type defaults, so the
+        # attribution of a job without a run row is empty and not NULL.
         assert "job-c" in by_job
         assert value("job-c", "repo_owner") == ""
         assert value("job-c", "commit_pr_number") is None
 
-        # Re-run: the runs row was upserted to attempt 2 while this job is attempt 1 — the
-        # run_id-only join must still carry the run's attribution (an attempt-equality join blanks it).
+        # A join that also matched run_attempt would blank this attempt-1 job's attribution.
         assert value("job-e", "run_attempt") == 1
         assert value("job-e", "commit_author_name") == "Dave"
         assert value("job-e", "head_sha") == "runsha400"
 
     def test_union_all_of_two_sources_parses_and_stacks(self) -> None:
-        # build_team_view stitches per-source SELECTs with UNION ALL; the columns must line up across
-        # the boundary. Unioning one source's SELECT with itself proves the shape agrees and stacks.
         jobs_table = _create_table(
             self, "github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(1, run_id=100, name="job-a")]
         )
@@ -282,16 +266,13 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
 
 
 class TestCIFailuresView(ClickhouseTestMixin, BaseTest):
-    """The generated ci_failures SQL must fingerprint pytest FAILED lines from the Logs product and
-    ignore everything else — the failure-index substrate."""
-
     def _insert_logs(self, rows: list[dict[str, Any]]) -> None:
         payload = "".join(json.dumps({"team_id": self.team.id, **row}) + "\n" for row in rows)
         sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{payload}")
 
     def _log(self, body: str, attributes: dict[str, str], minute: int = 0) -> dict[str, Any]:
-        # attributes_map_str keys carry the "__str" suffix the logs table strips for the queryable
-        # `attributes` map (see logs34 mapApply), so a HogQL `attributes['run_id']` reads "run_id__str".
+        # The logs table strips the "__str" key suffix to build the queryable `attributes` map,
+        # so HogQL `attributes['run_id']` reads "run_id__str".
         return {
             "timestamp": f"2026-06-23 12:{minute:02d}:00.000000",
             "body": body,
@@ -313,21 +294,16 @@ class TestCIFailuresView(ClickhouseTestMixin, BaseTest):
         }
         self._insert_logs(
             [
-                # A failure with a trailing detail carrying volatile bits (a count and a hex blob).
                 self._log(
                     "FAILED posthog/api/test_foo.py::TestFoo::test_bar - AssertionError: got 42 at 0xdeadbeefcafe1234",
                     attrs,
                     minute=0,
                 ),
-                # A failure with no " - detail" — its signature is empty, so error_signature is NULL.
                 self._log("FAILED posthog/api/test_baz.py::test_qux", attrs, minute=1),
-                # Not a pytest FAILED line — must be filtered out by the WHERE clause.
                 self._log("PASSED posthog/api/test_ok.py::test_ok", attrs, minute=2),
-                # Contains FAILED but no '::' node id (runner env-dump noise seen in real CI logs) —
-                # must not produce a junk fingerprint.
+                # Runner environment dumps contain FAILED without a '::' node id.
                 self._log("E2E_TESTS: FAILED [1] (stage: build)", attrs, minute=3),
-                # A parameterized id with a space inside [...] — the extraction must keep the full
-                # node id (not truncate at the space) and normalize only the signature, never the id.
+                # The space inside [...] must not truncate the node id.
                 self._log("FAILED tests/test_api.py::test_status[user 123] - AssertionError: boom", attrs, minute=4),
             ]
         )
@@ -338,8 +314,6 @@ class TestCIFailuresView(ClickhouseTestMixin, BaseTest):
         by_test = {row[list(ci_failures.FIELDS).index("test_id")]: row for row in rows}
         field_index = {name: i for i, name in enumerate(ci_failures.FIELDS)}
 
-        # The PASSED line is excluded; only the real FAILED node ids survive — including the
-        # parameterized one, whose id keeps the space inside [...] untruncated and unnormalized.
         assert set(by_test) == {
             "posthog/api/test_foo.py::TestFoo::test_bar",
             "posthog/api/test_baz.py::test_qux",
@@ -354,7 +328,7 @@ class TestCIFailuresView(ClickhouseTestMixin, BaseTest):
         def value(field: str) -> Any:
             return detailed[field_index[field]]
 
-        # Volatile bits (the digit run and the long hex blob) normalize to N so re-runs share a signature.
+        # Digit runs and hex blobs normalize to N so that re-runs share a signature.
         assert value("error_signature") == "AssertionError: got N at NxN"
         assert value("fingerprint") == "posthog/api/test_foo.py::TestFoo::test_bar | AssertionError: got N at NxN"
         assert value("run_id") == 100
@@ -364,7 +338,6 @@ class TestCIFailuresView(ClickhouseTestMixin, BaseTest):
         assert value("repo") == "PostHog/posthog"
         assert value("conclusion") == "failure"
 
-        # No trailing detail → empty signature → NULL error_signature, but the fingerprint still forms.
         no_detail = by_test["posthog/api/test_baz.py::test_qux"]
         assert no_detail[field_index["error_signature"]] is None
         assert no_detail[field_index["fingerprint"]] == "posthog/api/test_baz.py::test_qux | "
@@ -444,8 +417,8 @@ class TestStoredCIConfig(SimpleTestCase):
 class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
-            ("runs", ci_rows.runs_select, ci_rows.RUN_FIELDS, 2, {"is_handoff_shell": 0}),
-            ("jobs", ci_rows.jobs_select, ci_rows.JOB_FIELDS, 3, {"is_rerun_copy": 0, "is_handoff_shell": 0}),
+            ("runs", ci_rows.runs_select, ci_rows.RUN_FIELDS, [100, 200], {"is_handoff_shell": 0}),
+            ("jobs", ci_rows.jobs_select, ci_rows.JOB_FIELDS, [1, 2, 3], {"is_rerun_copy": 0, "is_handoff_shell": 0}),
         ]
     )
     def test_view_runs_with_the_window_start_bound(
@@ -453,10 +426,12 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
         _name: str,
         select: Callable[[JobSourceTables], str],
         fields: dict[str, Any],
-        seeded_rows: int,
+        seeded_ids: list[int],
         flags: dict[str, int],
     ) -> None:
-        created_at = "2026-01-01T10:00:00.123Z"
+        recent = datetime.now(UTC).replace(microsecond=0) - timedelta(days=1)
+        created_at = recent.strftime("%Y-%m-%dT%H:%M:%S.123Z")
+        before_seed = (recent - SEED_LOOKBACK).strftime("%Y-%m-%dT%H:%M:%S.123Z")
         jobs_table = _create_table(
             self,
             "github_workflow_jobs",
@@ -465,6 +440,7 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
                 {**_job_row(1, run_id=100, name="a"), "created_at": created_at},
                 {**_job_row(2, run_id=100, name="b"), "created_at": created_at},
                 {**_job_row(3, run_id=200, name="c"), "created_at": created_at},
+                {**_job_row(4, run_id=300, name="d"), "created_at": before_seed},
             ],
         )
         runs_table = _create_table(
@@ -474,6 +450,7 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
             [
                 {**_run_row(100, head_sha="s100", pr_numbers=[5], head_commit={}), "created_at": created_at},
                 {**_run_row(200, head_sha="s200", pr_numbers=[], head_commit={}), "created_at": created_at},
+                {**_run_row(300, head_sha="s300", pr_numbers=[], head_commit={}), "created_at": before_seed},
             ],
         )
         source = JobSourceTables(
@@ -485,10 +462,10 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
         query = f"SELECT {', '.join(fields)} FROM ({select(source)}) ORDER BY id"
 
         rows_by_window = {}
-        for since, expected_rows in (
-            (None, seeded_rows),
-            (datetime(2026, 1, 1, 10, tzinfo=UTC), seeded_rows),
-            (datetime(2026, 1, 1, 11, tzinfo=UTC), 0),
+        for since, expected_ids in (
+            (None, seeded_ids),
+            (recent, seeded_ids),
+            (recent + timedelta(hours=1), []),
         ):
             response = execute_hogql_query(
                 query=query,
@@ -497,7 +474,7 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
                 placeholders={"incremental_window_start": ast.Constant(value=since)},
             )
             assert response.columns == list(fields)
-            assert len(response.results) == expected_rows, since
+            assert [dict(zip(fields, row))["id"] for row in response.results] == expected_ids, since
             rows_by_window[since] = response.results
 
         first = dict(zip(fields, rows_by_window[None][0]))
@@ -507,9 +484,6 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
 
 
 class TestExpectedWarehouseViews(BaseTest):
-    """The facade must expose all three views together for a qualifying GitHub source, and nothing
-    for a team without one — so a consumer sees a coherent set, never a partial one."""
-
     def _qualifying_source(self, *, with_pull_requests: bool = False) -> ExternalDataSource:
         source = ExternalDataSource.objects.create(
             team=self.team,

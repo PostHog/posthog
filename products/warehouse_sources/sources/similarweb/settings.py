@@ -49,6 +49,13 @@ BOUNCE_RATE = "bounce_rate"
 GLOBAL_RANK = "global_rank"
 TRAFFIC_SOURCES = "traffic_sources"
 TRAFFIC_BY_COUNTRY = "traffic_by_country"
+WEBSITE_KEYWORDS = "website_keywords"
+CONVERSION_ANALYSIS = "conversion_analysis"
+DEDUPLICATED_AUDIENCE = "deduplicated_audience"
+VISITS_SPLIT = "visits_split"
+
+CONVERSION_SEGMENTS_PATH = "/v1/segment/conversion-analysis/describe"
+CONVERSION_COUNTRY_ERROR = "Conversion analysis needs a two-letter country code. Set Country to a code such as us."
 
 
 @frozen
@@ -74,6 +81,7 @@ class SimilarwebEndpointConfig:
     # engagement tables whose V5 wire is documented; `None` keeps the endpoint on its legacy path
     # under every pin (its V5 response shape isn't documented in enough detail to implement).
     v5_metric: str | None = None
+    requires_dates: bool = False
 
 
 _ENGAGEMENT_PATH = "/v1/website/{domain}/total-traffic-and-engagement"
@@ -156,6 +164,47 @@ SIMILARWEB_ENDPOINTS: dict[str, SimilarwebEndpointConfig] = {
         accepts_country=False,
         accepts_granularity=False,
         paginated=True,
+    ),
+    WEBSITE_KEYWORDS: SimilarwebEndpointConfig(
+        name=WEBSITE_KEYWORDS,
+        path="/v4/website-analysis/keywords",
+        data_key="keywords",
+        primary_keys=["domain", "country", "date", "keyword"],
+        description="Search keywords and clicks for each domain, by month",
+        incremental_fields=[incremental_field("date")],
+        accepts_granularity=False,
+        paginated=True,
+        requires_dates=True,
+    ),
+    CONVERSION_ANALYSIS: SimilarwebEndpointConfig(
+        name=CONVERSION_ANALYSIS,
+        path="/v1/segment/{conversion_segment_id}/conversion-analysis/query",
+        data_key="segments",
+        primary_keys=["domain", "country", "conversion_segment_id", "date"],
+        description="Monthly desktop conversion metrics for account segments matching the domains. Requires a country code, such as us.",
+        incremental_fields=[incremental_field("date")],
+        accepts_granularity=False,
+        requires_dates=True,
+    ),
+    DEDUPLICATED_AUDIENCE: SimilarwebEndpointConfig(
+        name=DEDUPLICATED_AUDIENCE,
+        path="/v1/website/{domain}/dedup/deduplicated-audiences",
+        data_key="data",
+        primary_keys=["domain", "country", "date"],
+        description="Monthly audience size and device overlap for each domain",
+        incremental_fields=[incremental_field("date")],
+        accepts_granularity=False,
+        requires_dates=True,
+    ),
+    VISITS_SPLIT: SimilarwebEndpointConfig(
+        name=VISITS_SPLIT,
+        path=f"{_ENGAGEMENT_PATH}/visits-split",
+        data_key="",
+        primary_keys=["domain", "country"],
+        description="Desktop and mobile visit shares over the requested months",
+        partition_key=None,
+        accepts_granularity=False,
+        requires_dates=True,
     ),
 }
 

@@ -55,12 +55,15 @@ export const AccountsEvents = {
     PropertiesWidgetConfigured: 'customer analytics account properties widget configured',
     AccountPropertySaveFailed: 'customer analytics account property save failed',
     PinnedPropertiesSaved: 'customer analytics account pinned properties saved',
-    LinkClicked: 'customer analytics account link clicked',
     NoteClicked: 'customer analytics account note clicked',
     NoteCreated: 'customer analytics accounts note created',
     NotesSearched: 'customer analytics accounts notes searched',
     NotesSorted: 'customer analytics accounts notes sorted',
     TabViewed: 'customer analytics account tab viewed',
+    AutomationsViewed: 'customer analytics account automations viewed',
+    AutomationsLoaded: 'customer analytics account automations loaded',
+    AutomationsLoadFailed: 'customer analytics account automations load failed',
+    AutomationWorkflowOpened: 'customer analytics account automation workflow opened',
     UsageIntervalChanged: 'customer analytics account usage interval changed',
     UsageSeriesToggled: 'customer analytics account usage series toggled',
     UsageSeriesBulkToggled: 'customer analytics account usage series bulk toggled',
@@ -99,6 +102,13 @@ export const AccountsEvents = {
     NotesTabFiltered: 'customer analytics notes tab filtered',
     NotesTabNoteClicked: 'customer analytics notes tab note clicked',
     NotesTabAccountClicked: 'customer analytics notes tab account clicked',
+    NotesTabSorted: 'customer analytics notes tab sorted',
+    NotesTabViewSaved: 'customer analytics notes tab view saved',
+    NotesTabViewUpdated: 'customer analytics notes tab view updated',
+    NotesTabViewSelected: 'customer analytics notes tab view selected',
+    NotesTabViewDeleted: 'customer analytics notes tab view deleted',
+    NoteUpdated: 'customer analytics accounts note updated',
+    NotesFiltered: 'customer analytics accounts notes filtered',
     AccountViewEditorOpened: 'customer analytics account view editor opened',
     AccountViewSaved: 'customer analytics account view saved',
     AccountViewSaveFailed: 'customer analytics account view save failed',
@@ -117,4 +127,4 @@ export const AccountsEvents = {
     AccountViewTabSettingsSaveFailed: 'customer analytics account view tab settings save failed',
 } as const
 
-export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts'
+export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts' | 'tag'

@@ -18,6 +18,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { featureFlagLogic, peekFeatureFlag, reportFeatureFlagExposure } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
@@ -25,6 +26,7 @@ import { urls } from 'scenes/urls'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
+import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
@@ -174,7 +176,8 @@ interface InboxDetailFrameProps {
     report: SignalReport
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
-    /** Extra primary action(s) rendered after the shared report actions. */
+    /** The pull request's "Open in GitHub" action. When it is set, the frame does not show the implement
+     * action: "View task" adds nothing next to the pull request, and the runs section still links the task. */
     primaryAction?: ReactNode
     /** Whether the report column gets the Summary / Files changed tab bar. Driven by whether the report has
      * a PR (known immediately), not by whether the diff has loaded, so the bar doesn't pop in a beat later
@@ -260,6 +263,8 @@ export function InboxDetailFrame({
     )
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
+    const { linkImplementReportId } = useValues(inboxSceneLogic)
+    const { setLinkImplementReportId } = useActions(inboxSceneLogic)
     // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
     // the rail rather than after a scroll.
     const signals = [...(reportSignals ?? [])].sort(
@@ -287,17 +292,30 @@ export function InboxDetailFrame({
 
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const implementButton =
-        showCreatePr || reportTaskToOpen ? (
-            <ImplementButton
-                report={report}
-                reportTaskToOpen={reportTaskToOpen}
-                implementationDisabledReason={implementationDisabledReason}
-            />
-        ) : null
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const implementButtonVariant = peekFeatureFlag(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
+    const hasImplementButton = !primaryAction && (showCreatePr || !!reportTaskToOpen)
+    if (
+        hasImplementButton &&
+        summaryHasSolution &&
+        (implementButtonVariant === 'control' || implementButtonVariant === 'test')
+    ) {
+        reportFeatureFlagExposure(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
+    }
+    const implementButtonInHeader = !summaryHasSolution || implementButtonVariant === 'test'
+    const implementButton = hasImplementButton ? (
+        <ImplementButton
+            report={report}
+            position={implementButtonInHeader ? 'header' : 'body'}
+            reportTaskToOpen={reportTaskToOpen}
+            implementationDisabledReason={implementationDisabledReason}
+            openChoicesFromLink={linkImplementReportId === report.id}
+            onChoicesOpenedFromLink={() => setLinkImplementReportId(null)}
+        />
+    ) : null
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
         icon: action.icon,
@@ -355,7 +373,7 @@ export function InboxDetailFrame({
     // "Summary" tab; otherwise it sits under the "Report summary" header.
     // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
-    const expectedImpactEnabled = useFeatureFlag('SIGNALS_EXPECTED_IMPACT_DISPLAY')
+    const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
     const notesEnabled = useFeatureFlag('SIGNALS_REPORT_NOTES')
     const primaryMetric = metricsEnabled ? report.metrics?.find((metric) => metric.role === 'primary') : undefined
     const supportingMetrics = metricsEnabled
@@ -367,7 +385,7 @@ export function InboxDetailFrame({
         (check) => check.kind === 'metric_threshold' && check.status !== 'cancelled'
     )
     const expectedImpact =
-        expectedImpactEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
+        monitoringEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
             <ReportExpectedImpact report={report} reportUrl={reportUrl} />
         ) : null
     const planBlock = report.plan ? <ReportPlanBlock reportId={report.id} plan={report.plan} /> : null
@@ -393,7 +411,7 @@ export function InboxDetailFrame({
                         <ReportSummaryBody
                             summary={report.summary}
                             chartPlacements={chartPlacements}
-                            implementButton={implementButton}
+                            implementButton={implementButtonInHeader ? null : implementButton}
                             pullRequestNote={pullRequestNote}
                             impactMetrics={impactMetrics}
                             expectedImpact={expectedImpact}
@@ -461,6 +479,8 @@ export function InboxDetailFrame({
         </header>
     )
 
+    const isMonitoring = (currentReport ?? report).status === SignalReportStatus.MONITORING
+
     // Bound rather than passed as props so a chart can reach the logic by id alone. `ReportChart`
     // building the logic itself would have to pass `report` back in, and kea treats that as a props
     // change on the mounted instance.
@@ -471,9 +491,18 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_CLASS}>
                         <ReportStatusSection
                             report={currentReport ?? report}
-                            onPriorityChange={updatePriority}
+                            onPriorityChange={(priority) => {
+                                captureInboxReportAction({
+                                    report,
+                                    actionType: 'change_priority',
+                                    surface: 'detail_pane',
+                                    extra: { new_priority: priority },
+                                })
+                                updatePriority(priority)
+                            }}
                             prioritySaving={prioritySaving}
                         />
+                        {isMonitoring && <ReportChecksSection report={report} />}
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection
@@ -527,7 +556,7 @@ export function InboxDetailFrame({
                             <ReportSpendSection reportId={report.id} />
                         </FlaggedFeature>
                         <ReportTasksSection report={report} />
-                        <ReportChecksSection report={report} />
+                        {!isMonitoring && <ReportChecksSection report={report} />}
                         <ReportActivitySection report={report} />
                         {asideFooter}
                     </aside>
@@ -604,9 +633,9 @@ export function InboxDetailFrame({
                     </LemonButton>
                     {railToggleButton}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                     {primaryAction}
-                    {!summaryHasSolution && implementButton}
+                    {implementButtonInHeader && implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}

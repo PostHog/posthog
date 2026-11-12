@@ -44,11 +44,11 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_ml_image_fetch_retry = 'recordings-blob-ingestion-v2-ml-image-fetch-retry',
     ai_research_v4_image_fetch = 'ai-research-v4-image-fetch',
     ai_research_v4_image_fetch_retry = 'ai-research-v4-image-fetch-retry',
-    ai_research_v4_parquet_sink = 'ai-research-v4-parquet-sink',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
+    cdp_ses_webhooks = 'cdp-ses-webhooks',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     // TODO: remove once charts stop setting PLUGIN_SERVER_MODE=cdp-precalculated-filters.
     // The consumer is gone; an unknown mode would throw at boot, so keep the member until then.
@@ -58,6 +58,7 @@ export enum PluginServerMode {
     cdp_cohort_membership_triggers = 'cdp-cohort-membership-triggers',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
+    cdp_cyclotron_worker_email_sandbox = 'cdp-cyclotron-worker-email-sandbox',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
@@ -116,6 +117,10 @@ export type CommonConfig = BaseServerConfig & {
     POSTGRES_BEHAVIORAL_COHORTS_HOST: string
     POSTGRES_BEHAVIORAL_COHORTS_USER: string
     POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: string
+
+    // Schema check hook Job (nodejs/src/schema-check)
+    SCHEMA_CHECK_PUSHGATEWAY_URL: string
+    SCHEMA_CHECK_APP: string
 
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
@@ -344,6 +349,10 @@ export function getDefaultCommonConfig(): CommonConfig {
         POSTGRES_BEHAVIORAL_COHORTS_HOST: 'localhost',
         POSTGRES_BEHAVIORAL_COHORTS_USER: 'postgres',
         POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: '',
+
+        // Schema check hook Job (nodejs/src/schema-check)
+        SCHEMA_CHECK_PUSHGATEWAY_URL: '',
+        SCHEMA_CHECK_APP: '',
 
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,

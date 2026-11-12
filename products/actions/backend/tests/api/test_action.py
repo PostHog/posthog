@@ -17,12 +17,15 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import AvailableFeature
 from posthog.models import Tag, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.event import MAX_SELECTOR_LENGTH
+from posthog.models.organization import OrganizationMembership
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.actions.backend.models.action import Action
-from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.actions.backend.presentation.views.action import ActionSerializer, ActionStepJSONSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
@@ -30,6 +33,8 @@ from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.facade.models import Insight
+
+from ee.api.test.base import APILicensedTest
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -213,6 +218,22 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(Action.objects.count(), count)
 
+    def test_cant_create_action_with_overlong_selector(self, *args):
+        count = Action.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {
+                "name": "long selector",
+                "steps": [{"event": "$autocapture", "selector": "a" * (MAX_SELECTOR_LENGTH + 1)}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "max_length")
+        self.assertEqual(response.json()["attr"], "steps")
+        self.assertIn(f"The maximum is {MAX_SELECTOR_LENGTH}", response.json()["detail"])
+        self.assertEqual(Action.objects.count(), count)
+
     def test_cant_create_action_with_whitespace_only_name(self, *args):
         count = Action.objects.count()
 
@@ -328,14 +349,14 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "updated_by_creator": False,
                 "deleted": False,
                 "pinned": True,
-                "pinned_at": "2021-12-12T00:00:00+00:00",
+                "pinned_at": datetime(2021, 12, 12, tzinfo=UTC),
             },
             team=ANY,
             request=ANY,
         )
 
         # test queries
-        with self.assertNumQueries(FuzzyInt(9, 11)):
+        with self.assertNumQueries(FuzzyInt(6, 8)):
             # Django session,  user,  team,  org membership, instance setting,  org,
             # count, action
             self.client.get(f"/api/projects/{self.team.id}/actions/")
@@ -441,75 +462,13 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         action = Action.objects.get(pk=response.json()["id"])
         assert action.steps[0].event == "test_event "
 
-    def test_selector_match_changes_reports_only_requested_affected_actions(self) -> None:
-        changed = Action.objects.create(
-            team=self.team,
-            name="changed",
-            steps_json=[{"selector": "div .btn:nth-child(2)"}, {"selector": ".sibling"}],
-        )
-        unaffected = Action.objects.create(team=self.team, name="unaffected", steps_json=[{"selector": ".fine"}])
-        for step_index, selector in [(1, ".sibling"), (0, "div .btn:nth-child(2)")]:
-            ActionSelectorMatchChange.objects.for_team(self.team.id).create(
-                team=self.team,
-                action=changed,
-                step_index=step_index,
-                selector=selector,
-                old_match_count=900,
-                new_match_count=120,
-                measured_at=datetime(2026, 9, 11, tzinfo=UTC),
-            )
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/selector_match_changes/",
-            {"action_ids": f"{unaffected.id},{changed.id}"},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == [
-            {
-                "action_id": changed.id,
-                "action_name": "changed",
-                "selectors": ["div .btn:nth-child(2)", ".sibling"],
-            }
-        ]
-
-    @parameterized.expand(
-        [
-            ("the step now carries a different selector", [{"selector": ".rewritten"}]),
-            ("the step was removed", []),
-        ]
-    )
-    def test_selector_match_changes_drops_a_verdict_the_action_no_longer_matches(
-        self, _name: str, steps_json: list[dict]
-    ) -> None:
-        action = Action.objects.create(team=self.team, name="edited", steps_json=[{"selector": ".measured"}])
-        ActionSelectorMatchChange.objects.for_team(self.team.id).create(
-            team=self.team,
-            action=action,
-            step_index=0,
-            selector=".measured",
-            old_match_count=900,
-            new_match_count=120,
-            measured_at=datetime(2026, 9, 11, tzinfo=UTC),
-        )
-        action.steps_json = steps_json
-        action.save()
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/selector_match_changes/",
-            {"action_ids": str(action.id)},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == []
-
     @time_machine.travel("2021-12-12", tick=False)
     def test_listing_actions_is_not_nplus1(self) -> None:
         # Pre-query to cache things like instance settings
         self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         # No actions yet, so no tags prefetch query
-        with self.assertNumQueries(8), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(5), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -519,7 +478,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # With actions, there's an extra tags prefetch query
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -528,7 +487,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     @parameterized.expand(
@@ -1099,6 +1058,44 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert action_result["reference_count"] == 4
 
 
+class TestActionBulkUpdateTags(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    def test_only_actions_the_user_may_edit_change(self):
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "")
+        base = datetime(2021, 1, 1, tzinfo=UTC)
+        editable = Action.objects.create(team=self.team, name="editable", created_by=other, last_calculated_at=base)
+        read_only = Action.objects.create(
+            team=self.team, name="read only", created_by=other, last_calculated_at=base - timedelta(minutes=1)
+        )
+        create_access_control(
+            team_id=self.team.id, resource="action", resource_id=str(read_only.id), access_level="viewer"
+        )
+        missing_id = read_only.id + 1000
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/bulk_update_tags/",
+            {"ids": [missing_id, read_only.id, editable.id], "action": "add", "tags": ["Billing"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "updated": [{"id": editable.id, "tags": ["billing"]}],
+            "skipped": [
+                {"id": read_only.id, "reason": "Not found or no edit access"},
+                {"id": missing_id, "reason": "Not found or no edit access"},
+            ],
+        }
+        assert list(read_only.tagged_items.all()) == []
+
+
 class TestActionStepRegexValidation(SimpleTestCase):
     @parameterized.expand(
         [
@@ -1120,6 +1117,18 @@ class TestActionStepRegexValidation(SimpleTestCase):
         else:
             with self.assertRaisesMessage(ValidationError, "Invalid regular expression"):
                 ActionSerializer().validate_steps(steps)
+
+
+class TestActionStepSelectorLength(SimpleTestCase):
+    @parameterized.expand([("at_limit", MAX_SELECTOR_LENGTH, True), ("over_limit", MAX_SELECTOR_LENGTH + 1, False)])
+    def test_validates_selector_length(self, _name: str, length: int, expect_valid: bool) -> None:
+        steps = [{"event": "$autocapture", "selector": "a" * length}]
+        if expect_valid:
+            self.assertEqual(ActionSerializer().validate_steps(steps), steps)
+        else:
+            with self.assertRaises(ValidationError) as context:
+                ActionSerializer().validate_steps(steps)
+            self.assertEqual(context.exception.get_codes(), ["max_length"])
 
 
 class TestSelectorWarning(SimpleTestCase):

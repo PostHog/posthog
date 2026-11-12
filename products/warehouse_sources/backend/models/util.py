@@ -896,7 +896,11 @@ def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool,
     if not url_pattern:
         return True, ""
 
-    parsed = urlparse(url_pattern)
+    try:
+        parsed = urlparse(url_pattern)
+    except ValueError:
+        # urlparse rejects unbalanced brackets and a bracketed host that is not an IP literal.
+        return False, "URL pattern is not a valid URL."
     if parsed.scheme != "https":
         return False, "URL pattern must use https."
 

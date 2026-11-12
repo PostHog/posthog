@@ -1,4 +1,0 @@
-from .models import GeminiModel
-
-DEFAULT_MODEL = GeminiModel.GEMINI_3_FLASH_PREVIEW
-CONTENT_GENERATION_TIMEOUT_SECONDS = 60

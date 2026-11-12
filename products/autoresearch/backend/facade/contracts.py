@@ -46,7 +46,7 @@ class AutoresearchConflict(ValueError):
 
 
 class TrainingRunCapReached(Exception):
-    """The project has started its limit of sandbox training runs in the last 24 hours.
+    """The project has used its daily limit of sandbox training runs.
 
     The viewset maps it to a 429, so the message is user-facing copy.
     """
@@ -59,8 +59,27 @@ class TrainingRunCapReached(Exception):
             message = "Training runs are turned off for this project. Contact support to turn them on."
         else:
             message = (
-                f"This project started {used} training runs in the last 24 hours, and its limit is {limit}. "
+                f"This project has used {used} of its daily limit of {limit} training runs. "
                 f"The next run can start after {next_slot_at:%H:%M} UTC."
+            )
+        super().__init__(message)
+
+
+class LivePipelineCapReached(AutoresearchConflict):
+    """The project already has its limit of live pipelines, so another cannot go live.
+
+    An ``AutoresearchConflict``, so the viewsets map it to a 400 with the message as-is, and the
+    message is user-facing copy.
+    """
+
+    def __init__(self, *, used: int, limit: int) -> None:
+        self.used = used
+        self.limit = limit
+        if limit == 0:
+            message = "Active models are turned off for this project. Contact support to turn them on."
+        else:
+            message = (
+                f"This project has reached its limit of {limit} active models. Pause or delete one to start another."
             )
         super().__init__(message)
 
@@ -159,6 +178,7 @@ class Pipeline:
     effective_agent_reasoning_effort: str | None
     training_phase: str
     next_research_at: datetime | None
+    not_promoted_reason: str | None
     success_auc: float | None
     plateau_iterations: int
     output_person_property: str
@@ -360,6 +380,23 @@ class AgentModelOptions:
     models: list[AgentModelOption]
 
 
+@dataclass(frozen=True)
+class ProjectLimits:
+    """The project's autoresearch limits, and how much of each it is using now."""
+
+    max_training_runs_per_day: int
+    training_runs_used: int
+    # When the next training run can start, while the project is at its daily limit.
+    next_slot_at: datetime | None
+    max_iterations_per_run: int
+    max_live_pipelines: int
+    live_pipelines: int
+    # Where each limit came from: project, default or code.
+    max_training_runs_per_day_source: str
+    max_iterations_per_run_source: str
+    max_live_pipelines_source: str
+
+
 # ── Write contracts ────────────────────────────────────────────────────────
 
 
@@ -415,6 +452,8 @@ class PipelineValidation:
     inference_population_size: int | None
     warnings: list[ValidationWarning]
     error: str | None
+    # One of VALIDATION_ERROR_CODE_CHOICES when `error` is set.
+    error_code: str | None
 
 
 @dataclass(frozen=True)

@@ -42,6 +42,12 @@ export const ExternalDataDestinationsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
         ),
+    migration_item_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere.'
+        ),
 })
 
 /**
@@ -76,6 +82,12 @@ export const ExternalDataDestinationsUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
+        ),
+    migration_item_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere.'
         ),
 })
 
@@ -113,6 +125,12 @@ export const ExternalDataDestinationsPartialUpdateBody = /* @__PURE__ */ zod.obj
         .nullish()
         .describe(
             "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
+        ),
+    migration_item_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere.'
         ),
 })
 
@@ -200,15 +218,15 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
         sync_frequency: zod
             .union([
                 zod
-                    .enum(['never', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
+                    .enum(['5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                        '\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                'How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.\n\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
             ),
         sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
         full_refresh_interval_days: zod
@@ -237,6 +255,12 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
             ),
+        copy_access_rules_to_history: zod
+            .boolean()
+            .optional()
+            .describe(
+                "When the table keeps history after this update, replace the history table's access rules with the table's own rules. If the history table doesn't exist yet, the rules are copied when its first snapshot loads. Requires the right to manage access to both tables."
+            ),
         enabled_columns: zod
             .array(zod.string())
             .nullish()
@@ -264,6 +288,12 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
+            ),
+        drop_history_table: zod
+            .boolean()
+            .optional()
+            .describe(
+                'For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table.'
             ),
         api_version: zod
             .string()
@@ -323,15 +353,15 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
         sync_frequency: zod
             .union([
                 zod
-                    .enum(['never', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
+                    .enum(['5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                        '\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                'How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.\n\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
             ),
         sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
         full_refresh_interval_days: zod
@@ -360,6 +390,12 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
             ),
+        copy_access_rules_to_history: zod
+            .boolean()
+            .optional()
+            .describe(
+                "When the table keeps history after this update, replace the history table's access rules with the table's own rules. If the history table doesn't exist yet, the rules are copied when its first snapshot loads. Requires the right to manage access to both tables."
+            ),
         enabled_columns: zod
             .array(zod.string())
             .nullish()
@@ -387,6 +423,12 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
+            ),
+        drop_history_table: zod
+            .boolean()
+            .optional()
+            .describe(
+                'For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table.'
             ),
         api_version: zod
             .string()
@@ -525,6 +567,18 @@ export const ExternalDataSourcesUpdateBody = /* @__PURE__ */ zod
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
+        payload: zod
+            .object({
+                credential_id: zod
+                    .uuid()
+                    .describe(
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -583,6 +637,18 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
+        payload: zod
+            .object({
+                credential_id: zod
+                    .uuid()
+                    .describe(
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -615,7 +681,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                     .nullish()
                     .describe('Incremental cursor field for incremental or append syncs.'),
                 incremental_field_type: zod.string().nullish().describe('Type of the incremental cursor field.'),
-                sync_frequency: zod.string().nullish().describe('Human-readable sync frequency value.'),
+                sync_frequency: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        'How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.'
+                    ),
                 sync_time_of_day: zod.iso.time({}).nullish().describe('UTC anchor time for scheduled syncs.'),
                 full_refresh_interval_days: zod
                     .number()
@@ -748,122 +819,18 @@ export const ExternalDataSourcesCheckCdcPrerequisitesForSourceCreateBody = /* @_
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
-    })
-    .describe('Mixin for serializers to add user access control fields')
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesCreateWebhookCreateBodyPrefixMax = 100
-
-export const externalDataSourcesCreateWebhookCreateBodyDescriptionMax = 400
-
-export const externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
+        payload: zod
+            .object({
+                credential_id: zod
+                    .uuid()
                     .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
                     ),
-                zod.null(),
-            ])
+            })
             .optional()
             .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
             ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesCreateWebhookCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesCreateWebhookCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-    })
-    .describe('Mixin for serializers to add user access control fields')
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesDeleteWebhookCreateBodyPrefixMax = 100
-
-export const externalDataSourcesDeleteWebhookCreateBodyDescriptionMax = 400
-
-export const externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesDeleteWebhookCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesDeleteWebhookCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -882,71 +849,6 @@ export const ExternalDataSourcesDestinationsPartialUpdateBody = /* @__PURE__ */ 
 })
 
 /**
- * Disable CDC on an existing source.
- *
- * Cancels any running CDC extraction workflow, deletes the extraction schedule,
- * delegates engine-side teardown to the source's adapter (drops slot/publication
- * for Postgres; equivalent for other engines), clears ``cdc_*`` keys from
- * ``job_inputs``, soft-deletes companion CDC tables, and sets all CDC schemas to
- * ``sync_type=None``, ``should_sync=False`` so the user must pick a new sync
- * strategy before they resume.
- */
-export const externalDataSourcesDisableCdcCreateBodyPrefixMax = 100
-
-export const externalDataSourcesDisableCdcCreateBodyDescriptionMax = 400
-
-export const externalDataSourcesDisableCdcCreateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesDisableCdcCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesDisableCdcCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesDisableCdcCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesDisableCdcCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesDisableCdcCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesDisableCdcCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-    })
-    .describe('Mixin for serializers to add user access control fields')
-
-/**
  * Enable CDC on an existing source.
  *
  * Provisions engine-side CDC resources via the source's adapter, writes the CDC
@@ -960,60 +862,43 @@ export const ExternalDataSourcesDisableCdcCreateBody = /* @__PURE__ */ zod
  * ``cdc_auto_drop_slot`` (optional bool), ``cdc_lag_warning_threshold_mb``
  * (optional int), ``cdc_lag_critical_threshold_mb`` (optional int).
  */
-export const externalDataSourcesEnableCdcCreateBodyPrefixMax = 100
+export const externalDataSourcesEnableCdcCreateBodyCdcManagementModeDefault = `posthog`
 
-export const externalDataSourcesEnableCdcCreateBodyDescriptionMax = 400
-
-export const externalDataSourcesEnableCdcCreateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesEnableCdcCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesEnableCdcCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesEnableCdcCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesEnableCdcCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesEnableCdcCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesEnableCdcCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-    })
-    .describe('Mixin for serializers to add user access control fields')
+export const ExternalDataSourcesEnableCdcCreateBody = /* @__PURE__ */ zod.object({
+    cdc_management_mode: zod
+        .enum(['posthog', 'self_managed'])
+        .describe('\* `posthog` - PostHog\n\* `self_managed` - Self managed')
+        .default(externalDataSourcesEnableCdcCreateBodyCdcManagementModeDefault)
+        .describe(
+            "Who owns the replication slot and publication. 'posthog' (default) lets PostHog create and drop them, which needs a database user that can manage replication. 'self_managed' expects the customer to have created the publication already; PostHog only creates the slot.\n\n\* `posthog` - PostHog\n\* `self_managed` - Self managed"
+        ),
+    cdc_slot_name: zod
+        .string()
+        .optional()
+        .describe('Name of the replication slot to use. Defaults to a name derived from the source id.'),
+    cdc_publication_name: zod
+        .string()
+        .optional()
+        .describe(
+            "Name of the publication to read changes from. Defaults to a name derived from the source id, or 'posthog_pub' in self_managed mode."
+        ),
+    cdc_auto_drop_slot: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether PostHog drops the replication slot automatically when lag is critical, to protect the source database disk. Only applies in 'posthog' management mode. Defaults to true."
+        ),
+    cdc_lag_warning_threshold_mb: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Replication lag in MB above which a warning shows. Must be lower than the critical threshold.'),
+    cdc_lag_critical_threshold_mb: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.'),
+})
 
 /**
  * Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync).
@@ -1070,6 +955,18 @@ export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
+        payload: zod
+            .object({
+                credential_id: zod
+                    .uuid()
+                    .describe(
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -1128,6 +1025,18 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
+        payload: zod
+            .object({
+                credential_id: zod
+                    .uuid()
+                    .describe(
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -1189,6 +1098,18 @@ export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
+        payload: zod
+            .object({
+                credential_id: zod
+                    .uuid()
+                    .describe(
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -1200,118 +1121,120 @@ export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__
  * across engines. Engine-specific identifiers (slot name, management mode, …)
  * are immutable post-enable — switching them requires disable + enable.
  */
-export const externalDataSourcesUpdateCdcSettingsCreateBodyPrefixMax = 100
 
-export const externalDataSourcesUpdateCdcSettingsCreateBodyDescriptionMax = 400
-
-export const externalDataSourcesUpdateCdcSettingsCreateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesUpdateCdcSettingsCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesUpdateCdcSettingsCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesUpdateCdcSettingsCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesUpdateCdcSettingsCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesUpdateCdcSettingsCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesUpdateCdcSettingsCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-    })
-    .describe('Mixin for serializers to add user access control fields')
+export const ExternalDataSourcesUpdateCdcSettingsCreateBody = /* @__PURE__ */ zod.object({
+    cdc_auto_drop_slot: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether PostHog drops the replication slot automatically when lag is critical. Only applies in 'posthog' management mode."
+        ),
+    cdc_lag_warning_threshold_mb: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Replication lag in MB above which a warning shows. Must be lower than the critical threshold.'),
+    cdc_lag_critical_threshold_mb: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.'),
+})
 
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const externalDataSourcesUpdateWebhookInputsCreateBodyPrefixMax = 100
+export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod.object({
+    inputs: zod
+        .record(zod.string(), zod.string())
+        .describe(
+            'Webhook input values keyed by the source\'s declared webhook field names, for example `{\"signing_secret\": \"...\"}`. Only keys the source type declares as webhook fields are accepted, and a required field cannot be blank.'
+        ),
+})
 
-export const externalDataSourcesUpdateWebhookInputsCreateBodyDescriptionMax = 400
+/**
+ * Create the planned PostHog source for one migration item, then set its sync schedule.
+ */
+export const externalDataSourcesApplyMigrationItemCreateBodyPrefixMax = 100
 
-export const externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsItemMax = 250
+export const externalDataSourcesApplyMigrationItemCreateBodyCreatedViaDefault = `api`
 
-export const externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
+export const ExternalDataSourcesApplyMigrationItemCreateBody = /* @__PURE__ */ zod.object({
+    item_id: zod.uuid().describe('The migration item to create a PostHog source for.'),
+    credential_id: zod
+        .uuid()
+        .describe("Stored credential from the source connect page, for the item's PostHog source type."),
+    prefix: zod
+        .string()
+        .max(externalDataSourcesApplyMigrationItemCreateBodyPrefixMax)
+        .optional()
+        .describe('Table name prefix to use instead of the planned one, for example when the planned one is taken.'),
+    destination_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Destinations to write the new source to. Omit to write to the PostHog warehouse.'),
+    table_overrides: zod
+        .array(
+            zod.object({
+                vendor_table: zod
                     .string()
-                    .max(externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-    })
-    .describe('Mixin for serializers to add user access control fields')
+                    .describe(
+                        "A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`."
+                    ),
+                posthog_table: zod
+                    .string()
+                    .nullable()
+                    .describe('The PostHog table to sync it as. Null leaves the table out.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Changes to the planned tables that the user confirmed: rename an inferred pair, map an unmatched table, or leave a table out.'
+        ),
+    created_via: zod
+        .enum(['web', 'api', 'mcp'])
+        .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+        .default(externalDataSourcesApplyMigrationItemCreateBodyCreatedViaDefault)
+        .describe(
+            'Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
+        ),
+})
+
+/**
+ * Validate CDC prerequisites against a live Postgres connection.
+ *
+ * Used by the source wizard to surface ✅/❌ checks before source creation,
+ * and by the self-managed setup popup to verify user-created publications.
+ */
+export const ExternalDataSourcesCheckCdcPrerequisitesCreateBody = /* @__PURE__ */ zod.object({
+    source_type: zod
+        .string()
+        .describe("A CDC-capable source type, for example 'Postgres'. Other source types are rejected."),
+    payload: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Connection details as flat keys for the source_type, the same fields the create flow takes in its payload (host, port, database, user, password, schema, ssh_tunnel and so on). Discover them with 'external-data-sources-wizard'. Prefer {'credential_id': <id>} referencing connection details the user stored via the connect-link page: it is merged in server-side and is not consumed by this check, so the same id still works for source setup afterwards."
+        ),
+    cdc_management_mode: zod
+        .string()
+        .optional()
+        .describe(
+            "Who owns the replication slot and publication: 'posthog' (default, PostHog creates them) or 'self_managed' (the user created them)."
+        ),
+    tables: zod
+        .array(zod.string())
+        .optional()
+        .describe('Tables to check against the publication. Omit to check the database-level prerequisites only.'),
+    cdc_slot_name: zod
+        .string()
+        .nullish()
+        .describe("Self-managed replication slot name to check. Ignored in 'posthog' mode."),
+    cdc_publication_name: zod
+        .string()
+        .nullish()
+        .describe("Self-managed publication name to check. Ignored in 'posthog' mode."),
+})
 
 /**
  * List the accounts a source's typed-in credentials can reach, in the shared
@@ -1438,7 +1361,7 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_\* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults."
+            "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint). Stored credentials work once, expire after 24 hours, are deleted once the source is created, and must be stored for the same source_type. An already-connected OAuth integration can be passed via its id key instead. The key name differs per source and is listed in the wizard output as the source's OAuth field, e.g. {'hubspot_integration_id': 123}, {'google_ads_integration_id': 45} or {'meta_ads_integration_id': 67}. For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_\* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults."
         ),
     prefix: zod
         .string()
@@ -1515,6 +1438,18 @@ export const ExternalDataSourcesSourcePrefixCreateBody = /* @__PURE__ */ zod
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
+        payload: zod
+            .object({
+                credential_id: zod
+                    .uuid()
+                    .describe(
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -1533,6 +1468,12 @@ export const ExternalDataSourcesStoreCredentialsCreateBody = /* @__PURE__ */ zod
         .record(zod.string(), zod.unknown())
         .describe(
             'Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored.'
+        ),
+    migration_item_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The migration item whose prefilled settings the connect page showed. Every prefilled setting must keep its value, or the request is rejected before PostHog connects anywhere.'
         ),
 })
 
@@ -1595,4 +1536,84 @@ export const WarehouseAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.o
         .min(1)
         .max(warehouseAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
         .describe("IDs of the alert's destinations to delete, as the list endpoint returns them."),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .enum(['fivetran'])
+        .describe('\* `fivetran` - Fivetran')
+        .describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
+    api_key: zod.string().describe('Read-only API key for the vendor account.'),
+    api_secret: zod.string().describe('Secret that belongs to the API key.'),
+})
+
+/**
+ * Plan vendor connections an agent read, and add them to an uploaded migration.
+ */
+export const warehouseMigrationsConnectionsCreateBodyDestinationsMax = 100
+
+export const warehouseMigrationsConnectionsCreateBodyConnectionsMax = 25
+
+export const WarehouseMigrationsConnectionsCreateBody = /* @__PURE__ */ zod.object({
+    account: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('The Fivetran account info response, unchanged. Send it once, with the first upload.'),
+    destinations: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .max(warehouseMigrationsConnectionsCreateBodyDestinationsMax)
+        .optional()
+        .describe(
+            "Fivetran destination details responses, unchanged. Send them before the connections that use them, so PostHog reads each connection's sync time in its destination's time zone."
+        ),
+    connections: zod
+        .array(
+            zod.object({
+                connection: zod
+                    .record(zod.string(), zod.unknown())
+                    .describe(
+                        'The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay.'
+                    ),
+                schema_config: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe(
+                        'The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.'
+                    ),
+            })
+        )
+        .max(warehouseMigrationsConnectionsCreateBodyConnectionsMax)
+        .optional()
+        .describe(
+            'At most 25 connections. A connection uploaded again replaces its plan, unless it is already created in PostHog or skipped.'
+        ),
+})
+
+/**
+ * Skip many connections at once, or all but the ones to keep.
+ */
+
+export const WarehouseMigrationsItemsBulkSkipCreateBody = /* @__PURE__ */ zod.object({
+    item_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .optional()
+        .describe('Items to skip. Pass this or `keep_item_ids`, not both.'),
+    keep_item_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Items to keep. Every other item is skipped, for example to migrate only one connection.'),
+})
+
+/**
+ * Start a migration that an agent fills with what it reads from the vendor, without a vendor key.
+ */
+export const WarehouseMigrationsUploadCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .enum(['fivetran'])
+        .describe('\* `fivetran` - Fivetran')
+        .describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
 })

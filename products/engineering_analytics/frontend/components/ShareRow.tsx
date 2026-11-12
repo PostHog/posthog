@@ -1,6 +1,3 @@
-// A leaderboard row: rank · label/sub · share bar · value/value-sub. The cost section builds its
-// "where does it go" list from this, so every breakdown reads the same.
-
 import { ReactNode } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
@@ -26,13 +23,12 @@ export function ShareRow({
     sub?: ReactNode
     value: ReactNode
     valueSub?: ReactNode
-    /** 0–1 — the share bar's fill. Omit for a bar-less row. */
+    /** A fraction from 0 to 1. Omit for a row without a bar. */
     share?: number
     color?: string
     to?: string
     avatar?: string
-    /** Fixed-width label + a bar that fills the row, so bar lengths compare across rows (magnitude
-     *  breakdown). Default keeps the compact narrow bar with a flexible label (leaderboard style). */
+    /** A fixed-width label and a bar that fills the row, so bar lengths compare across rows. */
     fullWidthBar?: boolean
 }): JSX.Element {
     const row = (

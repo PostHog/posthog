@@ -513,6 +513,9 @@ class DeltaTableRef:
                             await _purge_s3_prefix(s3, delta_uri)
                         except FileNotFoundError:
                             pass
+                        except Exception as purge_error:
+                            await self._capture_unless_transient(purge_error)
+                            raise
                 else:
                     raise
 
@@ -584,6 +587,9 @@ class DeltaTableRef:
                 await _purge_s3_prefix(s3, delta_uri)
             except FileNotFoundError:
                 pass
+            except Exception as e:
+                await self._capture_unless_transient(e)
+                raise
 
         self.invalidate_cached_table()
 

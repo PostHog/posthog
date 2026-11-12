@@ -55,7 +55,7 @@ describe('global options', () => {
         ['an env var', { HOG_RATE_LIMIT: '2' }, {}],
         ['posthog.json', {}, { '/work/posthog.json': JSON.stringify({ cli: { rateLimit: 2 } }) }],
     ])('a rate limit from %s holds the third request in a minute', async (_name, env, files) => {
-        const result = await runHog(['endpoints', 'list'], {
+        const result = await runHog(['endpoints', 'pull', '--all', '--dry-run'], {
             env: { ...AGENT, ...TEST_CREDENTIALS, ...env },
             files,
             respond: threePages,
@@ -65,7 +65,7 @@ describe('global options', () => {
     })
 
     test('a flag beats the env var, which beats posthog.json', async () => {
-        const result = await runHog(['endpoints', 'list', '--rate-limit', '100'], {
+        const result = await runHog(['endpoints', 'pull', '--all', '--dry-run', '--rate-limit', '100'], {
             env: { ...AGENT, ...TEST_CREDENTIALS, HOG_RATE_LIMIT: '1' },
             files: { '/work/posthog.json': JSON.stringify({ cli: { rateLimit: 1 } }) },
             respond: threePages,

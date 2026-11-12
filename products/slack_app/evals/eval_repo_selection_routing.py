@@ -25,6 +25,7 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.providers import SandboxProviderStrategy
 from products.posthog_ai.eval_harness.runner import EvalCaseResult
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
+from products.slack_app.backend.task_profiles import REPO_SELECTION
 from products.slack_app.backend.temporal.activities.classifiers import (
     CLASSIFIER_MODEL,
     classify_task_needs_repo,
@@ -32,7 +33,6 @@ from products.slack_app.backend.temporal.activities.classifiers import (
 )
 from products.slack_app.backend.temporal.activities.repo_selection import _resolve_explicit_repo
 from products.slack_app.evals.offline_config import offline_suite
-from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, TurnPollTimeout
 from products.tasks.evals.repo_selection.fixtures import (
     FIXTURE_VERSION,
@@ -100,7 +100,7 @@ async def run_routing_case(
     return await run_selector(
         scenario,
         context,
-        origin_product=tasks_facade.TaskOriginProduct.SLACK,
+        profile=REPO_SELECTION,
         # A person waits in the Slack thread for the answer.
         priority=Priority.NORMAL,
         provider=provider,

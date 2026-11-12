@@ -7,7 +7,7 @@ import asyncio
 import logging
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -24,12 +24,14 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.facade.api import upload_task_run_artifacts
 from products.tasks.backend.facade.contracts import AgentStartupFailure, AgentTaskRunDTO, SessionFile
+from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, TaskSource
 from products.tasks.backend.logic.services.startup_failure import (
     AgentStartupFailed,
     SandboxRunFailed as SandboxRunFailed,
     read_startup_failure,
 )
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
+from products.tasks.backend.models import Task, TaskRun, stamp_pending_user_message_id
+from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -170,6 +172,7 @@ class CustomPromptSandboxContext:
     ``contents: read``, so a run that pins repositories still clones them and just cannot push.
     Best-effort: if no team GitHub integration exists or the mint fails, the sandbox starts
     without a token."""
+    github_token_scope: Literal["read", "push"] | None = None
     interaction_origin: str | None = None
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
@@ -330,15 +333,14 @@ def _with_session_files(
 async def _create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
+    *,
+    profile: TaskProfile,
     branch: str | None = None,
     step_name: str = "",
-    origin_product: Task.OriginProduct | None = None,
-    signal_report_id: str | None = None,
+    source: TaskSource | None = None,
     ai_stage: str | None = None,
     ai_agent_name: str | None = None,
-    internal: bool = False,
     workflow_id_prefix: str | None = None,
-    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
     mcp_tool_allowlist: list[str] | None = None,
@@ -351,10 +353,13 @@ async def _create_task_and_trigger(
 ) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
-    # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
-    # None would clobber it. sandbox_environment_id already accepts None.
-    posthog_mcp_scopes: PosthogMcpScopes = (
-        context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
+    options = TaskRunOptions(
+        adapter=context.runtime_adapter,
+        model=context.model,
+        reasoning_effort=context.reasoning_effort,
+        output_schema=output_schema,
+        mcp_scopes=context.posthog_mcp_scopes,
+        permission_mode=context.initial_permission_mode,
     )
     extra_run_state: dict[str, Any] = {}
     if context.system_prompt is not None:
@@ -381,32 +386,24 @@ async def _create_task_and_trigger(
         team=team,
         title=title,
         description=description,
-        origin_product=origin_product or Task.OriginProduct.USER_CREATED,
         user_id=context.user_id,
         repository=context.repository,
         repositories=list(context.repositories) or None,
         create_pr=False,
         mode="background",
         branch=branch,
-        signal_report_id=signal_report_id,
         spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
-        posthog_mcp_scopes=posthog_mcp_scopes,
         sandbox_environment_id=context.sandbox_environment_id,
-        model=context.model,
-        runtime_adapter=context.runtime_adapter,
         runtime=context.runtime,
         pending_user_message=description if context.runtime == "pi" else None,
-        reasoning_effort=context.reasoning_effort,
         service_tier=context.service_tier,
-        initial_permission_mode=context.initial_permission_mode,
-        internal=internal,
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
         workflow_id_prefix=workflow_id_prefix,
         github_read_access=context.github_read_access,
-        mcp_builtin_agent_key=mcp_builtin_agent_key,
+        github_token_scope=context.github_token_scope,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         mcp_tool_allowlist=mcp_tool_allowlist,
@@ -414,7 +411,9 @@ async def _create_task_and_trigger(
         extra_run_state=extra_run_state,
         origin_key=origin_key,
         before_task_dispatch=before_task_dispatch,
-        output_schema=output_schema,
+        profile=profile,
+        source=source,
+        options=options,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
@@ -426,15 +425,14 @@ async def _create_task_and_trigger(
 async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
+    *,
+    profile: TaskProfile,
     branch: str | None = None,
     step_name: str = "",
-    origin_product: Task.OriginProduct | None = None,
-    signal_report_id: str | None = None,
+    source: TaskSource | None = None,
     ai_stage: str | None = None,
     ai_agent_name: str | None = None,
-    internal: bool = False,
     workflow_id_prefix: str | None = None,
-    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
     output_schema: dict[str, Any] | None = None,
@@ -444,16 +442,14 @@ async def create_task_and_trigger(
     task, task_run = await _create_task_and_trigger(
         description,
         context,
+        profile=profile,
         branch=branch,
         step_name=step_name,
-        origin_product=origin_product,
-        signal_report_id=signal_report_id,
+        source=source,
         spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
-        internal=internal,
         workflow_id_prefix=workflow_id_prefix,
-        mcp_builtin_agent_key=mcp_builtin_agent_key,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         output_schema=output_schema,
@@ -1014,7 +1010,9 @@ def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentE
 
 
 def _update_task_run_error_message(run_id: str, message: str) -> None:
-    TaskRun.objects.filter(id=run_id).update(error_message=message)
+    runs = TaskRun.objects.filter(id=run_id)
+    runs.update(error_message=message)
+    sync_task_statuses_on_commit(runs.values_list("task_id", flat=True))
 
 
 async def _persist_task_run_error_message(run_id: str, message: str) -> None:

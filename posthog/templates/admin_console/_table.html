@@ -4,12 +4,22 @@
          data-slot="card"
          data-size="sm"
          data-flush="">
-    <div class="quill-card__content overflow-x-auto" data-slot="card-content">
+    {% if table.title %}
+        <div class="px-3 pb-2 border-b border-border">
+            <h2 class="quill-card__title m-0 text-[13px]" data-slot="card-title">{{ table.title }}</h2>
+        </div>
+    {% endif %}
+    <div class="quill-card__content overflow-x-auto{% if table.scrolls %} overflow-y-auto max-h-[480px]{% endif %}"
+         data-slot="card-content">
         {% if table.rows %}
             <table class="w-full border-collapse text-xs">
                 <thead>
-                    <tr class="text-left text-muted-foreground border-b border-border">
-                        {% for column in table.columns %}<th class="px-3 py-2 font-bold whitespace-nowrap">{{ column }}</th>{% endfor %}
+                    <tr class="text-left text-muted-foreground border-b border-border{% if table.scrolls %} sticky top-0 bg-card{% endif %}">
+                        {% for column in table.columns %}
+                            <th class="px-3 py-2 font-bold whitespace-nowrap{% if forloop.counter0 in table.numeric_columns %} text-right{% endif %}">
+                                {{ column }}
+                            </th>
+                        {% endfor %}
                     </tr>
                 </thead>
                 <tbody>
@@ -17,14 +27,20 @@
                         {% if row.cells %}
                             <tr class="border-b border-border last:border-b-0">
                                 {% for cell in row.cells %}
-                                    <td class="px-3 py-1.5{% if cell.muted %} text-muted-foreground{% endif %}{% if cell.mono %} font-mono{% endif %}">
+                                    <td class="px-3 py-1.5 align-top{% if forloop.counter0 in table.numeric_columns %} text-right tabular-nums whitespace-nowrap{% endif %}{% if cell.muted %} text-muted-foreground{% endif %}{% if cell.mono %} font-mono whitespace-nowrap{% endif %}">
                                         {% if cell.tone %}
                                             {% include "admin_console/_badge.html" with label=cell.text tone=cell.tone %}
                                         {% elif cell.href %}
-                                            <a href="{{ cell.href }}">{{ cell.text }}</a>
+                                            <a class="block max-w-[480px] break-words text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
+                                               href="{{ cell.href }}">{{ cell.text }}</a>
                                         {% else %}
-                                            {{ cell.text }}
+                                            {% if forloop.counter0 in table.numeric_columns %}
+                                                {{ cell.text }}
+                                            {% else %}
+                                                <span class="block max-w-[480px] break-words whitespace-pre-line">{{ cell.text }}</span>
+                                            {% endif %}
                                         {% endif %}
+                                        {% if cell.detail %}<div class="font-mono text-[11px] text-muted-foreground whitespace-nowrap">{{ cell.detail }}</div>{% endif %}
                                     </td>
                                 {% endfor %}
                             </tr>

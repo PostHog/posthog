@@ -18,7 +18,6 @@ const mocks = vi.hoisted(() => ({
   prefetchReport: vi.fn(),
   prefetchRoute: vi.fn(),
   searchQuery: "",
-  triageFocusEnabled: false,
   triageProps: null as {
     initialReportId?: string;
     reports: SignalReport[];
@@ -53,10 +52,6 @@ vi.mock(
     }),
   }),
 );
-
-vi.mock("@posthog/ui/features/feature-flags/useTriageFocusEnabled", () => ({
-  useTriageFocusEnabled: () => mocks.triageFocusEnabled,
-}));
 
 vi.mock("@tanstack/react-router", () => ({
   useLocation: ({ select }: { select: (location: unknown) => unknown }) =>
@@ -228,7 +223,6 @@ describe("ReportsInboxView", () => {
     mocks.setupStatusLoading = false;
     mocks.setupConfigured = true;
     mocks.searchQuery = "checkout";
-    mocks.triageFocusEnabled = false;
     mocks.triageProps = null;
     mocks.locationState = {};
     mocks.allReportsOptions = [];
@@ -283,6 +277,10 @@ describe("ReportsInboxView", () => {
 
     expect(screen.getByText("Nothing to review")).toBeTruthy();
     expect(screen.queryByText("Ship fixes while you sleep")).toBeNull();
+    expect(screen.getByText("Triage mode").closest("button")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 
   it("opens a report on the first click without preloading its route", async () => {
@@ -356,6 +354,10 @@ describe("ReportsInboxView", () => {
     expect(screen.queryByText(/need a decision/)).toBeNull();
     expect(screen.queryByText("Review")).toBeNull();
     expect(screen.queryByLabelText(/Archive this report/)).toBeNull();
+    expect(screen.getByText("Triage mode").closest("button")).toHaveAttribute(
+      "aria-disabled",
+      "false",
+    );
     const reviewQuery = mocks.allReportsOptions[0];
     const decisionQuery = mocks.allReportsOptions[1];
     expect(reviewQuery).toMatchObject({
@@ -388,7 +390,6 @@ describe("ReportsInboxView", () => {
       activeReport("second-report", "Second report"),
     ];
     mocks.searchQuery = "";
-    mocks.triageFocusEnabled = true;
     mocks.locationState = {
       inboxTriageOrigin: { reportId: "second-report" },
     };
@@ -437,7 +438,6 @@ describe("ReportsInboxView", () => {
       activeReport("second", "Second report"),
     ];
     mocks.searchQuery = "";
-    mocks.triageFocusEnabled = true;
 
     const pane = render(<InboxTriagePane />);
     expect(screen.getByTestId("triage-focus")).toBeInTheDocument();
@@ -459,7 +459,6 @@ describe("ReportsInboxView", () => {
     mocks.implementationStates = new Map([["working", "working"]]);
     mocks.implementationStatesLoading = true;
     mocks.searchQuery = "";
-    mocks.triageFocusEnabled = true;
 
     render(<InboxTriagePane />);
 
@@ -470,7 +469,6 @@ describe("ReportsInboxView", () => {
     mocks.activeReports = [activeReport("working", "Working report")];
     mocks.implementationStates = new Map([["working", "working"]]);
     mocks.searchQuery = "";
-    mocks.triageFocusEnabled = true;
     mocks.pagedStatus = INBOX_ACTIONABLE_REPORT_STATUS_FILTER;
     mocks.pagedCount = 50;
 

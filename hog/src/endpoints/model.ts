@@ -156,13 +156,18 @@ export function isPlainHogql(query: Record<string, unknown>): boolean {
 }
 
 export function remoteVariableNames(endpoint: Endpoint | undefined): string[] {
+    return remoteVariableIds(endpoint).map(([name]) => name)
+}
+
+// Each variable the query uses, as [code name, project variable ID]. The query keys variables by ID.
+export function remoteVariableIds(endpoint: Endpoint | undefined): [string, string][] {
     const variables = endpoint?.query.variables
     if (!variables || typeof variables !== 'object') {
         return []
     }
-    return Object.values(variables as Record<string, { code_name?: unknown }>)
-        .map((variable) => variable.code_name)
-        .filter((name): name is string => typeof name === 'string')
+    return Object.entries(variables as Record<string, { code_name?: unknown }>).flatMap(([id, variable]) =>
+        typeof variable.code_name === 'string' ? [[variable.code_name, id] as [string, string]] : []
+    )
 }
 
 function inferType(value: unknown): string {

@@ -1,16 +1,18 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
 
-import api from 'lib/api'
-import posthog from 'lib/posthog-typed'
 import { normalizeBucket } from 'lib/utils/timeBuckets'
 
-import { HogQLFilters, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { IntervalType } from '~/types'
+import { MCPDashboardSection } from '~/queries/schema/schema-general'
 
-import { labSqlExpression, modelLab, modelRowLabelsByCalls } from '../aiLabs'
+import { modelLab, modelRowLabelsByCalls } from '../aiLabs'
 import { summarizeModelBreakdown } from '../dashboard/modelBreakdown'
-import { bucketExpr, mcpDashboardOverviewLogic, type ModelRow } from '../mcpDashboardOverviewLogic'
+import {
+    mcpDashboardOverviewLogic,
+    type ModelRow,
+    type SectionFlags,
+    type SectionResults,
+    sectionRows,
+} from '../mcpDashboardOverviewLogic'
 import {
     type BucketedFacetRow,
     buildLabShares,
@@ -32,88 +34,6 @@ import {
 const MODEL_SERIES_LIMIT = 8
 const PROTOCOL_SERIES_LIMIT = 5
 
-// Key on the canonical event only, like the overview queries. `{filters}` carries the date range,
-// the property filters and the internal users filter.
-const TOOL_CALL_WHERE = `event = '$mcp_tool_call'
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
-    AND {filters}`
-
-const BUCKETED_ROW_LIMIT = 10000
-const WINDOW_ROW_LIMIT = 1000
-
-// The users counts below use distinct_id, not person_id, for the same reason as USERS_QUERY in
-// mcpDashboardOverviewLogic.ts: the person_id join over every person override runs out of memory
-// on large projects.
-
-const labelOf = (valueSql: string): string => `coalesce(nullIf(trim(${valueSql}), ''), 'Unknown')`
-
-const propertyLabel = (property: string): string => labelOf(`toString(properties.${property})`)
-
-// The protocol version can be inferred as a DateTime property, so read the raw string like
-// MCPProtocolVersionBreakdownQueryRunner (backend/hogql_queries/protocol_version_breakdown.py).
-const PROTOCOL_VERSION_LABEL = labelOf("JSONExtractString(properties, '$mcp_protocol_version')")
-
-// Mirrors EFFECTIVE_TOOL_SQL (backend/hogql_queries/base.py): a single-exec call counts as the inner tool.
-const TOOL_LABEL = labelOf(`coalesce(
-    nullIf(toString(properties.$mcp_exec_tool_call_name), ''),
-    if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call',
-       nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL),
-    toString(properties.$mcp_tool_name)
-)`)
-
-const bucketedFacetQuery = (label: string, interval: IntervalType): string => `
-SELECT ${bucketExpr(interval)} AS bucket, ${label} AS label, count() AS calls
-FROM events
-WHERE ${TOOL_CALL_WHERE}
-GROUP BY bucket, label
-ORDER BY bucket
-LIMIT ${BUCKETED_ROW_LIMIT}
-`
-
-const windowFacetQuery = (label: string, onlyErrors = false): string => `
-SELECT
-    ${label} AS label,
-    count() AS calls,
-    uniq(distinct_id) AS users,
-    countIf(toBool(properties.$mcp_is_error)) AS errors
-FROM events
-WHERE ${TOOL_CALL_WHERE}
-    ${onlyErrors ? 'AND toBool(properties.$mcp_is_error)' : ''}
-GROUP BY label
-ORDER BY calls DESC
-LIMIT ${WINDOW_ROW_LIMIT}
-`
-
-const MODEL_LABEL = propertyLabel('$mcp_llm_model')
-
-const labUsersQuery = `
-SELECT ${labSqlExpression(MODEL_LABEL)} AS lab, uniq(distinct_id) AS users
-FROM events
-WHERE ${TOOL_CALL_WHERE}
-GROUP BY lab
-`
-
-const namedModelUsersQuery = `
-SELECT uniqIf(distinct_id, ${MODEL_LABEL} != 'Unknown') AS users
-FROM events
-WHERE ${TOOL_CALL_WHERE}
-`
-
-const reliabilityQuery = (interval: IntervalType): string => `
-SELECT
-    ${bucketExpr(interval)} AS bucket,
-    count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
-FROM events
-WHERE ${TOOL_CALL_WHERE}
-GROUP BY bucket
-ORDER BY bucket
-LIMIT ${BUCKETED_ROW_LIMIT}
-`
-
 export interface LeaderboardFacets {
     model: BucketedFacetRow[]
     protocolVersion: BucketedFacetRow[]
@@ -128,22 +48,9 @@ export type FacetKey = Exclude<keyof LeaderboardFacets, 'failedFacets'>
 
 const USER_SHARE_FACETS: FacetKey[] = ['labUsers', 'namedModelUsers']
 
-const EMPTY_FACETS: LeaderboardFacets = {
-    model: [],
-    protocolVersion: [],
-    tool: [],
-    errorType: [],
-    labUsers: [],
-    namedModelUsers: 0,
-    failedFacets: [],
-}
+const FACET_KEYS: FacetKey[] = ['model', 'protocolVersion', 'tool', 'errorType', 'labUsers', 'namedModelUsers']
 
 type Row = unknown[]
-
-async function runQuery(query: string, filters: HogQLFilters): Promise<Row[]> {
-    const response = (await api.query({ kind: NodeKind.HogQLQuery, query, filters })) as HogQLQueryResponse
-    return (response?.results as Row[]) ?? []
-}
 
 const toBucketedRows = (rows: Row[]): BucketedFacetRow[] =>
     rows.map((r) => ({ bucket: normalizeBucket(r[0]), label: String(r[1]), calls: Number(r[2]) }))
@@ -154,14 +61,12 @@ const toWindowRows = (rows: Row[]): WindowFacetRow[] =>
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpLeaderboardHomeLogicValues {
     bucketKeys: string[] // mcpDashboardOverviewLogic
-    interval: IntervalType // mcpDashboardOverviewLogic
+    failedLoads: SectionFlags // mcpDashboardOverviewLogic
     modelRows: ModelRow[] // mcpDashboardOverviewLogic
-    queryFilters: HogQLFilters // mcpDashboardOverviewLogic
+    sections: SectionResults // mcpDashboardOverviewLogic
     facets: LeaderboardFacets
-    facetsLoading: boolean
     labSeries: ShareSeries[]
     labShares: LabShare[]
-    leaderboardLoading: boolean
     leaderboardModelRows: ModelRow[]
     modelRowLabelMap: Map<string, string>
     modelSeries: ShareSeries[]
@@ -169,7 +74,6 @@ export interface mcpLeaderboardHomeLogicValues {
     protocolVersionSeries: ShareSeries[]
     reliabilityFailed: boolean
     reliabilityRows: ReliabilityRow[]
-    reliabilityRowsLoading: boolean
     reliabilitySeries: ReliabilitySeries
     scoreboardMetric: ScoreboardMetric
     scoreboardShares: LabShare[]
@@ -177,39 +81,6 @@ export interface mcpLeaderboardHomeLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpLeaderboardHomeLogicActions {
-    reloadAll: () => {
-        value: true
-    } // mcpDashboardOverviewLogic
-    loadFacets: (_: void) => void
-    loadFacetsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadFacetsSuccess: (
-        facets: LeaderboardFacets,
-        payload?: void
-    ) => {
-        facets: LeaderboardFacets
-        payload?: void
-    }
-    loadReliabilityRows: (_: void) => void
-    loadReliabilityRowsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadReliabilityRowsSuccess: (
-        reliabilityRows: ReliabilityRow[],
-        payload?: void
-    ) => {
-        reliabilityRows: ReliabilityRow[]
-        payload?: void
-    }
     setScoreboardMetric: (metric: ScoreboardMetric) => {
         metric: ScoreboardMetric
     }
@@ -218,7 +89,14 @@ export interface mcpLeaderboardHomeLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpLeaderboardHomeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        leaderboardLoading: (facetsLoading: boolean, reliabilityRowsLoading: boolean) => boolean
+        facets: (
+            sections: Partial<Record<MCPDashboardSection, import('../mcpDashboardOverviewLogic').LoadedSection>>,
+            failedLoads: Partial<Record<MCPDashboardSection, boolean>>
+        ) => LeaderboardFacets
+        reliabilityRows: (
+            sections: Partial<Record<MCPDashboardSection, import('../mcpDashboardOverviewLogic').LoadedSection>>
+        ) => ReliabilityRow[]
+        reliabilityFailed: (failedLoads: Partial<Record<MCPDashboardSection, boolean>>) => boolean
         labShares: (facets: LeaderboardFacets) => LabShare[]
         scoreboardShares: (
             scoreboardMetric: ScoreboardMetric,
@@ -253,8 +131,7 @@ export type mcpLeaderboardHomeLogicType = MakeLogicType<
 export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'leaderboardHome', 'mcpLeaderboardHomeLogic']),
     connect(() => ({
-        values: [mcpDashboardOverviewLogic, ['queryFilters', 'interval', 'bucketKeys', 'modelRows']],
-        actions: [mcpDashboardOverviewLogic, ['reloadAll']],
+        values: [mcpDashboardOverviewLogic, ['sections', 'failedLoads', 'bucketKeys', 'modelRows']],
     })),
     actions({
         setScoreboardMetric: (metric: ScoreboardMetric) => ({ metric }),
@@ -266,70 +143,29 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                 setScoreboardMetric: (_, { metric }) => metric,
             },
         ],
-        reliabilityFailed: [
-            false,
-            {
-                loadReliabilityRows: () => false,
-                loadReliabilityRowsSuccess: () => false,
-                loadReliabilityRowsFailure: () => true,
-            },
-        ],
     }),
-    loaders(({ values }) => ({
+    selectors({
         facets: [
-            EMPTY_FACETS,
-            {
-                loadFacets: async (_: void, breakpoint): Promise<LeaderboardFacets> => {
-                    const { queryFilters, interval } = values
-                    const failedFacets: FacetKey[] = []
-                    // A failed facet is reported and left out, so the other facets still render.
-                    const run = async (facet: FacetKey, query: string): Promise<Row[]> => {
-                        try {
-                            return await runQuery(query, queryFilters)
-                        } catch (error) {
-                            failedFacets.push(facet)
-                            posthog.captureException(error, { action: 'load-mcp-leaderboard-facet', facet })
-                            return []
-                        }
-                    }
-                    const [model, protocolVersion, tool, errorType, labUsers, namedModelUsers] = await Promise.all([
-                        run('model', bucketedFacetQuery(MODEL_LABEL, interval)),
-                        run('protocolVersion', bucketedFacetQuery(PROTOCOL_VERSION_LABEL, interval)),
-                        run('tool', windowFacetQuery(TOOL_LABEL)),
-                        run('errorType', windowFacetQuery(propertyLabel('$mcp_error_type'), true)),
-                        run('labUsers', labUsersQuery),
-                        run('namedModelUsers', namedModelUsersQuery),
-                    ])
-                    breakpoint()
-                    return {
-                        model: toBucketedRows(model),
-                        protocolVersion: toBucketedRows(protocolVersion),
-                        tool: toWindowRows(tool),
-                        errorType: toWindowRows(errorType),
-                        labUsers: labUsers.map((r) => ({ lab: String(r[0]), users: Number(r[1]) })),
-                        namedModelUsers: Number(namedModelUsers[0]?.[0] ?? 0),
-                        failedFacets,
-                    }
-                },
-            },
+            (s) => [s.sections, s.failedLoads],
+            (sections: SectionResults, failedLoads: SectionFlags): LeaderboardFacets => ({
+                model: toBucketedRows(sectionRows<Row>(sections, MCPDashboardSection.Model)),
+                protocolVersion: toBucketedRows(sectionRows<Row>(sections, MCPDashboardSection.ProtocolVersion)),
+                tool: toWindowRows(sectionRows<Row>(sections, MCPDashboardSection.Tool)),
+                errorType: toWindowRows(sectionRows<Row>(sections, MCPDashboardSection.ErrorType)),
+                labUsers: sectionRows<Row>(sections, MCPDashboardSection.LabUsers).map((r) => ({
+                    lab: String(r[0]),
+                    users: Number(r[1]),
+                })),
+                namedModelUsers: Number(sectionRows<Row>(sections, MCPDashboardSection.NamedModelUsers)[0]?.[0] ?? 0),
+                failedFacets: FACET_KEYS.filter((key) => failedLoads[key as MCPDashboardSection]),
+            }),
         ],
         reliabilityRows: [
-            [] as ReliabilityRow[],
-            {
-                loadReliabilityRows: async (_: void, breakpoint): Promise<ReliabilityRow[]> => {
-                    const rows = await runQuery(reliabilityQuery(values.interval), values.queryFilters)
-                    breakpoint()
-                    return toReliabilityRows(rows)
-                },
-            },
+            (s) => [s.sections],
+            (sections: SectionResults): ReliabilityRow[] =>
+                toReliabilityRows(sectionRows<Row>(sections, MCPDashboardSection.Reliability)),
         ],
-    })),
-    selectors({
-        leaderboardLoading: [
-            (s) => [s.facetsLoading, s.reliabilityRowsLoading],
-            (facetsLoading: boolean, reliabilityRowsLoading: boolean): boolean =>
-                facetsLoading || reliabilityRowsLoading,
-        ],
+        reliabilityFailed: [(s) => [s.failedLoads], (failedLoads: SectionFlags): boolean => !!failedLoads.reliability],
         labShares: [(s) => [s.facets], (facets: LeaderboardFacets): LabShare[] => buildLabShares(facets.model)],
         scoreboardShares: [
             (s) => [s.scoreboardMetric, s.labShares, s.facets],
@@ -392,18 +228,5 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
             (rows: ReliabilityRow[], bucketKeys: string[]): ReliabilitySeries =>
                 buildReliabilitySeries(rows, bucketKeys),
         ],
-    }),
-    listeners(({ actions }) => ({
-        reloadAll: () => {
-            actions.loadFacets()
-            actions.loadReliabilityRows()
-        },
-        loadReliabilityRowsFailure: ({ error, errorObject }) => {
-            posthog.captureException(errorObject ?? new Error(error), { action: 'load-mcp-leaderboard-reliability' })
-        },
-    })),
-    afterMount(({ actions }) => {
-        actions.loadFacets()
-        actions.loadReliabilityRows()
     }),
 ])

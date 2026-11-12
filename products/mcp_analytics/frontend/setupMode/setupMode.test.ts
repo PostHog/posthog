@@ -1,4 +1,4 @@
-import { connectStateFor, parseSetupPath, setupStepFor } from './setupMode'
+import { connectStateFor, isSetupOpen, serverToolsFrom, setupStepFor } from './setupMode'
 
 describe('setupMode', () => {
     it.each([
@@ -24,12 +24,75 @@ describe('setupMode', () => {
     })
 
     it.each([
-        { value: 'wizard', expected: 'wizard' },
-        { value: 'agent', expected: 'agent' },
-        { value: 'manual', expected: null },
-        { value: undefined, expected: null },
-        { value: 1, expected: null },
-    ])('parses the setup param $value as $expected', ({ value, expected }) => {
-        expect(parseSetupPath(value)).toBe(expected)
+        { value: 'open', expected: true },
+        { value: 'agent', expected: false },
+        { value: undefined, expected: false },
+    ])('reads the setup param $value as open: $expected', ({ value, expected }) => {
+        expect(isSetupOpen({ setup: value })).toBe(expected)
+    })
+
+    it.each([
+        {
+            case: 'a listed and a called tool',
+            row: [[['search_docs', 'create_issue'], 'docs'], [['docs', 'search_docs']]],
+            expected: { listed: ['search_docs', 'create_issue'], called: ['search_docs'] },
+        },
+        {
+            case: 'calls to another server',
+            row: [
+                [['search_docs'], 'docs'],
+                [
+                    ['billing', 'refund'],
+                    ['docs', 'search_docs'],
+                ],
+            ],
+            expected: { listed: ['search_docs'], called: ['search_docs'] },
+        },
+        {
+            case: 'a listing without a server name',
+            row: [
+                [['search_docs', 'refund'], null],
+                [
+                    ['billing', 'refund'],
+                    ['docs', 'search_docs'],
+                ],
+            ],
+            expected: { listed: ['search_docs', 'refund'], called: ['refund', 'search_docs'] },
+        },
+        {
+            case: 'no tools/list yet',
+            row: [
+                [null, null],
+                [
+                    ['docs', 'search_docs'],
+                    [null, 'create_issue'],
+                ],
+            ],
+            expected: { listed: null, called: ['create_issue', 'search_docs'] },
+        },
+        {
+            case: 'no tools/list as ClickHouse returns it',
+            row: [[[], null], [['docs', 'search_docs']]],
+            expected: { listed: null, called: ['search_docs'] },
+        },
+        {
+            case: 'a listing that is not a list',
+            row: [['search_docs', null], []],
+            expected: { listed: null, called: [] },
+        },
+        {
+            case: 'blank and repeated tool names',
+            row: [
+                [['a', '', 'a'], null],
+                [
+                    [null, ''],
+                    [null, 'a'],
+                ],
+            ],
+            expected: { listed: ['a'], called: ['a'] },
+        },
+        { case: 'no row', row: undefined, expected: { listed: null, called: [] } },
+    ])('reads the server tools from $case', ({ row, expected }) => {
+        expect(serverToolsFrom(row)).toEqual(expected)
     })
 })

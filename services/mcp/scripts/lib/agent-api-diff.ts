@@ -290,3 +290,55 @@ export function renderAgentApiDiff(diff: AgentApiDiff): string {
     const cut = markdown.slice(0, markdown.lastIndexOf('\n', MAX_MARKDOWN_CHARS))
     return `${cut}\n\n...truncated, ${diff.changed.length} changed tools in total.\n`
 }
+
+export interface DocsMention {
+    tool: string
+    file: string
+    line: number
+}
+
+function docsFiles(dir: string): string[] {
+    return fs
+        .readdirSync(dir, { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile() && /\.mdx?$/.test(entry.name))
+        .map((entry) => path.join(entry.parentPath, entry.name))
+}
+
+export function findDocsMentions(tools: string[], docsRoot: string, docsDir: string): DocsMention[] {
+    if (tools.length === 0) {
+        return []
+    }
+    // A hyphen or letter next to the match means a longer tool name, like `dashboard-get-all`.
+    const pattern = new RegExp(`(?<![A-Za-z0-9-])(?:${tools.map(escapeRegExp).join('|')})(?![A-Za-z0-9-])`, 'g')
+    const mentions: DocsMention[] = []
+    for (const file of docsFiles(path.join(docsRoot, docsDir))) {
+        const relative = path.relative(docsRoot, file).split(path.sep).join('/')
+        fs.readFileSync(file, 'utf-8')
+            .split('\n')
+            .forEach((text, index) => {
+                for (const tool of new Set(Array.from(text.matchAll(pattern), (match) => match[0]))) {
+                    mentions.push({ tool, file: relative, line: index + 1 })
+                }
+            })
+    }
+    return mentions.sort((a, b) => a.tool.localeCompare(b.tool) || a.file.localeCompare(b.file) || a.line - b.line)
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+export function renderDocsMentions(mentions: DocsMention[], blobUrl: string): string {
+    if (mentions.length === 0) {
+        return ''
+    }
+    const lines = [
+        '',
+        `**posthog.com docs that still mention a removed tool (${mentions.length}):** update these pages when this PR merges.`,
+        '',
+    ]
+    for (const { tool, file, line } of mentions) {
+        lines.push(`- \`${safe(tool)}\` in [${safe(file)}:${line}](${blobUrl}/${safe(file)}#L${line})`)
+    }
+    return lines.join('\n') + '\n'
+}

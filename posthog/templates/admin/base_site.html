@@ -1,4 +1,5 @@
 {% extends "admin/base_site.html" %}
+{% load admin_console %}
 {% block extrahead %}
     <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2023-07-07">
     {% comment %}
@@ -33,10 +34,6 @@
             }, 0);
         });
 
-        // Back/forward can restore this page from the bfcache with these controls still disabled,
-        // which leaves the operator on a page they cannot submit until they reload. A restore means
-        // the POST is done with. Only a control the handler above marked is released, so a control
-        // the template disabled on purpose stays disabled.
         var BANNER_KEY = "console-banner-hidden-until";
         document.addEventListener("DOMContentLoaded", function () {
             var banner = document.querySelector(".console-banner");
@@ -62,6 +59,10 @@
             }
         });
 
+        // Back/forward can restore this page from the bfcache with these controls still disabled,
+        // which leaves the operator on a page they cannot submit until they reload. A restore means
+        // the POST is done with. Only a control the handler above marked is released, so a control
+        // the template disabled on purpose stays disabled.
         window.addEventListener("pageshow", function (event) {
             if (!event.persisted) {
                 return;
@@ -79,18 +80,17 @@
         .console-banner {
             display: flex;
             align-items: center;
-            gap: 14px;
-            padding: 8px 16px;
-            background: #fff4ec;
-            border-bottom: 2px solid #ff5c1c;
-            color: #3b2a1f;
-            font-size: 13px;
+            flex-wrap: wrap;
+            gap: 4px 12px;
+            padding: 6px 16px;
+            background: var(--darkened-bg);
+            border-bottom: 1px solid var(--hairline-color);
+            color: var(--body-quiet-color);
+            font-size: 12px;
             line-height: 1.4;
         }
-        .console-banner img { width: 44px; height: auto; flex-shrink: 0; }
-        .console-banner p { margin: 0; padding: 0; }
-        .console-banner a.button { margin-left: auto; white-space: nowrap; }
-        .console-banner-hide { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; white-space: nowrap; }
+        .console-banner p { margin: 0; padding: 0; font-size: inherit; }
+        .console-banner-hide { margin-left: auto; padding: 0; background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; white-space: nowrap; font-size: inherit; }
         .console-banner[hidden] { display: none; }
     </style>
     {% if is_impersonated_session %}
@@ -127,13 +127,10 @@
     {% endif %}
     {% if user.is_staff %}
         <div class="console-banner">
-            <img src="/static/admin-console/hoggies/desk-wizard.png" alt="" />
             <p>
-                <strong>Psst, team actions moved to PostHog Admin,</strong> where the buttons say what they do.
-                This Django admin keeps the raw tables.
+                This is the Django admin, for viewing and editing core database tables directly. Staff tools are in PostHog Admin.
+                <a href="{% admin_console_url original %}">Open PostHog Admin</a>
             </p>
-            <a class="button"
-               href="{% block admin_console_url %}/admin/console/{% endblock %}">Open PostHog Admin &rarr;</a>
             <button type="button" class="console-banner-hide" data-hide-console-banner>Hide for a month</button>
         </div>
     {% endif %}

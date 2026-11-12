@@ -370,9 +370,7 @@ def _make_paginate_dependent_resource(
 def _retry_limit_overrides(client_config: ClientConfig) -> dict[str, float]:
     # Passed only when a source sets them, so a client built with neither keeps the settings.
     return {
-        key: client_config[key]  # type: ignore[literal-required]
-        for key in ("retry_budget_seconds", "retry_after_max_seconds")
-        if key in client_config
+        key: client_config[key] for key in ("retry_budget_seconds", "retry_after_max_seconds") if key in client_config
     }
 
 

@@ -15,6 +15,7 @@ import type {
     AutoresearchRunApi,
     AutoresearchSuggestionApi,
     AutoresearchTrainingRunApi,
+    ProjectLimitsApi,
 } from './generated/api.schemas'
 
 const PIPELINE_ID = '0190c3f2-0000-7000-8000-000000000001'
@@ -40,6 +41,7 @@ const pipeline = {
     effective_agent_reasoning_effort: 'medium',
     training_phase: 'maintain',
     next_research_at: '2026-11-12T00:00:00Z',
+    not_promoted_reason: null,
     success_auc: null,
     plateau_iterations: 5,
     output_person_property: 'p_file_shared_7d',
@@ -365,6 +367,18 @@ const trainingRuns = [
     },
 ] as unknown as AutoresearchTrainingRunApi[]
 
+const projectLimits: ProjectLimitsApi = {
+    max_training_runs_per_day: 3,
+    training_runs_used: 1,
+    next_slot_at: null,
+    max_iterations_per_run: 10,
+    max_live_pipelines: 3,
+    live_pipelines: 2,
+    max_training_runs_per_day_source: 'code',
+    max_iterations_per_run_source: 'code',
+    max_live_pipelines_source: 'code',
+}
+
 const meta: Meta = {
     component: App,
     title: 'Products/Autoresearch/Model detail scene',
@@ -390,6 +404,7 @@ const meta: Meta = {
                 ]),
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/suggestions/`]: toPaginatedResponse(suggestions),
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/online_performance/`]: onlinePerformance,
+                '/api/projects/:team_id/autoresearch/limits/': projectLimits,
             },
         }),
     ],
@@ -435,6 +450,27 @@ export const AgentResearchWithoutReaderNotes: Story = {
         pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=agent_research`,
         testOptions: { viewportWidths: ['wide'] },
     },
+}
+
+// The first champion failed its fit, so the model went back to bootstrapping with no champion.
+export const FirstChampionRolledBack: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/`]: {
+                    ...pipeline,
+                    status: 'bootstrapping',
+                    training_phase: 'maintain',
+                    champion_holdout_auc: null,
+                    champion_realized_auc: null,
+                    not_promoted_reason:
+                        'The champion fit failed: model.pkl is 14830476 bytes, over the 10485760-byte cap',
+                },
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/models/`]: toPaginatedResponse([challenger]),
+            },
+        }),
+    ],
+    parameters: { testOptions: { viewportWidths: ['wide'] } },
 }
 
 export const Accuracy: Story = {

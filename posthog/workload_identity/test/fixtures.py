@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from unittest.mock import patch
 
-from posthog.workload_identity.providers import AudienceCheck, WorkloadClaim, WorkloadProvider
+from posthog.workload_identity.providers import WorkloadClaim, WorkloadProvider
 
 if TYPE_CHECKING:
     from unittest.mock import _patch
@@ -15,7 +15,6 @@ FAKE_WORKLOAD_PROVIDER = WorkloadProvider(
     name="Fake CI",
     issuer=FAKE_WORKLOAD_ISSUER,
     jwks_url="https://ci.example.com/.well-known/jwks",
-    audience_check=AudienceCheck.SITE_URL,
     subject_claim=WorkloadClaim(name="repository_id", label="Repository ID"),
     subject_name_claim=WorkloadClaim(name="repository", label="Repository"),
     condition_claims=(

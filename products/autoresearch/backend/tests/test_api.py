@@ -17,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
 from posthog.storage.object_storage import ObjectStorageError
 
@@ -428,6 +429,36 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.json()["id"] == str(pipeline.id)
         assert resp.json()["target_definition"] == {"type": "event"}
 
+    @parameterized.expand(
+        [
+            ("first_champion_rolled_back", AutoresearchPipeline.Status.BOOTSTRAPPING, False, "The champion fit failed"),
+            ("champion_live", AutoresearchPipeline.Status.RUNNING, True, None),
+        ]
+    )
+    def test_retrieve_explains_why_no_model_is_live(
+        self, _name: str, pipeline_status: str, has_champion: bool, expected_reason: str | None
+    ) -> None:
+        pipeline = self._make_pipeline(status=pipeline_status)
+        run = AutoresearchTrainingRun.objects.create(
+            pipeline=pipeline, status=AutoresearchTrainingRun.Status.COMPLETED, iteration_budget=5
+        )
+        AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            source_training_run=run,
+            role=AutoresearchModel.Role.CHALLENGER,
+            model_recipe={"stub": True},
+            recipe_hash="rolled-back",
+            metrics={"not_promoted_reason": "The champion fit failed"},
+        )
+        if has_champion:
+            AutoresearchModel.objects.create(
+                pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION, model_recipe={"stub": True}, recipe_hash="live"
+            )
+
+        resp = self.client.get(f"{self.base_url}/{pipeline.id}/")
+
+        assert resp.json()["not_promoted_reason"] == expected_reason
+
     def test_other_team_cannot_access_pipeline(self):
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")
@@ -724,6 +755,21 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert data["can_proceed"] is False
         assert len(data["warnings"]) == 2
         assert data["warnings"][0]["severity"] == "error"
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut(), "too_expensive"),
+            ("unexpected", RuntimeError("boom"), "unavailable"),
+        ]
+    )
+    def test_validate_reports_why_the_check_did_not_run(self, _name: str, exc: Exception, expected_code: str):
+        with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows", side_effect=exc):
+            resp = self.client.post(f"{self.base_url}/validate/", {"target_event": "$signup"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["can_proceed"] is False
+        assert data["error_code"] == expected_code
+        assert data["error"]
 
     @parameterized.expand(
         [
@@ -1104,10 +1150,137 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         body = resp.json()
         assert (body["used"], body["limit"]) == (1, limit)
         if limit:
-            assert body["next_slot_at"] == (started_at + timedelta(hours=24)).isoformat().replace("+00:00", "Z")
+            assert body["next_slot_at"] == (started_at + timedelta(hours=22)).isoformat().replace("+00:00", "Z")
         else:
             assert body["next_slot_at"] is None
         mock_run_training.assert_not_called()
+
+    def _make_live_pipelines(self, statuses: list[AutoresearchPipeline.Status]) -> None:
+        for index, pipeline_status in enumerate(statuses):
+            self._make_pipeline(name=f"Existing {index}", status=pipeline_status)
+
+    def _live_cap_payload(self, override: str | None) -> dict | None:
+        if override is None:
+            return None
+        team_id = str(self.team.pk) if override == "this_team" else str(self.team.pk + 1000)
+        return {"default_team_config": {"max_live_pipelines": 3}, "team_configs": {team_id: {"max_live_pipelines": 4}}}
+
+    _AT_DEFAULT_CAP = [
+        AutoresearchPipeline.Status.BOOTSTRAPPING,
+        AutoresearchPipeline.Status.RUNNING,
+        AutoresearchPipeline.Status.CONVERGED,
+    ]
+
+    @parameterized.expand(
+        [
+            ("at_the_default_cap", _AT_DEFAULT_CAP, None, status.HTTP_400_BAD_REQUEST),
+            (
+                "draft_paused_and_archived_do_not_count",
+                [
+                    AutoresearchPipeline.Status.RUNNING,
+                    AutoresearchPipeline.Status.CONVERGED,
+                    AutoresearchPipeline.Status.DRAFT,
+                    AutoresearchPipeline.Status.PAUSED,
+                    AutoresearchPipeline.Status.ARCHIVED,
+                ],
+                None,
+                status.HTTP_200_OK,
+            ),
+            ("team_override_allows_more", _AT_DEFAULT_CAP, "this_team", status.HTTP_200_OK),
+            ("override_for_another_team_does_not_apply", _AT_DEFAULT_CAP, "other_team", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_resume_respects_the_live_pipeline_cap(
+        self, _name: str, existing: list[AutoresearchPipeline.Status], override: str | None, expected: int
+    ):
+        self._make_live_pipelines(existing)
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.PAUSED)
+        with patch(
+            "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload",
+            return_value=self._live_cap_payload(override),
+        ):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/resume/")
+
+        assert resp.status_code == expected, resp.content
+        pipeline.refresh_from_db()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert "limit of 3 active models" in resp.json()["detail"]
+            assert pipeline.status == AutoresearchPipeline.Status.PAUSED
+        else:
+            assert pipeline.status == AutoresearchPipeline.Status.RUNNING
+
+    @parameterized.expand(
+        [
+            ("first_run_of_a_draft_is_refused", AutoresearchPipeline.Status.DRAFT, status.HTTP_400_BAD_REQUEST),
+            # A pipeline that is already live keeps training at the cap.
+            ("retrain_of_a_live_pipeline", AutoresearchPipeline.Status.RUNNING, status.HTTP_200_OK),
+        ]
+    )
+    def test_start_training_respects_the_live_pipeline_cap(
+        self, _name: str, start: AutoresearchPipeline.Status, expected: int
+    ):
+        self._make_live_pipelines([AutoresearchPipeline.Status.RUNNING] * 3)
+        pipeline = self._make_pipeline(status=start)
+
+        def _fake_run_training(*, pipeline: AutoresearchPipeline, iteration_budget: int, **_: Any):
+            return AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING, iteration_budget=iteration_budget
+            )
+
+        with patch(
+            "products.autoresearch.backend.training.runner.run_training", side_effect=_fake_run_training
+        ) as mock_run_training:
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+
+        assert resp.status_code == expected, resp.content
+        assert mock_run_training.called == (expected == status.HTTP_200_OK)
+
+    @parameterized.expand([("three_live", 3), ("draft_with_an_open_external_run_holds_a_slot", 2)])
+    def test_opening_an_external_run_on_a_draft_at_the_live_pipeline_cap_returns_400(self, _name: str, live: int):
+        self._make_live_pipelines([AutoresearchPipeline.Status.RUNNING] * live)
+        if live < 3:
+            # Opened under the cap, still a draft, and live once the run promotes.
+            other_draft = self._make_pipeline(name="Draft with an open run")
+            AutoresearchTrainingRun.objects.create(
+                pipeline=other_draft, status=AutoresearchTrainingRun.Status.RUNNING, iteration_budget=5
+            )
+        pipeline = self._make_pipeline()
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/training_runs/", {}, format="json")
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.content
+        assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
+
+    def test_limits_report_usage_against_each_limit(self):
+        live = self._make_pipeline(status=AutoresearchPipeline.Status.RUNNING)
+        self._make_pipeline(status=AutoresearchPipeline.Status.DRAFT)
+        self._make_pipeline(status=AutoresearchPipeline.Status.PAUSED)
+        started_at = django_timezone.now() - timedelta(hours=3)
+        AutoresearchTrainingRun.objects.create(
+            pipeline=live, status=AutoresearchTrainingRun.Status.COMPLETED, iteration_budget=5, task_id=uuid.uuid4()
+        )
+        AutoresearchTrainingRun.objects.filter(pipeline=live).update(created_at=started_at)
+        # An externally opened run does not use a sandbox, so it does not count.
+        AutoresearchTrainingRun.objects.create(
+            pipeline=live, status=AutoresearchTrainingRun.Status.COMPLETED, iteration_budget=5
+        )
+        with patch(
+            "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload",
+            return_value={"default_team_config": {"max_training_runs_per_day": 1, "max_live_pipelines": 2}},
+        ):
+            resp = self.client.get(f"{self.base_url}/limits/")
+
+        assert resp.status_code == status.HTTP_200_OK, resp.content
+        assert resp.json() == {
+            "max_training_runs_per_day": 1,
+            "training_runs_used": 1,
+            "next_slot_at": (started_at + timedelta(hours=22)).isoformat().replace("+00:00", "Z"),
+            "max_iterations_per_run": 10,
+            "max_live_pipelines": 2,
+            "live_pipelines": 1,
+            "max_training_runs_per_day_source": "default",
+            "max_iterations_per_run_source": "code",
+            "max_live_pipelines_source": "default",
+        }
 
     # ──────────────────────────────────── update restrictions ─────────────────────────────────────
 

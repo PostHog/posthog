@@ -25,9 +25,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import clone_expr
 
-from posthog.models import EventDefinition
 from posthog.models.utils import uuid7
 from posthog.schema_enums import SessionsV2JoinMode
+
+from products.event_definitions.backend.models import EventDefinition
 
 
 def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:

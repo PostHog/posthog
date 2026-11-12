@@ -204,13 +204,10 @@ describe('sourceCatalogLogic', () => {
         expect(logic.values.filteredItems.map((item) => item.name)).toContain('Postgres')
     })
 
-    it.each([
-        { category: 'Sales' as const, search: 'Datadog' },
-        { category: 'self-managed' as const, search: 'Datadog' },
-    ])('flags a cross-category match when a $category search only hits another category', ({ category, search }) => {
+    it('flags a cross-category match when a category search only hits another category', () => {
         const logic = sourceCatalogLogic()
-        logic.actions.setSelectedCategory(category)
-        logic.actions.setSearch(search)
+        logic.actions.setSelectedCategory('Sales')
+        logic.actions.setSearch('Datadog')
 
         // The category filter hides the only match, so the list dead-ends...
         expect(logic.values.filteredItems).toHaveLength(0)
@@ -251,25 +248,16 @@ describe('sourceCatalogLogic', () => {
         }
     )
 
-    it('lists no self-managed tiles and ignores a self-managed category link', () => {
-        const logic = sourceCatalogLogic()
-
-        expect(logic.values.catalogItems.some((item) => item.selfManaged)).toBe(false)
-        expect(logic.values.categoriesWithCounts.some((cat) => cat.category === 'self-managed')).toBe(false)
-
-        router.actions.push(urls.dataPipelinesNew('source'), { category: 'self-managed' })
-        expect(logic.values.selectedCategory).toEqual('all')
-    })
-
-    it('opens on the category the sources list linked to', () => {
+    it('opens on the category a link names', () => {
         const logic = sourceCatalogLogic()
         expect(logic.values.selectedCategory).toEqual('all')
 
         router.actions.push(urls.dataPipelinesNew('source'), { category: 'Databases' })
         expect(logic.values.selectedCategory).toEqual('Databases')
 
-        // An unknown value leaves the catalog as it is rather than filtering it down to nothing.
-        router.actions.push(urls.dataPipelinesNew('source'), { category: 'not-a-category' })
+        // An unknown value, such as the old `self-managed` link, leaves the catalog as it is rather than
+        // filtering it down to nothing.
+        router.actions.push(urls.dataPipelinesNew('source'), { category: 'self-managed' })
         expect(logic.values.selectedCategory).toEqual('Databases')
     })
 

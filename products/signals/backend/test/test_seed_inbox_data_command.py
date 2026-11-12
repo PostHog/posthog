@@ -24,6 +24,6 @@ class TestSeedInboxDataCommand(BaseTest):
         pending = reports.get(status=SignalReport.Status.PENDING_INPUT)
         assert pending.title and pending.summary and pending.error
         assert reports.filter(status=SignalReport.Status.READY).exists()
-        assert {call.kwargs["signal_report_id"] for call in create_task.call_args_list} == {
+        assert {call.kwargs["source"].id for call in create_task.call_args_list} == {
             str(report_id) for report_id in reports.exclude(pk=pending.pk).values_list("pk", flat=True)
         }

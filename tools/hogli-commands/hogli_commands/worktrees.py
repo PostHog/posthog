@@ -13,7 +13,8 @@ Safety: age is a staleness heuristic, not a "no unsaved work" guarantee — edit
 made without any git operation may not move the activity signal. So `--mode full`
 skips a worktree with uncommitted/untracked changes, unpushed commits, or git
 state it cannot read (present-but-corrupt/locked) unless `--include-dirty` is
-given. Orphaned worktrees (admin gitdir pruned) are removed by default: deleting
+given. Unpushed commits whose work a squash merge landed on the default branch
+do not count, because the merge queue rewrites every pull request that way. Orphaned worktrees (admin gitdir pruned) are removed by default: deleting
 the directory never touches git refs, so committed work survives in the shared
 repo — only uncommitted edits in an already-stale tree could be lost. `--mode
 deps` and `--mode build` only remove recreatable artifacts, so they have no such
@@ -37,6 +38,7 @@ import itertools
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -52,7 +54,7 @@ from .cargo_targets import (
     unused_legacy_cargo_target,
     worktrees_running_cargo,
 )
-from .devbox import hogland, mutagen
+from .devbox import herdr, hogland, mutagen
 from .devbox.coder import (
     delete_workspace,
     ensure_runtime_ready,
@@ -68,6 +70,7 @@ from .devbox.config import (
     load_worktree_boxes,
     read_worktree_id,
     saved_worktree_box_cleanup,
+    worktree_prune_lock,
 )
 from .disk_usage import NO_USAGE, DiskUsage, measure_disk_usage
 from .doctor import _format_size
@@ -215,6 +218,7 @@ class Worktree:
     artifact_items: list[Path] = field(default_factory=list)
     dirty: bool = False
     unpushed: int = 0
+    squash_merged: str | None = None
     detached: bool = False
     state_unknown: bool = False
 
@@ -225,8 +229,9 @@ class Worktree:
         Includes worktrees whose git state we couldn't read — an orphaned or
         unreadable worktree might contain uncommitted work, so we fail closed
         and treat "can't verify it's clean" as unsafe rather than deleting it.
+        Unpushed commits that a squash merge landed are not work at risk.
         """
-        return self.dirty or self.unpushed > 0 or self.state_unknown
+        return self.dirty or (self.unpushed > 0 and self.squash_merged is None) or self.state_unknown
 
 
 @dataclass(frozen=True)
@@ -395,8 +400,14 @@ def worktrees_clean(
 
     selected_sources = {s.lower() for s in sources} if sources else None
     if box_action:
-        pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
-        _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
+        with _prune_lock_if(not dry_run) as holds_lock:
+            if holds_lock:
+                pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
+                _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
+            else:
+                click.echo(
+                    "A devbox prune is still running, so the devboxes of worktrees removed earlier were left for the next run.\n"
+                )
     # ~/.cargo/target belongs to no single worktree or repository, so a run narrowed by --source or --repo leaves it alone.
     if mode != "full" and selected_sources is None and repo is None:
         _clean_legacy_cargo_target(cutoff, dry_run, yes)
@@ -535,32 +546,48 @@ def worktrees_clean(
         click.echo("Nothing left to remove.")
         return
 
-    reap = _execute(
-        stale,
-        mode,
-        repo_root,
-        before_remove=lambda wt: _stop_worktree_mirrors(
-            [box for box in registered_boxes if box.current_path == wt.path]
-        ),
-    )
-    _add_reclaimed_properties(reap.reclaimed_bytes, reap.removed)
-    if reap.reclaimed_bytes >= 0:
-        summary = f"\n✓ Done. Reclaimed ~{_format_size(reap.reclaimed_bytes)} of disk across {reap.removed}/{len(stale)} worktree(s)."
-    else:
-        summary = f"\n✓ Done. Removed {reap.removed}/{len(stale)} worktree(s) (reclaimed space could not be measured)."
-    failed = reap.failed
-    if failed:
-        summary += f" {failed} could not be fully removed (see warnings above)."
-    click.echo(summary)
+    _remove_worktrees_and_their_boxes(stale, mode, repo_root, registered_boxes, box_action)
 
-    removed_boxes = [box for box in registered_boxes if not box.checkout_path.exists()]
-    if box_action and removed_boxes:
-        _clean_worktree_boxes(removed_boxes, box_action)
-    elif removed_boxes:
-        # A box left alone on purpose must not look like a failed cleanup to a later run.
-        forget_worktree_boxes([box.worktree_path for box in removed_boxes])
-        names = " ".join(box.workspace for box in removed_boxes)
-        click.echo(f"Left these devboxes as they are. worktrees:clean no longer tracks them: {names}")
+
+def _prune_lock_if(needed: bool) -> AbstractContextManager[bool]:
+    return worktree_prune_lock(_PRUNE_LOCK_TIMEOUT_SECONDS) if needed else nullcontext(True)
+
+
+def _remove_worktrees_and_their_boxes(
+    stale: list[Worktree], mode: str, repo_root: Path, registered_boxes: list[WorktreeBox], box_action: str | None
+) -> None:
+    with _prune_lock_if(bool(registered_boxes)) as holds_lock:
+        if not holds_lock:
+            click.echo("A devbox prune is still running, so nothing was removed. Run this again in a few minutes.")
+            return
+        reap = _execute(
+            stale,
+            mode,
+            repo_root,
+            before_remove=lambda wt: _stop_worktree_mirrors(
+                [box for box in registered_boxes if box.current_path == wt.path]
+            ),
+        )
+        _add_reclaimed_properties(reap.reclaimed_bytes, reap.removed)
+        if reap.reclaimed_bytes >= 0:
+            summary = f"\n✓ Done. Reclaimed ~{_format_size(reap.reclaimed_bytes)} of disk across {reap.removed}/{len(stale)} worktree(s)."
+        else:
+            summary = (
+                f"\n✓ Done. Removed {reap.removed}/{len(stale)} worktree(s) (reclaimed space could not be measured)."
+            )
+        failed = reap.failed
+        if failed:
+            summary += f" {failed} could not be fully removed (see warnings above)."
+        click.echo(summary)
+
+        removed_boxes = [box for box in registered_boxes if not box.checkout_path.exists()]
+        if box_action and removed_boxes:
+            _clean_worktree_boxes(removed_boxes, box_action)
+        elif removed_boxes:
+            # A box left alone on purpose must not look like a failed cleanup to a later run.
+            forget_worktree_boxes({box.worktree_path: box.record for box in removed_boxes})
+            names = " ".join(box.workspace for box in removed_boxes)
+            click.echo(f"Left these devboxes as they are. worktrees:clean no longer tracks them: {names}")
 
 
 def _resolve_box_action(stop_boxes: bool, delete_boxes: bool, keep_boxes: bool, mode: str) -> str | None:
@@ -587,10 +614,12 @@ def _boxes_of_removed_worktrees(
 ) -> list[WorktreeBox]:
     """Registered boxes whose worktree is gone, limited to the selected repo and sources.
 
-    The admin directory in the shared git dir outlives a moved or unmounted
-    checkout, so only its absence shows that the worktree was removed. A
-    record without a worktree ID cannot tell its admin directory from a
-    reused one, so any directory at that path counts as its own.
+    The admin directory in the shared git dir survives a `git worktree move`,
+    and Claude Code deletes a worktree's folder without it. So a worktree
+    counts as removed when its admin directory is gone, or when `git worktree
+    prune` would delete that directory. A record without a worktree ID cannot
+    tell its admin directory from a reused one, so any directory at that path
+    counts as its own.
     """
     if repo_common is None:
         return []
@@ -598,12 +627,33 @@ def _boxes_of_removed_worktrees(
     for path, record in registry.items():
         admin_dir = Path(record.git_dir)
         admin_dir_is_its_own = record.tracks_worktree(admin_dir) if record.worktree_id else admin_dir.exists()
-        if Path(path).exists() or admin_dir_is_its_own or _resolve(admin_dir.parent.parent) != _resolve(repo_common):
+        worktree_is_live = admin_dir_is_its_own and not _git_would_prune(admin_dir)
+        if (
+            _holds_a_worktree(Path(path))
+            or worktree_is_live
+            or _resolve(admin_dir.parent.parent) != _resolve(repo_common)
+        ):
             continue
         if selected_sources is not None and _source_under(_resolve(Path(path)), repo_root) not in selected_sources:
             continue
         boxes.append(WorktreeBox(worktree_path=Path(path), record=record))
     return boxes
+
+
+def _holds_a_worktree(path: Path) -> bool:
+    admin_dir = _gitdir_for(path)
+    return admin_dir is not None and admin_dir.is_dir() and not _git_would_prune(admin_dir)
+
+
+def _git_would_prune(admin_dir: Path) -> bool:
+    """`git worktree prune`'s rule: the worktree is not locked, and its `gitdir` file is missing or names a missing path."""
+    if (admin_dir / "locked").exists():
+        return False
+    try:
+        checkout_git_file = Path((admin_dir / "gitdir").read_text().strip())
+    except OSError:
+        return True
+    return not (admin_dir / checkout_git_file).exists()
 
 
 def prune_boxes_of_removed_worktrees(
@@ -625,7 +675,7 @@ def prune_boxes_of_removed_worktrees(
     if dry_run:
         click.echo(f"[DRY-RUN] Would {box_action} them.")
     else:
-        _clean_worktree_boxes(boxes, box_action)
+        _clean_worktree_boxes(boxes, box_action, require_removed=True)
     return boxes
 
 
@@ -700,7 +750,7 @@ def _clean_boxes_of_removed_worktrees(
         click.echo(f"[DRY-RUN] Would {box_action} {which}.\n")
         return
     if yes or click.confirm(f"{box_action.capitalize()} them now?", default=False):
-        _clean_worktree_boxes(boxes, box_action, idle_before=cutoff)
+        _clean_worktree_boxes(boxes, box_action, idle_before=cutoff, require_removed=True)
     click.echo()
 
 
@@ -754,22 +804,54 @@ def _clean_worktree_boxes(
     box_action: str,
     idle_before: float = float("inf"),
     keep_stopped_records: bool = False,
+    require_removed: bool = False,
 ) -> None:
     """Stop or delete *boxes* and forget their records.
 
     With *keep_stopped_records*, a box that ends up stopped keeps its record, so
-    the worktree can start it again when a tool restores it.
+    the worktree can start it again when a tool restores it. With
+    *require_removed*, a box whose worktree came back while the provider was
+    listed is left alone, because the new worktree may have taken the box over.
     """
     hogland_boxes = [box for box in boxes if box.record.provider == "hogland"]
     coder_boxes = [box for box in boxes if box.record.provider != "hogland"]
     if hogland_boxes:
-        _clean_hogland_boxes(hogland_boxes, box_action, idle_before, keep_stopped_records)
+        _clean_hogland_boxes(hogland_boxes, box_action, idle_before, keep_stopped_records, require_removed)
     if coder_boxes:
-        _clean_coder_boxes(coder_boxes, box_action, idle_before, keep_stopped_records)
+        _clean_coder_boxes(coder_boxes, box_action, idle_before, keep_stopped_records, require_removed)
+
+
+def _worktree_came_back(box: WorktreeBox) -> bool:
+    return _holds_a_worktree(box.worktree_path) or load_worktree_boxes().get(str(box.worktree_path)) != box.record
+
+
+def _ready_to_act_on(
+    box: WorktreeBox,
+    listed: Mapping[str, object],
+    idle_before: float,
+    require_removed: bool,
+    handled: dict[Path, WorktreeBoxRecord],
+) -> bool:
+    if not box.record.owns(listed):
+        click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
+        handled[box.worktree_path] = box.record
+        return False
+    last_used = _box_last_used(listed)
+    if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
+        click.echo(f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone.")
+        return False
+    if require_removed and _worktree_came_back(box):
+        click.echo(f"  {box.workspace} belongs to a worktree at {box.worktree_path} again, so it was left alone.")
+        return False
+    try:
+        mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
+    except SystemExit:
+        click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
+    return True
 
 
 def _clean_hogland_boxes(
-    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool, require_removed: bool
 ) -> None:
     try:
         hogland.ensure_cli()
@@ -778,28 +860,16 @@ def _clean_hogland_boxes(
         names = " ".join(box.workspace for box in boxes)
         click.echo(f"  ⚠️  could not reach Hogland, so these devboxes were left as they are: {names}")
         return
-    handled: list[Path] = []
+    handled: dict[Path, WorktreeBoxRecord] = {}
     for box in boxes:
         devbox = get_workspace(box.workspace, devboxes)
         if devbox is None:
             click.echo(f"  {box.workspace} no longer exists.")
             hogland.forget_ssh_entry(box.workspace)
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
             continue
-        if not box.record.owns(devbox):
-            click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
-            handled.append(box.worktree_path)
+        if not _ready_to_act_on(box, devbox, idle_before, require_removed, handled):
             continue
-        last_used = _box_last_used(devbox)
-        if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
-            click.echo(
-                f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone."
-            )
-            continue
-        try:
-            mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
-        except SystemExit:
-            click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
         try:
             if box_action == "delete":
                 click.echo(f"Deleting Hogland devbox {box.workspace}...")
@@ -815,12 +885,12 @@ def _clean_hogland_boxes(
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogland devbox {command} {box.workspace}`.")
             continue
         if box_action == "delete" or not keep_stopped_records:
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
     forget_worktree_boxes(handled)
 
 
 def _clean_coder_boxes(
-    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool, require_removed: bool
 ) -> None:
     try:
         ensure_runtime_ready()
@@ -834,31 +904,20 @@ def _clean_coder_boxes(
         names = " ".join(box.workspace for box in boxes)
         click.echo(f"  ⚠️  could not list your devboxes, so these were left as they are: {names}")
         return
-    handled: list[Path] = []
+    handled: dict[Path, WorktreeBoxRecord] = {}
     for box in boxes:
         workspace = get_workspace(box.workspace, workspaces)
         if workspace is None:
             click.echo(f"  {box.workspace} no longer exists.")
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
             continue
-        if not box.record.owns(workspace):
-            click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
-            handled.append(box.worktree_path)
+        if not _ready_to_act_on(box, workspace, idle_before, require_removed, handled):
             continue
-        last_used = _box_last_used(workspace)
-        if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
-            click.echo(
-                f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone."
-            )
-            continue
-        try:
-            mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
-        except SystemExit:
-            click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
         try:
             if box_action == "delete":
                 click.echo(f"Deleting devbox {box.workspace}...")
                 delete_workspace(box.workspace)
+                herdr.forget_machine(box.workspace)
             elif get_workspace_status(workspace) != "stopped":
                 click.echo(f"Stopping devbox {box.workspace}...")
                 stop_workspace(box.workspace)
@@ -870,7 +929,7 @@ def _clean_coder_boxes(
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogli {command} {label}`.")
             continue
         if box_action == "delete" or not keep_stopped_records:
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
     forget_worktree_boxes(handled)
 
 
@@ -886,6 +945,7 @@ def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:
 _UNATTENDED_SCHEDULE = (("14d", "full"), ("7d", "deps,build"))
 # .flox/env/on-activate.sh checks this file's mtime before it spawns hogli.
 _UNATTENDED_LOCK = Path.home() / ".config" / "posthog" / "worktrees-clean.lock"
+_PRUNE_LOCK_TIMEOUT_SECONDS = 300.0
 
 
 def _unattended_lock(dry_run: bool) -> IO[str] | None:
@@ -1421,7 +1481,8 @@ def _populate_git_state(worktrees: list[Worktree], has_remotes: bool) -> None:
 
 
 def _compute_git_state(wt: Worktree, has_remotes: bool) -> None:
-    status = _git(wt.path, ["status", "--porcelain"])
+    # status.showUntrackedFiles=no would hide new files, and --force removes them without asking.
+    status = _git(wt.path, ["status", "--porcelain", "--untracked-files=normal"])
     if status is not None and status.returncode == 0:
         wt.dirty = bool(status.stdout.strip())
 
@@ -1440,6 +1501,8 @@ def _compute_git_state(wt: Worktree, has_remotes: bool) -> None:
             else:
                 count = ahead.stdout.strip()
                 wt.unpushed = int(count) if count.isdigit() else 0
+                if wt.unpushed:
+                    wt.squash_merged = _squash_merge(wt.path)
         return
 
     # git couldn't read the worktree's status. Distinguish two cases:
@@ -1475,12 +1538,178 @@ def _git(cwd: Path, args: Sequence[str], timeout: float = 30.0) -> subprocess.Co
         return None
 
 
+# A branch with more changed files than this is no squash merge to look for, and its file list would
+# not fit one git command line.
+_SQUASH_MAX_FILES = 1000
+_SQUASH_MAX_CANDIDATES = 2000
+
+
+def _squash_merge(worktree: Path) -> str | None:
+    """Where the unpushed commits of *worktree* landed through a squash merge, or None.
+
+    The merge queue lands a pull request as one new commit on the default branch
+    and deletes the branch. The branch's own commits are then on no remote and
+    are not ancestors of the default branch, although the work is merged.
+
+    The offline check compares the patch id (a stable hash of a diff) of the
+    branch's whole change with the default-branch commits since the branch left
+    it that touch the same files. It misses a merge whose diff the queue changed,
+    for example by resolving a conflict. The GitHub CLI, when it is installed and
+    logged in, then looks for a merged pull request that contains HEAD.
+    """
+
+    head = _git(worktree, ["rev-parse", "HEAD"])
+    if head is None or head.returncode != 0:
+        return None
+    sha = head.stdout.strip()
+    default = _default_branch_ref(worktree)
+    if default is None:
+        return None
+    commit = _squash_commit(worktree, sha, default)
+    if commit is not None:
+        return commit[:10]
+    return _merged_pull_request(worktree, sha, default.removeprefix("origin/"))
+
+
+def _default_branch_ref(worktree: Path) -> str | None:
+    symbolic = _git(worktree, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+    if symbolic is not None and symbolic.returncode == 0 and symbolic.stdout.strip():
+        return symbolic.stdout.strip()
+    for candidate in ("origin/master", "origin/main"):
+        verified = _git(worktree, ["rev-parse", "--verify", "--quiet", candidate])
+        if verified is not None and verified.returncode == 0:
+            return candidate
+    return None
+
+
+def _squash_commit(worktree: Path, head: str, default: str) -> str | None:
+    base = _git(worktree, ["merge-base", default, head])
+    if base is None or base.returncode != 0:
+        return None
+    fork_point = base.stdout.strip()
+    changed = _git(worktree, ["diff", "--name-only", "--no-renames", fork_point, head])
+    if changed is None or changed.returncode != 0:
+        return None
+    files = changed.stdout.splitlines()
+    if not files or len(files) > _SQUASH_MAX_FILES:
+        return None
+    own = _patch_ids(worktree, ["diff", "--no-renames", fork_point, head])
+    if not own:
+        return None
+    candidates = _patch_ids(
+        worktree,
+        [
+            "log",
+            "-p",
+            "--no-renames",
+            "--format=commit %H",
+            "-n",
+            str(_SQUASH_MAX_CANDIDATES),
+            f"{fork_point}..{default}",
+            "--",
+            *files,
+        ],
+    )
+    commit = candidates.get(next(iter(own)))
+    if commit is None or not _contains_branch(worktree, commit, head):
+        return None
+    return commit
+
+
+def _contains_branch(worktree: Path, commit: str, head: str) -> bool:
+    """Whether merging *head* into *commit* changes nothing.
+
+    A patch id leaves out where each hunk applies, so an edit moved to another block with the same
+    context lines has the id of the squash it no longer matches. Merging catches that."""
+
+    merged = _git(worktree, ["merge-tree", "--write-tree", commit, head])
+    tree = _git(worktree, ["rev-parse", f"{commit}^{{tree}}"])
+    if merged is None or tree is None or merged.returncode != 0 or tree.returncode != 0:
+        return False
+    return merged.stdout.split("\n", 1)[0].strip() == tree.stdout.strip()
+
+
+def _patch_ids(cwd: Path, git_args: Sequence[str], timeout: float = 120.0) -> dict[str, str]:
+    """The commit of each patch id among the patches that ``git <git_args>`` prints, the first one per id.
+
+    The patches stream straight into ``git patch-id``: a long history of a big, often rewritten file
+    would not fit in memory, and several worktrees are checked at once.
+    Diffs are bytes, not text: a binary or non-UTF-8 file would make a text decode fail.
+    --verbatim keeps whitespace in the id, so a re-indent committed after the merge does not match it."""
+
+    try:
+        with subprocess.Popen(["git", *git_args], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as patch:
+            try:
+                ids = subprocess.run(
+                    ["git", "patch-id", "--verbatim"],
+                    cwd=cwd,
+                    stdin=patch.stdout,
+                    capture_output=True,
+                    timeout=timeout,
+                )
+                # Closed here too, so git exits on a broken pipe instead of blocking if patch-id stopped reading.
+                patch.stdout.close()
+                if patch.wait(timeout=timeout) != 0:
+                    return {}
+            except subprocess.TimeoutExpired:
+                # Leaving the with block waits for git without a timeout, so a stalled git is killed first.
+                patch.kill()
+                return {}
+    except (FileNotFoundError, OSError):
+        return {}
+    commits: dict[str, str] = {}
+    for line in ids.stdout.decode(errors="replace").splitlines():
+        parts = line.split()
+        if len(parts) == 2:
+            commits.setdefault(parts[0], parts[1])
+    return commits
+
+
+def _merged_pull_request(worktree: Path, head: str, base: str) -> str | None:
+    """A pull request merged into *base* that contains HEAD. A stacked pull request merged into a
+    branch that never reached *base* does not count."""
+
+    gh = shutil.which("gh")
+    if gh is None:
+        return None
+    # The search also matches pull requests that only mention the hash, so HEAD must be one of the commits.
+    query = f'[.[] | select(any(.commits[]; .oid == "{head}")) | .number][0] // empty'
+    try:
+        result = subprocess.run(
+            [
+                gh,
+                "pr",
+                "list",
+                "--state",
+                "merged",
+                "--base",
+                base,
+                "--search",
+                head,
+                "--json",
+                "number,commits",
+                "--jq",
+                query,
+            ],
+            cwd=worktree,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    number = result.stdout.strip()
+    return f"#{number}" if result.returncode == 0 and number.isdigit() else None
+
+
 def _state_markers(wt: Worktree) -> str:
     parts: list[str] = []
     if wt.dirty:
         parts.append("uncommitted changes")
     if wt.unpushed:
-        parts.append(f"{wt.unpushed} unpushed commit(s)")
+        parts.append(
+            f"{wt.unpushed} unpushed commit(s)" + (f" merged as {wt.squash_merged}" if wt.squash_merged else "")
+        )
     if wt.detached:
         parts.append("detached HEAD")
     if wt.state_unknown:
@@ -1497,7 +1726,9 @@ def _listing_markers(wt: Worktree, mode: str) -> str:
     if mode == "full":
         if wt.dirty:
             parts.append("dirty")
-        if wt.unpushed:
+        if wt.unpushed and wt.squash_merged:
+            parts.append(f"merged as {wt.squash_merged}")
+        elif wt.unpushed:
             parts.append(f"{wt.unpushed} unpushed")
         if wt.detached:
             parts.append("detached")

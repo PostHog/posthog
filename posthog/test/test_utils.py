@@ -26,8 +26,10 @@ from rest_framework import serializers
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, Organization, PropertyDefinition, Team, User
+from posthog.models import Organization, Team, User
 from posthog.settings.utils import get_from_env
+
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
 
 if TYPE_CHECKING:
     from posthog.models.group_type_mapping import GroupTypeMapping
@@ -124,6 +126,12 @@ class TestAbsoluteUrls(SimpleTestCase):
                 "https://app.posthog.com",
                 "https://app.posthog.com/signup?email=someone%40example.com",
             ),
+            # Leading slashes are dropped, so a doubled slash stays a path on SITE_URL.
+            (
+                "//api/path",
+                "https://app.posthog.com",
+                "https://app.posthog.com/api/path",
+            ),
             ("/api/path", "", "/api/path"),  # current behavior whether correct or not
             (
                 "/api/path",
@@ -166,6 +174,15 @@ class TestAbsoluteUrls(SimpleTestCase):
             ("percent_encoded_slash", "https://attacker.example%2F@app.posthog.com/path"),
             ("percent_encoded_question_mark", "https://attacker.example%3F@app.posthog.com/path"),
             ("percent_encoded_hash", "https://attacker.example%23@app.posthog.com/path"),
+            # URL parsers strip these before reading the authority, so the value would
+            # resolve to another host while looking scheme-less here.
+            ("leading_tab", "\t//attacker.example/path"),
+            ("leading_newline", "\n//attacker.example/path"),
+            ("leading_space", " //attacker.example/path"),
+            ("leading_nul", "\x00//attacker.example/path"),
+            ("tab_between_slashes", "/\t//attacker.example/path"),
+            ("same_host_without_scheme", "\t//app.posthog.com/path"),
+            ("space_between_slashes", "/ //attacker.example/path"),
         ]
     )
     def test_absolute_uri_rejects_ambiguous_authority(self, _name: str, url: str) -> None:
@@ -1219,17 +1236,13 @@ class TestSharingOverrideProtection(SimpleTestCase):
         request = self._make_request(
             authenticator, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})}
         )
-        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
-
-        result = tile_filters_override_requested_by_client(request, tile)
+        result = tile_filters_override_requested_by_client(request, {"breakdown": "country"})
 
         assert result == {"breakdown": "country"}
 
     def test_tile_filters_override_allowed_for_normal_auth(self):
         request = self._make_request(None, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})})
-        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
-
-        result = tile_filters_override_requested_by_client(request, tile)
+        result = tile_filters_override_requested_by_client(request, {"breakdown": "country"})
 
         assert result == {"breakdown": "region"}
 
@@ -1260,9 +1273,7 @@ class TestSharingOverrideProtection(SimpleTestCase):
 
     def test_tile_filters_override_blocked_for_shared_context_without_authenticator(self):
         request = self._make_request(None, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})})
-        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
-
-        result = tile_filters_override_requested_by_client(request, tile, is_shared=True)
+        result = tile_filters_override_requested_by_client(request, {"breakdown": "country"}, is_shared=True)
 
         assert result == {"breakdown": "country"}
 

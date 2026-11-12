@@ -52,6 +52,8 @@ export type SceneMainTitleProps = {
      * Optional node rendered inline immediately after the name (e.g. a status tag)
      */
     nameSuffix?: React.ReactNode
+    /** A control right after the name, outside the tags' colour scope. Shown only under the Today layout. */
+    nameAction?: React.ReactNode
     /**
      * null to hide the description,
      * undefined to show the default description
@@ -202,11 +204,12 @@ function LemonSceneTitleSection({
             return
         }
 
+        // Threshold 0: at the top of the page a sub-pixel offset made threshold 1 report the title as scrolled.
         const observer = new IntersectionObserver(
             ([entry]) => {
                 setIsScrolled(!entry.isIntersecting)
             },
-            { threshold: 1 }
+            { threshold: 0 }
         )
 
         observer.observe(stickyElement)
@@ -216,7 +219,7 @@ function LemonSceneTitleSection({
     const icon = sceneResourceIcon(resourceType)
 
     const descriptionBlock = hasDescription && (descriptionAlwaysVisible || showDescription || forceEdit) && (
-        <div className={cn('[&_svg]:size-6', noPadding ? cn('pl-4 pr-2', className) : '-mt-4')}>
+        <div className={noPadding ? cn('pl-4 pr-2', className) : '-mt-4'}>
             <SceneDescription
                 description={effectiveDescription}
                 markdown={markdown}
@@ -298,10 +301,12 @@ function LemonSceneTitleSection({
                                             {hasDescription && !descriptionAlwaysVisible ? (
                                                 <ButtonPrimitive
                                                     className={cn(
-                                                        'size-[var(--button-height-sm)] shrink-0',
+                                                        // A transition, not keyframes: the test runner sometimes paints a forwards fill at 0%.
+                                                        'size-[var(--button-height-sm)] shrink-0 transition-opacity duration-200 motion-reduce:transition-none',
+                                                        // Pinned in snapshots like the border, because the observer still flips in some captures.
                                                         isScrolled
-                                                            ? 'animate-fade-out-subtle pointer-events-none'
-                                                            : 'animate-fade-in-subtle group-hover/scene-title-section:opacity-100 opacity-30 transition-opacity duration-200 motion-reduce:transition-none'
+                                                            ? 'opacity-0 pointer-events-none [body.storybook-test-runner_&]:opacity-30'
+                                                            : 'opacity-30 group-hover/scene-title-section:opacity-100'
                                                     )}
                                                     onClick={toggleShowDescription}
                                                     tooltip={showDescription ? 'Hide description' : 'Show description'}

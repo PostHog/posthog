@@ -1,12 +1,7 @@
-"""Ship fetched CI log content into Logs via OTLP — one record per line so each line is
-independently searchable, countable, and groupable. Emits through the OpenTelemetry SDK to the
-internal ``capture-logs`` endpoint (``/i/v1/logs``) with the destination team's project token as the
-``Authorization: Bearer`` — the token is what routes records to that team's Logs, so there's no
-public-internet round-trip. Each record carries the job attributes, the line's GitHub timestamp, and
-a severity from GitHub's ``##[error]`` / ``##[warning]`` markers.
+"""Emit CI log lines into Logs over OTLP, one record per line.
 
-A Temporal activity is short-lived, so callers MUST ``flush()`` before returning (use the context
-manager) — the batch processor would otherwise drop buffered records.
+The records go to the internal ``capture-logs`` endpoint. The destination team's project token is
+the Bearer token, and it routes the records to that team's Logs.
 """
 
 import re
@@ -29,17 +24,14 @@ from products.engineering_analytics.backend.logic.job_logs.thinning import Thinn
 
 logger = structlog.get_logger(__name__)
 
-# GitHub prefixes every raw log line with an RFC3339 UTC timestamp, then the content:
+# A GitHub log line is an RFC3339 UTC timestamp, then the content:
 #   2026-06-25T09:14:02.1234567Z ##[error]Process completed with exit code 1
 _LINE = re.compile(r"^(?P<ts>\d{4}-\d{2}-\d{2}T[0-9:.]+Z)\s?(?P<body>.*)$")
 
 
 def _parse_ns(ts: str) -> int | None:
-    """RFC3339 with GitHub's 7-digit fraction + ``Z`` → epoch nanoseconds, or None if unparseable.
-
-    ``fromisoformat`` accepts at most 6 fractional digits, so trim GitHub's extra precision first.
-    """
     try:
+        # fromisoformat accepts at most 6 fractional digits, and GitHub sends 7.
         normalized = re.sub(r"(\.\d{6})\d+Z$", r"\1Z", ts).replace("Z", "+00:00")
         return int(datetime.fromisoformat(normalized).timestamp() * 1_000_000_000)
     except (ValueError, OverflowError):
@@ -56,10 +48,10 @@ def _severity(body: str) -> tuple[str, SeverityNumber]:
 
 
 def _otel_id(value: str | int | None, n_bytes: int) -> int:
-    """A GitHub run/job id packed as an OTLP trace/span id — an int the encoder serializes into
-    ``n_bytes``. GitHub ids arrive as int or numeric string (warehouse columns are nullable strings),
-    so coerce; return 0 (OTLP "unset") when missing, non-numeric, or out of range. Never None — the
-    SDK default — and never a str: either would crash serialization of the whole batch.
+    """A run or job id as an OTLP trace or span id of ``n_bytes``, or 0 (OTLP "unset") when the id
+    is missing, non-numeric, or out of range.
+
+    The result is always an int, because None or a str crashes serialization of the whole batch.
     """
     if value is None:
         return 0
@@ -71,26 +63,24 @@ def _otel_id(value: str | int | None, n_bytes: int) -> int:
 
 
 class JobLogsEmitter:
-    """One record per line into Logs. Use as a context manager so the batch flushes on exit. Pass
-    ``endpoint`` + ``token`` for production, ``exporter`` in tests; with neither it's a safe no-op
-    (harmless until the Logs lane is configured).
+    """Use as a context manager, because the batch processor drops buffered records that are not
+    flushed before a Temporal activity returns.
+
+    Pass ``endpoint`` and ``token`` in production and ``exporter`` in tests. With neither, the
+    emitter emits nothing.
     """
 
     def __init__(
         self, *, endpoint: str | None = None, token: str | None = None, exporter: LogExporter | None = None
     ) -> None:
-        # This resource must ALSO be passed to every hand-built LogRecord below: Logger.emit(record)
-        # attaches only the instrumentation scope, and a record constructed without resource= defaults
-        # to Resource.create({}) — i.e. the pod's OTEL_SERVICE_NAME/OTEL_RESOURCE_ATTRIBUTES env, which
-        # on the worker is the k8s workload name. Records then land under that service.name and the
-        # failure-logs read filter (service.name = github-ci-logs) never matches them.
+        # Every hand-built LogRecord must also carry this resource. Logger.emit attaches only the
+        # instrumentation scope, so a record without resource= takes the pod's OTEL_SERVICE_NAME,
+        # and the failure-logs read filter on service.name never matches it.
         self._resource = Resource.create({"service.name": _SERVICE_NAME})
         self._provider = LoggerProvider(resource=self._resource)
         if exporter is None and endpoint and token:
-            # capture-logs is in-cluster (a private ClusterIP). The worker's HTTP_PROXY/HTTPS_PROXY
-            # point at the Smokescreen egress proxy, which denies private-range hosts (407) — so the
-            # OTLP POST must bypass it. internal_requests_session sets trust_env=False; without it
-            # every batch export silently 407s and nothing lands in Logs.
+            # capture-logs is in-cluster, and the worker's egress proxy denies private-range hosts.
+            # internal_requests_session bypasses the proxy. Without it every export fails silently.
             exporter = OTLPLogExporter(
                 endpoint=endpoint,
                 headers={"authorization": f"Bearer {token}"},
@@ -113,24 +103,16 @@ class JobLogsEmitter:
         trace_id: str | int | None = 0,
         span_id: str | int | None = 0,
     ) -> int:
-        """Emit one Logs record per non-empty thinned line. Returns the number of records emitted.
+        """Emit one record per non-empty line and return the number emitted.
 
-        ``trace_id``/``span_id`` map the GitHub run/job onto OTLP trace/span so the Logs UI can group
-        a whole workflow run (trace) and isolate one job (span); unmappable ids fall back to 0
-        (unset). They MUST be set: the encoder treats 0 as unset and calls ``int(trace_flags)``, so
-        the SDK's None default would crash serialization of the whole batch and nothing would land.
-
-        Each record carries ``seq`` (its 0-based position in the emitted output) and, for a kept line,
-        ``orig_line`` (its 1-based line in the full pre-thinning log). ``seq`` is the read-side sort
-        key — omission markers carry no timestamp, so timestamp can't order them; ``orig_line`` is the
-        durable anchor back to the original (which isn't stored and expires).
+        Each record carries ``seq``, its 0-based position in the emitted output, and a kept line
+        also carries ``orig_line``, its 1-based line in the full log. ``seq`` is the read-side sort
+        key, because omission markers have no timestamp.
         """
         if not self._enabled:
             return 0
-        # Stringify every attribute value: the logs pipeline only indexes string-typed attributes into
-        # the queryable map (logs34 stores them via JSONExtractString), so a numeric attribute would be
-        # invisible to `attributes['...']` reads — and the failure-logs endpoint filters on exactly
-        # these (run_id / job_id / seq / orig_line / orig_total).
+        # The logs pipeline indexes only string attributes into the queryable map, and the
+        # failure-logs read filters on these attributes.
         base_attrs: dict[str, str] = {
             key: str(value) for key, value in attributes.items() if isinstance(value, (str, int, float, bool))
         }
@@ -163,9 +145,7 @@ class JobLogsEmitter:
         return emitted
 
     def flush(self, timeout_millis: int = 5000) -> None:
-        # Best-effort. BatchLogRecordProcessor.force_flush returns False even on success in our SDK
-        # version, so its bool is not a reliable failure signal — don't gate on it (gating would
-        # fail every job). OTLP emission is fire-and-forget; downstream Kafka gives at-least-once.
+        # The result is ignored because BatchLogRecordProcessor.force_flush can return False on success.
         self._provider.force_flush(timeout_millis=timeout_millis)
 
     def __enter__(self) -> "JobLogsEmitter":

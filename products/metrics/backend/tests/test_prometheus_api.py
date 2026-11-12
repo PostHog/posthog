@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -7,8 +8,13 @@ from django.test import override_settings
 
 import requests
 from parameterized import parameterized
+from requests.auth import HTTPBasicAuth
 from rest_framework import status
 
+from posthog.api.snuffle_proxy import snuffle_request
+from posthog.clickhouse.client import connection
+from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -23,7 +29,47 @@ def _upstream() -> MagicMock:
     return response
 
 
-@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091", SNUFFLE_APM_USER="reader", SNUFFLE_APM_PASSWORD="secret")
+@pytest.mark.parametrize(
+    "registered,ch_user,expected",
+    [
+        (
+            True,
+            ClickHouseUser.ALERTS_PLATFORM_METRICS,
+            [("alerts_platform_metrics", "token-1"), ("alerts_platform_metrics", "token-2")],
+        ),
+        (False, ClickHouseUser.ALERTS_PLATFORM_METRICS, [("reader", "secret"), ("reader", "secret")]),
+        (True, None, [("reader", "secret"), ("reader", "secret")]),
+    ],
+)
+def test_snuffle_request_authenticates_as_the_registered_user_with_its_current_token(
+    settings, monkeypatch, tmp_path, registered, ch_user, expected
+):
+    settings.SNUFFLE_METRICS_URL = "http://snuffle.test:9091"
+    settings.SNUFFLE_METRICS_USER = "reader"
+    settings.SNUFFLE_METRICS_PASSWORD = "secret"
+    token = tmp_path / "token"
+    users = {ClickHouseUser.DEFAULT: ClickHouseCredentials(user="default", password="x")}
+    if registered:
+        users[ClickHouseUser.ALERTS_PLATFORM_METRICS] = ClickHouseCredentials(
+            user="alerts_platform_metrics", password="", password_file=str(token)
+        )
+    monkeypatch.setattr(connection, "__user_dict", users)
+    request = MagicMock(return_value=_upstream())
+    monkeypatch.setattr("posthog.api.snuffle_proxy.internal_requests.request", request)
+
+    sent = []
+    for rotation in ("token-1", "token-2"):
+        token.write_text(rotation)
+        snuffle_request(1, "POST", "/api/v1/query", data={"query": "up"}, ch_user=ch_user, workload=Workload.METRICS)
+        auth = request.call_args.kwargs["auth"]
+        sent.append((auth.username, auth.password))
+
+    assert sent == expected
+
+
+@override_settings(
+    SNUFFLE_METRICS_URL="http://snuffle.test:9091", SNUFFLE_METRICS_USER="reader", SNUFFLE_METRICS_PASSWORD="secret"
+)
 class TestPrometheusQueryApi(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -43,7 +89,7 @@ class TestPrometheusQueryApi(APIBaseTest):
         assert url == "http://snuffle.test:9091/api/v1/query"
         assert kwargs["params"] == {"query": ["sum(rate(http_requests_total[5m]))"]}
         assert kwargs["headers"]["X-Team-ID"] == str(self.team.pk)
-        assert kwargs["auth"] == ("reader", "secret")
+        assert kwargs["auth"] == HTTPBasicAuth("reader", "secret")
 
     @parameterized.expand(
         [

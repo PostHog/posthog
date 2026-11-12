@@ -13,6 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { PersonalAPIKeyType } from '~/types'
 
 import { expiresAtForOption, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
@@ -141,6 +142,24 @@ describe('personalAPIKeysLogic', () => {
         expect(logic.values.editingKeyId).toBe('new')
     })
 
+    test.each([
+        { status: 404, expectedKeyIds: [] },
+        { status: 500, expectedKeyIds: ['stale-key'] },
+    ])('a delete that returns $status leaves keys $expectedKeyIds', async ({ status, expectedKeyIds }) => {
+        jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+        useMocks({
+            delete: {
+                '/api/personal_api_keys/:id/': () => [status, { detail: 'Not found.' }],
+            },
+        })
+        logic.actions.loadKeysSuccess([{ id: 'stale-key', label: 'Stale key' } as PersonalAPIKeyType])
+
+        logic.actions.deleteKey('stale-key')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.keys.map((key) => key.id)).toEqual(expectedKeyIds)
+    })
+
     it('preserves llm_gateway scopes from create payload when GATEWAY_PERSONAL_API_KEY flag is enabled', async () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.GATEWAY_PERSONAL_API_KEY], {
             [FEATURE_FLAGS.GATEWAY_PERSONAL_API_KEY]: true,
@@ -179,14 +198,19 @@ describe('personalAPIKeysLogic', () => {
         expect(capturedCreatePayload.scopes).toEqual(['*'])
     })
 
-    it('opens a new key with the preset scopes for a ?preset= link', () => {
+    it('opens a new key with the preset scopes for a ?preset= link, all available to a project scoped key', () => {
         router.actions.push(urls.settings('user-api-keys'), { preset: 'source_map_upload' })
 
         expect(logic.values.editingKeyId).toBe('new')
         expect(logic.values.editingKey).toMatchObject({
             preset: 'source_map_upload',
-            scopes: ['organization:read', 'error_tracking:write'],
+            scopes: ['error_tracking:write'],
         })
+
+        logic.actions.setEditingKeyValues({ access_type: 'teams' })
+        expect(logic.values.scopeRows.filter((row) => row.value !== 'none' && row.muted).map((row) => row.key)).toEqual(
+            []
+        )
     })
 
     it.each(['survey', 'early_access_feature'])(
@@ -204,13 +228,13 @@ describe('personalAPIKeysLogic', () => {
     it('clamps a group write to what each row can take', async () => {
         logic.actions.setEditingKeyId('new')
         logic.actions.setEditingKeyValues({ access_type: 'teams' })
-        // integration is read-only, and organization is not available for a project scoped key.
-        logic.actions.setScopeGroupAccess(['survey', 'integration', 'organization'], 'write')
+        // file_system is read-only, and organization is not available for a project scoped key.
+        logic.actions.setScopeGroupAccess(['survey', 'file_system', 'organization'], 'write')
         await expectLogic(logic).toFinishAllListeners()
 
         expect([...logic.values.editingKey.scopes].sort()).toEqual([
             'feature_flag:write',
-            'integration:read',
+            'file_system:read',
             'survey:write',
         ])
     })

@@ -78,13 +78,6 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        if (result.projectAllowed === false) {
-            const reach =
-                result.scopedProjects.length > 0
-                    ? `projects ${result.scopedProjects.join(', ')}`
-                    : `organizations ${result.scopedOrganizations.join(', ')}`
-            out.line(out.style(`The key can't reach project ${result.projectId}. It only reaches ${reach}.`, 'yellow'))
-        }
         out.line(`Scopes: ${result.scopes.join(', ') || 'none'}`)
         out.line(`Usable tools: ${result.usable} of ${result.tools}`)
         if (result.missingScopes.length > 0) {
@@ -95,10 +88,23 @@ export default defineCommand({
                     .slice(0, TOP_SCOPES)
                     .map((entry) => [entry.scope, entry.tools, entry.groups.join(', ')])
             )
-            const more = result.missingScopes.length - TOP_SCOPES
-            if (more > 0) {
-                out.line(out.style(`${plural(more, 'more missing scope')}. \`-o json\` lists them all.`, 'dim'))
-            }
         }
+
+        const warnings: string[] = []
+        if (result.projectAllowed === false) {
+            const reach =
+                result.scopedProjects.length > 0
+                    ? `projects ${result.scopedProjects.join(', ')}`
+                    : `organizations ${result.scopedOrganizations.join(', ')}`
+            warnings.push(`The key can't reach project ${result.projectId}. It only reaches ${reach}.`)
+        }
+        const more = result.missingScopes.length - TOP_SCOPES
+        out.notes({
+            warnings,
+            notes:
+                more > 0
+                    ? [out.style(`${plural(more, 'more missing scope')}. \`-o json\` lists them all.`, 'dim')]
+                    : [],
+        })
     },
 })

@@ -128,7 +128,7 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
         assert scan.flag_keys(filter_conjuncts(select)) == ["a", "b"]
 
     def test_complete_days_leave_out_the_day_the_ttl_may_have_dropped(self):
-        assert FLAG_EVALUATIONS_COMPLETE_DAYS < FLAG_EVALUATIONS_TTL_DAYS
+        assert FLAG_EVALUATIONS_COMPLETE_DAYS == FLAG_EVALUATIONS_TTL_DAYS - 1
 
     @parameterized.expand(
         [
@@ -630,12 +630,12 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
         [
             (
                 "date_rounding_shifted_in_a_zone_behind_utc",
-                datetime(2026, 10, 24, 12, 0, tzinfo=UTC),
+                datetime(2026, 10, 26, 12, 0, tzinfo=UTC),
                 "America/Los_Angeles",
                 "toMonday(toDateTime('2026-08-02 22:00:00')) - INTERVAL 1 HOUR",
             ),
-            # Troll is on UTC+0 now and was on UTC+2 89 days back, so subtracting 89 days lands two hours earlier
-            # in UTC than 89 times 24 hours does.
+            # Troll is on UTC+0 now and was on UTC+2 91 days back. Subtracting 91 days therefore lands two hours
+            # earlier in UTC than 91 times 24 hours does.
             (
                 "day_rounding_across_a_two_hour_dst_change",
                 datetime(2026, 10, 28, 23, 30, tzinfo=UTC),

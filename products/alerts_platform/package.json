@@ -7,14 +7,23 @@
     "dependencies": {
         "@posthog/quill": "workspace:*",
         "kea": "catalog:",
-        "kea-loaders": "catalog:"
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
-        "@storybook/react": "catalog:"
+        "@storybook/react": "catalog:",
+        "@testing-library/react": "^16.3.3",
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
+        "@testing-library/dom": "*",
         "@types/react": "*",
-        "react": "*"
+        "@types/react-dom": "*",
+        "react": "*",
+        "react-dom": "*"
     }
 }

@@ -15,7 +15,7 @@ import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { expect, userEvent } from 'storybook/test'
 
 import { modelLab } from './aiLabs'
-import { labMark } from './brandMarks'
+import { labMark } from './aiLabs'
 import { ActivityNextSteps } from './earlyData/ActivityNextSteps'
 import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
 
@@ -56,7 +56,7 @@ const DAILY_TOTALS: [string, number, number][] = [
     ['2026-06-07', 5300, 168],
 ]
 
-const ACTIVITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors]) => [day, calls - errors, errors])
+const ACTIVITY_RESULTS = DAILY_TOTALS.map(([bucket, calls, errors]) => ({ bucket, successes: calls - errors, errors }))
 
 const TOOL_DAILY_SHARES: [string, number][] = [
     ['exec', 0.58],
@@ -68,7 +68,7 @@ const TOOL_DAILY_SHARES: [string, number][] = [
 ]
 
 const TOOL_DAILY_RESULTS = DAILY_TOTALS.flatMap(([day, calls]) =>
-    TOOL_DAILY_SHARES.map(([tool, share]) => [day, tool, Math.round(calls * share)])
+    TOOL_DAILY_SHARES.map(([tool, share]) => ({ bucket: day, tool, calls: Math.round(calls * share) }))
 )
 
 const SESSION_RESULTS = [
@@ -80,14 +80,42 @@ const SESSION_RESULTS = [
     ['0193f2a1-aaaa-bbbb-cccc-000000000006', 22, 3, 13.6, 410, 6, '2026-06-06T16:20:00Z'],
 ]
 
+// An invented icon for the custom harness below, as a team would paste it in settings.
+const ACME_AGENT_ICON =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAoklEQVR42u2WyxGAIAwF4ZXhwcIs0MI82IbemUHyh8yYMwnshl8pfyjjPvZHk4/ZALCg11jIa6ClllrIaaBHK7GQz8CIkmshlwEqHceC2sB2XjXEALe31PGwoNdYgOeLR8mDVe+lFuD93o/yYbnzJRbgSU+pA+tzz7UAb/pRPXjcehwLiKD/qguvO586vkbR9xa31n8ggr6dZx0DUfSz5uvGCwGCWU5qX8y4AAAAAElFTkSuQmCC'
+
+const CUSTOM_HARNESSES = [
+    {
+        id: '0193f2a1-0000-7000-8000-000000000001',
+        name: 'Acme agent',
+        match_pattern: 'acme-agent',
+        icon: ACME_AGENT_ICON,
+        created_at: '2026-06-01T10:00:00Z',
+        updated_at: '2026-06-01T10:00:00Z',
+    },
+]
+
 // MCPHarnessBreakdownQuery returns already-labelled rows (the runner resolves the
 // harness server-side), so these are customer labels, not raw client strings.
 const HARNESS_RESULTS = [
     { harness: 'Claude Code', total_calls: 6200, errors: 240, error_rate_pct: 3.9, sessions: 820 },
     { harness: 'Cursor', total_calls: 2100, errors: 96, error_rate_pct: 4.6, sessions: 410 },
+    // A team-defined custom harness name. It shows the icon the team pasted in settings.
+    { harness: 'Acme agent', total_calls: 1500, errors: 30, error_rate_pct: 2.0, sessions: 260 },
     { harness: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180 },
     { harness: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240 },
     { harness: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
+]
+
+const MODEL_BREAKDOWN_RESULTS = [
+    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
+    { model: 'example-fast', total_calls: 3100 },
+    { model: 'example-balanced', total_calls: 1800 },
+    { model: 'example-model-d', total_calls: 500 },
+    { model: 'example-model-e', total_calls: 200 },
+    { model: 'example-model-f', total_calls: 1 },
+    { model: 'Other', total_calls: 179 },
+    { model: 'Unknown', total_calls: 600 },
 ]
 
 const SESSION_LIST = {
@@ -166,6 +194,9 @@ const TOOL_CALL_LIST = {
             is_error: true,
             error_message: 'Estimated query execution time is too long (max_execution_time=600)',
             duration_ms: 610000,
+            parameters: '{"query":"SELECT event, count() FROM events GROUP BY event","timeout_seconds":600}',
+            error_type: 'timeout',
+            error_status: '',
         },
     ],
 }
@@ -715,37 +746,19 @@ const PROTOCOL_SHARES: [string, number][] = [
     ['Unknown', 0.05],
 ]
 
-// The tool facet groups by the effective tool name, which reads `$mcp_exec_tool_call_name` first.
-const facetProperty = (query: string): string => {
-    if (query.includes('$mcp_protocol_version')) {
-        return '$mcp_protocol_version'
-    }
-    if (query.includes('$mcp_exec_tool_call_name')) {
-        return '$mcp_tool_name'
-    }
-    return query.match(/toString\(properties\.(\$\w+)\)/)?.[1] ?? ''
-}
-
 const bucketedShareResults = (shares: [string, number][]): [string, string, number][] =>
     DAILY_TOTALS.flatMap(([day, calls]) =>
         shares.map(([label, share]): [string, string, number] => [day, label, Math.round(calls * share)])
     )
 
-// [label, calls, users, errors] per leaderboard facet, keyed by the event property the query groups by.
-const WINDOW_FACET_RESULTS: Record<string, [string, number, number, number][]> = {
-    $mcp_tool_name: TOOL_RESULTS.map((r): [string, number, number, number] => [
-        String(r[0]),
-        Number(r[1]),
-        100,
-        Number(r[2]),
-    ]),
-    $mcp_error_type: [
-        ['timeout', 90, 40, 90],
-        ['validation', 60, 30, 60],
-        ['auth', 30, 15, 30],
-        ['rate_limit', 15, 9, 15],
-    ],
-}
+// [label, calls, users, errors] per leaderboard facet.
+const TOOL_FACET_RESULTS = TOOL_RESULTS.map((r) => [r[0], r[1], 100, r[2]])
+const ERROR_TYPE_FACET_RESULTS = [
+    ['timeout', 90, 40, 90],
+    ['validation', 60, 30, 60],
+    ['auth', 30, 15, 30],
+    ['rate_limit', 15, 9, 15],
+]
 
 const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
     day,
@@ -754,6 +767,30 @@ const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
     700 + index * 20,
     3100 + index * 90,
 ])
+
+const DASHBOARD_SECTIONS: Record<string, unknown[]> = {
+    kpis: KPI_RESULTS,
+    periodTotals: [[1840, 1655, 2050, 2180]],
+    toolRows: TOOL_RESULTS,
+    sessionRows: SESSION_RESULTS,
+    harnessRows: HARNESS_RESULTS,
+    modelRows: MODEL_BREAKDOWN_RESULTS,
+    activityRows: ACTIVITY_RESULTS,
+    toolDailyRows: TOOL_DAILY_RESULTS,
+    model: bucketedShareResults(MODEL_SHARES),
+    protocolVersion: bucketedShareResults(PROTOCOL_SHARES),
+    tool: TOOL_FACET_RESULTS,
+    errorType: ERROR_TYPE_FACET_RESULTS,
+    labUsers: [
+        ['Anthropic', 190],
+        ['OpenAI', 150],
+        ['Google', 80],
+        ['Open weights', 20],
+        ['Unknown', 40],
+    ],
+    namedModelUsers: [[260]],
+    reliability: RELIABILITY_RESULTS,
+}
 
 const meta: Meta = {
     component: App,
@@ -765,6 +802,7 @@ const meta: Meta = {
             })(Story, context),
         mswDecorator({
             get: {
+                '/api/projects/:team_id/mcp_analytics/custom_harnesses/': CUSTOM_HARNESSES,
                 '/api/projects/:team_id/mcp_analytics/intent_clusters/': CLUSTER_SNAPSHOT,
                 '/api/projects/:team_id/mcp_analytics/sessions/activity_overview/': ACTIVITY_OVERVIEW,
                 '/api/projects/:team_id/mcp_analytics/sessions/': SESSION_LIST,
@@ -787,22 +825,21 @@ const meta: Meta = {
                     const query: string = body?.query?.query ?? ''
                     // The harness tile sends a typed MCPHarnessBreakdownQuery node (the runner
                     // resolves the harness server-side) — match on its kind, not a SQL string.
-                    if (body?.query?.kind === 'MCPModelBreakdownQuery') {
+                    if (body?.query?.kind === 'MCPDashboardQuery') {
                         return [
                             200,
                             {
-                                results: [
-                                    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
-                                    { model: 'example-fast', total_calls: 3100 },
-                                    { model: 'example-balanced', total_calls: 1800 },
-                                    { model: 'example-model-d', total_calls: 500 },
-                                    { model: 'example-model-e', total_calls: 200 },
-                                    { model: 'example-model-f', total_calls: 1 },
-                                    { model: 'Other', total_calls: 179 },
-                                    { model: 'Unknown', total_calls: 600 },
-                                ],
+                                results: Object.fromEntries(
+                                    body.query.sections.map((section: string) => [
+                                        section,
+                                        { results: DASHBOARD_SECTIONS[section] ?? [] },
+                                    ])
+                                ),
                             },
                         ]
+                    }
+                    if (body?.query?.kind === 'MCPModelBreakdownQuery') {
+                        return [200, { results: MODEL_BREAKDOWN_RESULTS }]
                     }
                     if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
@@ -876,28 +913,10 @@ const meta: Meta = {
                         ]
                     }
                     if (body?.query?.kind === 'MCPToolCallBreakdownQuery') {
-                        return [
-                            200,
-                            {
-                                results: TOOL_DAILY_RESULTS.map(([bucket, tool, calls]) => ({
-                                    bucket,
-                                    tool,
-                                    calls,
-                                })),
-                            },
-                        ]
+                        return [200, { results: TOOL_DAILY_RESULTS }]
                     }
                     if (body?.query?.kind === 'MCPToolCallsAndErrorsQuery') {
-                        return [
-                            200,
-                            {
-                                results: ACTIVITY_RESULTS.map(([bucket, successes, errors]) => ({
-                                    bucket,
-                                    successes,
-                                    errors,
-                                })),
-                            },
-                        ]
+                        return [200, { results: ACTIVITY_RESULTS }]
                     }
                     if (body?.query?.kind === 'MCPToolCategoriesQuery') {
                         return [200, { results: CATEGORY_LIST.map((r) => ({ category: r[0] })) }]
@@ -911,41 +930,6 @@ const meta: Meta = {
                     if (body?.query?.kind === 'EventsQuery') {
                         return [200, activityEventsResponse(body.query.select ?? [])]
                     }
-                    // Leaderboard home tab queries. Match before the KPI query below: both select AS bucket.
-                    if (query.includes('AS lab,')) {
-                        return [
-                            200,
-                            {
-                                results: [
-                                    ['Anthropic', 190],
-                                    ['OpenAI', 150],
-                                    ['Google', 80],
-                                    ['Open weights', 20],
-                                    ['Unknown', 40],
-                                ],
-                            },
-                        ]
-                    }
-                    if (query.includes("!= 'Unknown'")) {
-                        return [200, { results: [[260]] }]
-                    }
-                    if (query.includes('AS label')) {
-                        const property = facetProperty(query)
-                        if (query.includes('AS bucket')) {
-                            return [
-                                200,
-                                {
-                                    results: bucketedShareResults(
-                                        property === '$mcp_protocol_version' ? PROTOCOL_SHARES : MODEL_SHARES
-                                    ),
-                                },
-                            ]
-                        }
-                        return [200, { results: WINDOW_FACET_RESULTS[property] ?? [] }]
-                    }
-                    if (query.includes('AS p50')) {
-                        return [200, { results: RELIABILITY_RESULTS }]
-                    }
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.
                     if (query.includes('has_initialize')) {
@@ -955,15 +939,6 @@ const meta: Meta = {
                                 results: [[true, ACTIVITY_OVERVIEW.stats.total_calls, 72, '2026-05-15T09:00:00Z']],
                             },
                         ]
-                    }
-                    if (query.includes('AS session_id')) {
-                        return [200, { results: SESSION_RESULTS }]
-                    }
-                    if (query.includes('p95_duration_ms')) {
-                        return [200, { results: TOOL_RESULTS }]
-                    }
-                    if (query.includes('AS bucket')) {
-                        return [200, { results: KPI_RESULTS }]
                     }
                     return [200, { results: [] }]
                 },

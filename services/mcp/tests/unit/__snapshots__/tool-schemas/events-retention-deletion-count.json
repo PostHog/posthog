@@ -1,0 +1,13 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "retention_months": {
+            "description": "The period in months to count for, at most 1200. Only events older than this period are counted.",
+            "maximum": 1200,
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["retention_months"],
+    "type": "object"
+}

@@ -291,6 +291,11 @@ export interface AutoresearchPipelineApi {
      */
     readonly next_research_at: string | null
     /**
+     * Why the best model of the newest completed training run did not go live, for example a failed fit or a failed scorability check. Set only while the pipeline is bootstrapping with no champion.
+     * @nullable
+     */
+    readonly not_promoted_reason: string | null
+    /**
      * Target AUC threshold. Training stops early if this score is reached.
      * @nullable
      */
@@ -1919,9 +1924,9 @@ export interface StartTrainingRequestApi {
 export interface TrainingRunCapReachedApi {
     /** Why the run did not start. */
     detail: string
-    /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+    /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
     used: number
-    /** Sandbox training runs the project may start in any 24 hours. */
+    /** The project's daily limit of sandbox training runs. */
     limit: number
     /**
      * When the next training run can start. Null when training runs are turned off for the project.
@@ -1965,6 +1970,55 @@ export interface AgentModelOptionsApi {
     default_reasoning_effort: string | null
     /** Models a pipeline may set as agent_model. */
     models: AgentModelOptionApi[]
+}
+
+/**
+ * * `project` - Project
+ * * `default` - Default
+ * * `code` - Code
+ */
+export type LimitSourceEnumApi = (typeof LimitSourceEnumApi)[keyof typeof LimitSourceEnumApi]
+
+export const LimitSourceEnumApi = {
+    Project: 'project',
+    Default: 'default',
+    Code: 'code',
+} as const
+
+export interface ProjectLimitsApi {
+    /** The project's daily limit of sandbox training runs, across all its pipelines. 0 means training is turned off. */
+    max_training_runs_per_day: number
+    /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
+    training_runs_used: number
+    /**
+     * When the next training run can start, while the project is at its daily limit. Null while a run can start now, and when training is turned off.
+     * @nullable
+     */
+    next_slot_at: string | null
+    /** Most experiments any one training run gets. A pipeline's iterations_per_run above this is lowered to it. */
+    max_iterations_per_run: number
+    /** Most pipelines the project may have live (bootstrapping, running or converged, or a draft with an open training run, which goes live when the run promotes). Starting a draft's first training run or resuming a paused pipeline is refused at this limit. */
+    max_live_pipelines: number
+    /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
+    live_pipelines: number
+    /** Where max_training_runs_per_day comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+     *
+     * * `project` - Project
+     * * `default` - Default
+     * * `code` - Code */
+    max_training_runs_per_day_source: LimitSourceEnumApi
+    /** Where max_iterations_per_run comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+     *
+     * * `project` - Project
+     * * `default` - Default
+     * * `code` - Code */
+    max_iterations_per_run_source: LimitSourceEnumApi
+    /** Where max_live_pipelines comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+     *
+     * * `project` - Project
+     * * `default` - Default
+     * * `code` - Code */
+    max_live_pipelines_source: LimitSourceEnumApi
 }
 
 /**
@@ -2150,6 +2204,20 @@ export interface ValidationWarningApi {
     severity: ValidationWarningSeverityEnumApi
 }
 
+/**
+ * * `invalid_definition` - Invalid definition
+ * * `too_expensive` - Too expensive
+ * * `unavailable` - Unavailable
+ */
+export type AutoresearchValidationErrorCodeEnumApi =
+    (typeof AutoresearchValidationErrorCodeEnumApi)[keyof typeof AutoresearchValidationErrorCodeEnumApi]
+
+export const AutoresearchValidationErrorCodeEnumApi = {
+    InvalidDefinition: 'invalid_definition',
+    TooExpensive: 'too_expensive',
+    Unavailable: 'unavailable',
+} as const
+
 export interface ValidatePipelineResponseApi {
     /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
     can_proceed: boolean
@@ -2187,6 +2255,12 @@ export interface ValidatePipelineResponseApi {
      * @nullable
      */
     error: string | null
+    /** Why validation did not run, or null when it did. 'invalid_definition': a query error in the definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this project's data, so a retry fails the same way; narrow the population, for example to people who performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth a retry.
+     *
+     * * `invalid_definition` - Invalid definition
+     * * `too_expensive` - Too expensive
+     * * `unavailable` - Unavailable */
+    error_code: AutoresearchValidationErrorCodeEnumApi | null
 }
 
 export type AutoresearchListParams = {

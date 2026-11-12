@@ -1,5 +1,6 @@
 import json
-from datetime import timedelta
+import dataclasses
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -51,6 +52,7 @@ _VIEWS = "products.stamphog.backend.presentation.views"
 # The repo enumeration moved behind the facade with the sync logic; the rest is still looked up in views.
 _GITHUB_FACADE = "products.stamphog.backend.facade.github"
 _CLIENT = "products.stamphog.backend.logic.github_client.StamphogGitHubClient"
+_SWITCH_ON = {"review_on_clean_external_review": True}
 
 
 def _install_state(team_id: int, user_id: int) -> str:
@@ -96,6 +98,8 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("review_mode", {"review_mode": ReviewMode.ALL}),
             ("trigger_label", {"trigger_label": "review-me"}),
             ("routing_mode", {"routing_mode": RoutingMode.FALLBACK}),
+            ("routing_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
+            ("review_on_clean_external_review", {"review_on_clean_external_review": True}),
         ]
     )
     def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -173,6 +177,8 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         [
             ("turns_reviews_off", {"enabled": False}),
             ("turns_reviewer_requests_on", {"routing_mode": RoutingMode.FALLBACK}),
+            ("sets_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
+            ("turns_clean_review_trigger_on", {"review_on_clean_external_review": True}),
         ]
     )
     def test_member_granted_manager_can_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -656,6 +662,59 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["digest_enabled"] is False
 
+    @parameterized.expand(
+        [
+            ("create_in_all_mode", None, {"repository": "PostHog/posthog", "review_mode": "all", **_SWITCH_ON}, None),
+            ("switch_on_in_stored_all_mode", ReviewMode.ALL, _SWITCH_ON, None),
+            ("all_mode_and_switch_in_one_save", ReviewMode.LABEL, {"review_mode": "all", **_SWITCH_ON}, None),
+            # The mode dropdown sends only review_mode, so the save must take the switch with it.
+            ("all_mode_turns_the_switch_off", ReviewMode.LABEL, {"review_mode": "all"}, False),
+            ("switch_on_in_label_mode", ReviewMode.LABEL, _SWITCH_ON, True),
+        ]
+    )
+    def test_the_clean_review_switch_needs_label_mode(
+        self, _name: str, stored_mode: ReviewMode | None, data: dict, expected_switch: bool | None
+    ) -> None:
+        # In all mode the switch only makes fallback routing wait for a silent review that never starts.
+        current = None
+        if stored_mode is not None:
+            current = dataclasses.replace(
+                _repo_config_dto(enabled=True, digest_enabled=False),
+                review_mode=stored_mode,
+                review_on_clean_external_review=True,
+            )
+        serializer = StamphogRepoConfigWriteSerializer(
+            data=data, partial=current is not None, partial_update=current is not None, current=current
+        )
+
+        if expected_switch is None:
+            assert not serializer.is_valid()
+            assert "review_on_clean_external_review" in serializer.errors
+        else:
+            assert serializer.is_valid(), serializer.errors
+            assert serializer.validated_data["review_on_clean_external_review"] is expected_switch
+
+    @parameterized.expand(
+        [
+            ("person_key", {"@alice": "area: alice"}, False),
+            ("blank_label", {"team-alpha": "  "}, False),
+            ("label_too_long_for_github", {"team-alpha": "x" * 51}, False),
+            ("too_many_teams", {f"team-{index}": "area" for index in range(101)}, False),
+            ("clears_every_label", {}, True),
+        ]
+    )
+    def test_fork_labels_take_only_team_slugs_and_github_label_names(
+        self, _name: str, labels: dict[str, str], valid: bool
+    ) -> None:
+        serializer = StamphogRepoConfigWriteSerializer(
+            data={"routing_fork_labels": labels},
+            partial=True,
+            partial_update=True,
+            current=_repo_config_dto(enabled=True, digest_enabled=False),
+        )
+
+        assert serializer.is_valid() is valid, serializer.errors
+
 
 class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
@@ -738,6 +797,24 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("self_driving_beats_all_mode", ReviewMode.ALL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
             ("self_driving_beats_label_mode", ReviewMode.LABEL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
             ("manual_beats_label_mode", ReviewMode.LABEL, {"manual_review": {"acting_user_id": 1}}, "manual"),
+            (
+                "manual_beats_silent",
+                ReviewMode.LABEL,
+                {"manual_review": {"acting_user_id": 1}, "review_trigger": "reviewhog_clean"},
+                "manual",
+            ),
+            (
+                "silent_beats_label_mode",
+                ReviewMode.LABEL,
+                {"review_trigger": "reviewhog_clean"},
+                "reviewhog_clean",
+            ),
+            (
+                "silent_beats_all_mode",
+                ReviewMode.ALL,
+                {"review_trigger": "reviewhog_clean"},
+                "reviewhog_clean",
+            ),
             ("label_mode", ReviewMode.LABEL, {}, "label"),
             ("all_mode", ReviewMode.ALL, {}, "all"),
         ]
@@ -875,6 +952,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("same_base_is_returned", ReviewRunStatus.COMPLETED, "master", False, False),
             # A base retarget changes the diff without moving the head.
             ("other_base_is_replaced", ReviewRunStatus.COMPLETED, "feat/parent", True, True),
+            ("silent_in_flight_is_superseded", ReviewRunStatus.REVIEWING, None, True, True, True),
         ]
     )
     def test_repeat_request_dedupes_on_the_current_head(
@@ -884,9 +962,12 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         reviewed_base_ref: str | None,
         expect_created: bool,
         expect_start: bool,
+        existing_silent: bool = False,
     ) -> None:
         first = self._request().json()["run"]["id"]
-        output = {"pr": {"base": {"ref": reviewed_base_ref}}} if reviewed_base_ref else {}
+        output: dict[str, Any] = {"pr": {"base": {"ref": reviewed_base_ref}}} if reviewed_base_ref else {}
+        if existing_silent:
+            output["review_trigger"] = "reviewhog_clean"
         ReviewRun.objects.unscoped().filter(id=first).update(status=existing_status, output=output)
         self.start_workflow.reset_mock()
 
@@ -897,6 +978,8 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert body["created"] is expect_created
         assert (body["run"]["id"] == first) is not expect_created
         assert self.start_workflow.called is expect_start
+        if existing_silent:
+            assert ReviewRun.objects.unscoped().get(id=first).status == ReviewRunStatus.SUPERSEDED
 
     @parameterized.expand(
         [
@@ -1059,6 +1142,8 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             review_mode=ReviewMode.ALL,
             trigger_label="nobody-uses-this",
             routing_mode=RoutingMode.ALWAYS,
+            routing_fork_labels={"team-alpha": "area: alpha"},
+            review_on_clean_external_review=True,
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -1075,6 +1160,8 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.review_mode == ReviewMode.LABEL
         assert manual.trigger_label == StamphogRepoConfig._meta.get_field("trigger_label").get_default()
         assert manual.routing_mode == RoutingMode.OFF
+        assert manual.routing_fork_labels == {}
+        assert manual.review_on_clean_external_review is False
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
@@ -1255,6 +1342,15 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         "status": "added",
         "additions": 20,
         "deletions": 0,
+        "owners_source": "products/alpha/owners.yaml",
+    }
+    # Runs recorded before `owners_source` existed have no such key.
+    _OLD_FILE = {
+        "path": "products/beta/c.py",
+        "previous_path": None,
+        "status": "modified",
+        "additions": 1,
+        "deletions": 1,
     }
 
     def setUp(self) -> None:
@@ -1282,6 +1378,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                     "outcome": "cut",
                     "reason": "model_cut",
                     "model_reason": "Only renames an import.",
+                    "files": [self._OLD_FILE],
                 },
             ],
         )
@@ -1382,7 +1479,88 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert run["owners_sha"] == "owners-1"
         assert {owner["owner"]: owner["files"] for owner in run["owners"]} == {
             "team-alpha": [self._FILE],
-            "team-beta": [],
+            "team-beta": [{**self._OLD_FILE, "owners_source": None}],
+        }
+
+    @parameterized.expand(
+        [
+            ("no_record", None, None),
+            (
+                "waiting",
+                {"status": "waiting", "mode": "fallback", "trigger": "opened", "waiting_since": -5},
+                {"status": "waiting", "mode": "fallback", "trigger": "opened", "waiting_since": -5},
+            ),
+            (
+                "fresh_claim",
+                {"status": "routing", "mode": "always", "trigger": "opened", "scope": "full", "claimed_at": -5},
+                {"status": "routing", "mode": "always", "trigger": "opened", "scope": "full", "claimed_at": -5},
+            ),
+            (
+                "expired_requested_claim",
+                {
+                    "status": "requested",
+                    "mode": "fallback",
+                    "trigger": "verdict:approved",
+                    "scope": "pinned",
+                    "claimed_at": -180,
+                    "routed_at": -179,
+                    "pinned_routed_head": "head-1",
+                },
+                {
+                    "status": "requested",
+                    "mode": "fallback",
+                    "trigger": "verdict:approved",
+                    "scope": "pinned",
+                    "claim_expired": True,
+                    "claimed_at": -180,
+                    "routed_at": -179,
+                    "pinned_routed_head": "head-1",
+                },
+            ),
+        ]
+    )
+    def test_a_pull_request_shows_its_latest_routing_record(
+        self, _name: str, record: dict[str, Any] | None, expected: dict[str, Any] | None
+    ) -> None:
+        now = timezone.now().replace(microsecond=0)
+        times = ("waiting_since", "claimed_at", "routed_at")
+
+        def at(values: dict[str, Any]) -> dict[str, Any]:
+            return {key: (now + timedelta(minutes=value) if key in times else value) for key, value in values.items()}
+
+        stored = None
+        if record is not None:
+            # The plan, the comment and the claim's previous record must never leave the API.
+            stored = {
+                **{key: (value.isoformat() if key in times else value) for key, value in at(record).items()},
+                "head_sha": "head-1",
+                "claimed_by": "task-1",
+                "candidates": [{"owner": "team-alpha", "model_reason": "author text"}],
+                "pending_comment": "author text",
+                "previous": {"status": "done"},
+            }
+        PullRequest.objects.unscoped().filter(team_id=self.team.id, pr_number=1).update(routing=stored)
+        StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).update(routing_mode=RoutingMode.FALLBACK)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/stamphog/pull_requests/", {"pr_number": 1})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        pull_request = response.json()["results"][0]
+        assert pull_request["routing_mode"] == "fallback"
+        routing = pull_request["routing"]
+        if expected is None:
+            assert routing is None
+            return
+        for key in times:
+            routing[key] = datetime.fromisoformat(routing[key]) if routing[key] else None
+        assert routing == {
+            "head_sha": "head-1",
+            "scope": None,
+            "claim_expired": False,
+            **dict.fromkeys(times),
+            "full_routed_head": "",
+            "pinned_routed_head": "",
+            **at(expected),
         }
 
     def test_another_teams_run_is_not_found(self) -> None:

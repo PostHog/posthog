@@ -18,13 +18,14 @@ from unittest.case import skip
 from unittest.mock import ANY, patch
 
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     DataTableNode,
@@ -75,8 +76,13 @@ from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
-from products.product_analytics.backend.models.insight import InsightViewed
-from products.product_analytics.backend.presentation.insight import InsightSerializer, chart_display_filter
+from products.product_analytics.backend.models.insight import InsightAgentRead, InsightViewed
+from products.product_analytics.backend.presentation.insight import (
+    InsightSerializer,
+    InsightViewSet,
+    chart_display_filter,
+    parse_property_names_param,
+)
 from products.subscriptions.backend.facade.testing import (
     create_subscription,
     create_subscription_delivery,
@@ -204,38 +210,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"user": "true"}).json()
 
         self.assertEqual(len(response["results"]), 1)
-
-    def test_get_insight_items_all_environments_included(self) -> None:
-        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
-        _, team_in_other_project = Project.objects.create_with_team(
-            organization=self.organization, initiating_user=self.user
-        )
-
-        insight_a = Insight.objects.create(
-            query=browser_filtered_pageview_query(),
-            team=self.team,
-            created_by=self.user,
-        )
-        insight_b = Insight.objects.create(
-            query=browser_filtered_pageview_query(),
-            team=other_team_in_project,
-            created_by=self.user,
-        )
-        Insight.objects.create(
-            query=browser_filtered_pageview_query(),
-            team=team_in_other_project,
-            created_by=self.user,
-        )
-
-        # All of these three ways should return the same set of insights,
-        # i.e. all insights in the test project regardless of environment
-        response_project = self.client.get(f"/api/projects/{self.project.id}/insights/").json()
-        response_env_current = self.client.get(f"/api/environments/{self.team.id}/insights/").json()
-        response_env_other = self.client.get(f"/api/environments/{other_team_in_project.id}/insights/").json()
-
-        self.assertEqual({insight["id"] for insight in response_project["results"]}, {insight_a.id, insight_b.id})
-        self.assertEqual({insight["id"] for insight in response_env_current["results"]}, {insight_a.id, insight_b.id})
-        self.assertEqual({insight["id"] for insight in response_env_other["results"]}, {insight_a.id, insight_b.id})
 
     @patch("posthoganalytics.capture")
     def test_created_updated_and_last_modified(self, mock_capture: mock.Mock) -> None:
@@ -1168,7 +1142,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [11, 11, 11, 11, 11],
+            [9, 9, 9, 9, 9],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
@@ -1793,6 +1767,31 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
+    @parameterized.expand(
+        [
+            ("an agent", {"X-PostHog-Client": "mcp"}, False, 1),
+            ("an agent by short id", {"X-PostHog-Client": "mcp"}, True, 1),
+            ("the web app", {}, False, 0),
+            ("the desktop app", {"User-Agent": "posthog/desktop.hog.dev/1.0"}, False, 0),
+        ]
+    )
+    def test_agent_reads_are_recorded_for_the_reader(
+        self, _name: str, headers: dict[str, str], by_short_id: bool, recorded: int
+    ) -> None:
+        insight_id, insight_json = self.dashboard_api.create_insight({})
+        path = (
+            f"/api/projects/{self.team.id}/insights/?short_id={insight_json['short_id']}"
+            if by_short_id
+            else f"/api/projects/{self.team.id}/insights/{insight_id}"
+        )
+
+        self.client.get(path, headers=headers)
+
+        self.assertEqual(
+            InsightAgentRead.objects.for_team(self.team.id).filter(user=self.user, insight_id=insight_id).count(),
+            recorded,
+        )
+
     @patch("products.product_analytics.backend.presentation.insight.report_user_action")
     def test_web_retrieve_does_not_fire_insight_read_event(self, mock_report_user_action: mock.Mock) -> None:
         insight_id, _ = self.dashboard_api.create_insight({})
@@ -1886,6 +1885,80 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 }
             ],
         )
+
+    def test_patch_does_not_restore_a_field_changed_since_the_read(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight name", "description": "old description"})
+        original_get_object = InsightViewSet.get_object
+
+        def get_object_then_land_a_concurrent_write(viewset):
+            insight = original_get_object(viewset)
+            Insight.objects.filter(pk=insight.pk).update(description="written by another request")
+            return insight
+
+        with (
+            patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_write),
+            capture_db_queries() as queries,
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "renamed"}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        insight = Insight.objects.get(pk=insight_id)
+        assert insight.name == "renamed"
+        assert insight.description == "written by another request"
+        # The assertions above also pass without the lock, which truly concurrent requests need.
+        assert any('FOR NO KEY UPDATE OF "posthog_dashboarditem"' in query["sql"] for query in queries.captured_queries)
+
+    def test_patch_restoring_a_query_changed_since_the_read_regenerates_its_metadata(self) -> None:
+        def events_query(event: str) -> dict:
+            return {"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"], "event": event}}
+
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight name", "query": events_query("event_a")})
+        original_get_object = InsightViewSet.get_object
+
+        def get_object_then_land_a_concurrent_query_change(viewset):
+            insight = original_get_object(viewset)
+            concurrent = Insight.objects.get(pk=insight.pk)
+            concurrent.query = events_query("event_b")
+            concurrent.save()
+            return insight
+
+        with patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_query_change):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}",
+                {"query": events_query("event_a")},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        query_metadata = Insight.objects.get(pk=insight_id).query_metadata
+        assert query_metadata is not None
+        assert query_metadata["events"] == ["event_a"]
+
+    @parameterized.expand([("soft_delete", True), ("hard_delete", False)])
+    def test_patch_after_a_concurrent_delete_returns_404_without_adding_a_tile(self, _name: str, soft: bool) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight name"})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        original_get_object = InsightViewSet.get_object
+
+        def get_object_then_land_a_concurrent_delete(viewset):
+            insight = original_get_object(viewset)
+            concurrent = Insight.objects_including_soft_deleted.filter(pk=insight.pk)
+            if soft:
+                concurrent.update(deleted=True)
+            else:
+                concurrent.delete()
+            return insight
+
+        with patch.object(InsightViewSet, "get_object", get_object_then_land_a_concurrent_delete):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_id]}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert not DashboardTile.objects_including_soft_deleted.filter(insight_id=insight_id).exists()
+        assert not Insight.objects.filter(pk=insight_id).exists()
 
     def test_update_insight(self) -> None:
         with time_machine.travel("2012-01-14T03:21:34.000Z", tick=False) as frozen_time:
@@ -4183,6 +4256,39 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIsNotNone(updated_metadata)
         self.assertNotEqual(initial_metadata, updated_metadata)
 
+    def test_listing_insights_filtered_by_property_name(self):
+        def insight_with_properties(*names: str) -> Insight:
+            # No query, so the save hook keeps the seeded metadata.
+            return Insight.objects.create(
+                team=self.team,
+                created_by=self.user,
+                query_metadata={
+                    "events": [],
+                    "properties": [{"type": "event", "name": name} for name in names],
+                    "updated_at": "2026-01-01T00:00:00Z",
+                },
+            )
+
+        browser_insight = insight_with_properties("$browser")
+        browser_and_os_insight = insight_with_properties("$browser", "$os")
+        os_insight = insight_with_properties("$os")
+
+        def listed_ids(properties_param: str) -> list[int]:
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"properties": properties_param})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            return [insight["id"] for insight in response.json()["results"]]
+
+        self.assertCountEqual(listed_ids(json.dumps(["$browser"])), [browser_insight.id, browser_and_os_insight.id])
+        self.assertCountEqual(listed_ids(json.dumps(["$browser", "$os"])), [browser_and_os_insight.id])
+        # Old clients sent property-filter dicts under this param; those must stay a no-op
+        self.assertCountEqual(
+            listed_ids(json.dumps([{"key": "$browser"}])),
+            [browser_insight.id, browser_and_os_insight.id, os_insight.id],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"properties": "not json"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_updating_insight_with_no_query_changes_does_not_update_query_metadata(self):
         """
         Test that updating an insight without changing the query does not update the query metadata.
@@ -4875,3 +4981,18 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
             team=ANY,
             request=ANY,
         )
+
+
+class TestParsePropertyNamesParam(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("malformed_json", '["$browser"'),
+            ("null", "null"),
+            ("number", "42"),
+            ("string", '"$browser"'),
+            ("object", '{"name": "$browser"}'),
+        ]
+    )
+    def test_rejects_anything_but_a_json_list(self, _name: str, raw: str) -> None:
+        with self.assertRaises(ValidationError):
+            parse_property_names_param(raw)

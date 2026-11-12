@@ -60,6 +60,8 @@ _REFERENCE_ACCESSORS: frozenset[str] = frozenset(
         "featureflagoverride_set",
         "featureflagdashboards_set",
         "access",
+        # A code analysis reads where the repository checks the flag. It doesn't own the flag.
+        "code_analyses",
     }
 )
 
@@ -78,7 +80,7 @@ def flag_owner_kind(flag: "FeatureFlag") -> str | None:
     return None
 
 
-def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
+def assert_flag_available_for(flag: "FeatureFlag", *, product: str, links_a_rule: bool = False) -> None:
     """Reject adopting a flag that a different product already owns.
 
     What must stay unambiguous is the owning *product*, not the owning object. Two experiments
@@ -99,9 +101,11 @@ def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
     window is accepted rather than locked.
 
     A flag stored in another config format is not available either: every adopting product reads
-    and writes its document as config version 1.
+    and writes its document as config version 1. The exception is a caller that links one rule of a
+    config version 2 flag and writes nothing to the flag, which says so with `links_a_rule`.
     """
-    if detect_config_format(flag.filters).kind != "v1":
+    config_format = detect_config_format(flag.filters).kind
+    if config_format != "v1" and not (links_a_rule and config_format == "v2"):
         raise serializers.ValidationError(
             f"The feature flag {flag.key} uses a configuration format that {_OWNER_LABELS[product]} "
             "cannot use yet. Pick a different flag."

@@ -13,16 +13,19 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayCategory } from '~/types'
 
+import { DefaultExposureEventNote } from 'products/experiments/frontend/components/DefaultExposureEventNote'
 import { NegatedEventFilterNote } from 'products/experiments/frontend/components/NegatedEventFilterNote'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
-import { WarehouseNativeConnectionFields } from 'products/experiments/frontend/warehouseNative/WarehouseNativeConnectionFields'
-import { WarehouseNativeQueryEditor } from 'products/experiments/frontend/warehouseNative/WarehouseNativeQueryEditor'
+import { WarehouseNativeExposureFields } from 'products/experiments/frontend/warehouseNative/WarehouseNativeExposureFields'
 import {
     EMPTY_WAREHOUSE_NATIVE_BINDING,
+    type MetricDataSources,
     getExperimentMetricDataSources,
+    getExposureSourceBlockedReasons,
     getWarehouseNativeExposure,
     getWarehouseNativeExposureError,
+    getWarehouseNativeMismatchError,
 } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { experimentLogic } from '../experimentLogic'
@@ -33,9 +36,11 @@ import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 
 type ExposureCriteriaModalProps = {
     onSave: (exposureCriteria: ExperimentExposureCriteria) => void
+    /** Which data sources the metrics read. The wizard passes those of its draft, which `experimentLogic` does not hold. */
+    metricDataSources?: MetricDataSources
 }
 
-export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): JSX.Element | null {
+export function ExposureCriteriaModal({ onSave, metricDataSources }: ExposureCriteriaModalProps): JSX.Element | null {
     const { isExposureCriteriaModalOpen, exposureCriteria } = useValues(exposureCriteriaModalLogic)
     const { experiment, resolvedExposureEvent } = useValues(experimentLogic)
     const launched = isLaunched(experiment)
@@ -56,16 +61,20 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
     const warehouseNativeEnabled = useFeatureFlag('BIGQUERY_DIRECT_QUERY')
     // Keep an existing warehouse-native exposure editable even if the team is no longer flagged in
     const showWarehouseNativeCard = warehouseNativeEnabled || !!warehouseExposure
-    // The API rejects an exposure that reads another data source than the metrics, so the metrics must go first
-    const metricDataSources = getExperimentMetricDataSources(experiment)
-    const warehouseNativeBlockedReason =
-        !warehouseExposure && metricDataSources.posthog
-            ? "Remove this experiment's metrics first. A warehouse-native exposure only works with warehouse-native metrics."
-            : undefined
-    const posthogBlockedReason =
-        warehouseExposure && metricDataSources.warehouseNative
-            ? "Remove this experiment's metrics first. Warehouse-native metrics only work with a warehouse-native exposure."
-            : undefined
+    const { warehouseNative: warehouseNativeBlockedReason, posthog: posthogBlockedReason } =
+        getExposureSourceBlockedReasons(
+            !!warehouseExposure,
+            metricDataSources ?? getExperimentMetricDataSources(experiment)
+        )
+    // A shared metric keeps its own connection and unit, so the save cannot move it to an edited exposure
+    const saveDisabledReason = warehouseExposure
+        ? (getWarehouseNativeExposureError(warehouseExposure) ??
+          getWarehouseNativeMismatchError(
+              warehouseExposure,
+              { warehouseNative: false, posthog: false },
+              (experiment.saved_metrics ?? []).map((savedMetric) => savedMetric?.query)
+          ))
+        : null
 
     return (
         <LemonModal
@@ -92,9 +101,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             closeExposureCriteriaModal()
                         }}
                         type="primary"
-                        disabledReason={
-                            warehouseExposure ? getWarehouseNativeExposureError(warehouseExposure) : undefined
-                        }
+                        disabledReason={saveDisabledReason}
                     >
                         Save
                     </LemonButton>
@@ -215,27 +222,10 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                 )}
             </div>
             {warehouseExposure && (
-                <div className="mb-4 flex flex-col gap-4">
-                    <WarehouseNativeConnectionFields
-                        binding={warehouseExposure}
-                        onChange={(binding) =>
-                            setExposureCriteria({
-                                ...exposureCriteria,
-                                exposure_config: { ...warehouseExposure, ...binding },
-                            })
-                        }
-                    />
-                    <WarehouseNativeQueryEditor
-                        label="Exposure query"
-                        hint="Return one row per exposure with the columns entity_id, variant and timestamp. PostHog keeps the first exposure of each unit."
-                        query={warehouseExposure.query}
-                        onChange={(query) =>
-                            setExposureCriteria({
-                                ...exposureCriteria,
-                                exposure_config: { ...warehouseExposure, query },
-                            })
-                        }
-                        data-attr="experiment-warehouse-native-exposure-query"
+                <div className="mb-4">
+                    <WarehouseNativeExposureFields
+                        exposure={warehouseExposure}
+                        onChange={(exposure) => setExposureCriteria({ ...exposureCriteria, exposure_config: exposure })}
                     />
                 </div>
             )}
@@ -263,6 +253,10 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         showNumericalPropsOnly={true}
                         {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                    />
+                    <DefaultExposureEventNote
+                        config={exposureCriteria.exposure_config}
+                        defaultExposureEvent={resolvedExposureEvent}
                     />
                     <NegatedEventFilterNote
                         config={exposureCriteria.exposure_config}
