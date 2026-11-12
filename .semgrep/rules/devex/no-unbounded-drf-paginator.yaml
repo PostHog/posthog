@@ -1,0 +1,47 @@
+rules:
+    - id: no-unbounded-drf-paginator
+      message: |
+          Do not subclass DRF's LimitOffsetPagination, PageNumberPagination or CursorPagination
+          directly, and do not set `max_limit = None` on a paginator. DRF has no upper bound by
+          default, so `?limit=` or `?page_size=` can ask one request to read a whole table.
+
+          Subclass a base from posthog/api/pagination.py instead:
+          - limit/offset pages: `BoundedLimitOffsetPagination`
+          - numbered pages: `BoundedPageNumberPagination`
+          - cursor pages: `StableCursorPagination`
+          - facade lists: `FacadeLimitOffsetPagination` or `FacadeCursorPagination`
+
+          If the shared bases cannot express the list, add the behavior to posthog/api/pagination.py.
+          See "How do lists page?" in products/architecture.md.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - 'common/**/*.py'
+              - 'ee/**/*.py'
+              - 'posthog/**/*.py'
+              - 'products/**/*.py'
+          exclude:
+              - 'posthog/api/pagination.py'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      pattern-either:
+          - patterns:
+                - pattern: |
+                      class $CLASS(..., $BASE, ...):
+                          ...
+                - metavariable-regex:
+                      metavariable: $BASE
+                      regex: ^(pagination\.)?(LimitOffsetPagination|PageNumberPagination|CursorPagination)$
+          - patterns:
+                - pattern-inside: |
+                      class $CLASS(...):
+                          ...
+                - pattern: max_limit = None
+                - metavariable-regex:
+                      metavariable: $CLASS
+                      regex: ^\w*Pagination$
+      metadata:
+          category: maintainability
+          confidence: HIGH

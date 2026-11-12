@@ -7,6 +7,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { GeoIPService, GeoIp } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
+import type { TeamManager } from '~/common/utils/team-manager'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import {
@@ -22,7 +23,12 @@ import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
-import { HogFunctionMonitoringService, MonitoringOutput } from '../services/monitoring/hog-function-monitoring.service'
+import {
+    HogFunctionMonitoringService,
+    MonitoringOutput,
+    TransformationsMonitoringConfig,
+    createTransformationsMonitoringService,
+} from '../services/monitoring/hog-function-monitoring.service'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError } from '../utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
@@ -134,6 +140,7 @@ export class HogTransformerService implements HogTransformer {
 
     public async stop(): Promise<void> {
         await this.processInvocationResults()
+        await this.hogFunctionMonitoringService.stop()
     }
 
     public async processInvocationResults(): Promise<void> {
@@ -417,7 +424,8 @@ export type HogTransformerServiceConfig = Pick<
     | 'CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED'
     | 'MMDB_FILE_LOCATION'
     | 'TRANSFORMATIONS_HOG_TIMEOUT_MS'
->
+> &
+    TransformationsMonitoringConfig
 
 export interface HogTransformerServiceDeps {
     geoipService: GeoIPService
@@ -426,6 +434,7 @@ export interface HogTransformerServiceDeps {
     encryptedFields: EncryptedFields
     integrationManager: IntegrationManagerService
     monitoringOutputs: IngestionOutputs<MonitoringOutput>
+    teamManager: Pick<TeamManager, 'getTeam'>
 }
 
 /**
@@ -444,7 +453,11 @@ export function createHogTransformerService(
         hogInputsService
     )
     const pluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
-    const hogFunctionMonitoringService = new HogFunctionMonitoringService(deps.monitoringOutputs)
+    const hogFunctionMonitoringService = createTransformationsMonitoringService(
+        deps.monitoringOutputs,
+        config,
+        deps.teamManager
+    )
     return new HogTransformerService(
         hogFunctionManager,
         hogExecutor,

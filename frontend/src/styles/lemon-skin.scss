@@ -84,11 +84,20 @@
 
 [data-lemon-skin] .quill-button--variant-primary,
 .quill-button--variant-primary[data-lemon-skin] {
+    padding-block: 0;
     color: var(--text-3000-light);
     background-color: var(--primary-3000-button-bg);
     border: 1px solid var(--primary-3000-button-border);
     box-shadow: 0 0.1875rem 0 0 var(--primary-3000-frame-bg);
     translate: none;
+}
+
+/* Quill draws its primary face and shelf on these pseudo-elements; the Lemon look paints the button itself. */
+[data-lemon-skin] .quill-button--variant-primary::before,
+[data-lemon-skin] .quill-button--variant-primary::after,
+.quill-button--variant-primary[data-lemon-skin]::before,
+.quill-button--variant-primary[data-lemon-skin]::after {
+    content: none;
 }
 
 [data-lemon-skin] .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):hover,

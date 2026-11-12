@@ -113,9 +113,9 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  # Deep enough to reach the PR's merge base, which keys the schema cache below.
-                  fetch-depth: 1000
-                  filter: blob:none
+                  # Only PR schema keys need the merge base; master pushes use HEAD.
+                  fetch-depth: ${{ github.event_name == 'pull_request' && 1000 || 1 }}
+                  filter: ${{ github.event_name == 'pull_request' && 'blob:none' || '' }}
 
             - name: Fetch base branch for merge-base computation
               if: github.event_name == 'pull_request'

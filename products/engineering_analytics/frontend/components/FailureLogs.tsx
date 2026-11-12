@@ -1,5 +1,4 @@
-// CI failure log excerpts grouped by failed job. Lines come pre-thinned from the backend; omission
-// markers (original_line == null) render muted so the elision is visible, never silent.
+// Omission markers (original_line == null) render muted, so the elision is visible.
 
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
@@ -46,10 +45,9 @@ function JobFailureLog({ job, jobName }: { job: CIJobFailureLogApi; jobName?: st
 }
 
 /**
- * A set of failed jobs with their log excerpts, straight from the loader's union: ``null`` is the
- * not-loaded state, ``'unavailable'`` a failed fetch, and ``logs_available === false`` means no log lines
- * were collected or they aged out of retention. Callers render this only for a run known to have failed,
- * so the empty text must not suggest that nothing failed.
+ * `null` is the not-loaded state, `'unavailable'` is a failed fetch, and `logs_available === false` means
+ * no log lines were collected or they aged out of retention. Callers render this only for a run known to
+ * have failed, so the empty text must not suggest that nothing failed.
  */
 export function FailureLogGroups({
     logs,
@@ -69,7 +67,7 @@ export function FailureLogGroups({
     onRetry: () => void
     /** Only GitHub Actions runs have a GitHub page to send the reader to. */
     logsOnGitHub: boolean
-    /** job_id → display name, when the caller has the run's jobs loaded, because logs only carry ids. */
+    /** Logs carry only job ids, so the caller passes names when it has the run's jobs loaded. */
     jobNames?: Record<number, string>
     errorDescription?: string
     emptyText?: string

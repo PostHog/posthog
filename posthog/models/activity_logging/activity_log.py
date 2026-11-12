@@ -88,6 +88,7 @@ ActivityScope = Literal[
     "LegalDocument",
     "Organization",
     "OrganizationDomain",
+    "OrganizationIPRestrictions",
     "IdentityProviderConfig",
     "OrganizationMembership",
     "Role",
@@ -104,6 +105,7 @@ ActivityScope = Literal[
     "ProjectSecretAPIKey",
     "OAuthApplication",
     "WorkloadTrustPolicy",
+    "WorkloadTrustPolicyRequest",
     "User",
     "Action",
     "AccountView",
@@ -136,6 +138,7 @@ ActivityScope = Literal[
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
+    "SignalSourceConfig",
     "SignalTeamConfig",
     "StreamlitApp",
     "Metric",
@@ -213,16 +216,6 @@ class ActivityLog(UUIDTModel):
         ]
         indexes = [
             models.Index(fields=["team_id", "scope", "item_id"]),
-            models.Index(
-                fields=["organization_id", "scope", "-created_at"],
-                name="idx_alog_org_scope_created_at",
-                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
-            ),
-            models.Index(
-                fields=["organization_id"],
-                name="idx_alog_org_detail_exists",
-                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
-            ),
             # Serves whole-column containment (`detail @> ...`), the only detail lookup an index
             # can answer. Key-path lookups and the `detail::text` search are not GIN-servable
             # under any opclass. `jsonb_path_ops` stores one hash per root-to-leaf path, so it is
@@ -255,9 +248,10 @@ class ActivityLog(UUIDTModel):
             ),
             # Advanced activity logs default list ordering. The org- and team-scoped list
             # endpoints order by -created_at with no scope filter, so the scope-led indexes
-            # above can't serve the sort, and the org indexes above are partial on a detail
-            # predicate the list query never carries. These full indexes let the LIMITed
-            # ordered scan walk created_at directly instead of sorting the whole partition.
+            # above can't serve the sort. These full indexes let the LIMITed ordered scan walk
+            # created_at directly instead of sorting the whole partition. No index is partial on
+            # a `detail` predicate: no reader filters on `jsonb_typeof(detail)`, so the planner
+            # could never pick one, and each would only add write cost to every insert.
             models.Index(
                 fields=["organization_id", "-created_at"],
                 name="idx_alog_org_created_at",
@@ -510,6 +504,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
+        "masked_columns": "masked columns",
         "full_refresh_interval_days": "full refresh interval (days)",
         "full_refresh_time_of_day": "full refresh time (UTC)",
     },
@@ -529,6 +524,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "autostart_enabled": "PR generation",
         "default_autostart_priority": "project PR threshold",
         "default_slack_notification_channel": "team Slack channel",
+        "default_slack_notification_min_priority": "team Slack minimum priority",
         "autostart_base_branches": "base branch overrides",
         "issue_tracking_integration": "issue tracker",
         "issue_tracking_config": "issue tracker target",
@@ -543,6 +539,10 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
+    },
+    "OrganizationIPRestrictions": {
+        "ip_restrictions": "IP allowlist",
+        "enabled": "IP restrictions enabled",
     },
     "OrganizationDomain": {
         "jit_provisioning_enabled": "just-in-time provisioning",
@@ -617,6 +617,16 @@ platform_alert_runtime_fields = [
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
+    # Written by the runner on every run, not by a person editing the check.
+    "DataQualityCheck": [
+        "last_run_at",
+        "last_status",
+        "subject_name",
+        "subject_status",
+        "failing_since",
+        "last_succeeded_at",
+        "updated_at",
+    ],
     "AlertConfiguration": [
         "last_checked_at",
         "next_check_at",
@@ -725,6 +735,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "allow_staff": True,
     },
     {
+        # Redis TTL edits from PostHog Admin carry the staff reason, and the row lands on the acting
+        # staff user's current organization, which has no relation to the edited key.
+        "scope": "Admin",
+        "activities": ["ttl_updated", "ttl_removed"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
         # Admin AI-gateway top-ups are staff-only; keep the staff email, credit reason,
         # and wallet balance out of the org-scoped activity log endpoints.
         "scope": "AIGatewayCredit",
@@ -804,6 +822,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_run_at",
         "source_insight_query_hash",
         "referenced_table_names",
+        "embedding",
+        "embedding_model",
+        "embedding_text_hash",
     ],
     "DataQualityCheck": [
         # Written by the runner, not by a person editing the check.
@@ -811,6 +832,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_status",
         "subject_name",
         "subject_status",
+        "failing_since",
+        "last_succeeded_at",
         # Subject FKs are immutable after create and not JSON-serializable for the change detail.
         "metric",
         "saved_query",
@@ -821,6 +844,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "score_inputs",
         "payload",
     ],
+    "OrganizationIPRestrictions": ["organization"],
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
@@ -880,6 +904,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "usage_dashboard",
         "analytics_dashboards",
         "flag_evaluation_contexts",
+        # FeatureFlagCodeAnalysis is team-scoped, so reading this relation for a diff hits the
+        # fail-closed manager. A code analysis does not change the flag, so the diff skips it.
+        "code_analyses",
     ],
     "Experiment": [
         "feature_flag",
@@ -892,6 +919,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "version",
         # Internal pointer to the flag-cleanup task, not a user-meaningful change.
         "flag_cleanup_task_id",
+        # The copy of the rule that a launch stores for the analysis. It holds the rule's seed.
+        "feature_flag_rule_snapshot",
     ],
     "ExperimentSavedMetric": [
         "experiments",
@@ -937,6 +966,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "short_id",
         "insightviewed",
         "dashboardtile",
+        "explanations",
     ],
     "EventDefinition": [
         "eventdefinition_ptr_id",
@@ -1109,8 +1139,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "plugin_configs",
         "tagged_items",
         "survey",
-        # Derived migration output whose reverse manager is fail-closed. It is not part of an action edit.
-        "selector_match_changes",
     ],
     "ExternalDataSource": [
         "connection_id",
@@ -1472,6 +1500,10 @@ def _handle_activity_log_transaction(
 # The frontend matches on this job type to render the job id as a link to a sandbox task.
 # Product triggers (`hog_flow`, `canvas_action`) carry job ids that point elsewhere.
 AGENT_TRIGGER_JOB_TYPE = "agent"
+# A row written with a workload access token. The frontend shows the workload as the actor instead of the
+# organization owner the token acts as. `job_id` is the trust policy id, because a run id, when the provider
+# has one, is one of the recorded claims in the payload.
+WORKLOAD_TRIGGER_JOB_TYPE = "workload"
 
 
 def agent_trigger() -> Optional[Trigger]:
@@ -1490,10 +1522,12 @@ def agent_trigger() -> Optional[Trigger]:
     )
 
 
-def _with_agent_trigger(detail: Detail) -> Detail:
-    """The row is written inside the user's save, so an error here must not fail that save."""
+def _with_request_trigger(detail: Detail) -> Detail:
+    """The row is written inside the user's save, so an error here must not fail that save.
+
+    A verified trigger, such as a CI job, comes before agent intent, which is the agent's own claim."""
     try:
-        trigger = agent_trigger()
+        trigger = activity_storage.get_verified_trigger() or agent_trigger()
         return dataclasses.replace(detail, trigger=trigger) if trigger is not None else detail
     except Exception as e:
         capture_exception(e)
@@ -1530,7 +1564,7 @@ def log_activity(
         credential = ActivityCredential(type="unattributed")
     if detail.trigger is None:
         # A product that sets its own trigger already says what drove the write.
-        detail = _with_agent_trigger(detail)
+        detail = _with_request_trigger(detail)
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -1558,7 +1592,7 @@ def log_activity(
             "user": user,
             "was_impersonated": was_impersonated,
             "is_system": user is None,
-            "item_id": str(item_id),
+            "item_id": str(item_id) if item_id is not None else None,
             "scope": scope,
             "activity": activity,
             "detail": detail,
@@ -1621,6 +1655,25 @@ class LogActivityEntry(TypedDict, total=False):
     client: Optional[str]
     ip_address: Optional[str]
     force_save: bool
+
+
+def update_activity_context(row: ActivityLog, **fields: Any) -> None:
+    """Add fields that are known only after the logged action ran to the row's context.
+
+    `$activity_log_entry_created` went out when the row was created, so a destination that streams the
+    activity log does not receive these fields.
+    """
+    try:
+        detail = cast(Detail, row.detail)
+        if detail.context is None:
+            raise ValueError(f"{row.scope} activity row has no context to update")
+        row.detail = dataclasses.replace(detail, context=dataclasses.replace(detail.context, **fields))
+        row.save(update_fields=["detail"])
+    except Exception as e:
+        logger.warn("activity_log.failed_to_update_activity_context", scope=row.scope, exception=e)
+        capture_exception(e)
+        if settings.TEST:
+            raise
 
 
 def log_activity_with_soft_delete(

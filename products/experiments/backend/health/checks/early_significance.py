@@ -13,14 +13,19 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.context import HealthContext, PrimaryMetric
 from products.experiments.backend.health.skips import (
+    NEEDS_EXPOSURES,
     NEEDS_PRIMARY_METRIC,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
+    CheckRows,
+    CheckSkip,
+    CheckValues,
     not_applicable,
     not_checked,
 )
@@ -42,9 +47,54 @@ class _Comparison:
     # Relative to the control, as percentages.
     observed: float
     detectable: float
+    significant: bool
 
 
-def early_significance(ctx: HealthContext) -> CheckOutcome:
+@frozen
+class _Readout:
+    metric: PrimaryMetric
+    samples: int
+    planned_samples: int | None
+    comparisons: tuple[_Comparison, ...]
+
+
+def early_significance_values(ctx: HealthContext) -> CheckValues:
+    readout = _significant_readout(ctx)
+    if readout is None:
+        return {}
+    return {
+        ExperimentHealthValueKey.METRIC_NAME: readout.metric.name,
+        ExperimentHealthValueKey.SAMPLE_COUNT: readout.samples,
+        ExperimentHealthValueKey.PLANNED_SAMPLE_COUNT: readout.planned_samples,
+    }
+
+
+def early_significance_rows(ctx: HealthContext) -> CheckRows:
+    readout = _significant_readout(ctx)
+    if readout is None:
+        return ()
+    return tuple(
+        {
+            ExperimentHealthValueKey.VARIANT: comparison.variant.key,
+            ExperimentHealthValueKey.DIFFERENCE_PERCENTAGE: round(comparison.observed, 1),
+            ExperimentHealthValueKey.DETECTABLE_DIFFERENCE_PERCENTAGE: round(comparison.detectable, 1),
+            ExperimentHealthValueKey.SIGNIFICANT: comparison.significant,
+        }
+        for comparison in readout.comparisons
+    )
+
+
+def _significant_readout(ctx: HealthContext) -> _Readout | None:
+    """The comparisons that the check reads, when a variant is significant. Without a significant variant the running
+    time estimate already shows the progress, so the check shows nothing."""
+    readout = _readout(ctx)
+    if isinstance(readout, CheckSkip) or not any(comparison.significant for comparison in readout.comparisons):
+        return None
+    return readout
+
+
+def _readout(ctx: HealthContext) -> _Readout | CheckSkip:
+    """The sample and the comparison of each variant with the control, or why the check doesn't look."""
     if ctx.archived:
         return not_applicable(NOT_ON_ARCHIVED)
     if not ctx.is_launched:
@@ -64,20 +114,32 @@ def early_significance(ctx: HealthContext) -> CheckOutcome:
         return not_applicable("Runs once the primary metric has results")
     samples = _total_samples(result)
     if samples < MIN_SAMPLES_FOR_RESULTS:
-        return not_applicable("Runs once enough users are exposed")
+        return not_applicable(NEEDS_EXPOSURES)
     control_rate = result.baseline.mean or 0
     if not 0 < control_rate < 1:
         return not_applicable("Runs once the control group's conversion rate is above 0% and below 100%")
-    planned_samples = metric.target.recommended_sample_size
     # The running time estimate's "Target reached" compares the same total, so the note and the estimate agree.
     if metric.target.current_sample_size is not None:
         samples = metric.target.current_sample_size
+    return _Readout(
+        metric=metric,
+        samples=samples,
+        planned_samples=metric.target.recommended_sample_size,
+        comparisons=tuple(_comparisons(result, control_rate, metric.target)),
+    )
+
+
+def early_significance(ctx: HealthContext) -> CheckOutcome:
+    readout = _readout(ctx)
+    if isinstance(readout, CheckSkip):
+        return readout
+    metric, samples, planned_samples = readout.metric, readout.samples, readout.planned_samples
     if planned_samples is None or samples >= planned_samples:
         return None
     below_detectable = [
         comparison
-        for comparison in _significant_comparisons(result, control_rate, metric.target)
-        if abs(comparison.observed) < comparison.detectable
+        for comparison in readout.comparisons
+        if comparison.significant and abs(comparison.observed) < comparison.detectable
     ]
     if not below_detectable:
         return None
@@ -114,12 +176,10 @@ def early_significance(ctx: HealthContext) -> CheckOutcome:
     )
 
 
-def _significant_comparisons(
-    result: MetricResultStats, control_rate: float, target: RunningTimeTarget
-) -> list[_Comparison]:
+def _comparisons(result: MetricResultStats, control_rate: float, target: RunningTimeTarget) -> list[_Comparison]:
     comparisons: list[_Comparison] = []
     for variant in result.variants:
-        if variant.significant is not True or variant.interval is None:
+        if variant.interval is None:
             continue
         # The variances and the level that the running time target uses, so CUPED applies here too. Without the
         # variances, p(1-p) of the control.
@@ -136,7 +196,12 @@ def _significant_comparisons(
         if detectable is not None:
             # The difference the results page shows, from the analysis itself, so CUPED and the Bayesian model apply.
             comparisons.append(
-                _Comparison(variant=variant, observed=100 * variant.interval.midpoint, detectable=detectable)
+                _Comparison(
+                    variant=variant,
+                    observed=100 * variant.interval.midpoint,
+                    detectable=detectable,
+                    significant=variant.significant is True,
+                )
             )
     return comparisons
 

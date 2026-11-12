@@ -31,7 +31,7 @@ export const getGoogleADKSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai posthog-node @google/adk zod
+                            npm install @posthog/ai@8 posthog-node@5 @google/adk zod
                         `}
                     />
                 </>

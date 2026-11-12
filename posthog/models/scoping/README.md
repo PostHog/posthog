@@ -15,6 +15,7 @@ A ContextVar holds the **canonical** team_id — the parent team's id when the t
 ## Where context gets set
 
 - **DRF nested views** — `TeamAndOrgViewSetMixin.initial()` sets it from the URL `self.team_id` (the team being acted on, not the user's "current" team). Reuses `self.team.parent_team_id` if cached by permission checks for free.
+  The scope then remembers that it was resolved from the URL team id, so `resolve_effective_team_id()` returns the canonical id for that id without a query. `for_team()`, `team_scope()` and `ProductTeamModel.save()` all go through it.
 - **Celery tasks** — `@with_team_scope()` decorator extracts a `team_id` parameter from the task signature.
 - **Management commands / ad-hoc scripts** — `with team_scope(team_id):` block.
 

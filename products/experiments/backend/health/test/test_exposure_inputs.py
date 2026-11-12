@@ -108,7 +108,7 @@ class TestLoadExposureInputs(BaseTest):
             "products.experiments.backend.health.exposure_inputs.ExperimentExposuresQueryRunner.run",
             return_value=response,
         ):
-            inputs = load_exposure_inputs(experiment, user=self.user, can_query_events=True)
+            inputs = load_exposure_inputs(experiment, user=self.user, can_query_events=True, can_read_flag_history=True)
 
         self.assertEqual(
             (inputs.status, inputs.error), (expected_status, CALCULATION_ERROR if refresh_failed else None)
@@ -144,7 +144,7 @@ class TestLoadExposureInputs(BaseTest):
             exposure_criteria={"multiple_variant_handling": "not_a_handling"},
         )
 
-        inputs = load_exposure_inputs(experiment, user=self.user, can_query_events=True)
+        inputs = load_exposure_inputs(experiment, user=self.user, can_query_events=True, can_read_flag_history=True)
 
         self.assertEqual(inputs.status, HealthExposureInputsStatus.FAILED)
 
@@ -152,7 +152,7 @@ class TestLoadExposureInputs(BaseTest):
         experiment = self._create_experiment("exposure-inputs-failed-calculation")
         cache_key = self._store_failed_calculation(experiment)
 
-        inputs = load_exposure_inputs(experiment, user=self.user, can_query_events=True)
+        inputs = load_exposure_inputs(experiment, user=self.user, can_query_events=True, can_read_flag_history=True)
 
         self.assertEqual((inputs.status, inputs.error), (HealthExposureInputsStatus.FAILED, CALCULATION_ERROR))
         self.assertEqual(get_query_status(team_id=self.team.pk, query_id=cache_key).error_message, CALCULATION_ERROR)

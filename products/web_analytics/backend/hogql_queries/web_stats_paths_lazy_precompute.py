@@ -182,6 +182,9 @@ def _check_eligible(runner: "WebStatsTableQueryRunner") -> None:
         modifiers=query.modifiers,
         properties=query.properties or [],
         resolve_date_range=lambda: (runner.query_date_range.date_from(), runner.query_date_range.date_to()),
+        resolve_compare_date_from=lambda: (
+            runner.query_compare_to_date_range.date_from() if runner.query_compare_to_date_range is not None else None
+        ),
         allow_channel_type_filter=channel,
     )
 

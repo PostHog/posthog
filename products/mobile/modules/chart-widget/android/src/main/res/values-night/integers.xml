@@ -1,0 +1,4 @@
+<resources>
+  <integer name="chart_widget_light_visibility">2</integer>
+  <integer name="chart_widget_dark_visibility">0</integer>
+</resources>

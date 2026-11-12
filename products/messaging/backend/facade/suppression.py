@@ -34,6 +34,15 @@ class AddedSuppression:
     created: bool
 
 
+@frozen
+class RemovedSuppressions:
+    removed: list[str]
+    not_found: list[str]
+
+
+ComplaintConfirmationRequired = suppression_service.ComplaintConfirmationRequired
+
+
 def _to_contract(row: MessageSuppression) -> Suppression:
     return Suppression(
         id=row.id,
@@ -61,6 +70,35 @@ def add_manual_suppression(team_id: int, identifier: str, created_by_id: int | N
     return AddedSuppression(suppression=_to_contract(row), created=created)
 
 
-def remove_suppression(team_id: int, identifier: str) -> bool:
-    """Un-suppress `identifier`. Returns False when the team has no row for it."""
-    return suppression_service.remove_suppression(team_id, identifier)
+@frozen
+class BulkSuppressionRequest:
+    identifier: str
+    source: str
+
+
+@frozen
+class BulkAddedSuppressions:
+    total: int
+    created: int
+    already_present: int
+
+
+def bulk_add_suppressions(
+    team_id: int, requests: Sequence[BulkSuppressionRequest], created_by_id: int | None
+) -> BulkAddedSuppressions:
+    """Suppress every identifier in one insert. An identifier that already has a row keeps it unchanged.
+
+    A repeated identifier counts once, with the source of its first entry.
+    """
+    sources_by_identifier: dict[str, SuppressionSource] = {}
+    for request in requests:
+        sources_by_identifier.setdefault(request.identifier, SuppressionSource(request.source))
+    created = suppression_service.bulk_add_suppressions(team_id, sources_by_identifier, created_by_id)
+    total = len(sources_by_identifier)
+    return BulkAddedSuppressions(total=total, created=created, already_present=total - created)
+
+
+def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints: bool) -> RemovedSuppressions:
+    """Un-suppress `identifiers`. Raises `ComplaintConfirmationRequired` for an unconfirmed spam complaint."""
+    removed = suppression_service.remove_suppressions(team_id, identifiers, confirm_complaints)
+    return RemovedSuppressions(removed=removed, not_found=sorted(set(identifiers) - set(removed)))

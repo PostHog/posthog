@@ -16,6 +16,7 @@ from rest_framework.test import APIClient
 
 from posthog.auth import WidgetAuthentication
 from posthog.models.comment import Comment
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.rate_limit import WidgetTeamPollThrottle
 from posthog.test.authentication_checks import covers_authentication
 
@@ -85,8 +86,13 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @parameterized.expand([(False,), (True,)])
     @covers_authentication(WidgetAuthentication)
-    def test_create_message_creates_ticket(self):
+    def test_create_message_creates_ticket(self, signed_in: bool) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        cache.clear()
+        if signed_in:
+            self.client.force_login(self.user)
         response = self.client.post(
             "/api/conversations/v1/widget/message",
             {

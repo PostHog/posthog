@@ -148,7 +148,7 @@ describe('materializationJobsLogic', () => {
         )
         expect(showsRefreshModeColumn).toBe(showsRefreshMode)
         if (fullRefreshReason === 'first run') {
-            expect(screen.getByLabelText('Full refresh. Reason: first run.')).toBeTruthy()
+            expect(screen.getByText('First run')).toBeTruthy()
         }
         if (runMode === 'incremental') {
             expect(screen.getByText('Incremental')).toBeTruthy()

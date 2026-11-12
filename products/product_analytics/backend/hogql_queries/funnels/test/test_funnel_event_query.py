@@ -24,7 +24,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.product_analytics.backend.hogql_queries.funnels.funnel_event_query import FunnelEventQuery
 from products.product_analytics.backend.hogql_queries.funnels.funnel_query_context import FunnelQueryContext
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
@@ -487,7 +487,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2025-11-12", tick=False)
     def test_group_node_between_event_and_action(self):
-        checkout_action = Action.objects.create(
+        checkout_action = create_action(
             team=self.team,
             name="Checkout Action",
             steps_json=[{"event": "checkout"}, {"event": "purchase"}],
@@ -552,7 +552,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2025-11-12", tick=False)
     def test_group_node_event_or_action(self):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Onboarding",
             steps_json=[{"event": "sign up"}, {"event": "onboarding completed"}],

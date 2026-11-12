@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -7,10 +8,13 @@ import { isHogQLQuery } from '~/queries/schema/node-guards'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import { metricChartTableProps } from './components/metricChartTableProps'
 import { AIObservabilityInstrumentationCheckEnumApi } from './generated/api.schemas'
 import { useInstrumentationEmptyState } from './hooks/useInstrumentationEmptyState'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { aiObservabilityUsersLogic } from './tabs/aiObservabilityUsersLogic'
+
+const USERS_DATA_NODE_KEY = 'llm-analytics-users'
 
 export function AIObservabilityUsers(): JSX.Element {
     const { applyUrlState } = useActions(aiObservabilitySharedLogic)
@@ -21,6 +25,10 @@ export function AIObservabilityUsers(): JSX.Element {
         AIObservabilityInstrumentationCheckEnumApi.UserIdentity,
         'Users are not identified in your AI events'
     )
+    const redesign = useFeatureFlag('AI_OBSERVABILITY_TRACES_USERS_REDESIGN')
+    const chartTable = redesign
+        ? metricChartTableProps(USERS_DATA_NODE_KEY, { metric: 'users' })
+        : { query: {}, context: {} }
 
     const { renderSortableColumnTitle } = useSortableColumns(usersSort, setUsersSort)
 
@@ -30,6 +38,7 @@ export function AIObservabilityUsers(): JSX.Element {
             query={{
                 ...usersQuery,
                 showSavedFilters: true,
+                ...chartTable.query,
             }}
             setQuery={(query) => {
                 if (!isHogQLQuery(query.source)) {
@@ -51,6 +60,7 @@ export function AIObservabilityUsers(): JSX.Element {
             }}
             context={{
                 ...instrumentationEmptyState,
+                ...chartTable.context,
                 columns: {
                     __llm_person: aiObservabilityColumnRenderers.__llm_person,
                     first_seen: {
@@ -95,7 +105,7 @@ export function AIObservabilityUsers(): JSX.Element {
                     },
                 },
             }}
-            uniqueKey="llm-analytics-users"
+            uniqueKey={USERS_DATA_NODE_KEY}
         />
     )
 }

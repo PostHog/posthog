@@ -88,3 +88,13 @@ export const WarehouseSuggestionsDismissCreateBody = /* @__PURE__ */ zod.object(
         .optional()
         .describe('Optional note about the dismissal.'),
 })
+
+export const WarehouseSuggestionsSurfaceMoreCreateBody = /* @__PURE__ */ zod.object({
+    surface: zod
+        .enum(['models', 'catalog'])
+        .describe('\* `models` - Models\n\* `catalog` - Data catalog')
+        .optional()
+        .describe(
+            'Page to show more suggestions on. Only the kinds that page shows are picked. Without it, any kind can be picked.\n\n\* `models` - Models\n\* `catalog` - Data catalog'
+        ),
+})

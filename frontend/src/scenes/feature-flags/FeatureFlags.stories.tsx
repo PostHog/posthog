@@ -99,7 +99,13 @@ const meta: Meta = {
                         count: 4321,
                         is_static: false,
                         filters: { properties: { type: 'AND', values: [] } },
-                        realtime: { state: 'ready', ready_at: '2023-01-27T09:40:00Z', build: null },
+                        realtime: {
+                            state: 'ready',
+                            ready_at: '2023-01-27T09:40:00Z',
+                            build: null,
+                            reason: null,
+                            history_limit_days: null,
+                        },
                     },
                 ]),
 

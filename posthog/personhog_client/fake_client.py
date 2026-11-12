@@ -194,6 +194,12 @@ class FakePersonHogClient:
         if uuid:
             self._persons_by_uuid[(team_id, uuid)] = person
         for did in distinct_ids or []:
+            previous = self._persons_by_distinct_id.get((team_id, did))
+            if previous is not None and previous.id != person_id:
+                # The replica keeps one row per distinct id, so the previous owner no longer lists it.
+                self._distinct_ids[(team_id, previous.id)] = [
+                    d for d in self._distinct_ids.get((team_id, previous.id), []) if d.distinct_id != did
+                ]
             self._persons_by_distinct_id[(team_id, did)] = person
             # A re-added mapping is live again, as a revival upsert makes it in the replica.
             self._tombstoned_distinct_ids.discard((team_id, did))
@@ -359,7 +365,7 @@ class FakePersonHogClient:
         self, request: person_pb2.GetDistinctIdsForPersonRequest
     ) -> person_pb2.GetDistinctIdsForPersonResponse:
         self.calls.append(_Call("get_distinct_ids_for_person", request))
-        dids = list(self._distinct_ids.get((request.team_id, request.person_id), []))
+        dids = self._live_distinct_ids(request.team_id, request.person_id)
         limit = request.limit if request.HasField("limit") and request.limit > 0 else None
         has_cursor = request.HasField("cursor_id")
         cursor_id = request.cursor_id if has_cursor else None
@@ -386,6 +392,14 @@ class FakePersonHogClient:
             next_cursor_id=next_cursor_id,
         )
 
+    def _live_distinct_ids(self, team_id: int, person_id: int) -> list[person_pb2.DistinctIdWithVersion]:
+        # The replica reads only rows with is_deleted = false, so a tombstoned mapping is never listed.
+        return [
+            d
+            for d in self._distinct_ids.get((team_id, person_id), [])
+            if (team_id, d.distinct_id) not in self._tombstoned_distinct_ids
+        ]
+
     def get_distinct_ids_for_persons(
         self, request: person_pb2.GetDistinctIdsForPersonsRequest
     ) -> person_pb2.GetDistinctIdsForPersonsResponse:
@@ -395,7 +409,7 @@ class FakePersonHogClient:
         )
         results = []
         for pid in request.person_ids:
-            dids = self._distinct_ids.get((request.team_id, pid), [])
+            dids = self._live_distinct_ids(request.team_id, pid)
             if limit is not None:
                 dids = _order_identified_first(dids)[:limit]
             results.append(person_pb2.PersonDistinctIds(person_id=pid, distinct_ids=dids))

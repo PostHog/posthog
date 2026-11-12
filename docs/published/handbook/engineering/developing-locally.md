@@ -191,6 +191,12 @@ Three env files come into play when `hogli start` runs:
 
 Precedence (highest wins): `shell env > .env.local > .env.development > .env.services`.
 
+Outside tests, `DEBUG=1` defaults `TRUSTED_PROXIES` to `127.0.0.1,::1` so the backend can extract client IPs forwarded by the local Docker proxy on macOS. An explicit `TRUSTED_PROXIES` value overrides this default. Production has no default trusted proxies.
+
+Livestream uses the same proxy modes as Django, with a `LIVESTREAM_` prefix. Set `LIVESTREAM_IS_BEHIND_PROXY=1` to use forwarded client IPs. Set `LIVESTREAM_TRUST_ALL_PROXIES=True` when ingress controls the `X-Forwarded-For` header; this uses its first client address, matching Django's trust-all mode. Otherwise, list the actual reverse proxy CIDRs in `LIVESTREAM_TRUSTED_PROXIES`. Both boolean settings default to false. Direct mode ignores forwarded headers, and the explicit allowlist mode does not automatically trust private, loopback, or link-local peers.
+
+Streaming for IP-restricted organizations also requires matching dedicated signing keys in `LIVESTREAM_AUTHORIZATION_SIGNING_KEYS` for both Django and livestream. Both accept comma-separated keys, newest first. Use independently generated keys per environment; neither setting falls back to another secret. Configure both services before testing restricted streams. The service signs short-lived policy requests bound to the viewer token and team; a viewer token alone cannot read allowlists. Staff impersonation uses a separately cached viewer token bounded by the originating session or OAuth credential. Livestream authorization rechecks that source and the staff account; expired or revoked sources cannot authorize streams. Session-backed tokens also stop working after a password change or removal of the session’s authentication backend. Session auth hashes accept the configured fallback signing keys.
+
 To run AI features locally, you'll need API keys for OpenAI, Anthropic, and others. PostHog employees can pull them from 1Password without ever pasting raw values:
 
 ```bash
@@ -273,6 +279,10 @@ Then start the stack again with `hogli up`.
 
 **ClickHouse "get_mempolicy" warning**
 You might see `get_mempolicy: Operation not permitted` in the ClickHouse logs. This is harmless and can be ignored. To verify ClickHouse started properly, run `docker exec -it posthog-clickhouse-1 bash` then `clickhouse-client --query "SELECT 1"`.
+
+**ClickHouse system log tables missing locally**
+The dev stack mounts `docker/clickhouse/config.d/dev-system-logs.xml`, which turns off `query_views_log`, `metric_log` and `asynchronous_metric_log` to keep an idle ClickHouse quiet. `query_log`, `query_thread_log`, `text_log` and `trace_log` stay on.
+To profile with the other tables, remove the `dev-system-logs.xml` line from the `clickhouse` volumes in `docker-compose.dev.yml` and run `hogli up` again.
 
 **Database migration errors**
 If you see `fe_sendauth: no password supplied`, set `DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog` and ensure containers are running. On ARM machines, you may also hit `psycopg2` errors – see [this comment](https://github.com/psycopg/psycopg2/issues/1216#issuecomment-820556849) for fixes.
@@ -369,6 +379,8 @@ hogli test posthog/test/test_example.py -k test_something
 ```
 
 To see debug logs (such as ClickHouse queries), add argument `--log-cli-level=DEBUG`.
+
+Plain `pytest` works the same way. Backend tests need Postgres. The test ClickHouse database is created when a test first uses ClickHouse, so tests that never query ClickHouse also run while ClickHouse is down. A test that does query it fails with an error that says how to start it.
 
 You can also run tests for all files changed on the current branch:
 
@@ -521,15 +533,20 @@ Jaeger will be available at [http://localhost:16686](http://localhost:16686).
 
 #### Production usage
 
-We send our PostHog Cloud emails via Customer.io using their HTTP API. If Customer.io is not configured but SMTP is, it will fall back to SMTP. We do this so we can continue to support SMTP emails for self-hosted instances.
+We send our PostHog Cloud emails through the Workflows transactional email API, using message templates in the PostHog US project.
+If Workflows is not configured but SMTP is, emails send through SMTP instead.
+We do this so we can continue to support SMTP emails for self-hosted instances.
 
-#### Setting up Customer.io emails
+#### Setting up Workflows emails
 
-To start sending via Customer.io, all you need to do is add the `CUSTOMER_IO_API_KEY` variable. Please be careful when using locally, this is only intended for testing emails and should not be used otherwise.
+To start sending through Workflows, set `POSTHOG_TRANSACTIONAL_EMAIL_API_KEY` to a project secret API key and `POSTHOG_HOST` to an `https://` URL.
+Please be careful when using locally, this is only intended for testing emails and should not be used otherwise.
 
 #### Setting up SMTP emails
 
-Most, but not all, emails have been migrated to Customer.io. Some are still sending via SMTP from Django templates. Eventually we will move them all to Customer.io but we will still support SMTP for self-hosted instances.
+Most, but not all, emails send through Workflows.
+Some are still sending via SMTP from Django templates.
+We will still support SMTP for self-hosted instances.
 
 - Set `EMAIL_HOST`, `EMAIL_PORT`, and `EMAIL_ENABLED` appropriately
 - Enable TLS or SSL if required (`EMAIL_USE_TLS=true` or `EMAIL_USE_SSL=true`)
@@ -537,16 +554,16 @@ Most, but not all, emails have been migrated to Customer.io. Some are still send
 
 ### Creating a new email
 
-When creating a new email, there are a few steps to take. It's important to add the template to both Customer.io and the `posthog/templates/` folder.
+When creating a new email, there are a few steps to take. It's important to add the template to both Workflows and the `posthog/templates/` folder.
 
-1. Create a new template in Customer.io. Ask @joe or @team-platform for help here if needed
-2. Add the new Customer.io template to the `CUSTOMER_IO_TEMPLATE_ID_MAP` in `posthog/email.py`
+1. Create a new message template in Workflows in the PostHog US project
+2. Add the new template's ID to the `WORKFLOWS_TEMPLATE_ID_MAP` in `posthog/email.py`
 3. Create a template in PostHog as an SMTP backup. Make sure the file name matches the key used in the template map.
 4. Trigger the email with something like this:
 
    ```python
    message = EmailMessage(
-       use_http=True,  # This will attempt to send via Customer.io before falling back to SMTP
+       use_http=True,  # Sends through Workflows when it is configured, and through SMTP otherwise
        campaign_key=campaign_key,
        subject="This is a subject",
        template_name="test_template",

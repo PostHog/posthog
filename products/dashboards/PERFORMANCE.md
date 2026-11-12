@@ -1,6 +1,6 @@
 # Dashboard performance
 
-Use this guide for dashboard loading, edit mode, scrolling, tile movement, tile resize, and panel resize.
+Use this guide for dashboard loading, scrolling, tile movement, tile resize, layout autosave and undo, and panel resize.
 It applies to insight, text, image, button, and widget tiles.
 
 ## Understand the cost
@@ -15,7 +15,7 @@ Separate the phases before choosing an optimization:
 | Phase                     | Costs to inspect                                                                 |
 | ------------------------- | -------------------------------------------------------------------------------- |
 | Initial load              | Requests, response processing, tile mounts, chart initialization, image decoding |
-| Enter or exit edit mode   | State propagation, React renders, DOM changes, style and layout                  |
+| Gesture start or end      | Grid class toggles, React renders, DOM changes, style and layout                 |
 | First movement            | Input handlers, grid activation, synchronous work before the first paint         |
 | Continuous move or resize | Grid calculations, affected tile renders, layout, chart drawing, paint           |
 | Release and save          | Final geometry, chart redraw, serialization, request time, response processing   |
@@ -50,13 +50,14 @@ React work grows with the number of components affected by a change.
 Dashboard-wide state can make every card render even when only one tile moves.
 
 - Keep transient geometry close to the grid or active tile.
-- Keep completed layout edits separate from dashboard tile data until Save. Replacing every tile on pointer release can invalidate dashboard-wide selectors and delay the next paint.
+- Keep a dropped layout in the draft layout state, separate from dashboard tile data, while it autosaves. Replacing every tile on pointer release can invalidate dashboard-wide selectors and delay the next paint.
 - Separate a light geometry wrapper from expensive card content.
 - Preserve references for unchanged data, configuration, layout items, and callbacks where render boundaries depend on them.
 - Check which props actually change before adding memoization.
 - Keep comparisons correct. Ignoring changed callbacks or content can preserve stale behavior.
 - Preserve tile keys and chart instances across geometry and mode changes.
-- Keep local edit-mode state changes out of dashboard data loaders when no dashboard data changed.
+- Keep local layout and gesture state changes out of dashboard data loaders when no dashboard data changed.
+- Do not dispatch a Kea action on the first movement of a gesture. Each dispatch reruns the selectors of every subscribed component on the dashboard, even when only a small overlay reads the new value.
 
 Memoization reduces repeated React work. It does not prevent browser layout or canvas drawing after dimensions change.
 For example, moving a tile usually needs a position update; resizing it can also require text layout and a chart redraw.
@@ -84,11 +85,16 @@ Check third-party drag and resize code for global style changes. Recheck upstrea
 
 - Inspect browser style and layout costs alongside React commits.
 - Avoid alternating geometry reads and DOM writes across tiles. Group required reads before writes.
-- Avoid mounting large control trees solely because edit mode changes.
+- Avoid mounting large control trees solely because a gesture starts or ends.
 - Defer hidden controls that perform measurements or other expensive initialization.
 - Use containment or content visibility where appropriate, and check overflow, overlays, focus, and active gestures.
 - Keep decorative DOM bounded. Repeated backgrounds need not create an element for every grid cell.
 - Count DOM nodes before and after mode changes. CSS containment cannot remove the cost of creating thousands of nodes.
+- Mount transient overlays, such as a move hint, outside the grid through a portal. The grid styles use `:has()` selectors, so a node inserted into the grid wrapper restyles every tile.
+- When a gesture toggles a class on the grid container, end each rule under that class on a narrow class, such as the placeholder.
+  A rule that reaches tile content, such as `.react-grid-item > *`, restyles the content of every tile when the class is added and again on release.
+  An inherited property set on the tiles, such as `pointer-events` or `cursor`, has the same cost.
+  Put rules for the moving tile on `.react-draggable-dragging`, which the grid sets on that tile only.
 
 Transforms can reduce layout work for position changes. Width and height changes can require layout through the tile's content.
 Containment does not remove React work, query work, timers, or canvas resources by itself.
@@ -98,7 +104,7 @@ In a vertically compacted grid, shrinking a tile from its top edge opens space a
 
 A long dashboard should avoid mounting every expensive card at initial load.
 Track DOM nodes, chart instances, observers, timers, decoded images, and memory after a full scroll and return.
-Measure edit entry after a full scroll. Dense SQL tables can make this transition slow even when the tile count is unchanged.
+Measure the first gesture after a full scroll. Dense SQL tables can make it slow even when the tile count is unchanged.
 Count rendered cells and DOM nodes as well as tiles. A few dense tables can cost more than many simple charts.
 
 - Mount expensive content near the viewport when the surface permits it.
@@ -149,7 +155,7 @@ Mode changes and virtualization must not accidentally invalidate queries or star
 - Check whether visible tiles wait behind offscreen tiles in a bounded refresh queue.
 - Avoid unnecessary saves when no persisted state changed.
 - Preserve save errors, cancellation, and final layout correctness when moving work off the interaction path.
-- Check the local work done by an unchanged save. Zero network requests do not prove that exit is cheap.
+- Check the local work done by an unchanged save. Zero network requests do not prove that a drop is cheap.
 
 A fast network response can still cause a slow interface if parsing, state propagation, or rendering is expensive.
 A slow request does not explain a delayed local drag unless the interaction actually waits for it.
@@ -180,13 +186,16 @@ If checks are paused, identify the unverified behavior and leave the change loca
 10. Stop traces and detach diagnostic sessions. Repeat timing measurements without profiling overhead.
 11. Compare the first gesture after a fresh load with a repeat gesture on the same page. Record whether tiles still mount during the gesture.
 
+A hidden or covered browser window throttles animation frames, and the timings it reports are not valid.
+Measure in a visible window or a headless browser, and check the frame rate before each run.
+
 An A/B comparison needs a stable outcome as well as a timing difference.
 Check that both variants save, cancel, move, resize, and display charts correctly.
 If a change improves only a helper benchmark while the browser frame intervals remain unchanged, report the helper result without claiming smoother interaction.
 
 Check the following boundaries for interaction changes:
 
-- Entry, first movement, continuous movement, release, exit, and saved-layout reload.
+- First movement, continuous movement, release, autosave, undo and redo, and saved-layout reload.
 - One movement followed by a pause, movement below the drag threshold, quick release, and cancellation.
 - Horizontal and vertical resize, affected neighbors, and supported compaction modes.
 - A narrow scene with an open side panel, plus a wide scene.
@@ -198,11 +207,30 @@ Report the conditions, user-visible result, and remaining gaps.
 Focused regression tests can protect behavior; they do not establish frame rate.
 Do not convert one local result into a general performance guarantee.
 
+Before you rely on a metric, confirm that it detects a known cost.
+Add a fixed stall, such as a busy loop in a `mousemove` handler, and check that the metric reports each stall.
+Throttle the CPU and check that the metric changes by a similar factor.
+Repeat the same gesture several times and check that the spread is smaller than the change you want to detect.
+
+### Field telemetry
+
+Two events measure dashboard performance for real users.
+Both carry `grid_engine`, which names the grid implementation, so a flag rollout can compare implementations by that property.
+
+- `dashboard performance` covers one dashboard view, for a sample of views. It reports main-thread blocking per visible minute, the longest frame, JS heap at the start and end (Chromium only), tile count, mounted tiles, and DOM node count.
+- `dashboard tile repositioned` covers one tile move or resize. It reports frame gaps during the gesture (`frame_gap_p95_ms`, `frame_gap_max_ms`, `slow_frame_count` for gaps over 33 ms) and `release_to_paint_ms`, the time from release until the new layout paints.
+
+Compare frame gaps and release time, not `gesture_duration_ms`.
+A tile released mid-drag keeps moving until the next click, so the duration includes the time the user carries the tile.
+Split the results by `input`, because a click-to-move gesture and a held drag have different durations.
+Compare dashboards with a similar tile count, because large dashboards set the slow tail.
+
 ## Code references
 
-- [Dashboard grid and event handlers](../../frontend/src/scenes/dashboard/DashboardItems.tsx).
+- [Dashboard grid and event handlers](./frontend/DashboardItems.tsx).
+- [View and gesture telemetry](./frontend/dashboardPerformance.ts).
 - [Interaction state and layout commits](../../frontend/src/scenes/dashboard/useDashboardLayoutInteraction.ts).
-- [Neighbor resize](../../frontend/src/scenes/dashboard/dashboardResizeCompactor.ts) and [compaction modes](./frontend/dashboardCustomization.ts).
+- [Neighbor resize](./frontend/dashboardResizeCompactor.ts) and [compaction modes](./frontend/dashboardCustomization.ts).
 - [Insight card lifecycle](../../frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx).
 - [Canvas sizing](../../packages/quill/packages/charts/src/core/hooks/useChartCanvas.ts) and [draw scheduling](../../packages/quill/packages/charts/src/core/hooks/useChartDraw.ts).
 - [Dashboard engineering skill](../../.agents/skills/managing-dashboards/SKILL.md) for access, queries, and surface contracts.

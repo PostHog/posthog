@@ -20,6 +20,7 @@ from posthog.models.person.bulk_delete import (
     DeletionRun,
     PersonDeletionStep,
     PersonTombstoneFailed,
+    _start_recording_workflow_batches,
     _start_recording_workflows,
     delete_persons_profile,
     process_queued_person_deletion,
@@ -866,10 +867,30 @@ class QueueRecordingDeletionTests(BaseTest):
             _start_recording_workflows(self.team.pk, persons, self.user, "test reason")
         assert client.start_workflow.call_count == expected_workflows
 
-    def test_uses_empty_deleted_by_when_actor_missing(self):
+    def test_a_failed_start_still_starts_and_reports_the_other_batches(self):
+        client = MagicMock()
+        client.start_workflow = AsyncMock(side_effect=[RuntimeError("temporal unavailable"), None])
+        with (
+            patch("posthog.models.person.bulk_delete.sync_connect", return_value=client),
+            patch("posthog.models.person.bulk_delete.logger") as logger,
+            self.assertRaises(RuntimeError),
+        ):
+            _start_recording_workflow_batches(self.team.pk, [["a"], ["b"]], "system", "test reason")
+
+        assert client.start_workflow.call_count == 2
+        [started] = [c.kwargs["id"] for c in client.start_workflow.call_args_list][1:]
+        logger.warning.assert_called_once()
+        assert logger.warning.call_args.kwargs["started_workflow_ids"] == [started]
+
+    def test_refuses_to_start_a_workflow_with_an_empty_deleted_by(self):
+        with patch("posthog.models.person.bulk_delete.sync_connect") as connect, self.assertRaises(ValueError):
+            _start_recording_workflow_batches(self.team.pk, [["a"]], "", "test reason")
+        connect.assert_not_called()
+
+    def test_records_the_system_as_deleter_when_actor_missing(self):
         client = MagicMock()
         client.start_workflow = AsyncMock()
         with patch("posthog.models.person.bulk_delete.sync_connect", return_value=client):
             _start_recording_workflows(self.team.pk, [_person_with_distinct_ids("a")], None, "test reason")
         client.start_workflow.assert_called_once()
-        assert client.start_workflow.call_args.args[1].config.deleted_by == ""
+        assert client.start_workflow.call_args.args[1].config.deleted_by == "system"

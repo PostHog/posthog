@@ -2,7 +2,7 @@ import './LLMSkillPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 interface PreviewSkill {
     id: string
@@ -48,7 +48,7 @@ const SKILLS: PreviewSkill[] = [
  * switching skills never changes the layout's size.
  */
 export function LLMSkillPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('SkillPreview', isStatic && 'SkillPreview--static')}>

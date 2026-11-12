@@ -14,12 +14,19 @@ from products.managed_warehouse.backend.backfill_trino import (
     ADD_FILES_MAX_FILES,
     BACKFILL_TRINO_PRINCIPAL,
     TrinoBackfillCatalog,
+    backfills_through_trino,
+    data_imports_through_trino,
+    data_imports_trino_flag,
 )
 from products.managed_warehouse.backend.facade.backfill_trino import connect_backfill_catalog
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeDayReplacement,
     DuckLakeTableLayoutError,
     DuckLakeTableReplacement,
+)
+from products.managed_warehouse.backend.facade.feature_flags import (
+    DATA_IMPORTS_TRINO_REGISTRATION_FLAG,
+    DUCKLAKE_TRINO_REGISTRATION_FLAG,
 )
 
 if TYPE_CHECKING:
@@ -35,8 +42,8 @@ class _Cursor:
 
     def execute(self, statement: str) -> None:
         self._connection.statements.append(statement)
-        if self._connection.failures:
-            raise self._connection.failures.pop(0)
+        if self._connection.failures and (failure := self._connection.failures.pop(0)) is not None:
+            raise failure
         self._rows = self._connection.rows_for(statement)
 
     def fetchall(self) -> list[list[object]]:
@@ -49,10 +56,16 @@ class _Cursor:
 class _FakeTrino:
     catalog = "warehouse"
 
-    def __init__(self, columns: dict[str, str] | None = None, failures: list[Exception] | None = None) -> None:
+    def __init__(
+        self,
+        columns: dict[str, str] | None = None,
+        failures: list[Exception | None] | None = None,
+        other_team_rows: bool | list[bool] = False,
+    ) -> None:
         self.statements: list[str] = []
         self.failures = failures or []
         self._columns = columns or {}
+        self._other_team_rows = other_team_rows
 
     def cursor(self) -> _Cursor:
         return _Cursor(self)
@@ -62,14 +75,24 @@ class _FakeTrino:
             return [[name, data_type] for name, data_type in self._columns.items()]
         if "EXECUTE add_files" in statement:
             return [["added_data_files", 2]]
+        if statement.startswith("SELECT 1 FROM"):
+            rows = self._other_team_rows
+            return [[1]] if (rows.pop(0) if isinstance(rows, list) else rows) else []
         return []
 
 
 def _catalog(
-    columns: dict[str, str] | None = None, failures: list[Exception] | None = None
+    columns: dict[str, str] | None = None,
+    failures: list[Exception | None] | None = None,
+    team_id: int | None = None,
+    other_team_rows: bool | list[bool] = False,
 ) -> tuple[TrinoBackfillCatalog, _FakeTrino]:
-    connection = _FakeTrino(columns, failures)
-    return TrinoBackfillCatalog(cast("Connection", connection)), connection
+    connection = _FakeTrino(columns, failures, other_team_rows)
+    return TrinoBackfillCatalog(cast("Connection", connection), team_id=team_id), connection
+
+
+def _changes(connection: _FakeTrino) -> list[str]:
+    return [statement for statement in connection.statements if not statement.startswith("SELECT")]
 
 
 @pytest.mark.parametrize("canary", [False, True])
@@ -150,6 +173,47 @@ class TestRegisterFiles:
 
         assert connection.statements == []
 
+    @parameterized.expand(
+        [
+            (f"{name}_{'other_team_rows' if other_team_rows else 'own_rows_only'}", action, in_day, other_team_rows)
+            for other_team_rows in (False, True)
+            for name, action, in_day in (
+                (
+                    "register_table",
+                    lambda c: c.register_files(
+                        "persons", ["s3://b/f.parquet"], import_id="i", replacement=DuckLakeTableReplacement()
+                    ),
+                    False,
+                ),
+                (
+                    "delete_day",
+                    lambda c: c.delete_rows("events", DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 1))),
+                    True,
+                ),
+                ("rebuild", lambda c: c.replace_table("persons", COLUMNS), False),
+                (
+                    "drop",
+                    lambda c: c.ensure_table(
+                        "events", COLUMNS, drop_first=True, create_if_missing=False, validate=False
+                    ),
+                    False,
+                ),
+            )
+        ]
+    )
+    def test_changes_a_base_table_only_when_no_other_team_has_rows_in_the_range(
+        self, _name: str, action, in_day: bool, other_team_rows: bool
+    ) -> None:
+        catalog, connection = _catalog(COLUMNS, team_id=7, other_team_rows=other_team_rows)
+
+        with pytest.raises(ValueError, match="shared") if other_team_rows else nullcontext():
+            action(catalog)
+
+        [probe] = [statement for statement in connection.statements if statement.startswith("SELECT 1 FROM")]
+        assert '"team_id" <> 7' in probe
+        assert ("TIMESTAMP '2024-01-01 00:00:00 UTC'" in probe) == in_day
+        assert bool(_changes(connection)) != other_team_rows
+
     def test_refuses_more_files_than_one_call_registers(self) -> None:
         catalog, connection = _catalog()
         files = [f"s3://bucket/f{index}.parquet" for index in range(ADD_FILES_MAX_FILES + 1)]
@@ -228,7 +292,7 @@ class TestEnsureTable:
         with pytest.raises(ValueError, match="shared"):
             action(catalog, table)
 
-        assert connection.statements == []
+        assert _changes(connection) == []
 
     @parameterized.expand(
         [
@@ -321,7 +385,7 @@ class TestTransientFailures:
         assert len(connection.statements) == 1
 
     def test_raises_the_last_transient_failure_after_bounded_attempts(self, _sleep) -> None:
-        failures: list[Exception] = [
+        failures: list[Exception | None] = [
             _query_error(TrinoExternalError, "DUCKLAKE_COMMIT_CONFLICT", "EXTERNAL") for _ in range(10)
         ]
         catalog, connection = _catalog(failures=failures)
@@ -330,3 +394,43 @@ class TestTransientFailures:
             _register(catalog)
 
         assert 1 < len(connection.statements) < 10
+
+    def test_checks_the_rows_again_when_a_base_table_change_retries(self, _sleep) -> None:
+        conflict = _query_error(TrinoExternalError, "DUCKLAKE_COMMIT_CONFLICT", "EXTERNAL")
+        catalog, connection = _catalog(team_id=7, failures=[None, conflict], other_team_rows=[False, True])
+
+        with pytest.raises(ValueError, match="shared"):
+            catalog.register_files(
+                "events",
+                ["s3://bucket/backfill/a.parquet"],
+                import_id="run1_ab12",
+                replacement=DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 31)),
+            )
+
+        assert [statement.split()[0] for statement in connection.statements] == ["SELECT", "ALTER", "SELECT"]
+
+
+@pytest.mark.parametrize(
+    "through_trino, flag",
+    [
+        (backfills_through_trino, DUCKLAKE_TRINO_REGISTRATION_FLAG),
+        (data_imports_through_trino, DATA_IMPORTS_TRINO_REGISTRATION_FLAG),
+    ],
+)
+def test_each_trino_helper_evaluates_its_own_flag(through_trino, flag: str) -> None:
+    with patch(
+        "products.managed_warehouse.backend.backfill_trino.feature_enabled_or_false", return_value=True
+    ) as evaluate:
+        assert through_trino("org-1") is True
+
+    assert evaluate.call_args.args[0] == flag
+
+
+@pytest.mark.parametrize("client_value, expected", [(True, True), (False, False), (None, None)])
+def test_data_imports_trino_flag_keeps_an_unanswered_lookup_apart_from_off(client_value, expected) -> None:
+    with patch(
+        "products.managed_warehouse.backend.backfill_trino.get_feature_flag_or_none", return_value=client_value
+    ) as evaluate:
+        assert data_imports_trino_flag("org-1") is expected
+
+    assert evaluate.call_args.args[0] == DATA_IMPORTS_TRINO_REGISTRATION_FLAG

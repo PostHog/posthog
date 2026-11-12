@@ -147,6 +147,111 @@ const channelRetrieve = (): ToolBase<ReturnType<typeof ChannelRetrieveSchema>, S
     },
 })
 
+const InboxRepoRoutingRulesCreateSchema = () => {
+    const TasksRepoRoutingRulesCreateBody = orvalSchemas.TasksRepoRoutingRulesCreateBody()
+    return TasksRepoRoutingRulesCreateBody
+}
+
+const inboxRepoRoutingRulesCreate = (): ToolBase<
+    ReturnType<typeof InboxRepoRoutingRulesCreateSchema>,
+    Schemas.RepoRoutingRule
+> => ({
+    name: 'inbox-repo-routing-rules-create',
+    schema: InboxRepoRoutingRulesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxRepoRoutingRulesCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.rule_text !== undefined) {
+            body['rule_text'] = params.rule_text
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        const result = await context.api.request<Schemas.RepoRoutingRule>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/repo_routing_rules/`,
+            body,
+        })
+        return result
+    },
+})
+
+const InboxRepoRoutingRulesDeleteSchema = () => {
+    const TasksRepoRoutingRulesDestroyParams = orvalSchemas.TasksRepoRoutingRulesDestroyParams()
+    return TasksRepoRoutingRulesDestroyParams.omit({ project_id: true }).extend({
+        id: TasksRepoRoutingRulesDestroyParams.shape['id'].describe(
+            'ID of the routing rule to delete, from inbox-repo-routing-rules-list.'
+        ),
+    })
+}
+
+const inboxRepoRoutingRulesDelete = (): ToolBase<ReturnType<typeof InboxRepoRoutingRulesDeleteSchema>, unknown> => ({
+    name: 'inbox-repo-routing-rules-delete',
+    schema: InboxRepoRoutingRulesDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxRepoRoutingRulesDeleteSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/repo_routing_rules/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const InboxRepoRoutingRulesListSchema = () => z.object({})
+
+const inboxRepoRoutingRulesList = (): ToolBase<
+    ReturnType<typeof InboxRepoRoutingRulesListSchema>,
+    Schemas.RepoRoutingRule[]
+> => ({
+    name: 'inbox-repo-routing-rules-list',
+    schema: InboxRepoRoutingRulesListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxRepoRoutingRulesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.RepoRoutingRule[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/repo_routing_rules/`,
+        })
+        return result
+    },
+})
+
+const InboxRepoRoutingRulesUpdateSchema = () => {
+    const TasksRepoRoutingRulesPartialUpdateBody = orvalSchemas.TasksRepoRoutingRulesPartialUpdateBody()
+    const TasksRepoRoutingRulesPartialUpdateParams = orvalSchemas.TasksRepoRoutingRulesPartialUpdateParams()
+    return TasksRepoRoutingRulesPartialUpdateParams.omit({ project_id: true })
+        .extend(TasksRepoRoutingRulesPartialUpdateBody.shape)
+        .extend({
+            id: TasksRepoRoutingRulesPartialUpdateParams.shape['id'].describe(
+                'ID of the routing rule to update, from inbox-repo-routing-rules-list.'
+            ),
+        })
+}
+
+const inboxRepoRoutingRulesUpdate = (): ToolBase<
+    ReturnType<typeof InboxRepoRoutingRulesUpdateSchema>,
+    Schemas.RepoRoutingRule
+> => ({
+    name: 'inbox-repo-routing-rules-update',
+    schema: InboxRepoRoutingRulesUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxRepoRoutingRulesUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.rule_text !== undefined) {
+            body['rule_text'] = params.rule_text
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        const result = await context.api.request<Schemas.RepoRoutingRule>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/repo_routing_rules/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const TasksConfigAgentInstructionsCreateSchema = () => {
     const TasksConfigAgentInstructionsCreateBody = orvalSchemas.TasksConfigAgentInstructionsCreateBody()
     return TasksConfigAgentInstructionsCreateBody
@@ -259,6 +364,10 @@ const TasksCreateSchema = () => {
         sandbox_environment_id: true,
         custom_image_id: true,
         runtime: true,
+        profile: true,
+        options: true,
+        source: true,
+        idempotency_key: true,
     }).extend({
         description: TasksCreateBody.shape['description']
             .nonoptional()
@@ -691,6 +800,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'channel-instructions-update': channelInstructionsUpdate,
     'channel-list': channelList,
     'channel-retrieve': channelRetrieve,
+    'inbox-repo-routing-rules-create': inboxRepoRoutingRulesCreate,
+    'inbox-repo-routing-rules-delete': inboxRepoRoutingRulesDelete,
+    'inbox-repo-routing-rules-list': inboxRepoRoutingRulesList,
+    'inbox-repo-routing-rules-update': inboxRepoRoutingRulesUpdate,
     'tasks-config-agent-instructions-create': tasksConfigAgentInstructionsCreate,
     'tasks-config-create': tasksConfigCreate,
     'tasks-config-list': tasksConfigList,

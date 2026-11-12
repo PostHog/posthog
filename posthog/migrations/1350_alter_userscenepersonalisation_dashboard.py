@@ -6,10 +6,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        (
-            "dashboards",
-            "0019_alter_buttontile_created_by_alter_buttontile_team_and_more",
-        ),
         ("posthog", "1349_delete_persistedfolder_from_state"),
     ]
 

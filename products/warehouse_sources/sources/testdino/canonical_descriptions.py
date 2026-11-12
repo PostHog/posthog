@@ -84,4 +84,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updatedAt": "Time of the last per-case record update.",
         },
     },
+    "specs": {
+        "description": "Spec files with pass, fail, and flaky counts, flakiness rate, and average duration over the last 90 days.",
+        "docs_url": "https://docs.testdino.com/api-reference/endpoints/specs/list-specs",
+    },
+    "test_cases": {
+        "description": "Automated test cases with pass rate, failure rate, flakiness rate, duration, and last execution time over the last 90 days.",
+        "docs_url": "https://docs.testdino.com/api-reference/endpoints/test-case-explorer/explore-test-cases",
+    },
 }

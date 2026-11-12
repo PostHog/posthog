@@ -85,9 +85,9 @@ export function slackProduct(): AgentProduct {
         slackProgressChecklist: launchOptions.slack_app_agent_design_enabled,
       };
       const threadUrl = launchOptions.slack_thread_url;
-      const footerSource = threadUrl
+      const threadSource = threadUrl
         ? { label: "Slack thread", url: threadUrl }
-        : launch.source;
+        : undefined;
       const closingInstructions =
         slackReply && isBenjaminEnabled()
           ? SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION
@@ -116,7 +116,7 @@ export function slackProduct(): AgentProduct {
           existingUrl: launchOptions.slack_notified_pr_url,
           footer: buildPullRequestFooter(launch, {
             automated: slackOrigin,
-            source: footerSource,
+            sources: [launch.source, threadSource],
           }),
         },
         handleQuestions: slackOrigin ? handleQuestions : undefined,

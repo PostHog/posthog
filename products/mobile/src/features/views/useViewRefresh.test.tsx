@@ -520,6 +520,36 @@ describe('useViewRefresh on a dashboard', () => {
         unmount()
     })
 
+    test('switching selections drops only replaced queued reads and allows switching back', async () => {
+        const [first, second, oldTab, retained] = tiles('web', 4, true) as [
+            RefreshItem,
+            RefreshItem,
+            RefreshItem,
+            RefreshItem,
+        ]
+        const [newTab] = tiles('new', 1, false) as [RefreshItem]
+        const initial = {
+            ...options('web', [first, second, oldTab, retained]),
+            screen: 'web_analytics' as const,
+            screenKey: 'web',
+            container: null,
+        }
+        const { rerender, unmount } = renderHook((props: ViewRefreshOptions) => useViewRefresh(props), {
+            initialProps: initial,
+        })
+        expect(reads).toEqual([first.key, second.key])
+
+        rerender({ ...initial, items: [first, second, newTab, retained] })
+        await settle(first.key)
+        await settle(second.key)
+
+        expect(reads).toEqual([first.key, second.key, retained.key, newTab.key])
+        rerender(initial)
+        await flush()
+        expect(reads).toEqual([first.key, second.key, retained.key, newTab.key, oldTab.key])
+        unmount()
+    })
+
     test.each(['blur', 'disable'] as const)(
         'a dashboard read that finishes after %s cannot enqueue its old tiles when active again',
         async (interruption) => {

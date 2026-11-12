@@ -65,6 +65,7 @@ describe('inboxFiltersLogic', () => {
         // The server ignores the `sort` preset whenever `ordering` is present.
         it.each([
             ['recommended', 'asc', { sort: 'recommended' }],
+            ['personal', 'asc', { sort: 'personal' }],
             ['priority', 'asc', { ordering: 'priority,status,-updated_at' }],
         ] as const)('sends %s:%s as %p', (field, direction, expected) => {
             expect(buildSignalReportListSortParams(field, direction)).toEqual(expected)
@@ -120,6 +121,11 @@ describe('inboxFiltersLogic', () => {
                 { scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
             ],
             ['claimed-by-you scope only', { ...DEFAULT_STATE, scope: 'claimed-by-you' }, { scope: 'claimed-by-you' }],
+            [
+                'monitoring status only',
+                { ...DEFAULT_STATE, stateFilter: ['outcome-monitoring'] },
+                { state: 'outcome-monitoring' },
+            ],
             // An unchecked-everything selection means every state. It must survive the URL rewrite
             // that follows each toggle, or hydration would put the default selection straight back.
             ['an explicitly empty state selection', { ...DEFAULT_STATE, stateFilter: [] }, { state: 'all' }],
@@ -181,6 +187,16 @@ describe('inboxFiltersLogic', () => {
                 sortField,
                 sortDirection,
             })
+        })
+
+        it.each([
+            ['keeps the Personalized sort for a user with its flag', true, 'personal'],
+            ['falls back to the default sort for a user without its flag', false, 'recommended'],
+        ] as const)('%s', (_name, personalSortAvailable, sortField) => {
+            // The model sort flag does not unlock the Personalized sort.
+            expect(
+                parseFilterSearchParams({ sort: 'personal:asc' }, { modelSortAvailable: true, personalSortAvailable })
+            ).toEqual({ ...DEFAULT_STATE, sortField, sortDirection: 'asc' })
         })
     })
 
@@ -337,6 +353,20 @@ describe('inboxFiltersLogic', () => {
                 .toMatchValues({ activeScoutFilter: ['my-custom-scout'], hasActiveFilters: true })
         })
 
+        it('keeps a monitoring URL selection visible without a browser rollout flag', async () => {
+            router.actions.push(urls.inbox('reports'), { state: 'outcome-monitoring' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.visibleStateFilter).toEqual(['outcome-monitoring'])
+            expect(router.values.searchParams.state).toBe('outcome-monitoring')
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+            })
+
+            expect(logic.values.visibleStateFilter).toEqual(['outcome-monitoring'])
+        })
+
         it.each([
             ['the default view', () => {}, null, 0],
             ['a ranking sort with its automatic window', () => logic.actions.setSort('ranking_fix', 'desc'), '7d', 0],
@@ -446,6 +476,23 @@ describe('inboxFiltersLogic', () => {
                 })
             }
         )
+
+        // The reset reloads the lists, so rows that carry personal merge keys do not stay on screen.
+        it.each([
+            ['keeps a stored Personalized sort while its flag is on', true, 'personal', 'personal'],
+            ['resets a stored Personalized sort once its flag is off', false, 'recommended', 'recommended'],
+        ] as const)('%s', (_name, flagOn, sortField, activeSortField) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
+                [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
+            })
+            logic.actions.setSort('personal', 'asc')
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
+                [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: flagOn,
+            })
+
+            expect(logic.values).toMatchObject({ sortField, activeSortField, activeSortDirection: 'asc' })
+        })
     })
 
     describe('stored sort migration', () => {

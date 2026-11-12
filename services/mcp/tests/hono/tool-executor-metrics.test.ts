@@ -809,20 +809,25 @@ describe('ToolExecutor metrics', () => {
 
         it.each(['gated_tool', 'tool_not_granted'] as const)('stamps the target tool on %s', async (reason) => {
             const state = execState()
-            state.allTools = state.allTools.filter((tool) => tool.name !== 'notebooks-create')
+            state.allTools = state.allTools.filter((tool) => tool.name !== 'notebooks-partial-update')
             if (reason === 'gated_tool') {
-                state.flagGatedTools = [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }]
+                state.flagGatedTools = [{ name: 'notebooks-partial-update', supersededBy: ['notebooks-update-cell'] }]
             } else {
                 state.scopeGatedTools = []
                 state.flagGatedTools = []
                 state.heldTools = new Set(['docs-search'])
             }
 
-            await executor.handleToolCall({ name: 'exec', arguments: { command: 'call notebooks-create {}' } }, state)
+            await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call notebooks-partial-update {}' } },
+                state
+            )
 
-            expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).toMatchObject({
+            const [toolName, , , , extras] = mockTrackToolCall.mock.calls.at(-1) ?? []
+            expect(toolName).toBe('notebooks-partial-update')
+            expect(extras).toMatchObject({
                 $mcp_exec_verb: 'call',
-                $mcp_exec_target_tool: 'notebooks-create',
+                $mcp_exec_target_tool: 'notebooks-partial-update',
                 $mcp_error_code: reason,
             })
         })
@@ -878,20 +883,23 @@ describe('ToolExecutor metrics', () => {
         })
 
         // Dispatcher rejections are agent mistakes, not server faults: they must not
-        // land in the `internal` bucket the error-rate alert watches, they stay
-        // attributed to `exec` (no inner tool ran), and they must carry a value-free
-        // message so the failure is debuggable from analytics.
+        // land in the `internal` bucket the error-rate alert watches, their server
+        // metrics stay on `exec` (no inner tool ran), and they must carry a value-free
+        // message so the failure is debuggable from analytics. The analytics event names
+        // the tool the agent was trying to call when the command named a known one, so
+        // a malformed call shows up against that tool instead of the generic `exec` bucket.
         it.each([
-            ['call nonexistent-tool-xyz {}', 'unknown_tool'],
-            ['frobnicate', 'unknown_command'],
-            ['docs-search {"query":"funnels"}', 'tool_as_command'],
-            ['call docs-search {not json}', 'invalid_json'],
-        ])('classifies %s as validation', async (command, reason) => {
+            ['call nonexistent-tool-xyz {}', 'unknown_tool', 'exec'],
+            ['frobnicate', 'unknown_command', 'exec'],
+            ['docs-search {"query":"funnels"}', 'tool_as_command', 'docs-search'],
+            ['call docs-search {not json}', 'invalid_json', 'docs-search'],
+        ])('classifies %s as validation', async (command, reason, analyticsTool) => {
             await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
 
             expect(callsFor(mockToolCallsInc, 'exec')).toEqual([{ tool: 'exec', status: 'validation_error' }])
             expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'validation' }])
-            expect(trackToolCallExtras('exec')).toMatchObject({
+            expect(mockTrackToolCall.mock.calls.map((c) => c[0])).toEqual([analyticsTool])
+            expect(trackToolCallExtras(analyticsTool)).toMatchObject({
                 $mcp_error_type: 'validation',
                 $mcp_error_code: reason,
                 $mcp_error_message: `Exec command rejected: ${reason}`,

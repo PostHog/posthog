@@ -27,6 +27,8 @@ def test_build_incremental_fields_emits_dict_per_triple() -> None:
             "field_type": IncrementalFieldType.DateTime,
             "nullable": False,
             "is_indexed": True,
+            "recommended": True,
+            "notes": ["Only marks new rows. Edits to existing rows don't sync."],
         },
         {
             "label": "id",
@@ -35,6 +37,8 @@ def test_build_incremental_fields_emits_dict_per_triple() -> None:
             "field_type": IncrementalFieldType.Integer,
             "nullable": False,
             "is_indexed": True,
+            "recommended": False,
+            "notes": ["Only marks new rows. Edits to existing rows don't sync."],
         },
     ]
 
@@ -54,8 +58,7 @@ def test_build_incremental_fields_marks_indexed_columns() -> None:
         ("id", IncrementalFieldType.Integer, False),
     ]
     result = build_incremental_fields(triples, indexed_columns={"id"})
-    assert result[0]["is_indexed"] is False
-    assert result[1]["is_indexed"] is True
+    assert {f["field"]: f["is_indexed"] for f in result} == {"created_at": False, "id": True}
 
 
 def test_build_incremental_fields_empty_indexed_set_marks_none_indexed() -> None:

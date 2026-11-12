@@ -53,6 +53,7 @@ const buildMetric = (id: string, name: string, definitionKind: string | null): D
     referenced_table_names: [],
     status: 'approved',
     is_drifted: false,
+    match_reason: null,
     approved_at: null,
     approved_by: null,
     last_run_at: null,
@@ -1325,21 +1326,59 @@ describe('queryDatabaseLogic', () => {
 
         it.each([
             { scope: null, schemaFails: false, expectedViews: ['clickhouse_view'] },
-            { scope: MANAGED_TRINO_SCHEMA_SCOPE, schemaFails: false, expectedViews: ['trino_view'] },
-            { scope: MANAGED_TRINO_SCHEMA_SCOPE, schemaFails: true, expectedViews: ['trino_view'] },
+            {
+                scope: MANAGED_TRINO_SCHEMA_SCOPE,
+                schemaFails: false,
+                expectedViews: ['trino_hogql_view', 'trino_view'],
+            },
+            {
+                scope: MANAGED_TRINO_SCHEMA_SCOPE,
+                schemaFails: true,
+                expectedViews: ['trino_hogql_view', 'trino_view'],
+            },
+            { scope: 'source-id', schemaFails: false, expectedViews: ['connection_view'] },
+            { scope: 'source-id', schemaFails: true, expectedViews: ['connection_view'] },
+            { scope: 'another-source', schemaFails: false, expectedViews: [] },
             { scope: null, schemaFails: false, search: 'trino', expectedViews: [] },
             { scope: null, schemaFails: false, onlyTrino: true, expectedViews: [] },
         ])(
-            'lists raw Trino views only under hosted Trino (scope $scope, schema fails $schemaFails)',
+            'lists each view only under the engine that runs it (scope $scope, schema fails $schemaFails)',
             async ({ scope, schemaFails, search, onlyTrino, expectedViews }) => {
                 const viewsLogic = dataWarehouseViewsLogic.findMounted()!
                 await expectLogic(viewsLogic).toFinishAllListeners()
+                const capabilities = (referenceable: boolean): Record<string, unknown> => ({
+                    materialize: { available: referenceable, reason: referenceable ? null : 'Not here.' },
+                    lineage: { available: referenceable, reason: referenceable ? null : 'Not here.' },
+                    referenceable_from_clickhouse: {
+                        available: referenceable,
+                        reason: referenceable ? null : 'Not here.',
+                    },
+                })
                 viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(
                     [
-                        { name: 'trino_view', is_raw_managed_trino: true },
-                        { name: 'clickhouse_view', is_raw_managed_trino: false },
+                        {
+                            name: 'trino_view',
+                            engine: { target: 'managed_trino', dialect: 'raw', capabilities: capabilities(false) },
+                        },
+                        {
+                            name: 'trino_hogql_view',
+                            engine: { target: 'managed_trino', dialect: 'hogql', capabilities: capabilities(true) },
+                        },
+                        {
+                            name: 'clickhouse_view',
+                            engine: { target: 'clickhouse', dialect: 'hogql', capabilities: capabilities(true) },
+                        },
+                        {
+                            name: 'connection_view',
+                            engine: {
+                                target: 'connection',
+                                dialect: 'hogql',
+                                connection_id: 'source-id',
+                                capabilities: capabilities(false),
+                            },
+                        },
                     ]
-                        .filter((view) => !onlyTrino || view.is_raw_managed_trino)
+                        .filter((view) => !onlyTrino || view.name === 'trino_view')
                         .map((view) => ({
                             ...view,
                             id: view.name,

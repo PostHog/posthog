@@ -15,7 +15,12 @@ from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import NullThreadStore, ThreadClaim, ThreadKey
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DestinationMisconfigured,
+    DestinationRefused,
+    MessageHandle,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -352,6 +357,31 @@ class TestDeliveryDispatch(SimpleTestCase):
         # An outage's text can carry a credential URL, so only its class reaches the person's log.
         assert recorded.call_args.kwargs["error"] == logged
         assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == [outcome]
+
+    def test_a_refusal_is_noticed_and_counted_as_the_destination_owners_fix(self) -> None:
+        refusal = DestinationRefused("The webhook destination refused the message with status 400.")
+
+        with (
+            patch("products.alerts_platform.backend.delivery.dispatch.record_delivery"),
+            patch("products.alerts_platform.backend.delivery.dispatch.notify_refused") as notified,
+            recorded_metrics() as metrics,
+        ):
+            with pytest.raises(DestinationRefused):
+                deliver(
+                    transport=FakeTransport(error=refusal),
+                    thread_store=NullThreadStore(),
+                    team_id=2,
+                    configuration_id="cfg-1",
+                    evaluation_key="eval-1",
+                    target=TARGET,
+                    destination_id="destination-1",
+                    announcement=_announcement(),
+                )
+
+        assert notified.call_args.kwargs["refusal"] is refusal
+        assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == [
+            "misconfigured"
+        ]
 
     def test_a_store_that_remembers_nothing_still_delivers(self) -> None:
         transport = FakeTransport()

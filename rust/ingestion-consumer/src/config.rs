@@ -232,12 +232,11 @@ pub struct Config {
     /// How long a revoke waits for the revoked partitions' in-flight messages
     /// before it commits them and hands the partitions to their new owner
     /// (milliseconds). The commit gets the same time again. librdkafka fetches
-    /// no partition while it waits. `0` (default) hands them over at once,
-    /// and the new owner processes their in-flight messages again. At least
+    /// no partition while it waits. Above 0, at least
     /// twice `INGESTION_REQUEST_SOFT_BUDGET_MS` when that is set, and at most
     /// half the smallest of the liveness deadline, the graceful shutdown, and
     /// `KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS`.
-    #[envconfig(from = "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", default = "0")]
+    #[envconfig(from = "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", default = "25000")]
     pub consumer_revoke_drain_timeout_ms: u64,
 
     /// Uncommitted events at which a partition's fetch pauses. Required.
@@ -373,8 +372,9 @@ pub struct Config {
 
     /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
     /// many workers this dispatcher's ring slice spans. The effective width
-    /// is floored at `ceil(pool / dispatchers)` so the fleet's slices always
-    /// cover the whole pool. Small values maximize sub-batch consolidation.
+    /// is the smallest multiple of `pool / dispatchers` workers at or above
+    /// this value, so every worker gets the same share of the fleet's slices.
+    /// Small values maximize sub-batch consolidation.
     #[envconfig(from = "INGESTION_MIN_APERTURE", default = "3")]
     pub min_aperture: usize,
 
@@ -663,17 +663,17 @@ impl Config {
     /// than two soft budgets can time out on requests that are about to finish.
     const MIN_REVOKE_DRAIN_SOFT_BUDGETS: u64 = 2;
 
-    pub fn revoke_drain_timeout(&self) -> Result<Option<Duration>, String> {
+    pub fn revoke_drain_timeout(&self) -> Result<Duration, String> {
         let timeout_ms = self.consumer_revoke_drain_timeout_ms;
         if timeout_ms == 0 {
-            return Ok(None);
+            return Err("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS must be above 0".to_string());
         }
         let floor_ms = self
             .request_soft_budget_ms
             .saturating_mul(Self::MIN_REVOKE_DRAIN_SOFT_BUDGETS);
         if timeout_ms < floor_ms {
             return Err(format!(
-                "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS must be 0 or at least {} times \
+                "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS must be at least {} times \
                  INGESTION_REQUEST_SOFT_BUDGET_MS ({floor_ms})",
                 Self::MIN_REVOKE_DRAIN_SOFT_BUDGETS
             ));
@@ -698,7 +698,7 @@ impl Config {
                  KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS ({ceiling_ms})"
             ));
         }
-        Ok(Some(Duration::from_millis(timeout_ms)))
+        Ok(Duration::from_millis(timeout_ms))
     }
 
     pub fn worker_urls(&self) -> Vec<String> {
@@ -842,18 +842,19 @@ mod tests {
 
     struct DrainTimeoutCase {
         vars: &'static [(&'static str, &'static str)],
-        expected: Result<Option<Duration>, ()>,
+        expected: Result<Duration, ()>,
     }
 
     #[rstest]
-    #[case::off(DrainTimeoutCase { vars: &[("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Ok(None) })]
-    #[case::no_soft_budget(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "100")], expected: Ok(Some(Duration::from_millis(100))) })]
-    #[case::at_two_soft_budgets(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "6000"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Ok(Some(Duration::from_millis(6000))) })]
+    #[case::default(DrainTimeoutCase { vars: &[], expected: Ok(Duration::from_millis(25000)) })]
+    #[case::zero(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "0")], expected: Err(()) })]
+    #[case::no_soft_budget(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "100")], expected: Ok(Duration::from_millis(100)) })]
+    #[case::at_two_soft_budgets(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "6000"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Ok(Duration::from_millis(6000)) })]
     #[case::below_two_soft_budgets(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "5999"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Err(()) })]
-    #[case::at_half_the_liveness_deadline(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "30000")], expected: Ok(Some(Duration::from_millis(30000))) })]
+    #[case::at_half_the_liveness_deadline(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "30000")], expected: Ok(Duration::from_millis(30000)) })]
     #[case::above_half_the_liveness_deadline(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "30001")], expected: Err(()) })]
     #[case::above_half_a_short_poll_interval(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "10001"), ("KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS", "20000")], expected: Err(()) })]
-    fn the_revoke_drain_timeout_is_off_or_between_two_soft_budgets_and_half_the_tightest_budget(
+    fn the_revoke_drain_timeout_is_between_two_soft_budgets_and_half_the_tightest_budget(
         #[case] case: DrainTimeoutCase,
     ) {
         assert_eq!(

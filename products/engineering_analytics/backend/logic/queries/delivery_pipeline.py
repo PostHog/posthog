@@ -1,14 +1,7 @@
 """Curated query: the pre-merge legs of a PR's path to production.
 
-``created_at`` -> first merge-queue gate run starting -> ``merged_at``.
-
-Nothing records when a PR entered the queue (Trunk keeps only each entry's last transition), so
-the first gate run starting is the earliest queue activity in the data; review, rework, idle,
-and the wait for a slot stay fused in one leg.
-
-The post-merge leg is the DORA lead-time read in ``dora.py``: a deploy timestamp alone cannot
-say which merges a deploy contains. Bots and drafts are excluded (the locked cycle-time recipe),
-unlike the merge-queue overview, which measures the queue over every author.
+Nothing records when a PR entered the queue, so the first merge-queue gate run starting is the
+earliest queue activity in the data. Bots and drafts are excluded.
 """
 
 from datetime import datetime
@@ -101,8 +94,7 @@ def query_delivery_pipeline(
     date_to: datetime | None,
 ) -> DeliveryPipeline:
     """The open -> gate -> merge legs for [date_from, date_to], keyed on merge time."""
-    # A first attempt older than the lookback truncates honestly: the first observed gate run
-    # anchors both legs, the same rule as the merge-queue overview.
+    # A gate run older than the lookback is not read, so the first observed gate run anchors both legs.
     gate_from = date_from - GATE_RUN_LOOKBACK
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
@@ -111,7 +103,7 @@ def query_delivery_pipeline(
     }
     date_to_merged_clause = date_to_filter_clause(date_to, placeholders, column="pr.merged_at")
     sql = (
-        _PIPELINE_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        _PIPELINE_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True, since=gate_from))
         .replace("__PR_SOURCE__", curated.pr_source())
         .replace("__DATE_TO_MERGED__", date_to_merged_clause)
     )

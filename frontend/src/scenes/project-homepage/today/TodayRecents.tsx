@@ -3,6 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useId, useMemo } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -27,7 +28,7 @@ function RecentObjectRow({
     position: number
     frequent: boolean
 }): JSX.Element {
-    const preview = useMemo(() => objectPreview(entry), [entry])
+    const preview = useMemo(() => objectPreview(entry, 'jump_back'), [entry])
     const { jumpBackOpened } = useActions(todayLogic)
     return (
         <li className="TodayJumpRow">
@@ -58,8 +59,7 @@ function RecentObjectRow({
 
 export function TodayRecents(): JSX.Element {
     useMountedLogic(todayObjectGlanceLogic)
-    const { recentObjects, frequentObjectsLoading, recentsHasLoaded, listExpanded, useFrequentJumpBack } =
-        useValues(todayLogic)
+    const { recentObjects, frequentObjectsLoading, recentsHasLoaded, listExpanded } = useValues(todayLogic)
     const { setListExpanded } = useActions(todayLogic)
     const { pickPane } = useActions(todayShellLogic)
     const titleId = useId()
@@ -75,13 +75,16 @@ export function TodayRecents(): JSX.Element {
             <div className="TodayHome__headingRow">
                 <TodayHomeHeading id={titleId}>Jump back in</TodayHomeHeading>
                 {recentsHasLoaded && more.length > 0 && (
-                    <Collapsible.Trigger className="TodayHome__headingLink" data-attr="today-home-recent-more">
+                    <Collapsible.Trigger
+                        render={<Button variant="link-muted" size="sm" className="-mx-2 -my-1 text-[13px]" />}
+                        data-attr="today-home-recent-more"
+                    >
                         <span>{listExpanded.recents ? 'Less' : 'More'}</span>
                         <IconChevronDown className="TodayHome__headingChevron size-3" aria-hidden />
                     </Collapsible.Trigger>
                 )}
             </div>
-            {!recentsHasLoaded || (useFrequentJumpBack && frequentObjectsLoading) ? (
+            {!recentsHasLoaded || frequentObjectsLoading ? (
                 <p className="TodayHome__note">Finding your items…</p>
             ) : recentObjects.length === 0 ? (
                 <p className="TodayHome__note">

@@ -20,7 +20,11 @@ from posthog.models.organization import Organization
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rate_limit import ContextSelectionBurstThrottle, ContextSelectionSustainedThrottle
+from posthog.rate_limit import (
+    ContextSelectionBurstThrottle,
+    ContextSelectionSustainedThrottle,
+    ContextSelectionTaskThrottle,
+)
 from posthog.storage.object_storage import UnavailableStorage
 from posthog.temporal.oauth import POSTHOG_AI_APP_CLIENT_ID_DEV
 from posthog.utils import safe_cache_set
@@ -1260,15 +1264,19 @@ class TestSelectionThrottleAPI(NonAtomicAPIBaseTest):
 
     @parameterized.expand(
         [
-            ("burst", ContextSelectionBurstThrottle, "1/minute"),
-            ("sustained", ContextSelectionSustainedThrottle, "1/hour"),
+            ("burst", ContextSelectionBurstThrottle, "1/minute", 200),
+            ("sustained", ContextSelectionSustainedThrottle, "1/hour", 200),
+            ("task", ContextSelectionTaskThrottle, "1/minute", 429),
         ]
     )
     def test_selection_rate_limit_covers_sandbox_oauth(
         self,
         name: str,
-        throttle: type[ContextSelectionBurstThrottle | ContextSelectionSustainedThrottle],
+        throttle: type[
+            ContextSelectionBurstThrottle | ContextSelectionSustainedThrottle | ContextSelectionTaskThrottle
+        ],
         rate: str,
+        limited_status: int,
     ) -> None:
         task = apps.get_model("tasks", "Task").objects.create(
             team=self.team, created_by=self.user, title="Question", origin_product="posthog_ai"
@@ -1318,6 +1326,8 @@ class TestSelectionThrottleAPI(NonAtomicAPIBaseTest):
             assert allowed.status_code == 200, allowed.content
             assert model.call_count == 1
             limited = self.client.post(url, payload, format="json", HTTP_AUTHORIZATION=f"Bearer {tokens[1]}")
-            assert limited.status_code == 429, limited.content
+            assert limited.status_code == limited_status, limited.content
+            if limited_status == 200:
+                assert limited.json()["reason"] == "rate_limited"
             assert model.call_count == 1
             source.assert_not_called()

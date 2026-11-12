@@ -12,7 +12,7 @@ import type { _LogsGroupByGroupApi, OrderGroupsByEnumApi } from 'products/logs/f
 import { logsGroupByLogic } from './logsGroupByLogic'
 
 /**
- * The grouped results table for the group-by lens (behind the `logs-group-by` flag).
+ * The grouped results table for the group-by lens.
  *
  * Column choice is deliberate — each column maps to a triage job:
  *  - value:     which entity is this (identity, the pivot for drill-in)

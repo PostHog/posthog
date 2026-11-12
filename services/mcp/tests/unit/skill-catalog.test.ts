@@ -334,7 +334,7 @@ describe('SkillCatalog and exec learn', () => {
             '../escape/SKILL.md': makeSkill('escape', 'Unsafe archive.', '# Escape'),
         })
 
-        expect(() => SkillCatalog.fromZip(archive)).toThrow('Unsafe skill archive path')
+        expect(() => SkillCatalog.fromZip(archive)).toThrow('Skill archive has an unsafe path')
     })
 
     it.each([

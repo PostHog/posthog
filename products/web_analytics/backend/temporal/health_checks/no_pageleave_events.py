@@ -9,7 +9,6 @@ from posthog.temporal.health_checks.framework import (
     build_signal_extra,
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
-from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 
@@ -17,16 +16,6 @@ from products.web_analytics.backend.models.health_rollups import EventsHealthDai
 from products.web_analytics.backend.temporal.health_checks.rollup_reads import events_health_totals
 
 NO_PAGELEAVE_LOOKBACK_DAYS = 30
-NO_PAGELEAVE_SQL = """
-SELECT team_id
-FROM events
-WHERE team_id IN %(team_ids)s
-  AND event IN ('$pageview', '$pageleave')
-  AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
-GROUP BY team_id
-HAVING countIf(event = '$pageview') > 0
-   AND countIf(event = '$pageleave') = 0
-"""
 
 
 class NoPageleaveEventsCheck(RollupHealthCheck):
@@ -36,7 +25,6 @@ class NoPageleaveEventsCheck(RollupHealthCheck):
     product = Product.WEB_ANALYTICS
     schedule = "30 3 * * *"
     active_since_days = 30
-    reads_rollup = False
     rollup_model = EventsHealthDaily
     window_days = NO_PAGELEAVE_LOOKBACK_DAYS
     remediation = Remediation(
@@ -85,14 +73,6 @@ class NoPageleaveEventsCheck(RollupHealthCheck):
             for team_id, totals in events_health_totals(team_ids, window).items()
             if totals.pageviews > 0 and totals.pageleaves == 0
         }
-
-    def detect_from_events(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        rows = execute_clickhouse_health_team_query(
-            NO_PAGELEAVE_SQL,
-            team_ids=team_ids,
-            lookback_days=NO_PAGELEAVE_LOOKBACK_DAYS,
-        )
-        return {team_id: [_no_pageleave_result()] for (team_id,) in rows}
 
 
 def _no_pageleave_result() -> HealthCheckResult:

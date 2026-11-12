@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import TypedDict
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
+from products.experiments.backend.health.bucketing_changes import GroupTypeNames
 from products.experiments.backend.health.context import (
     ChangeWindow,
     ExposureEvents,
@@ -21,9 +22,11 @@ RUNNING_CONTEXT = HealthContext(
     has_ended=False,
     ended_at=None,
     is_paused=False,
+    can_freeze_exposure=False,
     archived=False,
     team_timezone="Europe/Berlin",
     flag=None,
+    can_read_flag_calls=True,
     flag_called=None,
     flag_called_during_run=None,
     flag_called_after_end=None,
@@ -34,6 +37,9 @@ RUNNING_CONTEXT = HealthContext(
     primary_metric_count=1,
     secondary_metric_count=0,
     hours_since_launch=72,
+    hours_since_start=72,
+    past_daily_calculation=False,
+    daily_calculation_ends_at=None,
     metric_events=(),
     exposure_events=ExposureEvents(
         custom_event=None, required_flag_key="flag", variant_property="$feature_flag_response", flag_key_filters=()
@@ -69,7 +75,7 @@ DRAFT: Status = {"is_launched": False, "is_running": False, "has_ended": False}
 def flag_history(
     changes: Sequence[FlagChange],
     *,
-    launched_at: datetime,
+    start_date: datetime,
     exposed_before_first: bool | None = True,
     exposed_between: Mapping[ExperimentHealthFlagChangeKind, bool | None] | None = None,
     not_checked: FlagHistoryNotCheckedReason | None = None,
@@ -77,16 +83,22 @@ def flag_history(
     exposed_during_overrides: Mapping[ChangeWindow, bool | None] | None = None,
     exposed_units_before_last: Mapping[ExperimentHealthFlagChangeKind, int | None] | None = None,
     counts_groups: bool = False,
+    group_type_names: GroupTypeNames | None = None,
 ) -> FlagHistory | FlagHistoryNotChecked:
     # Every change counts from the first, as when someone was exposed before it.
     if not_checked is not None:
         return FlagHistoryNotChecked(
-            reason=not_checked, launched_at=launched_at, team_timezone="Europe/Berlin", changes=tuple(changes)
+            reason=not_checked,
+            start_date=start_date,
+            team_timezone="Europe/Berlin",
+            changes=tuple(changes),
+            group_type_names=group_type_names or {},
         )
     return FlagHistory(
-        launched_at=launched_at,
+        start_date=start_date,
         team_timezone="Europe/Berlin",
         changes=tuple(changes),
+        group_type_names=group_type_names or {},
         counted_since=changes[0].changed_at if changes else None,
         exposed_before_first=exposed_before_first,
         exposed_between=exposed_between or {},

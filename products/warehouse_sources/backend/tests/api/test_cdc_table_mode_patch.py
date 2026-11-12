@@ -9,6 +9,8 @@ Every external dependency (workflow trigger/cancel, schedule sync, CDC publicati
 mutation) is mocked. These tests only exercise the serializer + helper logic.
 """
 
+from contextlib import ExitStack
+
 import pytest
 from unittest import mock
 
@@ -19,17 +21,23 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import Team, User
+from posthog.models import ActivityLog, Team, User
 
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    INCREMENTAL_HISTORY_KEY,
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 
 pytestmark = [pytest.mark.django_db]
 
 
 _VIEW = "products.warehouse_sources.backend.presentation.views.external_data_schema"
 _PATCH_TARGETS = {
-    "is_cdc_enabled_for_team": "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
     # Single private method backing both add_table/remove_table on the adapter — patching it
     # no-ops the engine-side ALTER PUBLICATION without touching parse_cdc_config gating.
     "alter_cdc_publication": (
@@ -143,7 +151,6 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(team, user, clie
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -190,7 +197,6 @@ def test_a_reset_is_left_to_capture_while_the_tables_sync_can_still_hand_over(te
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
@@ -301,7 +307,6 @@ def test_toggling_sync_drops_the_snapshot_marker(team, user, client: HttpClient,
     )
     client.force_login(user)
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -333,7 +338,6 @@ def test_moving_a_table_off_cdc_drops_it_from_the_publication(
     )
     client.force_login(user)
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]) as alter_publication,
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -367,11 +371,11 @@ def test_a_table_moved_off_cdc_during_a_handed_over_reset_syncs_again(
             **schema.sync_type_config,
             "cdc_reset_pending": {"trigger": True},
             "cdc_snapshot_lane": "buffer",
+            "cdc_snapshot_position": 23803368,
         }
     )
     client.force_login(user)
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -389,6 +393,7 @@ def test_a_table_moved_off_cdc_during_a_handed_over_reset_syncs_again(
     schema.refresh_from_db()
     assert "cdc_reset_pending" not in schema.sync_type_config
     assert "cdc_snapshot_lane" not in schema.sync_type_config
+    assert "cdc_snapshot_position" not in schema.sync_type_config
     unpause.assert_called_once_with(str(schema.id))
 
 
@@ -412,7 +417,6 @@ def test_moving_a_cdc_only_table_off_cdc_resyncs_it(
     _, schema = _make_cdc_source_and_schema(team, cdc_table_mode=table_mode)
     client.force_login(user)
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -439,7 +443,6 @@ def test_a_table_stays_in_the_publication_when_its_move_off_cdc_is_not_saved(
     client.force_login(user)
     client.raise_request_exception = False
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]) as alter_publication,
         mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
         mock.patch(
@@ -509,7 +512,6 @@ def test_patch_cdc_table_mode_dropping_target_skips_resnapshot(team, user, clien
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -540,7 +542,6 @@ def test_patch_cdc_table_mode_idempotent_skips_resnapshot(team, user, client: Ht
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -571,7 +572,6 @@ def test_patch_cdc_table_mode_rejected_when_team_over_billing_limit(team, user, 
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -604,7 +604,6 @@ def test_patch_cdc_table_mode_drop_target_allowed_when_team_over_billing_limit(t
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -641,7 +640,6 @@ def test_patch_reports_history_enabled_and_disabled(
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -672,3 +670,338 @@ def test_patch_reports_history_enabled_and_disabled(
         assert history_events[0]["properties"]["schema_id"] == str(schema.id)
         assert history_events[0]["properties"]["source_id"] == str(source.id)
         assert history_events[0]["properties"]["table_mode"] == expected_table_mode
+
+
+_GET_S3_CLIENT = "products.data_warehouse.backend.facade.api.get_s3_client"
+
+
+def _history_table(schema: ExternalDataSchema, *, linked: bool = False) -> DataWarehouseTable:
+    table = DataWarehouseTable.objects.create(
+        team=schema.team,
+        name="postgres_orders_cdc",
+        format="DeltaS3Wrapper",
+        url_pattern="s3://bucket/orders_cdc",
+        external_data_source=schema.source,
+        options={"history_table": True},
+    )
+    if linked:
+        ExternalDataSchema.objects.filter(id=schema.id).update(table=table)
+    return table
+
+
+def _history_drop_mocks(*, queued: bool = False, workflow_running: bool = False) -> list:
+    return [
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane._workflow_is_running",
+            return_value=workflow_running,
+        ),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["has_queued_batches"], return_value=queued),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
+        mock.patch(_GET_S3_CLIENT, return_value=mock.MagicMock(**{"ls.return_value": []})),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("old_mode", "patch", "drop", "job_running", "expected_status", "dropped"),
+    [
+        ("both", {"cdc_table_mode": "consolidated"}, True, False, 200, True),
+        ("both", {"cdc_table_mode": "consolidated"}, False, False, 200, False),
+        # cdc_only links the schema to its history table, and the switch takes a new snapshot.
+        ("cdc_only", {"cdc_table_mode": "consolidated"}, True, False, 200, True),
+        ("both", {"sync_type": "full_refresh"}, True, False, 200, True),
+        # The schema keeps its CDC mode, but no incremental history marker, so it stops writing history.
+        (
+            "both",
+            {"sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"},
+            True,
+            False,
+            200,
+            True,
+        ),
+        ("consolidated", {"cdc_table_mode": "both"}, True, False, 400, False),
+        ("both", {"cdc_table_mode": "consolidated"}, True, True, 400, False),
+    ],
+)
+def test_a_switch_off_history_drops_the_history_table_only_when_asked(
+    team, user, client: HttpClient, old_mode, patch, drop, job_running, expected_status, dropped
+):
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode=old_mode)
+    history = _history_table(schema, linked=old_mode == "cdc_only")
+    if job_running:
+        ExternalDataJob.objects.create(
+            team=team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            workflow_id="sync-workflow",
+        )
+    client.force_login(user)
+
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks(workflow_running=job_running):
+            stack.enter_context(patcher)
+        capture = stack.enter_context(mock.patch("posthog.event_usage.posthoganalytics.capture"))
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={**patch, "drop_history_table": drop},
+            content_type="application/json",
+        )
+
+    assert response.status_code == expected_status, response.content
+    history.refresh_from_db()
+    schema.refresh_from_db()
+    assert history.deleted is dropped
+    if dropped:
+        assert schema.table_id is None
+    deleted_events = [
+        call.kwargs
+        for call in capture.call_args_list
+        if call.kwargs.get("event") == "data warehouse history table deleted"
+    ]
+    assert [event["properties"]["trigger"] for event in deleted_events] == (["mode_change"] if dropped else [])
+
+
+@pytest.mark.parametrize(
+    ("sync_type", "mode", "extra", "drop", "expected_status", "record_kept"),
+    [
+        # A table that stopped writing history keeps it, and a new mask can't reach its past values. Nothing
+        # refills it, so the confirmed delete removes the record too.
+        (ExternalDataSchema.SyncType.CDC, "consolidated", {}, False, 400, True),
+        (ExternalDataSchema.SyncType.CDC, "consolidated", {}, True, 200, False),
+        # An incremental table that keeps history fills the same table again from the masking rebuild.
+        (ExternalDataSchema.SyncType.INCREMENTAL, "both", {}, False, 400, True),
+        (ExternalDataSchema.SyncType.INCREMENTAL, "both", {}, True, 200, True),
+        # The same request turns history off, so nothing refills the table.
+        (ExternalDataSchema.SyncType.INCREMENTAL, "both", {"cdc_table_mode": "consolidated"}, True, 200, False),
+    ],
+)
+def test_masking_a_table_with_a_history_table_empties_it_only_when_asked(
+    team, user, client: HttpClient, sync_type, mode, extra, drop, expected_status, record_kept
+):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode=mode)
+    config = {
+        **schema.sync_type_config,
+        "schema_metadata": {
+            "columns": [
+                {"name": name, "data_type": "text", "is_nullable": True} for name in ("id", "email", "updated_at")
+            ]
+        },
+    }
+    if sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+        config |= {
+            "incremental_field": "updated_at",
+            "incremental_field_type": "datetime",
+            INCREMENTAL_HISTORY_KEY: True,
+        }
+    ExternalDataSchema.objects.filter(id=schema.id).update(sync_type=sync_type, sync_type_config=config)
+    if sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+        # Incremental history always writes the `_history` naming.
+        history = DataWarehouseTable.objects.create(
+            team=team,
+            name="postgres_orders_history",
+            format="DeltaS3Wrapper",
+            external_data_source=schema.source,
+            options={"history_table": True, "history_naming": "ph_validity"},
+        )
+    else:
+        history = _history_table(schema)
+    stats = WarehouseColumnStatistics.objects.for_team(team.id).create(
+        team=team,
+        table=history,
+        column_name="email",
+        min_value="a@example.com",
+        max_value="z@example.com",
+        has_min_max=True,
+    )
+    client.force_login(user)
+    folder = f"bucket/{schema.folder_path()}/{history.name.removeprefix('postgres_')}"
+    s3 = mock.MagicMock(**{"ls.return_value": [folder, f"{folder}_ph_staging"]})
+
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks():
+            stack.enter_context(patcher)
+        stack.enter_context(mock.patch(_GET_S3_CLIENT, return_value=s3))
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"masked_columns": ["email"], "drop_history_table": drop, **extra},
+            content_type="application/json",
+        )
+
+    assert response.status_code == expected_status, response.content
+    history.refresh_from_db()
+    schema.refresh_from_db()
+    # A kept record lets the rebuild register the same table, so its access rules stay in force.
+    assert history.deleted is not record_kept
+    deleted = sorted(s3.rm.call_args.args[0]) if s3.rm.called else []
+    assert deleted == ([folder, f"{folder}_ph_staging"] if expected_status == 200 else [])
+    assert (schema.masked_columns or []) == (["email"] if expected_status == 200 else [])
+    stats.refresh_from_db()
+    assert stats.max_value == (None if expected_status == 200 else "z@example.com")
+    logged = list(
+        ActivityLog.objects.filter(scope="DataWarehouseTable", item_id=str(history.id)).values_list(
+            "activity", flat=True
+        )
+    )
+    assert logged == ([] if expected_status != 200 else ["updated"] if record_kept else ["deleted"])
+
+
+@pytest.mark.parametrize(("chose_history", "reported"), [(False, "consolidated"), (True, "both")])
+def test_a_schema_that_left_cdc_returns_to_the_mode_the_api_reports(
+    team, user, client: HttpClient, chose_history, reported
+):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
+    config = {
+        **schema.sync_type_config,
+        "incremental_field": "updated_at",
+        "incremental_field_type": "datetime",
+        INCREMENTAL_HISTORY_KEY: chose_history,
+    }
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL, sync_type_config=config
+    )
+    client.force_login(user)
+    url = f"/api/environments/{team.pk}/external_data_schemas/{schema.id}"
+
+    assert client.get(url).json()["cdc_table_mode"] == reported
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks():
+            stack.enter_context(patcher)
+        response = client.patch(url, data={"sync_type": "cdc"}, content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert schema.cdc_table_mode == reported
+
+
+def test_a_mask_whose_history_delete_is_refused_is_not_saved(team, user, client: HttpClient):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    config = {
+        **schema.sync_type_config,
+        "schema_metadata": {
+            "columns": [
+                {"name": name, "data_type": "text", "is_nullable": True} for name in ("id", "email", "updated_at")
+            ]
+        },
+    }
+    ExternalDataSchema.objects.filter(id=schema.id).update(sync_type_config=config)
+    history = _history_table(schema)
+    client.force_login(user)
+    s3 = mock.MagicMock(**{"ls.return_value": [f"bucket/{schema.folder_path()}/orders_cdc"]})
+
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks():
+            stack.enter_context(patcher)
+        stack.enter_context(mock.patch(_GET_S3_CLIENT, return_value=s3))
+        # A sync starts between the check before the save and the delete.
+        stack.enter_context(mock.patch(_PATCH_TARGETS["has_queued_batches"], side_effect=[False, True]))
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"masked_columns": ["email"], "drop_history_table": True},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 400, response.content
+    assert "drop_history_table" in response.json()["attr"]
+    schema.refresh_from_db()
+    history.refresh_from_db()
+    assert not schema.masked_columns
+    assert not history.deleted
+    s3.rm.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("sync_running", "expected_status"),
+    [
+        (False, 200),
+        # The rows can't be deleted while a sync could still stage more, so the mask isn't saved.
+        (True, 400),
+    ],
+)
+def test_a_mask_deletes_staged_history_rows_before_any_history_table_exists(
+    team, user, client: HttpClient, sync_running, expected_status
+):
+    # A first history sync staged rows and failed before it registered its history table.
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
+    config = {
+        **schema.sync_type_config,
+        "incremental_field": "updated_at",
+        "incremental_field_type": "datetime",
+        INCREMENTAL_HISTORY_KEY: True,
+        "schema_metadata": {
+            "columns": [
+                {"name": name, "data_type": "text", "is_nullable": True} for name in ("id", "email", "updated_at")
+            ]
+        },
+    }
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL, sync_type_config=config
+    )
+    client.force_login(user)
+    staging = f"bucket/{schema.folder_path()}/orders_history_ph_staging"
+    s3 = mock.MagicMock(**{"ls.return_value": [f"bucket/{schema.folder_path()}/orders", staging]})
+
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks(queued=sync_running):
+            stack.enter_context(patcher)
+        stack.enter_context(mock.patch(_GET_S3_CLIENT, return_value=s3))
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"masked_columns": ["email"]},
+            content_type="application/json",
+        )
+
+    assert response.status_code == expected_status, response.content
+    schema.refresh_from_db()
+    assert (schema.masked_columns or []) == (["email"] if expected_status == 200 else [])
+    deleted = s3.rm.call_args.args[0] if s3.rm.called else []
+    assert deleted == ([staging] if expected_status == 200 else [])
+
+
+@pytest.mark.parametrize(("mode", "expected_status"), [("consolidated", 204), ("both", 400)])
+def test_the_history_table_action_deletes_only_a_table_the_schema_no_longer_writes(
+    team, user, client: HttpClient, mode, expected_status
+):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode=mode)
+    history = _history_table(schema)
+    client.force_login(user)
+    url = f"/api/environments/{team.pk}/external_data_schemas/{schema.id}"
+
+    before = client.get(url).json()["registered_history_table_name"]
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks():
+            stack.enter_context(patcher)
+        response = client.delete(f"{url}/history_table/")
+    after = client.get(url).json()["registered_history_table_name"]
+
+    assert response.status_code == expected_status, response.content
+    history.refresh_from_db()
+    assert history.deleted is (expected_status == 204)
+    assert (before, after) == ("postgres_orders_cdc", None if mode == "consolidated" else "postgres_orders_cdc")
+
+
+def test_a_drop_refused_after_the_save_names_the_kept_history_table(team, user, client: HttpClient):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
+    history = _history_table(schema)
+    client.force_login(user)
+
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks():
+            stack.enter_context(patcher)
+        # A sync starts between the check before the save and the drop after it.
+        stack.enter_context(mock.patch(_PATCH_TARGETS["has_queued_batches"], side_effect=[False, True]))
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"cdc_table_mode": "consolidated", "drop_history_table": True},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    assert response.json()["registered_history_table_name"] == "postgres_orders_cdc"
+    history.refresh_from_db()
+    assert not history.deleted

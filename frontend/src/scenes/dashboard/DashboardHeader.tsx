@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { FullScreen } from 'lib/components/FullScreen'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { AnalyticsScenePinButton } from 'scenes/analytics/AnalyticsScenePinButton'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -11,14 +12,14 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardMode } from '~/types'
 
+import { DashboardActions, FullscreenModeActions } from 'products/dashboards/frontend/DashboardHeaderActions'
+import { DashboardModals } from 'products/dashboards/frontend/DashboardModals'
+import { DashboardSceneMenuBar } from 'products/dashboards/frontend/DashboardSceneMenuBar'
+import { DashboardScenePanel } from 'products/dashboards/frontend/DashboardScenePanel'
+import { QuillDashboardHeaderActions } from 'products/dashboards/frontend/QuillDashboardHeaderActions'
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
-import { EditModeActions, FullscreenModeActions, ViewModeActions } from './DashboardHeaderActions'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
-import { DashboardModals } from './DashboardModals'
-import { DashboardSceneMenuBar } from './DashboardSceneMenuBar'
-import { DashboardScenePanel } from './DashboardScenePanel'
-import { QuillDashboardHeaderActions } from './QuillDashboardHeaderActions'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
@@ -62,13 +63,12 @@ export function DashboardHeader({
 
     let actions: JSX.Element | undefined
     if (dashboard) {
-        if (dashboardEditing) {
-            actions = <EditModeActions />
-        } else if (dashboardMode === DashboardMode.Fullscreen) {
-            actions = <FullscreenModeActions />
-        } else {
-            actions = <ViewModeActions />
-        }
+        actions =
+            dashboardMode === DashboardMode.Fullscreen && !dashboardEditing ? (
+                <FullscreenModeActions />
+            ) : (
+                <DashboardActions />
+            )
     }
 
     return (
@@ -84,6 +84,7 @@ export function DashboardHeader({
 
             <SceneTitleSection
                 name={dashboard?.name}
+                nameAction={<AnalyticsScenePinButton dataAttrKey="dashboard" />}
                 description={dashboard?.description}
                 resourceType={{
                     type: sceneConfigurations[Scene.Dashboard].iconType || 'default_icon_type',

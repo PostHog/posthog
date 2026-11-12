@@ -1753,9 +1753,18 @@ export const HogFunctionsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object
 /**
  * Update the execution order of multiple HogFunctions.
  */
+export const hogFunctionsRearrangePartialUpdateBodyOrdersMinOne = 0
+export const hogFunctionsRearrangePartialUpdateBodyOrdersMaxOne = 32767
+
 export const HogFunctionsRearrangePartialUpdateBody = /* @__PURE__ */ zod.object({
     orders: zod
-        .record(zod.string(), zod.number())
+        .record(
+            zod.string(),
+            zod
+                .number()
+                .min(hogFunctionsRearrangePartialUpdateBodyOrdersMinOne)
+                .max(hogFunctionsRearrangePartialUpdateBodyOrdersMaxOne)
+        )
         .optional()
-        .describe('Map of hog function UUIDs to their new execution_order values.'),
+        .describe('Map of hog function UUIDs to their new execution_order values, from 0 to 32767.'),
 })

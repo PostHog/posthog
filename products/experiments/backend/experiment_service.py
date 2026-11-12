@@ -38,7 +38,7 @@ from posthog.api.cohort import (
     CohortSerializer,
     get_flags_blocking_cohort_deletion,
 )
-from posthog.api.utils import ServiceRequest
+from posthog.api.utils import ServiceRequest, parse_id_list
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import (
     ACTIONS,
@@ -49,6 +49,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
     AvailableFeature,
 )
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -86,6 +87,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     exposure_event_names,
     get_exposure_event_and_property,
     resolve_default_exposure_event,
+    rule_exposure_criteria_error,
 )
 from products.experiments.backend.logic.result_stats import MetricTimeseries
 from products.experiments.backend.logic.timeseries_text import ExperimentTimeseriesFormatter
@@ -94,10 +96,11 @@ from products.experiments.backend.metric_calculation.config import (
     build_primary_calculation_configs,
     get_metric_calculation_config,
     saved_metric_calculation_keys,
+    settings_rule,
     stamp_calculation_keys,
 )
 from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
-from products.experiments.backend.metric_resolution import MetricRole
+from products.experiments.backend.metric_resolution import MetricRole, find_metric_dict
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
     defined_event_names,
@@ -117,11 +120,18 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
     ExposureFreezeBlocker,
+    build_rule_snapshot,
     experiment_has_legacy_metrics,
+    experiment_variants,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.task_profiles import CLEANUP
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
+from products.experiments.backend.warehouse_native_sources import (
+    validate_experiment_warehouse_native_sources,
+    warehouse_native_exposure_config,
+)
 from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
 from products.feature_flags.backend.facade.api import (
     archive_flag,
@@ -135,10 +145,17 @@ from products.feature_flags.backend.facade.api import (
     user_can_edit_flag,
     validate_flag_restorable,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
 from products.feature_flags.backend.facade.filters import (
     restrict_groups_to_cohort,
     set_holdout,
     strip_group_cohort_restriction,
+)
+from products.feature_flags.backend.facade.rules import (
+    ExperimentRuleConfig,
+    ExperimentRuleError,
+    experiment_rule_from_snapshot,
+    experiment_rule_ids,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 from products.feature_flags.backend.ownership import FLAG_OWNER_EXPERIMENT, assert_flag_available_for
@@ -170,7 +187,7 @@ class CleanupRequestSummary(TypedDict):
 
     attempted: bool
     repository_source: CleanupRepositorySource | None
-    skip_reason: Literal["no_conclusion", "no_repository", "error"] | None
+    skip_reason: Literal["no_conclusion", "no_repository", "flag_rule", "error"] | None
     confident: bool | None
 
 
@@ -249,6 +266,9 @@ FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
 # Auto-saved sample-size estimate, not a user edit: skip the "experiment updated" event.
 RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
 
+# The update fields that can change which data sources an experiment reads.
+_WAREHOUSE_NATIVE_SOURCE_FIELDS = frozenset({"exposure_criteria", "metrics", "metrics_secondary", "saved_metrics_ids"})
+
 _INLINE_METRIC_FIELD_ROLES: tuple[tuple[str, MetricRole], ...] = (
     ("metrics", "primary"),
     ("metrics_secondary", "secondary"),
@@ -326,6 +346,7 @@ _FREEZE_EXPOSURE_BLOCKER_MESSAGES: dict[ExposureFreezeBlocker, str] = {
     "already_frozen": "Experiment exposure is already frozen.",
     "no_flag": "Experiment does not have a feature flag linked.",
     "flag_deleted": "Experiment's feature flag has been deleted.",
+    "flag_rule": "Experiments on a feature flag rule cannot have their exposure frozen yet.",
     "group_aggregation": "Group-aggregated experiments cannot have their exposure frozen.",
     "holdout": (
         "Experiments in a holdout cannot have their exposure frozen: holdout assignment is "
@@ -642,6 +663,16 @@ def _resolve_scalar_updates(update_data: dict, original: Mapping, current_values
     return conflicts
 
 
+@frozen
+class _EnsuredFlag:
+    """The flag that a new experiment runs on, and the variants it uses."""
+
+    feature_flag: FeatureFlag
+    variants: list[dict]
+    # The experiment rule that the experiment links when the flag has rules (config version 2).
+    rule: ExperimentRuleConfig | None = None
+
+
 class ExperimentQueryStatus(str, Enum):
     """
     Filter values for the experiment list endpoint.
@@ -841,11 +872,10 @@ class ExperimentService:
         # to mirror the pydantic Literal default on that model.
         kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
         if kind == "ExperimentWarehouseNativeExposureConfig" and warehouse_native_allowed:
-            # The kind exists so the rest of the product can be built against it; nothing can run it yet.
             cls._validate_exposure_config_model(
                 ExperimentWarehouseNativeExposureConfig, exposure_config, field_path, kind
             )
-            raise ValidationError(f"{field_path}: warehouse-native exposures are not supported yet.")
+            return
         if kind not in cls.EXPOSURE_CONFIG_KINDS:
             raise ValidationError(
                 f"{field_path}.kind must be one of "
@@ -1022,7 +1052,32 @@ class ExperimentService:
     def _parameters_with_variant_detail(experiment: Experiment) -> dict[str, Any]:
         """Parameters for analytics events: the stored column carries no flag config, so attach
         the variant detail event consumers expect from the linked flag."""
-        return {**(experiment.parameters or {}), "feature_flag_variants": experiment.feature_flag.variants}
+        try:
+            variants = experiment_variants(experiment)
+        except ExperimentRuleError:
+            variants = []
+        return {**(experiment.parameters or {}), "feature_flag_variants": variants}
+
+    @staticmethod
+    def _reject_rule_linked(
+        experiment: Experiment, action: str, *, instead: str = "Change the rule on the feature flag instead."
+    ) -> None:
+        """Refuse an action that would write the linked flag as a config version 1 document, or that
+        reads the flag's release conditions. A rule-linked experiment's flag is changed on the flag."""
+        if experiment.is_rule_linked:
+            message = f"This experiment runs on a feature flag rule, and {action} is not supported for it yet."
+            raise ValidationError(f"{message} {instead}".strip())
+
+    @staticmethod
+    def _flag_variants(experiment: Experiment) -> list[dict]:
+        """The experiment's variants, for a write that validates against them. A rule-linked experiment
+        whose rule cannot be read fails the write with the reason."""
+        try:
+            return experiment_variants(experiment)
+        except (ExperimentRuleError, ConfigFormatError) as error:
+            if not experiment.is_rule_linked:
+                raise
+            raise ValidationError(f"This experiment's feature flag rule can't be read: {error}") from error
 
     @staticmethod
     def _flag_config_variants(feature_flag_config: dict | None) -> list | None:
@@ -1050,7 +1105,7 @@ class ExperimentService:
         """
         update_variants = cls._flag_config_variants(feature_flag_config)
         if update_variants is None:
-            update_variants = experiment.feature_flag.variants if experiment.feature_flag else []
+            update_variants = cls._flag_variants(experiment) if experiment.feature_flag else []
         return cls._variant_keys(update_variants)
 
     @staticmethod
@@ -1203,8 +1258,14 @@ class ExperimentService:
         allow_unknown_events: bool = False,
         creation_mode: ExperimentCreationMode = "new",
         analytics_properties: dict[str, Any] | None = None,
+        feature_flag_rule_id: Any | None = None,
     ) -> Experiment:
-        """Create experiment with full validation and defaults."""
+        """Create experiment with full validation and defaults.
+
+        When ``feature_flag_key`` names an existing flag that has rules (config version 2), the
+        experiment links one experiment rule of it: the one ``feature_flag_rule_id`` names, or the
+        flag's only experiment rule. It then analyses that rule and never writes the flag.
+        """
         # Seed the dedup set with uuids the inline metrics must not collide with:
         # - any saved-metric uuids referenced via saved_metrics_ids (their query.uuid
         #   appears in the ordering arrays, so any inline copy must be regenerated).
@@ -1238,11 +1299,23 @@ class ExperimentService:
             team=self.team,
             user=self.user,
         )
+        validate_experiment_warehouse_native_sources(
+            exposure_criteria=exposure_criteria,
+            metrics=[
+                *(metrics or []),
+                *(metrics_secondary or []),
+                *self._collect_saved_metric_queries(saved_metrics_ids),
+            ],
+            team=self.team,
+            user=self.user,
+        )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
         self._reject_live_create_under_launch_policy(is_draft)
+        if not is_draft:
+            self._reject_warehouse_native_launch(exposure_criteria)
 
-        feature_flag, used_variants = self._ensure_feature_flag(
+        ensured = self._ensure_feature_flag(
             feature_flag_key=feature_flag_key,
             experiment_name=name,
             feature_flag_config=feature_flag_config,
@@ -1250,7 +1323,13 @@ class ExperimentService:
             is_draft=is_draft,
             create_in_folder=create_in_folder,
             serializer_context=serializer_context,
+            feature_flag_rule_id=feature_flag_rule_id,
         )
+        feature_flag, used_variants, rule = ensured.feature_flag, ensured.variants, ensured.rule
+        if rule is not None:
+            self._validate_rule_linked_create(
+                type=type, holdout=holdout, exposure_criteria=exposure_criteria, is_draft=is_draft
+            )
 
         # Validate the baseline against the variants the flag actually ends up with.
         # used_variants reflects DEFAULT_VARIANTS / an existing linked flag, which the
@@ -1297,6 +1376,7 @@ class ExperimentService:
             only_count_matured_users=only_count_matured_users,
             excluded_variants=excluded_variants,
             team_config=team_config,
+            rule=rule,
         )
         if metrics is not None:
             metrics = stamp_calculation_keys(metrics, "primary", calculation_settings)
@@ -1336,6 +1416,8 @@ class ExperimentService:
             "conclusion_comment": conclusion_comment,
             "repository": repository,
         }
+        if rule is not None:
+            create_kwargs["feature_flag_rule_id"] = UUID(rule.rule_id)
         if create_in_folder is not None:
             create_kwargs["_create_in_folder"] = create_in_folder
 
@@ -1469,9 +1551,16 @@ class ExperimentService:
         # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
         try:
             flag_age = timezone.now() - experiment.feature_flag.created_at
-            health_context = load_health_context(experiment)
+            # No health check reads a feature flag rule yet, so a rule-linked launch reports no findings. The findings
+            # go to PostHog's own analytics, not to the launcher, so the flag's calls are read whatever the launcher may
+            # query.
+            health_context = (
+                None if experiment.is_rule_linked else load_health_context(experiment, can_read_flag_calls=True)
+            )
             # Every launch reports the findings it leaves open, also for a launcher who has no health findings.
-            findings = evaluate_health(health_context, EXPERIMENT_HEALTH_CHECKS).findings
+            findings = (
+                evaluate_health(health_context, EXPERIMENT_HEALTH_CHECKS).findings if health_context is not None else ()
+            )
             self._report_lifecycle_event(
                 experiment,
                 "experiment launched",
@@ -1485,7 +1574,7 @@ class ExperimentService:
                     "flag_age_seconds": int(flag_age.total_seconds()),
                     # The launch doesn't move `last_called_at`, so this is the state before the launch, and the only
                     # time it is recorded: a later call overwrites it. None when the organization's calls can't be read.
-                    "flag_called_before_launch": health_context.flag_called,
+                    "flag_called_before_launch": health_context.flag_called if health_context is not None else None,
                     "health_finding_codes": [finding.code.value for finding in findings],
                     # pinned: `code:subcode`, as on `experiment viewed`. The code prefix keeps a subcode
                     # unambiguous when two codes use the same subcode.
@@ -1522,8 +1611,9 @@ class ExperimentService:
         is_draft: bool,
         create_in_folder: str | None,
         serializer_context: dict | None,
-    ) -> tuple[FeatureFlag, list[dict]]:
-        """Resolve existing flag or create a new one. Returns (flag, variants_used).
+        feature_flag_rule_id: Any | None = None,
+    ) -> "_EnsuredFlag":
+        """Resolve existing flag or create a new one.
 
         ``feature_flag_config`` is the flag's own write shape
         (``{filters: {multivariate, groups, aggregation_group_type_index, payloads},
@@ -1534,14 +1624,27 @@ class ExperimentService:
         if existing_flag:
             # Not in _validate_existing_flag: launch calls that too, on a flag this experiment
             # already owns.
-            assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
+            assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT, links_a_rule=True)
             self._assert_flag_access(
                 existing_flag,
                 next_step="It can't be used for an experiment. Pick a different flag key, or ask someone with flag access.",
             )
+            if detect_config_format(existing_flag.filters).kind == "v2":
+                rule = self._resolve_rule_to_link(existing_flag, feature_flag_rule_id)
+                return _EnsuredFlag(feature_flag=existing_flag, variants=rule.variants, rule=rule)
+            if feature_flag_rule_id is not None:
+                raise ValidationError(
+                    f"feature_flag_rule_id names a rule, and the feature flag {existing_flag.key} has no rules."
+                )
             self._validate_existing_flag(existing_flag)
             variants = existing_flag.variants or list(DEFAULT_VARIANTS)
-            return existing_flag, variants
+            return _EnsuredFlag(feature_flag=existing_flag, variants=variants)
+
+        if feature_flag_rule_id is not None:
+            raise ValidationError(
+                "feature_flag_rule_id names a rule of an existing feature flag, and no feature flag has the key "
+                f"{feature_flag_key}."
+            )
 
         self._assert_flag_access()
 
@@ -1593,7 +1696,65 @@ class ExperimentService:
             request=(serializer_context or {}).get("request"),
         )
 
-        return feature_flag, variants or list(DEFAULT_VARIANTS)
+        return _EnsuredFlag(feature_flag=feature_flag, variants=variants or list(DEFAULT_VARIANTS))
+
+    def _resolve_rule_to_link(self, feature_flag: FeatureFlag, requested_rule_id: Any | None) -> ExperimentRuleConfig:
+        """The experiment rule of a config version 2 flag that a new experiment links.
+
+        Without a requested ID the flag must have exactly one experiment rule. A rule runs one experiment,
+        so a rule that an experiment already holds is refused, also when that experiment is deleted: its
+        exposures carry the same rule ID.
+        """
+        try:
+            rule_ids = experiment_rule_ids(feature_flag.filters or {})
+            if requested_rule_id is not None:
+                rule_id = str(requested_rule_id)
+            elif len(rule_ids) == 1:
+                rule_id = rule_ids[0]
+            elif not rule_ids:
+                raise ValidationError(
+                    f"The feature flag {feature_flag.key} has no experiment rule. Add one to the flag first."
+                )
+            else:
+                raise ValidationError(
+                    f"The feature flag {feature_flag.key} has {len(rule_ids)} experiment rules. "
+                    f"Name one with feature_flag_rule_id: {', '.join(rule_ids)}."
+                )
+            rule = experiment_rule_from_snapshot(build_rule_snapshot(feature_flag, rule_id))
+        except ExperimentRuleError as error:
+            raise ValidationError(str(error)) from error
+        eligibility_error = experiment_eligibility_error(rule.variants)
+        if eligibility_error:
+            raise ValidationError(eligibility_error)
+        holder = Experiment.objects.filter(feature_flag_rule_id=rule.rule_id).only("id", "team_id").first()
+        if holder is not None:
+            named = f"experiment {holder.id}" if holder.team_id == self.team.id else "another experiment"
+            raise ValidationError(
+                f"The rule {rule.rule_id} of the feature flag {feature_flag.key} already belongs to {named}. "
+                "A rule runs one experiment. Add another experiment rule to the flag for a new experiment."
+            )
+        return rule
+
+    @staticmethod
+    def _validate_rule_linked_create(
+        *, type: str, holdout: ExperimentHoldout | None, exposure_criteria: dict | None, is_draft: bool
+    ) -> None:
+        """What a new experiment on a feature flag rule cannot have yet."""
+        if type == "web":
+            raise ValidationError("A web experiment cannot run on a feature flag rule.")
+        if holdout is not None:
+            raise ValidationError(
+                "A shared holdout cannot apply to an experiment on a feature flag rule. "
+                "Set the holdout on the rule instead."
+            )
+        if not is_draft:
+            raise ValidationError(
+                "An experiment on a feature flag rule cannot be created with a start date. "
+                "Create it as a draft, then launch it."
+            )
+        criteria_error = rule_exposure_criteria_error(exposure_criteria)
+        if criteria_error is not None:
+            raise ValidationError(criteria_error)
 
     def _reject_live_create_under_launch_policy(self, is_draft: bool) -> None:
         """Refuse creating an already-running experiment when launching one needs approval.
@@ -1686,6 +1847,13 @@ class ExperimentService:
         if feature_flag.deleted:
             raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
 
+    @staticmethod
+    def _reject_warehouse_native_launch(exposure_criteria: dict | None) -> None:
+        """Nothing runs a warehouse-native query yet, so a launched experiment would only fail every
+        calculation. The exposure stands for the experiment: a warehouse-native experiment always has one."""
+        if warehouse_native_exposure_config(exposure_criteria) is not None:
+            raise ValidationError("Warehouse-native sources cannot run yet. Use them on a draft experiment only.")
+
     def _validate_flag_for_launch(self, experiment: Experiment, feature_flag: FeatureFlag) -> None:
         """Flag guards shared by launch_experiment and the PATCH(start_date) launch path.
 
@@ -1696,6 +1864,45 @@ class ExperimentService:
         self._assert_flag_not_deleted_for_launch(feature_flag)
         self._validate_existing_flag(feature_flag)
         self._assert_web_experiment_has_control(experiment.type, self._variant_keys(feature_flag.variants))
+
+    def _validate_rule_for_launch(self, experiment: Experiment, feature_flag: FeatureFlag) -> None:
+        """The launch guards of a rule-linked experiment. Its rule can change after the create, so the
+        launch reads it again: it must still be an experiment rule of the flag with a usable variant set."""
+        self._assert_flag_not_deleted_for_launch(feature_flag)
+        eligibility_error = experiment_eligibility_error(self._flag_variants(experiment))
+        if eligibility_error:
+            raise ValidationError(eligibility_error)
+        criteria_error = rule_exposure_criteria_error(experiment.exposure_criteria)
+        if criteria_error is not None:
+            raise ValidationError(criteria_error)
+
+    @classmethod
+    def _locked_rule_snapshot(cls, experiment: Experiment, *, validated_variant_keys: list[str]) -> dict[str, Any]:
+        """The snapshot that a launch stores, read from the flag row under a lock. A flag write takes
+        the same lock, so the snapshot is the rule as it is when the experiment starts.
+
+        The launch validated the baseline and the excluded variants against `validated_variant_keys`
+        before it took the lock. A rule that holds other variants by now fails the launch, so that the
+        stored snapshot is the rule those checks passed on.
+        """
+        feature_flag = (
+            FeatureFlag.objects.select_for_update()
+            .filter(pk=experiment.feature_flag_id, team_id=experiment.team_id)
+            .first()
+        )
+        if feature_flag is None:
+            raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
+        try:
+            snapshot = build_rule_snapshot(feature_flag, experiment.feature_flag_rule_id)
+            locked_variant_keys = cls._variant_keys(experiment_rule_from_snapshot(snapshot).variants)
+        except (ExperimentRuleError, ConfigFormatError) as error:
+            raise ValidationError(f"This experiment's feature flag rule can't be read: {error}") from error
+        if locked_variant_keys != validated_variant_keys:
+            raise ValidationError(
+                "The variants of this experiment's feature flag rule changed during the launch. "
+                "Launch the experiment again."
+            )
+        return snapshot
 
     @staticmethod
     def _assign_uuids_to_metrics(
@@ -1755,6 +1962,14 @@ class ExperimentService:
             if sm.query and (uuid := sm.query.get("uuid")):
                 seen.add(uuid)
         return seen
+
+    @staticmethod
+    def _linked_saved_metric_queries(experiment: Experiment) -> list[dict]:
+        return [
+            link.saved_metric.query
+            for link in experiment.experimenttosavedmetric_set.select_related("saved_metric")
+            if link.saved_metric.query
+        ]
 
     def _collect_saved_metric_queries(self, saved_metrics_ids: list | None) -> list[dict]:
         """Query definitions of the attached saved metrics, so their tables get the same warehouse
@@ -1860,20 +2075,28 @@ class ExperimentService:
     # is flipped through the gate first, so an ApprovalRequired aborts before any
     # experiment mutation.
     def launch_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
-        """Launch a draft experiment: validate readiness, set start_date, activate feature flag."""
+        """Launch a draft experiment: validate readiness, set start_date, activate feature flag.
+
+        A rule-linked experiment does not touch its flag. Its launch stores the snapshot of its rule,
+        which its results read from then on.
+        """
         if not experiment.is_draft:
             raise ValidationError("Experiment has already been launched.")
+        self._reject_warehouse_native_launch(experiment.exposure_criteria)
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
         self._assert_flag_access(feature_flag)
-        self._validate_flag_for_launch(experiment, feature_flag)
+        if experiment.is_rule_linked:
+            self._validate_rule_for_launch(experiment, feature_flag)
+        else:
+            self._validate_flag_for_launch(experiment, feature_flag)
 
         # The flag may have lost 'control' since create (out-of-band edit), so pin the
         # inferred baseline before it goes live — the fingerprints below and all later
         # results must not depend on variant order. A dangling configured baseline is
         # rejected rather than silently launched with uncomputable results.
-        flag_variant_keys = self._variant_keys(feature_flag.variants)
+        flag_variant_keys = self._variant_keys(self._flag_variants(experiment))
         self.validate_stats_config(experiment.stats_config, flag_variant_keys)
         experiment.stats_config = self._materialize_baseline_variant_key(experiment.stats_config, flag_variant_keys)
         if experiment.excluded_variants:
@@ -1886,12 +2109,16 @@ class ExperimentService:
         # Activate the feature flag through the approval gate first. If approval is
         # required this raises ApprovalRequired (-> 409) before we touch the experiment,
         # so start_date stays None and the experiment is not launched.
-        set_flag_active(feature_flag, True, team=self.team, user=self.user, request=request)
+        # A rule-linked experiment is one rule of a flag that can serve others, so its launch leaves
+        # the flag as it is. Turning that flag on stays a flag write, with the flag's own review.
+        if not experiment.is_rule_linked:
+            set_flag_active(feature_flag, True, team=self.team, user=self.user, request=request)
 
         # Set start_date and persist under the experiment row lock. Refresh the metric
         # collections from the locked row first so fingerprints recompute against the current
         # metrics and the launch save can't revert a metric edit another writer committed
         # since this request loaded the experiment.
+        update_fields = ["start_date", "stats_config", "metrics", "metrics_secondary", "version", "updated_at"]
         with transaction.atomic():
             locked_version = (
                 Experiment.objects.select_for_update()
@@ -1901,6 +2128,15 @@ class ExperimentService:
                 or 0
             )
             experiment.refresh_from_db(fields=["metrics", "metrics_secondary"])
+            if experiment.is_rule_linked:
+                # A launch that lost a race to another one must not replace the snapshot the first stored.
+                if Experiment.objects.filter(pk=experiment.pk, start_date__isnull=False).exists():
+                    raise ValidationError("Experiment has already been launched.")
+                # Before the start date, so that the fingerprints below read the snapshot too.
+                experiment.feature_flag_rule_snapshot = self._locked_rule_snapshot(
+                    experiment, validated_variant_keys=flag_variant_keys
+                )
+                update_fields.append("feature_flag_rule_snapshot")
             experiment.start_date = timezone.now()
 
             # Recompute metric fingerprints with the new start_date
@@ -1912,16 +2148,7 @@ class ExperimentService:
 
             experiment.version = locked_version + 1
             # stats_config carries the baseline-variant pin materialized above; persist it too.
-            experiment.save(
-                update_fields=[
-                    "start_date",
-                    "stats_config",
-                    "metrics",
-                    "metrics_secondary",
-                    "version",
-                    "updated_at",
-                ]
-            )
+            experiment.save(update_fields=update_fields)
 
         self._report_experiment_launched(experiment, launch_path="launch_endpoint", request=request)
         self._notify_experiment_launched(experiment)
@@ -1955,6 +2182,10 @@ class ExperimentService:
             raise ValidationError("Experiment is already archived.")
         if not experiment.is_stopped:
             raise ValidationError("Experiment must be ended before it can be archived.")
+        if disable_feature_flag:
+            self._reject_rule_linked(
+                experiment, "disabling its feature flag with the archive", instead="Disable the feature flag itself."
+            )
 
         experiment.archived = True
         self._bump_version_and_save(experiment, update_fields=["archived"])
@@ -1992,6 +2223,9 @@ class ExperimentService:
         routed through the change-request flow). The implicit archive-only cleanup is
         skipped silently when the caller lacks access — the experiment still archives.
         """
+        # A rule-linked experiment is one rule of its flag, so the flag does not follow its archive.
+        if experiment.is_rule_linked:
+            return
         # Lock the row so a concurrent enable can't slip in between the check and the save,
         # which would produce an archived flag that is still active.
         feature_flag = (
@@ -2138,6 +2372,7 @@ class ExperimentService:
             raise ValidationError("Experiment has not been launched yet.")
         if experiment.is_stopped:
             raise ValidationError("Experiment has already ended.")
+        self._reject_rule_linked(experiment, "pausing", instead="Pause the rule on the feature flag instead.")
 
         feature_flag = experiment.feature_flag
         if feature_flag is None:
@@ -2178,6 +2413,9 @@ class ExperimentService:
             raise ValidationError("Experiment has not been launched yet.")
         if experiment.is_stopped:
             raise ValidationError("Experiment has already ended.")
+        self._reject_rule_linked(
+            experiment, "resuming", instead="Turn the feature flag on, or resume the rule on the feature flag."
+        )
 
         feature_flag = experiment.feature_flag
         if feature_flag is None:
@@ -2719,6 +2957,10 @@ class ExperimentService:
             if not conclusion:
                 summary["skip_reason"] = "no_conclusion"
                 return summary
+            if experiment.is_rule_linked:
+                # The cleanup plan removes a whole flag from the code, and this flag can serve other rules.
+                summary["skip_reason"] = "flag_rule"
+                return summary
 
             flag_key = experiment.get_feature_flag_key()
             target = self.get_cleanup_repository_target(experiment, requested_repository=requested_repository)
@@ -2755,7 +2997,7 @@ class ExperimentService:
                         team=team,
                         title=title,
                         description=description,
-                        origin_product=tasks_facade.TaskOriginProduct.EXPERIMENTS,
+                        profile=CLEANUP,
                         user_id=user_id,
                         repository=repository,
                         create_pr=True,
@@ -2811,19 +3053,9 @@ class ExperimentService:
         # request import path.
         from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
 
-        # team_only: the candidates are shown to any experiment viewer with Code access, and the
-        # cleanup PR is opened by the team installation's bot identity — a personal-connection
-        # fallback would both leak someone's private repo names and target a repo the bot can't use.
-        github = tasks_repo_selection.resolve_team_github_integration(
-            experiment.team_id, team=experiment.team, team_only=True
-        )
-        if github is None:
+        cached = tasks_repo_selection.team_repository_names(experiment.team_id, team=experiment.team)
+        if cached is None:
             return {"repository": None, "source": "no_integration", "candidates": []}
-        cached = {
-            full_name.lower(): full_name
-            for repo in github.list_all_cached_repositories(max_repos=1000)
-            if (full_name := repo.get("full_name"))
-        }
         candidates = sorted(cached.values(), key=str.lower)
         if not cached:
             # An integration with nothing to target is as good as none — without this, a
@@ -2985,6 +3217,11 @@ class ExperimentService:
         """
         if experiment.is_draft:
             raise ValidationError("Experiment is already in draft state.")
+        # The rule snapshot is written once, at the first start. A reset would let a second launch replace it,
+        # while the events of both runs carry the same rule ID.
+        self._reject_rule_linked(
+            experiment, "resetting", instead="Create a new experiment on a new experiment rule instead."
+        )
 
         # Lock the experiment row before _clear_frozen_exposure locks the flag row, so every
         # transaction that holds both locks acquires them experiment-then-flag and can't
@@ -3116,6 +3353,9 @@ class ExperimentService:
         """
         if experiment.is_draft:
             raise ValidationError("Experiment has not been launched yet.")
+        self._reject_rule_linked(
+            experiment, "shipping a variant", instead="End the experiment, then replace the rule on the feature flag."
+        )
 
         flag = experiment.feature_flag
         if not flag:
@@ -3568,6 +3808,28 @@ class ExperimentService:
             team=self.team,
             user=self.user,
         )
+        if _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
+            # The rule spans the exposure and every metric, so the fields left out of the update are read
+            # from the experiment. An update that touches none of them skips the check, so a connection
+            # removed later does not block an unrelated edit.
+            if "saved_metrics_ids" in update_data:
+                saved_metric_queries = self._collect_saved_metric_queries(update_data["saved_metrics_ids"])
+            else:
+                saved_metric_queries = self._linked_saved_metric_queries(experiment)
+            validate_experiment_warehouse_native_sources(
+                exposure_criteria=update_data.get("exposure_criteria", experiment.exposure_criteria),
+                metrics=[
+                    *(update_data.get("metrics", experiment.metrics) or []),
+                    *(update_data.get("metrics_secondary", experiment.metrics_secondary) or []),
+                    *saved_metric_queries,
+                ],
+                team=self.team,
+                user=self.user,
+            )
+        if "start_date" in update_data or _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
+            # Covers a draft that launches and a launched experiment that switches its sources.
+            if update_data.get("start_date", experiment.start_date) is not None:
+                self._reject_warehouse_native_launch(update_data.get("exposure_criteria", experiment.exposure_criteria))
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
@@ -3608,7 +3870,7 @@ class ExperimentService:
         durable_baseline_pin: dict | None = None
         if stats_config_updated or update_variants is not None or launching:
             variant_keys = self._resolved_variant_keys(experiment, feature_flag_config)
-            current_variant_keys = self._variant_keys(feature_flag.variants)
+            current_variant_keys = self._variant_keys(self._flag_variants(experiment))
             effective_stats_config = update_data.get("stats_config", experiment.stats_config)
             self.validate_stats_config(effective_stats_config, variant_keys)
 
@@ -3803,6 +4065,7 @@ class ExperimentService:
                 exposure_criteria=exposure_criteria,
                 only_count_matured_users=only_count_matured_users,
                 excluded_variants=excluded_variants,
+                rule=settings_rule(experiment),
             )
             for metric_field, role in _INLINE_METRIC_FIELD_ROLES:
                 metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
@@ -3871,6 +4134,9 @@ class ExperimentService:
         just-created pending ChangeRequest intact.
         """
         if not (experiment.is_draft or update_feature_flag_params):
+            return
+        # A rule-linked experiment never writes its flag. _validate_update_payload has refused the config.
+        if experiment.is_rule_linked:
             return
 
         holdout = experiment.holdout
@@ -3941,6 +4207,14 @@ class ExperimentService:
         separately because that relation is excluded from it.
         """
         changed_fields = get_changed_fields_local(before_update, experiment) if before_update is not None else []
+        if before_update is not None:
+            # A restamp of the fingerprints alone, for example after the calculation key version changes, is no
+            # metric change.
+            for field_name in ("metrics", "metrics_secondary"):
+                if _metric_list_view(getattr(before_update, field_name)) == _metric_list_view(
+                    getattr(experiment, field_name)
+                ):
+                    changed_fields = [name for name in changed_fields if name != field_name]
         # Check if saved_metric assignment has changed
         if before_saved_metrics != self._saved_metric_signature(experiment):
             changed_fields = [*changed_fields, "saved_metrics"]
@@ -4004,6 +4278,9 @@ class ExperimentService:
                 "Cannot restore experiment: the linked feature flag has been deleted. "
                 "Restore the feature flag first, then restore the experiment."
             )
+
+        if experiment.is_rule_linked:
+            self._validate_rule_linked_update(experiment, update_data, feature_flag_config)
 
         # Launching a draft via PATCH (start_date) is an alternate launch path, so it must
         # run the same flag guards as the dedicated launch_experiment action: flag not
@@ -4091,6 +4368,33 @@ class ExperimentService:
         if properties:
             raise ValidationError("Experiments do not support global filter properties")
 
+    def _validate_rule_linked_update(
+        self, experiment: Experiment, update_data: dict, feature_flag_config: dict | None
+    ) -> None:
+        """What an update of an experiment on a feature flag rule cannot do yet."""
+        if feature_flag_config is not None:
+            self._reject_rule_linked(experiment, "changing the flag config from the experiment")
+        if update_data.get("holdout") is not None:
+            raise ValidationError(
+                "A shared holdout cannot apply to an experiment on a feature flag rule. "
+                "Set the holdout on the rule instead."
+            )
+        if experiment.is_draft and update_data.get("start_date") is not None:
+            # Only the launch action stores the rule snapshot that the results read.
+            raise ValidationError(
+                "An experiment on a feature flag rule starts with the launch action, not with a start date."
+            )
+        if experiment.is_launched and "start_date" in update_data and update_data["start_date"] is None:
+            self._reject_rule_linked(
+                experiment,
+                "clearing the start date",
+                instead="Create a new experiment on a new experiment rule instead.",
+            )
+        if "exposure_criteria" in update_data:
+            criteria_error = rule_exposure_criteria_error(update_data["exposure_criteria"])
+            if criteria_error is not None:
+                raise ValidationError(criteria_error)
+
     # ------------------------------------------------------------------
     # Duplication
     # ------------------------------------------------------------------
@@ -4111,6 +4415,11 @@ class ExperimentService:
         means lifecycle operations on either experiment (pause, ship, etc.) will
         affect both. Callers should provide a unique feature_flag_key.
         """
+        self._reject_rule_linked(
+            source_experiment,
+            "duplicating or copying it",
+            instead="Create a new experiment on another experiment rule instead.",
+        )
         target = target_team or self.team
         is_cross_project = target.id != self.team.id
         if feature_flag_key is None:
@@ -4281,6 +4590,8 @@ class ExperimentService:
         serializer_context: dict | None = None,
     ) -> Cohort:
         """Create an exposure cohort for the experiment."""
+        # The cohort is built from the legacy exposure events, which a rule-linked experiment does not count.
+        self._reject_rule_linked(experiment, "creating an exposure cohort", instead="")
         flag = getattr(experiment, "feature_flag", None)
         if not flag:
             raise ValidationError("Experiment does not have a feature flag")
@@ -4483,6 +4794,10 @@ class ExperimentService:
             else:
                 queryset = queryset.filter(archived=False)
 
+            feature_flag_ids = parse_id_list(query_params.get("feature_flag_ids"), name="feature_flag_ids", parse=int)
+            if feature_flag_ids is not None:
+                queryset = queryset.filter(feature_flag_id__in=feature_flag_ids)
+
             feature_flag_id = query_params.get("feature_flag_id")
             if feature_flag_id:
                 try:
@@ -4669,6 +4984,7 @@ class ExperimentService:
             "metric_uuid": metric_uuid,
             "status": overall_status,
             "timeseries": timeseries,
+            "configuration_by_day": {day.isoformat(): status for day, status in stored.configuration_by_day.items()},
             "errors": errors if errors else None,
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
             "created_at": stored.earliest.created_at.isoformat()
@@ -4678,8 +4994,13 @@ class ExperimentService:
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
+        metric_definition = find_metric_dict(experiment, metric_uuid) or {}
         response["formatted_results"] = ExperimentTimeseriesFormatter(
-            MetricTimeseries.from_stored(status=overall_status, timeseries=timeseries)
+            MetricTimeseries.from_stored(
+                status=overall_status,
+                timeseries=timeseries,
+                is_quantile=metric_definition.get("metric_type") == "quantile",
+            )
         ).format()
         return response
 
