@@ -186,24 +186,52 @@ class TestSendGridImport(BaseTest):
 
         assert not MessageTemplate.objects.filter(team_id=self.team.id, key=key).exists()
 
-    def test_designs_and_single_sends_become_templates_with_notes(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "liquid_in_reply_to",
+                "hello@example.com",
+                "{{person.properties.b}}@example.com",
+                "hello@example.com",
+                '{{ "{{" }}person.properties.b}}@example.com',
+            ),
+            (
+                "liquid_in_from",
+                "{{person.properties.code}}@example.com",
+                "",
+                '{{ "{{" }}person.properties.code}}@example.com',
+                "",
+            ),
+            (
+                "reply_to_is_the_from_address",
+                "hello@example.com",
+                "hello@example.com",
+                "hello@example.com",
+                "hello@example.com",
+            ),
+        ]
+    )
+    def test_designs_and_single_sends_become_templates_with_notes(
+        self, _name: str, from_email: str, reply_to: str, expected_from: str, expected_reply_to: str
+    ) -> None:
         IntegrationManager.email.credentials.create(
             self.team.id,
-            external_id="hello@example.com",
-            config={"email": "hello@example.com", "domain": "example.com", "verified": True, "name": "Acme"},
+            external_id=from_email,
+            config={"email": from_email, "domain": "example.com", "verified": True, "name": "Acme"},
             sensitive_config={},
             created_by_id=self.user.id,
         )
         sender = self.state.account["verified_senders"][0]
-        sender.update(from_name="{{ person.properties.a }}", reply_to="{{person.properties.b}}@example.com")
+        sender.update(from_name="{{ person.properties.a }}", from_email=from_email, reply_to=reply_to)
         run = self._run(["suppression_groups", "designs", "single_sends"])
 
         templates = {row.name: row for row in MessageTemplate.objects.filter(team_id=self.team.id)}
         assert templates["Newsletter design"].key == "sendgrid-design-eeeeeeee-0000-4000-8000-000000000001"
         scheduled = templates["November news"]
-        assert scheduled.content["email"]["from"]["email"] == "hello@example.com"
+        assert scheduled.content["email"]["from"]["integrationId"]
+        assert scheduled.content["email"]["from"]["email"] == expected_from
         assert scheduled.content["email"]["from"]["name"] == '{{ "{{" }} person.properties.a }}'
-        assert scheduled.content["email"]["replyTo"] == '{{ "{{" }}person.properties.b}}@example.com'
+        assert scheduled.content["email"].get("replyTo", "") == expected_reply_to
         assert str(scheduled.message_category_id) == str(
             MessageCategory.objects.get(team_id=self.team.id, key="sendgrid_101").id
         )
@@ -315,10 +343,37 @@ class TestSendGridImport(BaseTest):
 
         run.refresh_from_db()
         offsets = [r["query"]["offset"] for r in self.state.requests if r["path"] == "/v3/suppression/bounces"]
-        assert offsets == ["500", "1000"]
+        assert offsets == ["499", "998"]
         assert run.progress["suppressions"]["status"] == "completed"
         assert run.progress["suppressions"]["counts"]["bounced"] == 1250
         assert len(self._suppressions()) == 1250 + 3
+
+    @parameterized.expand(
+        [
+            ("bounce_read_before_the_last", "suppressions", "bounces", 3),
+            ("bounce_read_last", "suppressions", "bounces", 499),
+            ("global_unsubscribe_read_before_the_last", "global_unsubscribes", "unsubscribes", 3),
+            ("global_unsubscribe_read_last", "global_unsubscribes", "unsubscribes", 499),
+        ]
+    )
+    def test_an_entry_deleted_in_sendgrid_after_it_was_read_skips_nothing(
+        self, _name: str, step: str, list_name: str, deleted_index: int
+    ) -> None:
+        path = "/v3/suppression/" + list_name
+        self.state.account[list_name] = [{"created": 1, "email": f"x{i}@example.com"} for i in range(501)]
+        run = self._start([step])
+        self.state.fail_after[path] = (1, 503)
+        with self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        del self.state.account[list_name][deleted_index]
+        self.state.fail_after.clear()
+        runs.run_step(self.team.id, run.id, step, attempt=2)
+
+        run.refresh_from_db()
+        assert run.progress[step]["status"] == "completed"
+        imported = set(self._suppressions()) if step == "suppressions" else set(self._preferences())
+        assert {"x499@example.com", "x500@example.com"} <= imported
 
     def test_a_killed_worker_writes_nothing_once_a_newer_attempt_owns_the_step(self) -> None:
         run = self._start(["suppressions"])
@@ -522,6 +577,11 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             "Hi {{ variables.n }}\n{% if variables.a > 1 %}Leave ({{ unsubscribe_url }}){% endif %}\nTom & Ann\n"
             "{% raw %}{{ person.properties.secret }}{% endraw %} {% raw %}{{ x }}{% endraw %}"
         )
+
+    def test_plain_text_source_cannot_stand_in_for_a_held_tag(self) -> None:
+        text = plain_text_from_html("<p>{% raw %}{{ person.properties.secret }}{% endraw %} \x011\x01</p>")
+
+        assert text == "{% raw %}{{ person.properties.secret }}{% endraw %} 1"
 
     def test_many_unclosed_tags_convert_quickly(self) -> None:
         assert convert_version({"html_content": "{{" * 200_000, "generate_plain_content": False}).html

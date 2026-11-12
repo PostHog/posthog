@@ -1014,7 +1014,8 @@ def plain_text_from_html(html: str) -> str:
         tags.append(match.group(0))
         return f"\x01{len(tags) - 1}\x01"
 
-    text = _LIQUID_TAG.sub(hold, html)
+    # Source text can't hold the slot marker, or it could stand in for a tag held here.
+    text = _LIQUID_TAG.sub(hold, html.replace("\x01", ""))
     spans = list(_not_content_spans(text))
     text = "".join(
         text[start:end]
