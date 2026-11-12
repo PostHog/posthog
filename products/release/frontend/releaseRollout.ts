@@ -1,5 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type {
     ActivityLogEntryApi,
     FeatureFlagApi,
@@ -19,30 +20,54 @@ interface RolloutGroup {
     rollout_percentage?: number | null
 }
 
+interface RolloutFilters {
+    groups?: RolloutGroup[] | null
+    early_exit?: boolean
+    holdout?: { exclusion_percentage?: number } | null
+}
+
 interface RolloutState {
     active: boolean
-    groups: RolloutGroup[]
+    filters: RolloutFilters
+}
+
+const isOpen = (group: RolloutGroup): boolean => !group.properties?.length
+const rolloutOf = (group: RolloutGroup): number => group.rollout_percentage ?? 100
+
+function reachOf(filters: RolloutFilters): { percent: number; targeted: boolean } | null {
+    const groups = filters.groups ?? []
+    if (filters.early_exit) {
+        const first = groups[0]
+        return first ? { percent: rolloutOf(first), targeted: !isOpen(first) } : null
+    }
+    const open = groups.filter(isOpen)
+    if (open.length) {
+        return { percent: Math.max(...open.map(rolloutOf)), targeted: false }
+    }
+    return groups.length ? { percent: Math.max(...groups.map(rolloutOf)), targeted: true } : null
 }
 
 function audienceOf(state: RolloutState): { percent: number; label: string } {
     if (!state.active) {
         return { percent: 0, label: 'Off' }
     }
-    const open = state.groups.filter((group) => !group.properties?.length)
-    if (open.length) {
-        const percent = Math.max(...open.map((group) => group.rollout_percentage ?? 100))
-        return { percent, label: percent === 100 ? 'Everyone' : `${percent}%` }
+    const reach = reachOf(state.filters)
+    if (!reach) {
+        return { percent: 0, label: 'No one' }
     }
-    if (state.groups.length) {
-        const percent = Math.max(...state.groups.map((group) => group.rollout_percentage ?? 100))
+    const holdout = state.filters.holdout?.exclusion_percentage ?? 0
+    const percent = Math.round(reach.percent * (100 - holdout)) / 100
+    if (reach.targeted) {
         return { percent: Math.max(percent / 4, 8), label: percent === 100 ? 'Targeted' : `Targeted, ${percent}%` }
     }
-    return { percent: 0, label: 'No one' }
+    return { percent, label: percent === 100 ? 'Everyone' : `${percent}%` }
 }
 
-function groupsOf(filters: unknown): RolloutGroup[] {
-    return ((filters as { groups?: RolloutGroup[] } | null)?.groups ?? []) as RolloutGroup[]
+function filtersOf(filters: unknown): RolloutFilters {
+    return (filters ?? {}) as RolloutFilters
 }
+
+const isV1 = (filters: unknown): boolean => !filters || isV1FeatureFlagConfig(filters as never)
 
 function changeOf(entry: ActivityLogEntryApi, field: string): { before: unknown; after: unknown } | undefined {
     return entry.detail?.changes?.find((change) => change.field === field)
@@ -62,7 +87,7 @@ export function rolloutSteps(
     const firstActive = updates.map((entry) => changeOf(entry, 'active')).find(Boolean)
     let state: RolloutState = {
         active: firstActive ? Boolean(firstActive.before) : !!flag.active,
-        groups: firstFilters ? groupsOf(firstFilters.before) : groupsOf(flag.filters),
+        filters: filtersOf(firstFilters ? firstFilters.before : flag.filters),
     }
     const points: { at: string; state: RolloutState; upcoming?: boolean }[] = [{ at: flag.created_at, state }]
     for (const entry of updates) {
@@ -70,11 +95,11 @@ export function rolloutSteps(
         const active = changeOf(entry, 'active')
         state = {
             active: active ? Boolean(active.after) : state.active,
-            groups: filters ? groupsOf(filters.after) : state.groups,
+            filters: filters ? filtersOf(filters.after) : state.filters,
         }
         points.push({ at: entry.created_at, state })
     }
-    const current: RolloutState = { active: !!flag.active, groups: groupsOf(flag.filters) }
+    const current: RolloutState = { active: !!flag.active, filters: filtersOf(flag.filters) }
     points.push({ at: today.toISOString(), state: current })
     const pending = scheduled
         .filter((change) => !change.executed_at && change.record_id === String(flag.id))
@@ -85,11 +110,20 @@ export function rolloutSteps(
         if (payload.operation === 'update_status') {
             state = { ...state, active: Boolean(payload.value) }
         } else if (payload.operation === 'add_release_condition') {
-            state = { ...state, groups: [...state.groups, ...groupsOf(payload.value)] }
+            state = {
+                ...state,
+                filters: {
+                    ...state.filters,
+                    groups: [...(state.filters.groups ?? []), ...(filtersOf(payload.value).groups ?? [])],
+                },
+            }
         } else {
             continue
         }
         points.push({ at: change.scheduled_at, state, upcoming: true })
+    }
+    if (!points.every((point) => isV1(point.state.filters))) {
+        return []
     }
     const steps: RolloutStep[] = []
     points.forEach((point, index) => {

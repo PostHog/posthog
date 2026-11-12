@@ -15,13 +15,13 @@ const groups = (rollout: number): { groups: { properties: never[]; rollout_perce
     groups: [{ properties: [], rollout_percentage: rollout }],
 })
 
-const flag = (rollout: number, active = true): FeatureFlagApi =>
+const flag = (rollout: number, active = true, extra: Record<string, unknown> = {}): FeatureFlagApi =>
     ({
         id: 7,
         key: 'checkout',
         active,
         created_at: '2026-11-01T00:00:00Z',
-        filters: groups(rollout),
+        filters: { ...groups(rollout), ...extra },
     }) as unknown as FeatureFlagApi
 
 const update = (at: string, changes: { field: string; before: unknown; after: unknown }[]): ActivityLogEntryApi =>
@@ -70,6 +70,33 @@ describe('rolloutSteps', () => {
             activity: [update('2026-11-03T00:00:00Z', [{ field: 'filters', before: groups(100), after: groups(100) }])],
             scheduled: [],
             expected: [['2026-11-01', 'Everyone', false]],
+        },
+        {
+            name: 'takes the holdout out of the audience',
+            current: flag(100, true, { holdout: { exclusion_percentage: 20 } }),
+            activity: [],
+            scheduled: [],
+            expected: [['2026-11-01', '80%', false]],
+        },
+        {
+            name: 'reads the first condition when early exit is on',
+            current: flag(10, true, {
+                early_exit: true,
+                groups: [
+                    { properties: [], rollout_percentage: 10 },
+                    { properties: [], rollout_percentage: 100 },
+                ],
+            }),
+            activity: [],
+            scheduled: [],
+            expected: [['2026-11-01', '10%', false]],
+        },
+        {
+            name: 'draws no history for a flag stored as rules',
+            current: flag(100, true, { version: 2 }),
+            activity: [],
+            scheduled: [],
+            expected: [],
         },
         {
             name: 'adds pending scheduled changes as upcoming steps, in date order, and skips executed ones',

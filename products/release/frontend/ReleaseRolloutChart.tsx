@@ -78,22 +78,20 @@ export function ReleaseRolloutChart({
     const tail = 2 * dayWidth
     const pastPoints = linePoints(past)
     const lastPast = pastPoints[pastPoints.length - 1]
-    const futurePoints =
-        upcoming.length && lastPast
-            ? [
-                  lastPast,
-                  { x: xOf(upcoming[0].from), y: lastPast.y },
-                  ...upcoming.flatMap((step, index) => {
-                      const from = xOf(step.from)
-                      const next = upcoming[index + 1]
-                      const to = next ? xOf(next.from) : Math.min(from + tail, width)
-                      return [
-                          { x: from, y: yOf(step.percent) },
-                          { x: to, y: yOf(step.percent) },
-                      ]
-                  }),
-              ]
-            : []
+    const futurePoints = upcoming.length
+        ? [
+              ...(lastPast ? [lastPast, { x: xOf(upcoming[0].from), y: lastPast.y }] : []),
+              ...upcoming.flatMap((step, index) => {
+                  const from = xOf(step.from)
+                  const next = upcoming[index + 1]
+                  const to = next ? xOf(next.from) : Math.min(from + tail, width)
+                  return [
+                      { x: from, y: yOf(step.percent) },
+                      { x: to, y: yOf(step.percent) },
+                  ]
+              }),
+          ]
+        : []
     const current = past[past.length - 1]
 
     const textOf = (step: RolloutStep): string =>
