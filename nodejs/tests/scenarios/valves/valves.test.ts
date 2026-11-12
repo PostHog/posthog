@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from 'timers/promises'
+
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
@@ -18,6 +20,8 @@ type StackSetup = {
     probeFailure?: string
     probeFailsFor?: number
     runningJobs?: number
+    applyTakesMs?: number
+    observeTakesMs?: number
 }
 
 function stackOf({
@@ -27,6 +31,8 @@ function stackOf({
     probeFailure,
     probeFailsFor = Infinity,
     runningJobs = 0,
+    applyTakesMs = 0,
+    observeTakesMs = 0,
 }: StackSetup = {}) {
     let probeReads = 0
     let nextPid = 1
@@ -104,6 +110,20 @@ function stackOf({
                 ).length
             },
         },
+    }
+
+    if (applyTakesMs > 0 || observeTakesMs > 0) {
+        const { actuate } = context.environment
+        context.environment = {
+            actuate: async (action) => {
+                const actuation = await actuate(action)
+                await sleep(applyTakesMs)
+                return {
+                    ...actuation,
+                    observed: (signal) => sleep(observeTakesMs).then(() => actuation.observed(signal)),
+                }
+            },
+        }
     }
 
     const run = (count: number, queue: Queue = 'email'): void => {
@@ -329,5 +349,23 @@ describe('valves', () => {
 
         expect(stack.gone()).toEqual([1])
         expect(valves.timeline()[0].releasedAt).toEqual(expect.any(String))
+    })
+
+    it.each<[string, StackSetup, string, number, number]>([
+        ['a slow apply returns', { applyTakesMs: 300 }, '50ms', 45, 250],
+        ['observing took most of it', { observeTakesMs: 400 }, '500ms', 450, 800],
+    ])('holds an entry for its duration from apply after %s', async (_story, setup, holdFor, atLeast, below) => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf(setup)
+
+        await valves.start([kill({ at: '0ms' }, holdFor)], stack.context)
+        await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+        await valves.releaseAll()
+
+        const { appliedAt, observedAt, releasedAt, error } = valves.timeline()[0]
+        const heldMs = Date.parse(releasedAt!) - Date.parse(appliedAt!)
+        expect({ observedAt, error }).toEqual({ observedAt: expect.any(String), error: undefined })
+        expect(heldMs).toBeGreaterThanOrEqual(atLeast)
+        expect(heldMs).toBeLessThan(below)
     })
 })

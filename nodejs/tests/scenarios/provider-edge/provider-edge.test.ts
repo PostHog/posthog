@@ -7,6 +7,8 @@ import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracki
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
+import { ruleOf } from './faults'
+
 const TRACKING_KEYS = 'scenario-tracking-key'
 const ALICE = 'run-1-1@www.example.com'
 const BOB = 'run-1-2@www.example.com'
@@ -301,6 +303,23 @@ describe('provider edge', () => {
         await send(ALICE)
 
         expect((await truth()).records.map((record) => record.seq)).toEqual([1, 2, 3])
+    })
+
+    it('does not observe a held fault from a send after its observation window', async () => {
+        const start = Date.now()
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
+        try {
+            const held = edge.hold(ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }))
+            const observed = held.observed()
+            clock.mockReturnValue(start + 10_001)
+
+            expect({ send: await send(ALICE), observed: await observed }).toEqual({
+                send: 'MessageRejected',
+                observed: false,
+            })
+        } finally {
+            clock.mockRestore()
+        }
     })
 
     it.each<[string, string, TruthPage]>([

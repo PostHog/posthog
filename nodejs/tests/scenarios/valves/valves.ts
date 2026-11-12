@@ -136,9 +136,10 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         const definition = VALVES.find(({ name }) => name === entry.valve)!
         let actuation: Actuation | undefined
         try {
-            record.appliedAt = now()
             actuation = await definition.apply(context, entry.target, entry.dose)
-            if (!(await actuation.observed(released.signal))) {
+            record.appliedAt = now()
+            const held = AbortSignal.any([released.signal, AbortSignal.timeout(durationMs(entry.for))])
+            if (!(await actuation.observed(held))) {
                 record.error = 'applied but not observed'
             } else if (
                 entry.when &&
@@ -151,7 +152,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             } else {
                 record.observedAt = now()
             }
-            await sleep(durationMs(entry.for), undefined, { signal: released.signal }).catch(() => undefined)
+            await sleep(durationMs(entry.for), undefined, { signal: held }).catch(() => undefined)
         } catch (error) {
             record.error = (error as Error).message
         } finally {

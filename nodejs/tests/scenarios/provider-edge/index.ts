@@ -237,13 +237,13 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             return {
                 observed: async (released) => {
                     const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
-                    while (faults.applied(id) === 0) {
-                        if (Date.now() > deadline || released?.aborted) {
-                            return false
+                    while (Date.now() <= deadline && !released?.aborted) {
+                        if (faults.applied(id) > 0) {
+                            return true
                         }
                         await sleep(FAULT_POLL_MS, undefined, { signal: released }).catch(() => undefined)
                     }
-                    return true
+                    return false
                 },
                 release: () => {
                     faults.remove(id)
