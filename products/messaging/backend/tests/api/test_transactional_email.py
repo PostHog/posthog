@@ -61,6 +61,10 @@ class CapturedFirstCodeSend:
     project: str
 
 
+def _sandbox_fallbacks(outcome: str) -> float:
+    return REGISTRY.get_sample_value("messaging_transactional_email_sandbox_fallback_total", {"outcome": outcome}) or 0
+
+
 def _stage_counts() -> dict[str, float]:
     return {
         stage: REGISTRY.get_sample_value("messaging_transactional_email_stage_duration_seconds_count", {"stage": stage})
@@ -1107,10 +1111,15 @@ class TestTransactionalEmail(APIBaseTest):
     ):
         unverified = self._without_a_verified_sender(unverified_sender=unverified_sender)
         mock_post.return_value = MagicMock(status_code=202, json=lambda: pipeline_body)
+        fallbacks_before = _sandbox_fallbacks("sandbox")
 
-        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
+        with capture_logs() as logs:
+            response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert _sandbox_fallbacks("sandbox") == fallbacks_before + 1
+        fallback_logs = [log for log in logs if log["event"] == "transactional_email_sandbox_sender_fallback"]
+        assert [(log["team_id"], log["key"]) for log in fallback_logs] == [(self.team.id, "welcome")]
         (sandbox,) = self._sandbox_senders()
         assert (sandbox.integration_id, sandbox.created_by_id) == ("posthog-managed-sandbox", None)
         assert json.loads(mock_post.call_args.kwargs["data"])["send"]["from"] == {"integrationId": sandbox.id}
@@ -1253,12 +1262,14 @@ class TestTransactionalEmail(APIBaseTest):
         self, mock_post, _flag, _capture, field, fields
     ):
         self._without_a_verified_sender(unverified_sender=False)
+        refusals_before = _sandbox_fallbacks("fields_unsupported")
 
         response = self._psak_client(["hog_flow:write"]).post(
             self.send_email_url, self._code_send(**fields), format="json"
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert _sandbox_fallbacks("fields_unsupported") == refusals_before + 1
         body = response.json()
         assert (body["type"], body["code"], body["attr"]) == ("invalid_request", "sandbox_fields_unsupported", field)
         assert self._setup_url(None) in body["detail"]

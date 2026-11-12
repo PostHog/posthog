@@ -103,6 +103,12 @@ CDP_SEND_RESULTS = Counter(
     "of any other answer, timeout, connection_error, or error.",
     labelnames=["result"],
 )
+SANDBOX_FALLBACKS = Counter(
+    "messaging_transactional_email_sandbox_fallback_total",
+    "Code sends from projects without a verified sender, by outcome: sandbox (sent from the sandbox sender) or "
+    "fields_unsupported (refused because the sandbox sender cannot send a field the request set).",
+    labelnames=["outcome"],
+)
 
 
 TransactionalEmailStage = Literal[
@@ -701,10 +707,12 @@ def _code_send_sender(team: Team, email: CodeEmail) -> tuple[dict[str, Any], Sen
                 raise NamedSenderNotVerified(f"No verified sender in this project can send from `{address}`.") from e
             raise SenderNotVerified("This project has no verified email sender. Verify a sender domain first.") from e
         if field := _field_the_sandbox_sender_cannot_send(email):
+            SANDBOX_FALLBACKS.labels(outcome="fields_unsupported").inc()
             setup_url = sending_domain_setup(team.id).setup_url
             raise SandboxFieldsUnsupported(SANDBOX_FIELDS_UNSUPPORTED.format(setup_url=setup_url), attr=field) from e
         sandbox_sender_id = provision_sandbox_sender(team, None).id
-        logger.info("transactional_email_sandbox_sender_fallback", team_id=team.id)
+        SANDBOX_FALLBACKS.labels(outcome="sandbox").inc()
+        logger.info("transactional_email_sandbox_sender_fallback", team_id=team.id, key=email.key)
         return {"integrationId": sandbox_sender_id}, _sandbox_sender_warning(team.id)
     return {"integrationId": sender_id, "email": address, "name": name}, None
 
