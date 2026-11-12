@@ -144,7 +144,12 @@ from products.replay_vision.backend.facade.api import (
 )
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
-from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, runnable_model_choices
+from products.tasks.backend.facade.model_catalogue import (
+    TASK_RUN_GATEWAY_PRODUCT,
+    reasoning_efforts_for,
+    runnable_model_choices,
+    uncataloged_runtime_adapter,
+)
 from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskSkillsInvalid,
@@ -1855,15 +1860,20 @@ class HogFlowActionSerializer(serializers.Serializer):
         reasoning_effort = model_value.get("reasoning_effort")
         if model:
             choice = next((c for c in runnable_model_choices(TASK_RUN_GATEWAY_PRODUCT) if c.model == model), None)
-            if choice is None:
-                raise serializers.ValidationError({"inputs": {"model": f"'{model}' is not an available model."}})
-            if reasoning_effort and reasoning_effort not in choice.supported_efforts:
+            if choice is not None:
+                supported_efforts = choice.supported_efforts
+            else:
+                runtime_adapter = uncataloged_runtime_adapter(model)
+                if runtime_adapter is None:
+                    raise serializers.ValidationError({"inputs": {"model": f"'{model}' is not an available model."}})
+                supported_efforts = reasoning_efforts_for(runtime_adapter, model)
+            if reasoning_effort and reasoning_effort not in supported_efforts:
                 raise serializers.ValidationError(
                     {
                         "inputs": {
                             "model": (
                                 f"Reasoning effort '{reasoning_effort}' is not supported for model "
-                                f"'{model}'. Supported values: {', '.join(choice.supported_efforts) or 'none'}."
+                                f"'{model}'. Supported values: {', '.join(supported_efforts) or 'none'}."
                             )
                         }
                     }

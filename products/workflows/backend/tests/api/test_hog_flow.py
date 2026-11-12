@@ -8683,6 +8683,8 @@ class TestCreateTaskActionValidation(APIBaseTest):
         [
             ("offered", "claude-opus-5-5"),
             ("retired_but_runnable", "claude-sonnet-4-6"),
+            ("sdk_implicit", "claude-haiku-4-5"),
+            ("desktop_legacy", "gpt-5.4"),
         ]
     )
     def test_accepts_a_model_in_the_task_model_catalogue(self, _name, model):

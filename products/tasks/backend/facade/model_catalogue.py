@@ -29,7 +29,11 @@ from products.tasks.backend.logic.services.model_catalogue import (
     runnable_model_choices,
     runtime_adapter_for,
 )
-from products.tasks.backend.model_catalog import CAPABILITY_LADDER_BY_RUNTIME_ADAPTER, normalize_model_id
+from products.tasks.backend.model_catalog import (
+    CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
+    normalize_model_id,
+    reasoning_efforts_for,
+)
 
 __all__ = [
     "CAPABILITY_LADDER_BY_RUNTIME_ADAPTER",
@@ -51,6 +55,7 @@ __all__ = [
     "normalize_model_id",
     "offered_model_choices",
     "plan_model_choices",
+    "reasoning_efforts_for",
     "runnable_model_choices",
     "runtime_adapter_for",
 ]
