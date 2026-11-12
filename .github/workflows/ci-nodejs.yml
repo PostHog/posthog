@@ -405,9 +405,18 @@ jobs:
             - name: Prepare Node.js workspace
               run: bin/turbo --filter=@posthog/nodejs prepare
 
+            - name: Restore Prettier cache
+              id: prettier-cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: nodejs/node_modules/.cache/prettier-ci
+                  # Prettier does not include plugin versions in its cache key.
+                  key: nodejs-prettier-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.nvmrc', 'nodejs/**/.prettier*', 'nodejs/**/prettier.config.*', '**/.editorconfig') }}-${{ github.sha }}
+                  restore-keys: nodejs-prettier-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.nvmrc', 'nodejs/**/.prettier*', 'nodejs/**/prettier.config.*', '**/.editorconfig') }}-
+
             - parallel:
                   - name: Check formatting with prettier
-                    run: pnpm --filter=@posthog/nodejs format:check
+                    run: pnpm --filter=@posthog/nodejs format:check --cache --cache-strategy content --cache-location node_modules/.cache/prettier-ci
 
                   - name: Lint with Oxlint
                     run: pnpm --filter=@posthog/nodejs lint
@@ -421,6 +430,13 @@ jobs:
                         else
                             echo "Ingestion boundary guard not present on this branch; skipping."
                         fi
+
+            - name: Save Prettier cache
+              if: github.ref == 'refs/heads/master' && steps.prettier-cache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: nodejs/node_modules/.cache/prettier-ci
+                  key: ${{ steps.prettier-cache.outputs.cache-primary-key }}
 
     build:
         # Not on master push — master coverage comes from the hourly run (see `schedule`).

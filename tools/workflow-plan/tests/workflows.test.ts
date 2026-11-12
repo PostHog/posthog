@@ -1185,6 +1185,29 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
+        ['PR', pullRequest(), 'false', 'success', false],
+        ['fork', pullRequest({ fork: true }), 'false', 'success', false],
+        ['merge queue', mergeQueue(), 'false', 'success', false],
+        ['schedule cache miss', schedule(), 'false', 'success', true],
+        ['schedule cache hit', schedule(), 'true', 'success', false],
+        ['schedule formatting failure', schedule(), 'false', 'failure', false],
+    ] as const)('Node Prettier cache write on %s', (name, github, cacheHit, outcome, runs) => {
+        const plan = planWorkflow(workflow('ci-nodejs.yml'), {
+            name,
+            github,
+            steps: {
+                changes: { filter: pathsFilter({ nodejs: true }) },
+                lint: {
+                    'prettier-cache': { outputs: { 'cache-hit': cacheHit } },
+                    'Check formatting with prettier': { outcome },
+                },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.lint?.steps.find((step) => step.name === 'Save Prettier cache')?.runs).toBe(runs)
+    })
+
+    it.each([
         ['Rust-only PR', pullRequest(), 'true', 'false', true, true],
         ['missing Node filter', pullRequest(), 'true', '', true, true],
         ['fork', pullRequest({ fork: true }), 'true', 'false', true, true],
