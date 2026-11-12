@@ -7407,7 +7407,6 @@ class HogFlowViewSet(
         if params.get("before"):
             before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
 
-        # The list that reads these counts launches behind its flag, and so does the way it counts runs.
         if workflows_list_v2_enabled(self.team, cast(User, request.user)):
             totals = fetch_run_totals_by_workflow(team_id=self.team_id, after=after_date, before=before_date)
         else:
