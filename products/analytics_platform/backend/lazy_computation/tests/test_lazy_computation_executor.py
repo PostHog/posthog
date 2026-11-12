@@ -4074,6 +4074,116 @@ class TestCheckOnlyMode(BaseTest):
         assert time_mod.monotonic() - started < 5, "check-only must not block on pending jobs"
 
 
+class TestPlan(BaseTest):
+    NOW = datetime(2026, 3, 10, 12, tzinfo=UTC)
+
+    def _query_info(self) -> LazyComputationQuery:
+        query = parse_select("SELECT 1")
+        assert isinstance(query, ast.SelectQuery)
+        return LazyComputationQuery(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+
+    def _job(
+        self,
+        start: datetime,
+        end: datetime,
+        status: PreaggregationJob.Status,
+        created_hours_ago: int = 0,
+        expires_in_hours: int = 6,
+    ) -> PreaggregationJob:
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=compute_query_hash(self._query_info()),
+            time_range_start=start,
+            time_range_end=end,
+            status=status,
+            expires_at=self.NOW + timedelta(hours=expires_in_hours),
+        )
+        PreaggregationJob.objects.filter(id=job.id).update(created_at=self.NOW - timedelta(hours=created_hours_ago))
+        return job
+
+    @parameterized.expand(
+        [
+            ("covered", PreaggregationJob.Status.READY, (8, 11), True, False, []),
+            ("pending", PreaggregationJob.Status.PENDING, (8, 11), False, True, []),
+            ("missing_today_only", PreaggregationJob.Status.READY, (8, 10), True, False, [(10, 11)]),
+            ("missing_old_window", PreaggregationJob.Status.READY, (9, 11), True, False, [(8, 9)]),
+        ]
+    )
+    def test_plan_reports_coverage_without_writing(
+        self,
+        _name: str,
+        status: PreaggregationJob.Status,
+        job_days: tuple[int, int],
+        expect_ready: bool,
+        expect_pending: bool,
+        expected_build_days: list[tuple[int, int]],
+    ) -> None:
+        with time_machine.travel(self.NOW, tick=False):
+            job = self._job(
+                datetime(2026, 3, job_days[0], tzinfo=UTC), datetime(2026, 3, job_days[1], tzinfo=UTC), status
+            )
+
+            plan = LazyComputationExecutor().plan(
+                team=self.team, query_info=self._query_info(), start=datetime(2026, 3, 8, tzinfo=UTC), end=self.NOW
+            )
+
+        assert plan is not None
+        assert plan.ready_job_ids == ((job.id,) if expect_ready else ())
+        assert plan.pending_job_ids == ((job.id,) if expect_pending else ())
+        assert [(r.start, r.end) for r in plan.build_ranges] == [
+            (datetime(2026, 3, s, tzinfo=UTC), datetime(2026, 3, e, tzinfo=UTC)) for s, e in expected_build_days
+        ]
+        assert plan.servable_stale is False
+        assert PreaggregationJob.objects.filter(team=self.team).count() == 1
+
+    @parameterized.expand(
+        [
+            ("within_grace", 1, True),
+            ("beyond_grace", 9, False),
+        ]
+    )
+    def test_plan_applies_the_same_stale_grace_as_execute(
+        self, _name: str, expired_hours_ago: int, served_stale: bool
+    ) -> None:
+        start, end = datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC)
+        with time_machine.travel(self.NOW, tick=False):
+            stale_job = self._job(
+                start,
+                end,
+                PreaggregationJob.Status.READY,
+                created_hours_ago=expired_hours_ago + 1,
+                expires_in_hours=-expired_hours_ago,
+            )
+            executor = LazyComputationExecutor(
+                ttl_schedule=TtlSchedule.from_seconds(60 * 60), stale_while_revalidate_seconds=6 * 60 * 60
+            )
+
+            plan = executor.plan(team=self.team, query_info=self._query_info(), start=start, end=end)
+            result = executor.execute(
+                team=self.team, query_info=self._query_info(), start=start, end=end, run_insert=lambda t, j: 1
+            )
+
+        assert plan is not None
+        assert plan.servable_stale is served_stale
+        assert result.stale is served_stale
+        if served_stale:
+            assert plan.ready_job_ids == (stale_job.id,)
+            assert plan.build_ranges == ()
+        else:
+            assert [(r.start, r.end) for r in plan.build_ranges] == [(start, end)]
+
+    def test_plan_is_none_before_the_retention_floor(self) -> None:
+        with time_machine.travel(self.NOW, tick=False):
+            plan = LazyComputationExecutor(events_retention_months=1).plan(
+                team=self.team,
+                query_info=self._query_info(),
+                start=datetime(2026, 1, 1, tzinfo=UTC),
+                end=datetime(2026, 1, 2, tzinfo=UTC),
+            )
+
+        assert plan is None
+
+
 class TestBuildsKeepTheirEventsTable(BaseTest):
     INSERT_QUERY = TestInsertSettingsAppliedToInserts.INSERT_QUERY
 

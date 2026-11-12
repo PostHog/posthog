@@ -992,6 +992,41 @@ class BuildRange:
     ttl_seconds: int
 
 
+@frozen
+class LazyComputationPlan:
+    """What `execute()` would do for a range at this moment, read from Postgres only.
+
+    When `servable_stale` is True, `execute()` serves `ready_job_ids` stale, so `build_ranges`
+    and `pending_job_ids` are empty. The plan is a snapshot: another executor can create or
+    finish jobs before a later `execute()` runs.
+    """
+
+    ready_job_ids: tuple[uuid.UUID, ...]
+    pending_job_ids: tuple[uuid.UUID, ...]
+    build_ranges: tuple[BuildRange, ...]
+    servable_stale: bool
+
+
+@frozen
+class _Coverage:
+    fresh_jobs: list[PreaggregationJob]
+    pending_jobs: list[PreaggregationJob]
+    build_ranges: list[BuildRange]
+    # The READY jobs that `execute()` serves under the stale grace, or None when it does not serve stale.
+    stale_cover: list[PreaggregationJob] | None
+
+
+def _historical_end(end: datetime, end_is_data_horizon: bool, now_utc: datetime) -> datetime | None:
+    """`end` when it is a data horizon on a past UTC day, so that build ranges are clamped to it.
+
+    A truncated build must not mark unstored hours as covered. Some callers pass a naive `end`;
+    treat it as UTC like the window math does.
+    """
+    today_start_utc = datetime(now_utc.year, now_utc.month, now_utc.day, tzinfo=UTC)
+    end_utc = end if end.tzinfo is not None else end.replace(tzinfo=UTC)
+    return end_utc if end_is_data_horizon and end_utc < today_start_utc else None
+
+
 def clamp_ranges_to_data_horizon(
     ttl_ranges: list[tuple[datetime, datetime, int]],
     horizon: datetime | None,
@@ -1275,6 +1310,46 @@ class LazyComputationExecutor:
         self.run_inserts = run_inserts
         self.events_retention_months = events_retention_months
 
+    def plan(
+        self,
+        team: Team,
+        query_info: LazyComputationQuery,
+        start: datetime,
+        end: datetime,
+        end_is_data_horizon: bool = False,
+    ) -> LazyComputationPlan | None:
+        """Report what `execute()` would serve, wait on and build for this range, without doing it.
+
+        Reads Postgres only: it creates no job, takes no lock and runs no ClickHouse query, so a
+        caller can size a build before it picks where to run it. Returns None when the range
+        starts before the events-retention floor, where `execute()` misses without a build.
+        """
+        now_utc = django_timezone.now()
+        if self._reaches_retention_floor(start, now_utc):
+            return None
+        coverage = self._read_coverage(
+            team,
+            compute_query_hash(query_info),
+            start,
+            end,
+            _historical_end(end, end_is_data_horizon, now_utc),
+        )
+        if coverage.stale_cover is not None:
+            return LazyComputationPlan(
+                ready_job_ids=tuple(j.id for j in coverage.stale_cover),
+                pending_job_ids=(),
+                build_ranges=(),
+                servable_stale=True,
+            )
+        return LazyComputationPlan(
+            ready_job_ids=tuple(
+                j.id for j in filter_overlapping_jobs(coverage.fresh_jobs) if j.status == PreaggregationJob.Status.READY
+            ),
+            pending_job_ids=tuple(j.id for j in coverage.pending_jobs),
+            build_ranges=tuple(coverage.build_ranges),
+            servable_stale=False,
+        )
+
     def execute(
         self,
         team: Team,
@@ -1323,21 +1398,9 @@ class LazyComputationExecutor:
 
         had_ready_at_start: bool | None = None
 
-        # Set when `end` is a data horizon on a past UTC day; the create loop then
-        # clamps job claims to it so a truncated build cannot mark unstored hours
-        # as covered. Some callers pass a naive `end`; treat it as UTC like the
-        # window math does.
         now_utc = django_timezone.now()
-        today_start_utc = datetime(now_utc.year, now_utc.month, now_utc.day, tzinfo=UTC)
-        end_utc = end if end.tzinfo is not None else end.replace(tzinfo=UTC)
-        historical_end = end_utc if end_is_data_horizon and end_utc < today_start_utc else None
-
-        reaches_retention_floor = False
-        if self.events_retention_months is not None:
-            # Compare in UTC: daily windows take the calendar date of `start` as given, so a non-UTC
-            # start would select a UTC window for its local date, which can sit before the floor.
-            start_utc = start.astimezone(UTC) if start.tzinfo is not None else start.replace(tzinfo=UTC)
-            reaches_retention_floor = start_utc < retention_build_floor(self.events_retention_months, now_utc)
+        historical_end = _historical_end(end, end_is_data_horizon, now_utc)
+        reaches_retention_floor = self._reaches_retention_floor(start, now_utc)
 
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
             if outcome in ("check_miss", "retention_floor_miss", "retention_cap_expired"):
@@ -1391,53 +1454,23 @@ class LazyComputationExecutor:
                     _log_execution("timeout", result)
                     return result
 
-                # Step 1: See what exists, filter out stale READY jobs
-                existing_jobs = find_existing_jobs(team, query_hash, start, end)
-                fresh_jobs = self._filter_by_freshness(existing_jobs)
-                pending_jobs = [j for j in fresh_jobs if j.status == PreaggregationJob.Status.PENDING]
-
-                # Step 2: Find missing ranges, split at TTL boundaries.
-                # Coverage is checked on the overlap-filtered set because that is
-                # the set the final return serves: the filter drops an older job
-                # that a newer one overlaps, so a window only the older job covered
-                # would read as zero if the unfiltered union counted it as covered.
-                # The filter can also hide a window covered only by an older
-                # PENDING job; recomputing it costs at most one duplicate build.
-                missing_ranges = find_missing_contiguous_windows(filter_overlapping_jobs(fresh_jobs), start, end)
-                build_ranges = clamp_ranges_to_data_horizon(
-                    split_ranges_by_ttl(missing_ranges, self.ttl_schedule), historical_end
-                )
+                coverage = self._read_coverage(team, query_hash, start, end, historical_end)
+                pending_jobs = coverage.pending_jobs
+                build_ranges = coverage.build_ranges
 
                 if had_ready_at_start is None:
-                    had_ready_at_start = any(j.status == PreaggregationJob.Status.READY for j in fresh_jobs)
+                    had_ready_at_start = any(j.status == PreaggregationJob.Status.READY for j in coverage.fresh_jobs)
 
-                # Step 2.5: Serve stale. If this request would otherwise compute inline or
-                # block on another executor's pending jobs, and READY jobs within the grace
-                # fully cover the range, return them immediately — complete-but-stale beats
-                # blocking. Whoever refreshes (the warmer, or a request after the grace)
-                # replaces the data; `filter_overlapping_jobs` always prefers newer jobs.
-                if self.stale_while_revalidate_seconds is not None and (build_ranges or pending_jobs):
-                    graced = find_existing_jobs(
-                        team, query_hash, start, end, expired_grace_seconds=self.stale_while_revalidate_seconds
+                if coverage.stale_cover is not None:
+                    result = LazyComputationResult(
+                        ready=True,
+                        job_ids=[j.id for j in coverage.stale_cover],
+                        stale=True,
+                        computed_at=_oldest_computed_at(coverage.stale_cover),
+                        served_windows=_served_windows(coverage.stale_cover),
                     )
-                    graced_ready = self._filter_by_freshness(
-                        [j for j in graced if j.status == PreaggregationJob.Status.READY],
-                        grace_seconds=self.stale_while_revalidate_seconds,
-                    )
-                    # Coverage must be checked on the overlap-filtered set that will actually
-                    # be returned: the filter prefers newer jobs, so a newer narrow job can
-                    # evict an older broad one and reopen a gap the unfiltered set covered.
-                    covering = filter_overlapping_jobs(graced_ready)
-                    if not find_missing_contiguous_windows(covering, start, end):
-                        result = LazyComputationResult(
-                            ready=True,
-                            job_ids=[j.id for j in covering],
-                            stale=True,
-                            computed_at=_oldest_computed_at(covering),
-                            served_windows=_served_windows(covering),
-                        )
-                        _log_execution("stale_hit", result)
-                        return result
+                    _log_execution("stale_hit", result)
+                    return result
 
                 # Check-only mode: the range isn't fully covered by servable READY
                 # jobs (the stale-serve above would have returned), and this request
@@ -1723,6 +1756,68 @@ class LazyComputationExecutor:
         )
         _log_execution("success", result)
         return result
+
+    def _reaches_retention_floor(self, start: datetime, now_utc: datetime) -> bool:
+        if self.events_retention_months is None:
+            return False
+        # Compare in UTC: daily windows take the calendar date of `start` as given, so a non-UTC
+        # start would select a UTC window for its local date, which can sit before the floor.
+        start_utc = start.astimezone(UTC) if start.tzinfo is not None else start.replace(tzinfo=UTC)
+        return start_utc < retention_build_floor(self.events_retention_months, now_utc)
+
+    def _read_coverage(
+        self,
+        team: Team,
+        query_hash: str,
+        start: datetime,
+        end: datetime,
+        historical_end: datetime | None,
+    ) -> _Coverage:
+        """Steps 1 to 2.5 of `execute()`. `plan()` calls it too, so both apply the same stale grace."""
+        # Step 1: See what exists, filter out stale READY jobs
+        existing_jobs = find_existing_jobs(team, query_hash, start, end)
+        fresh_jobs = self._filter_by_freshness(existing_jobs)
+        pending_jobs = [j for j in fresh_jobs if j.status == PreaggregationJob.Status.PENDING]
+
+        # Step 2: Find missing ranges, split at TTL boundaries.
+        # Coverage is checked on the overlap-filtered set because that is
+        # the set the final return serves: the filter drops an older job
+        # that a newer one overlaps, so a window only the older job covered
+        # would read as zero if the unfiltered union counted it as covered.
+        # The filter can also hide a window covered only by an older
+        # PENDING job; recomputing it costs at most one duplicate build.
+        missing_ranges = find_missing_contiguous_windows(filter_overlapping_jobs(fresh_jobs), start, end)
+        build_ranges = clamp_ranges_to_data_horizon(
+            split_ranges_by_ttl(missing_ranges, self.ttl_schedule), historical_end
+        )
+
+        # Step 2.5: Serve stale. If this request would otherwise compute inline or
+        # block on another executor's pending jobs, and READY jobs within the grace
+        # fully cover the range, return them immediately — complete-but-stale beats
+        # blocking. Whoever refreshes (the warmer, or a request after the grace)
+        # replaces the data; `filter_overlapping_jobs` always prefers newer jobs.
+        stale_cover: list[PreaggregationJob] | None = None
+        if self.stale_while_revalidate_seconds is not None and (build_ranges or pending_jobs):
+            graced = find_existing_jobs(
+                team, query_hash, start, end, expired_grace_seconds=self.stale_while_revalidate_seconds
+            )
+            graced_ready = self._filter_by_freshness(
+                [j for j in graced if j.status == PreaggregationJob.Status.READY],
+                grace_seconds=self.stale_while_revalidate_seconds,
+            )
+            # Coverage must be checked on the overlap-filtered set that will actually
+            # be returned: the filter prefers newer jobs, so a newer narrow job can
+            # evict an older broad one and reopen a gap the unfiltered set covered.
+            covering = filter_overlapping_jobs(graced_ready)
+            if not find_missing_contiguous_windows(covering, start, end):
+                stale_cover = covering
+
+        return _Coverage(
+            fresh_jobs=fresh_jobs,
+            pending_jobs=pending_jobs,
+            build_ranges=build_ranges,
+            stale_cover=stale_cover,
+        )
 
     def _try_fail_expired_pending_job(
         self, team: Team, query_hash: str, range_start: datetime, range_end: datetime
