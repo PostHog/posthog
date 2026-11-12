@@ -1,6 +1,7 @@
 import { printPending, resumeApproval, waitIdentity } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
+import { escapeControls } from '@/core/output'
 import { ADD_COMMAND, loginWait } from '@/posthog/login/flow'
 import type { StepUpResult } from '@/posthog/login/step-up'
 
@@ -57,23 +58,24 @@ export default defineCommand({
     human({ result, out }) {
         switch (result.status) {
             case 'pending':
-                printPending(out, result)
+                printPending(out, result, 'scope request')
                 return
             case 'already_granted':
-                out.line(`Your login for ${result.host} already has these scopes.`)
+                out.report({
+                    status: 'unchanged',
+                    result: `Your login for ${escapeControls(result.host)} already has these scopes`,
+                })
                 return
             case 'added':
-                out.line(
-                    `${out.style('Scopes added', 'green', 'bold')} to your login for project ${result.projectId} on ${result.host}.`
-                )
-                if (result.replacedRevoked === false) {
-                    out.line(
-                        out.style(
-                            "PostHog didn't revoke your previous login. It stops working when it expires. To remove it now, go to Settings > Connected applications in PostHog.",
-                            'yellow'
-                        )
-                    )
-                }
+                out.report({
+                    result: `Added the scopes to your login for project ${result.projectId} on ${escapeControls(result.host)}`,
+                    warnings:
+                        result.replacedRevoked === false
+                            ? [
+                                  "PostHog didn't revoke your previous login. It stops working when it expires. To remove it now, go to Settings > Connected applications in PostHog.",
+                              ]
+                            : [],
+                })
         }
     },
 

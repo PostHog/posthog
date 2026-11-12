@@ -68,17 +68,21 @@ export default defineCommand({
 
     human({ result, out }) {
         if (result.status === 'nothing_to_migrate') {
-            out.line(`Nothing to move: ${result.legacyFile} doesn't exist.`)
-            out.line(`Run ${out.style(result.next, 'bold')} to log in.`)
+            out.report({
+                status: 'unchanged',
+                result: `Nothing to move: ${result.legacyFile} doesn't exist`,
+                notes: [`Run ${out.style(result.next, 'bold')} to log in.`],
+            })
             return
         }
+
         const where = result.store === 'keychain' ? 'the system keychain' : (result.credentialsPath ?? '')
-        out.line(
-            `${out.style('Moved', 'green', 'bold')} the personal API key for ${escapeControls(result.host)}, project ${result.projectId}, into ${where}.`
-        )
-        if (result.keychainError) {
-            out.line(out.style(`${escapeControls(result.keychainError).replace(/\.$/, '')}.`, 'yellow'))
-        }
-        out.line(out.style(`hog doesn't read ${result.legacyFile}. Delete it when you stop using posthog-cli.`, 'dim'))
+        out.report({
+            result: `Moved the personal API key for ${escapeControls(result.host)}, project ${result.projectId}, into ${where}`,
+            warnings: result.keychainError ? [`${escapeControls(result.keychainError).replace(/\.$/, '')}.`] : [],
+            notes: [
+                out.style(`hog doesn't read ${result.legacyFile}. Delete it when you stop using posthog-cli.`, 'dim'),
+            ],
+        })
     },
 })

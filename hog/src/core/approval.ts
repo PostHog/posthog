@@ -380,15 +380,18 @@ export async function resumeApproval<Pending extends PendingApproval, Value>(
     return { pending, value: await withSpinner(spinner, flow.noun, waitFor(ctx.runtime, flow, pending)) }
 }
 
-// What a person sees when an agent or a script started the request.
-export function printPending(out: Output, result: PendingResult): void {
-    out.line(
-        result.approver
-            ? `Only ${escapeControls(result.approver)}${result.approverNames?.length ? ` (${escapeControls(result.approverNames.join(', '))})` : ''} can approve it. Send them this link:`
-            : result.code
-              ? `Open this link to approve, and check that it shows the code ${out.style(escapeControls(result.code), 'bold')}:`
-              : 'Open this link to approve:'
-    )
-    out.line(`  ${escapeControls(result.url)}`)
-    out.line(`Then run ${out.style(result.next, 'bold')}.`)
+// What a person sees when an agent or a script started the request. `noun` names what waits, like `login`.
+// `after` holds the command's own notes, which follow the approval steps.
+export function printPending(out: Output, result: PendingResult, noun: string, after: readonly string[] = []): void {
+    const approve = result.approver
+        ? `Only ${escapeControls(result.approver)}${result.approverNames?.length ? ` (${escapeControls(result.approverNames.join(', '))})` : ''} can approve it. Send them this link:`
+        : result.code
+          ? `Open this link to approve, and check that it shows the code ${out.style(escapeControls(result.code), 'bold')}:`
+          : 'Open this link to approve:'
+
+    out.report({
+        status: 'partial',
+        result: `The ${noun} is waiting for approval`,
+        notes: [approve, `  ${escapeControls(result.url)}`, `Then run ${out.style(result.next, 'bold')}.`, ...after],
+    })
 }

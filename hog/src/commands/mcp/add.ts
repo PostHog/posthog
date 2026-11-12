@@ -88,18 +88,39 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        for (const { agent, path, status } of result.added) {
-            const { name, afterAdd } = MCP_CLIENTS[agent]
-            const file = escapeControls(path)
+        const changed = result.added.filter((server) => server.status !== 'already_added')
+        const kept = result.added.filter((server) => server.status === 'already_added')
+        const name = (server: AddedServer): string => MCP_CLIENTS[server.agent].name
+        const names = (servers: readonly AddedServer[]): string =>
+            new Intl.ListFormat('en', { type: 'conjunction' }).format(servers.map(name))
+        // With several agents, each line names the agent it is about.
+        const about = (server: AddedServer): string => (result.added.length > 1 ? `${name(server)}: ` : '')
+        const keptLines = kept.map(
+            (server) => `${name(server)} already has the PostHog MCP server in ${escapeControls(server.path)}.`
+        )
+        const force = kept.length > 0 ? ['Pass --force to write it again.'] : []
 
-            if (status === 'already_added') {
-                out.line(`${name} already has the PostHog MCP server in ${file}. Pass --force to write it again.`)
-                continue
-            }
-
-            out.line(`${out.style('Added', 'green')} the PostHog MCP server to ${name} in ${file}.`)
-            out.line(afterAdd)
+        if (changed.length === 0) {
+            const [only] = kept
+            out.report({
+                status: 'unchanged',
+                result:
+                    only && kept.length === 1
+                        ? `${name(only)} already has the PostHog MCP server in ${escapeControls(only.path)}`
+                        : `${names(kept)} already have the PostHog MCP server`,
+                notes: [...(kept.length > 1 ? keptLines : []), ...force],
+            })
+            return
         }
+
+        out.report({
+            result: `Added the PostHog MCP server to ${names(changed)}`,
+            effects: changed.map(
+                (server) =>
+                    `${about(server)}${server.status === 'replaced' ? 'Replaced the old PostHog entry in' : 'Saved in'} ${escapeControls(server.path)}`
+            ),
+            notes: [...changed.map((server) => MCP_CLIENTS[server.agent].afterAdd), ...keptLines, ...force],
+        })
     },
 
     agent({ result, out }) {

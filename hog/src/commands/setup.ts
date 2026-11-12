@@ -45,43 +45,17 @@ const OPTIONS = {
     },
 } as const satisfies Record<string, OptionSpec>
 
-function printBlocks(out: Output, blocks: readonly (readonly string[])[]): void {
-    for (const block of blocks.filter((lines) => lines.length > 0)) {
-        out.line()
-        for (const line of block) {
-            out.line(line)
-        }
-    }
+function joinBlocks(blocks: readonly (readonly string[])[]): string[] {
+    return blocks.filter((lines) => lines.length > 0).flatMap((lines, index) => (index === 0 ? lines : ['', ...lines]))
 }
 
-// The lines below are for a person at a terminal. The instructions in the result are for an agent.
-function printDone(out: Output, result: SetupResult): void {
-    const { context } = result
-    if (result.status === 'connected') {
-        out.line(`${out.style('PostHog is set up', 'green', 'bold')} in ${escapeControls(context.folder)}.`)
-        out.line(`Project ${context.projectId ?? 'unknown'} on ${escapeControls(context.host ?? 'an unknown host')}`)
-        out.line(context.loggedIn ? 'Logged in' : out.style('Not logged in', 'yellow'))
-        return
-    }
-
-    out.line(`Setting up PostHog in ${escapeControls(context.folder)}`)
-    for (const step of result.done) {
-        out.line(`${out.style('Done', 'green')}  ${escapeControls(step.summary)}`)
-    }
-}
-
-function printContext(out: Output, result: SetupResult): void {
-    const { warnings, token, apiHost, events, products = [], skills = [], agentsMd = [], mcp } = result.context
+function contextLines(out: Output, result: SetupResult): string[][] {
+    const { token, apiHost, events, products = [], skills = [], agentsMd = [], mcp } = result.context
     const finished = result.status === 'connected' && products.length > 0
 
-    printBlocks(out, [
-        warnings.map((warning) => out.style(escapeControls(warning), 'yellow')),
+    return [
         token && apiHost ? [`Project token: ${escapeControls(token)}`, `Host for the SDK: ${apiHost}`] : [],
-        events?.count === 0
-            ? [out.style(`No events since ${events.since}`, 'yellow')]
-            : events?.count != null
-              ? [`${plural(events.count, 'event')} since ${events.since}`]
-              : [],
+        events?.count != null && events.count > 0 ? [`${plural(events.count, 'event')} since ${events.since}`] : [],
         finished
             ? [
                   out.style('What else PostHog can do:', 'bold'),
@@ -107,7 +81,7 @@ function printContext(out: Output, result: SetupResult): void {
         result.status === 'connected'
             ? agentsMd.map((file) => out.style(`The PostHog section is in ${escapeControls(file.path)}`, 'dim'))
             : [],
-    ])
+    ]
 }
 
 function nextLines(out: Output, next: NextAction): [string, ...string[]] {
@@ -130,14 +104,43 @@ function nextLines(out: Output, next: NextAction): [string, ...string[]] {
     }
 }
 
-function printNext(out: Output, next: NextAction): void {
+function nextBlock(out: Output, next: NextAction): string[] {
     const [first, ...rest] = nextLines(out, next)
+    return [`${out.style('Next:', 'bold')} ${first}`, ...rest]
+}
 
-    out.line()
-    out.line(`${out.style('Next:', 'bold')} ${first}`)
-    for (const line of rest) {
-        out.line(line)
+// The lines below are for a person at a terminal. The instructions in the result are for an agent.
+function printSetup(out: Output, result: SetupResult, ranSteps: boolean): void {
+    const { context } = result
+    const folder = escapeControls(context.folder)
+    const warnings = [
+        ...(result.status === 'connected' && !context.loggedIn ? ['Not logged in'] : []),
+        ...context.warnings.map(escapeControls),
+        ...(context.events?.count === 0 ? [`No events since ${context.events.since}`] : []),
+    ]
+    const notes = joinBlocks([...contextLines(out, result), nextBlock(out, result.next)])
+
+    if (result.status === 'connected') {
+        out.report({
+            status: context.loggedIn ? 'done' : 'partial',
+            result: `PostHog is set up in ${folder}`,
+            effects: [
+                `Project ${context.projectId ?? 'unknown'} on ${escapeControls(context.host ?? 'an unknown host')}`,
+                ...(context.loggedIn ? ['Logged in'] : []),
+            ],
+            warnings,
+            notes,
+        })
+        return
     }
+
+    out.report({
+        status: ranSteps ? 'partial' : 'unchanged',
+        result: `PostHog setup in ${folder} isn't finished`,
+        effects: result.done.map((step) => `${out.style('Done', 'green')}  ${escapeControls(step.summary)}`),
+        warnings,
+        notes,
+    })
 }
 
 export default defineCommand({
@@ -194,10 +197,8 @@ export default defineCommand({
         return runSetup(ctx, { next, ...options })
     },
 
-    human({ result, out }) {
-        printDone(out, result)
-        printContext(out, result)
-        printNext(out, result.next)
+    human({ args, result, out }) {
+        printSetup(out, result, args.action === 'next')
     },
 
     agent({ result, out }) {
