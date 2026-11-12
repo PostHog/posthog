@@ -1093,6 +1093,18 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('accounts-meetings-list')
     })
 
+    it('keeps workflow disable hidden until backend draft routing is enabled', () => {
+        const hidden = getToolsForFeatures({ features: ['workflows'] })
+        expect(hidden).not.toContain('workflows-disable')
+        expect(hidden).toContain('workflows-enable')
+
+        const enabled = getToolsForFeatures({
+            features: ['workflows'],
+            featureFlags: { 'workflows-mcp-disable': true },
+        })
+        expect(enabled).toContain('workflows-disable')
+    })
+
     it('exposes only the current notebook tools without rollout flags', () => {
         const tools = getToolsForFeatures({ featureFlags: {} })
         expect(tools).toContain('notebooks-create-markdown')
@@ -1133,6 +1145,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-destination-suggestion',
             'marketing-analytics-conversion-setup-ai',
             'marketing-analytics-recommendations',
+            'workflows-mcp-disable',
             'insight-data-checks',
             'workflows-transactional-email-api',
             'workflows-email-from-code',
