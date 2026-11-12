@@ -261,8 +261,7 @@ def _schedule_lineage_sync(metric: Metric) -> None:
 def _schedule_embedding_refresh(metric: Metric) -> None:
     """Clear the stale vector, then refresh it after the write commits, for organizations that allow embedding.
 
-    `robust=True` for the same reason as the lineage sync. The embedding backfill sweep repairs a
-    message that never went.
+    `robust=True` for the same reason as the lineage sync.
     """
     clear_stale_embedding(metric)
     if not can_embed(metric.team):

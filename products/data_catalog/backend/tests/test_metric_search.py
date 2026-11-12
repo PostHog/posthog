@@ -1,7 +1,6 @@
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.management import call_command
 from django.db import connection
 from django.db.models import QuerySet
 from django.test import SimpleTestCase
@@ -11,11 +10,9 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.embedding_worker import EmbeddingResponse
-from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 
 from products.data_catalog.backend.logic.metric_embeddings import (
-    EMBEDDING_BACKFILL_FEATURE_FLAG,
     METRIC_EMBEDDING_MODEL,
     RefreshOutcome,
     metric_search_text,
@@ -25,7 +22,6 @@ from products.data_catalog.backend.logic.metric_embeddings import (
 from products.data_catalog.backend.logic.metric_search import search_metrics, split_search
 from products.data_catalog.backend.logic.metrics import metrics_for_team, update_metric, upsert_metric
 from products.data_catalog.backend.models import Metric
-from products.data_catalog.backend.tasks.tasks import backfill_metric_embeddings_task
 from products.data_catalog.evals.metric_search_cases import LEXICAL_CASE_TYPES, SEARCH_CASES, CaseType, SearchCase
 from products.data_catalog.evals.metric_search_runner import LEXICAL, run_case, score_case, seed_metric_search_catalog
 
@@ -231,71 +227,8 @@ class TestMetricEmbeddingRefresh(BaseTest):
         self.organization.save()
         with self.captureOnCommitCallbacks(execute=True):
             upsert_metric(team=self.team, user=self.user, name="mrr", description="Monthly revenue")
-        call_command("backfill_metric_embeddings", "--skip-flag-check", "--sleep-ms", "0")
         generate.assert_not_called()
         assert self._stored("mrr").embedding is None
-
-    def test_backfill_embeds_missing_and_stale_metrics_only(self, generate: MagicMock) -> None:
-        with team_scope(self.team.id):
-            for name in ("mrr", "arr", "nps"):
-                Metric.objects.for_team(self.team.id).create(team=self.team, name=name, description=f"{name} metric")
-        current = self._stored("arr")
-        Metric.objects.for_team(self.team.id).filter(name="arr").update(
-            embedding=[0.5, 0.5], embedding_model=METRIC_EMBEDDING_MODEL, embedding_text_hash=_hash_of(current)
-        )
-        Metric.objects.for_team(self.team.id).filter(name="nps").update(
-            embedding=[0.5, 0.5], embedding_model=METRIC_EMBEDDING_MODEL, embedding_text_hash="stale"
-        )
-
-        call_command("backfill_metric_embeddings", "--dry-run", "--skip-flag-check")
-        generate.assert_not_called()
-
-        call_command("backfill_metric_embeddings", "--skip-flag-check", "--sleep-ms", "0")
-        assert generate.call_count == 2
-        assert self._stored("mrr").embedding == [0.1, 0.2]
-        assert self._stored("nps").embedding == [0.1, 0.2]
-        assert self._stored("arr").embedding == [0.5, 0.5]
-
-    def test_backfill_sweep_embeds_only_metrics_without_a_vector_in_flagged_consenting_teams(
-        self, generate: MagicMock
-    ) -> None:
-        other_org = Organization.objects.create(name="No AI consent", is_ai_data_processing_approved=False)
-        other_team = Team.objects.create(organization=other_org, name="No AI consent")
-        unflagged_team = Team.objects.create(organization=self.organization, name="Backfill flag off")
-        for team, name in [(self.team, "mrr"), (self.team, "arr"), (other_team, "nps"), (unflagged_team, "dau")]:
-            with team_scope(team.id):
-                Metric.objects.for_team(team.id).create(team=team, name=name, description=f"{name} metric")
-        Metric.objects.for_team(self.team.id).filter(name="arr").update(
-            embedding=[0.5, 0.5], embedding_model=METRIC_EMBEDDING_MODEL, embedding_text_hash="any"
-        )
-
-        with team_scope(self.team.id):
-            Metric.objects.for_team(self.team.id).create(team=self.team, name="churn", description="churn metric")
-        Metric.objects.for_team(self.team.id).filter(name="churn").update(
-            embedding=[0.5, 0.5],
-            embedding_model=METRIC_EMBEDDING_MODEL,
-            embedding_text_hash=_hash_of(self._stored("churn")),
-        )
-        # The text changes, but the refresh never runs, as when its task fails.
-        with self.captureOnCommitCallbacks(execute=False):
-            update_metric(self._stored("churn"), team=self.team, user=self.user, description="Logo churn")
-
-        def backfill_flag(flag: str, distinct_id: str, **_kwargs: object) -> bool:
-            return flag == EMBEDDING_BACKFILL_FEATURE_FLAG and distinct_id == str(self.team.uuid)
-
-        with patch(_FLAG, side_effect=backfill_flag):
-            backfill_metric_embeddings_task()
-
-        assert generate.call_count == 2
-        assert self._stored("mrr").embedding == [0.1, 0.2]
-        assert self._stored("churn").embedding == [0.1, 0.2]
-        for team, name in [(other_team, "nps"), (unflagged_team, "dau")]:
-            with team_scope(team.id):
-                assert Metric.objects.for_team(team.id).get(name=name).embedding is None
-
-
-def _hash_of(metric: Metric) -> str:
-    return search_text_hash(metric_search_text(metric))
 
 
 @patch(_FLAG, return_value=False)
