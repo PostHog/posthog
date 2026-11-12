@@ -232,9 +232,9 @@ pub struct Config {
     /// How long a revoke waits for the revoked partitions' in-flight messages
     /// before it commits them and hands the partitions to their new owner
     /// (milliseconds). The commit gets the same time again. librdkafka fetches
-    /// no partition while it waits. Above 0, at least twice
-    /// `INGESTION_REQUEST_SOFT_BUDGET_MS` when that is set, and at most half
-    /// the smallest of the liveness deadline, the graceful shutdown, and
+    /// no partition while it waits. Above 0, at least
+    /// twice `INGESTION_REQUEST_SOFT_BUDGET_MS` when that is set, and at most
+    /// half the smallest of the liveness deadline, the graceful shutdown, and
     /// `KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS`.
     #[envconfig(from = "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", default = "25000")]
     pub consumer_revoke_drain_timeout_ms: u64,

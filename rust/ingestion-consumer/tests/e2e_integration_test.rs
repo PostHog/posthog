@@ -3121,8 +3121,6 @@ async fn a_partition_paused_at_its_budget_fetches_again_after_a_rebalance_return
         || harness.committed_offset(0) == Some(1),
     )
     .await;
-    // A drain commits what settled and resumes its partition, so only
-    // unfinished work keeps the partition at its budget through the revoke.
     let blocked = harness.workers[0].block().await;
     for seq in 1..6usize {
         produce(&producer, &topic, 0, "tok", "user-a", seq).await;
