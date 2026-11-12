@@ -12,8 +12,13 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.redis import get_client
 
+from products.aeo.backend import keyword_suggestions
 from products.aeo.backend.tasks import tasks
-from products.aeo.backend.tasks.tasks import recompute_aeo_own_citations_task, run_aeo_citation_checks_for_team_task
+from products.aeo.backend.tasks.tasks import (
+    recompute_aeo_own_citations_task,
+    run_aeo_citation_checks_for_team_task,
+    suggest_aeo_keywords_task,
+)
 
 
 @pytest.fixture
@@ -100,3 +105,18 @@ def test_lease_renewal_survives_a_redis_blip_and_stops_the_run_once_the_lease_is
 
     assert lease.reacquire.call_count == 3
     assert lost.is_set()
+
+
+def test_keyword_suggestion_task_fails_the_job_when_it_crashes(team: Team) -> None:
+    job = keyword_suggestions.create_job(team.id)
+
+    with (
+        patch.object(keyword_suggestions, "resolve_ai_gateway_config", side_effect=RuntimeError("boom")),
+        pytest.raises(RuntimeError),
+    ):
+        suggest_aeo_keywords_task(
+            team.id, job.id, {"domain": "example.com", "brand": "", "description": "", "count": 5}
+        )
+
+    failed = keyword_suggestions.load_job(team.id, job.id)
+    assert (failed.status, failed.error) == ("failed", keyword_suggestions.FAILED_ERROR)

@@ -17,6 +17,8 @@ import type {
     AEOKeywordCreateResultApi,
     AEOKeywordModifierReportApi,
     AEOKeywordReportApi,
+    AEOKeywordSuggestRequestApi,
+    AEOKeywordSuggestionJobApi,
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
@@ -377,6 +379,46 @@ export const aeoKeywordsReport = async (
     options?: RequestInit
 ): Promise<AEOKeywordReportApi> => {
     return apiMutator<AEOKeywordReportApi>(getAeoKeywordsReportUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoKeywordsSuggestUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/suggest/`
+}
+
+/**
+ * Suggests keywords to add to the project's keyword list. Requires AI data processing approved for the organization. Claude ranks keywords from the site, the project's tracked prompts and topics, and the web searches the engines ran while answering them, and gives a reason for each. PostHog has no search-volume data: each suggestion only carries how many recent engine searches contain it. Nothing is saved: add the keywords you keep with aeo_keywords create. Keywords already in the list and keywords that name the brand are left out. Fails with 400 when the list already holds 200 keywords. Returns a pending job right away; poll GET aeo_keywords/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * @summary Suggest AEO keywords
+ */
+export const aeoKeywordsSuggest = async (
+    projectId: string,
+    aEOKeywordSuggestRequestApi: AEOKeywordSuggestRequestApi,
+    options?: RequestInit
+): Promise<AEOKeywordSuggestionJobApi> => {
+    return apiMutator<AEOKeywordSuggestionJobApi>(getAeoKeywordsSuggestUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOKeywordSuggestRequestApi),
+    })
+}
+
+export const getAeoKeywordsSuggestionRetrieveUrl = (projectId: string, jobId: string) => {
+    return `/api/projects/${projectId}/aeo_keywords/suggest/${jobId}/`
+}
+
+/**
+ * Gets a keyword suggestion job started with POST aeo_keywords/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.
+ * @summary Get AEO keyword suggestions
+ */
+export const aeoKeywordsSuggestionRetrieve = async (
+    projectId: string,
+    jobId: string,
+    options?: RequestInit
+): Promise<AEOKeywordSuggestionJobApi> => {
+    return apiMutator<AEOKeywordSuggestionJobApi>(getAeoKeywordsSuggestionRetrieveUrl(projectId, jobId), {
         ...options,
         method: 'GET',
     })

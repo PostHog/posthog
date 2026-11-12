@@ -39,7 +39,16 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 
-from products.aeo.backend import catalog, dashboard, engine_settings, gaps, keywords, rankings, suggestions
+from products.aeo.backend import (
+    catalog,
+    dashboard,
+    engine_settings,
+    gaps,
+    keyword_suggestions,
+    keywords,
+    rankings,
+    suggestions,
+)
 from products.aeo.backend.brand import (
     SEGMENT_SQL,
     brand_names,
@@ -69,8 +78,11 @@ from products.aeo.backend.facade.contracts import (
     EngineSettingUpdate,
     Keyword,
     KeywordCreateResult,
+    KeywordLimitError,
     KeywordModifierReport,
     KeywordReport,
+    KeywordSuggestionJob,
+    KeywordSuggestionRequest,
     Prompt,
     PromptAuthor,
     PromptCheck,
@@ -104,7 +116,11 @@ from products.aeo.backend.facade.contracts import (
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
-from products.aeo.backend.tasks.tasks import recompute_aeo_own_citations_task, suggest_aeo_prompts_task
+from products.aeo.backend.tasks.tasks import (
+    recompute_aeo_own_citations_task,
+    suggest_aeo_keywords_task,
+    suggest_aeo_prompts_task,
+)
 
 
 def run_citation_checks_for_team(team_id: int) -> CitationRunSummary:
@@ -884,6 +900,35 @@ def get_keyword_modifiers(
     """The words the engines added to their searches beyond the prompt over the last `days` days,
     optionally only in answers whose searches contain `keyword`."""
     return keywords.get_keyword_modifiers(team_id, timezone_name=timezone_name, days=days, keyword=keyword)
+
+
+def start_keyword_suggestions(team_id: int, request: KeywordSuggestionRequest) -> KeywordSuggestionJob:
+    """Queue keyword suggestions and return the pending job. Poll get_keyword_suggestions for the result.
+    Raises KeywordLimitError when the keyword list is already full."""
+    if keyword_suggestions.suggestion_count(request.count, len(keyword_suggestions.existing_keywords(team_id))) == 0:
+        raise KeywordLimitError(keyword_suggestions.NO_ROOM_ERROR)
+    job = keyword_suggestions.create_job(team_id)
+    try:
+        suggest_aeo_keywords_task.delay(
+            team_id,
+            job.id,
+            {
+                "domain": request.domain,
+                "brand": request.brand,
+                "description": request.description,
+                "count": request.count,
+            },
+        )
+    except Exception:
+        # Without a queued task nothing would ever finish the pending job.
+        keyword_suggestions.fail_job(team_id, job.id, "Keyword suggestions could not start. Try again in a minute.")
+        raise
+    return job
+
+
+def get_keyword_suggestions(team_id: int, job_id: str) -> KeywordSuggestionJob:
+    """Raises KeywordSuggestionJobNotFoundError when the job is unknown or expired."""
+    return keyword_suggestions.load_job(team_id, job_id)
 
 
 def start_prompt_suggestions(team_id: int, request: PromptSuggestionRequest) -> PromptSuggestionJob:
