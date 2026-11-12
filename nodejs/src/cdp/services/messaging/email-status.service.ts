@@ -62,7 +62,6 @@ export type EmailSkipReason =
 // successful rerun of the same invocation replaces the failed attempt. The gaps let a failure take the
 // rank between two statuses. Never renumber a rank, because rows already written keep their versions.
 const STATUS_RANK: Record<EmailStatus, bigint> = {
-    // Shares the rank of `queued`, so a reschedule's later row replaces the earlier one.
     scheduled: 0n,
     queued: 0n,
     failed: 2n,
@@ -102,7 +101,6 @@ export interface EmailStatusRow {
     recipient: string
     function_id: string
     sending_domain: string
-    // Only a scheduled row has one. A row without it stores NULL.
     scheduled_at?: string
 }
 

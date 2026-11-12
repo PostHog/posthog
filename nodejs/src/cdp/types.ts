@@ -606,8 +606,6 @@ export type HogFlowInvocationContext = {
     conversionCounted?: boolean
     variables?: Record<string, any>
     send?: QueuedSend
-    // The time a transactional send was scheduled for. A throttled retry moves the job, so the email queue wait
-    // reads this instead.
     scheduledAt?: string
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
