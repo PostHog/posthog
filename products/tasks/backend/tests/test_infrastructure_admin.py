@@ -19,16 +19,19 @@ import fakeredis
 import requests_mock
 from parameterized import parameterized
 
-from posthog.csp_middleware import CSPMiddleware
+from posthog.csp_middleware import CSPMiddleware, admit_admin_bundle
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models import User
 
+from products.tasks.backend.console import RELEASE_PIPELINE_TOOL_KEY
 from products.tasks.backend.dev_stack_image_models import DevStackImageTarget
 from products.tasks.backend.logic.services.infrastructure_status import InfrastructureStatus, SourceSnapshot
 from products.tasks.backend.models import SandboxCustomImage
 from products.tasks.backend.presentation.views.infrastructure_admin import infrastructure_admin
 from products.tasks.backend.redis import get_tasks_cache
+
+RELEASE_PIPELINE_URL = f"/admin/console/tools/{RELEASE_PIPELINE_TOOL_KEY}/"
 
 
 class TestInfrastructureAdminPermissions(SimpleTestCase):
@@ -36,7 +39,7 @@ class TestInfrastructureAdminPermissions(SimpleTestCase):
     def test_denies_non_staff_inactive_and_impersonated_users(
         self, staff: bool, active: bool, impersonated: bool
     ) -> None:
-        request = RequestFactory().get("/admin/tasks/task/infrastructure/", {"source": "custom"})
+        request = RequestFactory().get(RELEASE_PIPELINE_URL, {"source": "custom"})
         request.user = User(is_staff=staff, is_active=active)
         request.session = SessionStore()
         if impersonated:
@@ -84,9 +87,7 @@ class TestInfrastructureSourceCache(SimpleTestCase):
     def test_dev_stack_workflow_cache_never_reuses_a_different_attempt_or_run(self) -> None:
         target = Mock(attempt_id=uuid.uuid4())
         attempt = Mock(id=target.attempt_id, workflow_run_id="first-run")
-        request = RequestFactory().get(
-            "/admin/tasks/task/infrastructure/", {"source": "workflow", "image_id": "dev_stack"}
-        )
+        request = RequestFactory().get(RELEASE_PIPELINE_URL, {"source": "workflow", "image_id": "dev_stack"})
         request.user = User(is_staff=True, is_active=True)
         request.session = SessionStore()
         with (
@@ -377,6 +378,12 @@ class TestInfrastructureSourceCache(SimpleTestCase):
 
 @override_settings(TASKS_REDIS_URL="", CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class TestInfrastructureInventory(BaseTest):
+    def test_non_staff_are_sent_to_the_admin_login(self) -> None:
+        self.client.force_login(self.user)
+        response = self.client.get(RELEASE_PIPELINE_URL, {"source": "custom"})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].startswith("/admin/login/"))
+
     def test_staff_inventory_contains_lineage_without_private_build_content(self) -> None:
         get_tasks_cache().clear()
         self.user.is_staff = True
@@ -395,7 +402,7 @@ class TestInfrastructureInventory(BaseTest):
             build_log="private build output",
         )
         SandboxCustomImage.objects.for_team(self.team.id).create(team=self.team, name="Archived", status="archived")
-        response = self.client.get("/admin/tasks/task/infrastructure/", {"source": "custom"})
+        response = self.client.get(RELEASE_PIPELINE_URL, {"source": "custom"})
         self.assertEqual(response.status_code, 200)
         rows = response.json()["data"]["images"]
         self.assertEqual(len(rows), 1)
@@ -411,16 +418,17 @@ class TestInfrastructureInventory(BaseTest):
         ):
             self.assertNotIn(private_value, response.content.decode())
         self.assertIn("no-cache", response["Cache-Control"])
-        self.assertEqual(self.client.post("/admin/tasks/task/infrastructure/", {"source": "custom"}).status_code, 405)
+        self.assertEqual(self.client.post(RELEASE_PIPELINE_URL, {"source": "custom"}).status_code, 405)
 
 
 @override_settings(ADMIN_PORTAL_ENABLED=True, JS_URL="https://assets.example.com", DEBUG=False)
 class TestInfrastructureAdminCSP(SimpleTestCase):
-    @parameterized.expand([("/admin/tasks/task/infrastructure/", True), ("/admin/", False)])
-    def test_bundle_origin_is_limited_to_infrastructure_page(self, path: str, allowed: bool) -> None:
-        request = RequestFactory().get(path)
-        response = CSPMiddleware(lambda _: HttpResponse("page"))(request)
+    @parameterized.expand([(True,), (False,)])
+    def test_bundle_origin_is_limited_to_pages_that_admit_it(self, admitted: bool) -> None:
+        request = RequestFactory().get(RELEASE_PIPELINE_URL)
+        page = HttpResponse("page")
+        response = CSPMiddleware(lambda _: admit_admin_bundle(page) if admitted else page)(request)
         directives = dict(part.split(" ", 1) for part in response["Content-Security-Policy"].split("; "))
-        self.assertEqual("https://assets.example.com" in directives["script-src"], allowed)
-        self.assertEqual("https://assets.example.com" in directives["style-src"], allowed)
+        self.assertEqual("https://assets.example.com" in directives["script-src"], admitted)
+        self.assertEqual("https://assets.example.com" in directives["style-src"], admitted)
         self.assertEqual(directives["frame-ancestors"], "'none'")

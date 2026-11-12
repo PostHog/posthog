@@ -10,6 +10,8 @@ from django.views.decorators.http import require_GET
 from loginas.utils import is_impersonated_session
 from pydantic import JsonValue
 
+from posthog.csp_middleware import admit_admin_bundle
+
 from products.tasks.backend.facade.infrastructure import IMAGE_NAMES, InfrastructureStatus
 
 
@@ -19,8 +21,10 @@ def infrastructure_admin(request: HttpRequest) -> HttpResponse:
         raise PermissionDenied
     source = request.GET.get("source")
     if source is None:
-        return render(
-            request, "infrastructure_admin.html", {"js_url": settings.JS_URL, "region": settings.CLOUD_DEPLOYMENT}
+        return admit_admin_bundle(
+            render(
+                request, "infrastructure_admin.html", {"js_url": settings.JS_URL, "region": settings.CLOUD_DEPLOYMENT}
+            )
         )
     collector = InfrastructureStatus()
     loaders: dict[str, Callable[[], JsonValue]] = {

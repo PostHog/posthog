@@ -12,10 +12,12 @@ from posthog.models.user import User
 
 from products.tasks.backend.facade.api import get_desktop_beta_terms_acceptance, revoke_desktop_beta_terms
 from products.tasks.backend.facade.run_logs import staff_task_run_log_link
+from products.tasks.backend.presentation.views.infrastructure_admin import infrastructure_admin
 
 AGENT_INFRASTRUCTURE = Owner(name="Agent infrastructure", crest="agent-infrastructure")
 
 RUN_LOGS_TOOL_KEY = "task-run-logs"
+RELEASE_PIPELINE_TOOL_KEY = "agent-release-pipeline"
 
 
 class TaskRunForm(forms.Form):
@@ -75,6 +77,18 @@ class TaskRunLogsTool(ConsoleTool):
         ]
 
 
+@console.register_tool
+class AgentReleasePipelineTool(ConsoleTool):
+    key = RELEASE_PIPELINE_TOOL_KEY
+    title = "Agent release pipeline"
+    owner = AGENT_INFRASTRUCTURE
+    group = "Data"
+    description = "Follows the published agent package into sandbox images and regional custom builds."
+
+    def app_page(self, request: HttpRequest) -> HttpResponse:
+        return infrastructure_admin(request)
+
+
 def revoke_beta_terms(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
     revoke_desktop_beta_terms(obj.pk, cast(User, request.user))
     messages.success(request, "Revoked the PostHog Desktop beta terms. An organization admin can accept them again.")
@@ -113,4 +127,10 @@ console.register_moved_page(
     old_path="admin/tasks/taskrun/<uuid:pk>/download-logs/",
     title="Downloading task run logs",
     url="/admin/console/tools/task-run-logs/download/?run={pk}",
+)
+
+console.register_moved_page(
+    old_path="admin/tasks/task/infrastructure/",
+    title="Agent release pipeline",
+    url=f"/admin/console/tools/{RELEASE_PIPELINE_TOOL_KEY}/",
 )

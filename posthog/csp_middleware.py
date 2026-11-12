@@ -8,6 +8,7 @@ import re
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
+from django.http import HttpResponse
 
 from posthog.cloud_utils import get_api_host, is_cloud, is_hobby
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
@@ -58,6 +59,16 @@ def object_storage_upload_source() -> str:
         return ""
     scheme = parts.scheme if settings.DEBUG or settings.TEST else "https"
     return f"{scheme}://{parts.netloc}/{bucket}"
+
+
+def admit_admin_bundle(response: HttpResponse) -> HttpResponse:
+    """Let this staff page load the frontend bundle from `JS_URL`, for an admin page that mounts a React app.
+
+    The view marks its own response, so the admin policy widens for that page only, and the URL can move without a
+    path list here to follow it.
+    """
+    response.admits_admin_bundle = True  # type: ignore[attr-defined]
+    return response
 
 
 # The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
@@ -238,7 +249,7 @@ class CSPMiddleware:
         if is_admin_view:
             django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="
             admin_bundle_origin = ""
-            if request.path == "/admin/tasks/task/infrastructure/":
+            if getattr(response, "admits_admin_bundle", False):
                 bundle_url = urlsplit(settings.JS_URL)
                 if bundle_url.scheme in ("http", "https") and bundle_url.netloc:
                     admin_bundle_origin = f"{bundle_url.scheme}://{bundle_url.netloc}"

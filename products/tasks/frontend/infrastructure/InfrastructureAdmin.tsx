@@ -19,14 +19,14 @@ export function InfrastructureAdmin({ region }: { region: string }): JSX.Element
     return (
         <div className="app-shell">
             <header className="app-header">
-                <a className="brand" href="/admin/">
+                <a className="brand" href="/admin/console/">
                     <span>PostHog</span>
                     <span className="muted">/ agent infrastructure</span>
                 </a>
                 <div className="header-right">
                     <Badge>{region}</Badge>
                     <span className="muted">Read-only</span>
-                    <a href="/admin/">Django admin ↗</a>
+                    <a href="/admin/console/">PostHog Admin ↗</a>
                 </div>
             </header>
             <div className="page-heading">
