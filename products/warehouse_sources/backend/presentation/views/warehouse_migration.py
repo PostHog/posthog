@@ -277,6 +277,8 @@ class WarehouseMigrationConnectLinkSerializer(serializers.Serializer):
 
 
 MAX_USAGE_REPORTS = 10_000
+# Far above any real table, and small enough that the cost of every report together stays a valid decimal.
+MAX_MONTHLY_ROWS = 10**15
 
 
 class MigrationUsageReportSerializer(serializers.Serializer):
@@ -287,6 +289,7 @@ class MigrationUsageReportSerializer(serializers.Serializer):
     )
     monthly_rows = serializers.IntegerField(
         min_value=0,
+        max_value=MAX_MONTHLY_ROWS,
         help_text="Monthly active rows (MAR) Fivetran counted in a typical month, for the table or, without "
         "`table_name`, the whole connection.",
     )
@@ -338,7 +341,7 @@ class WarehouseMigrationCostItemSerializer(serializers.Serializer):
         allow_null=True, help_text="Estimated rows PostHog syncs each month after the first sync."
     )
     monthly_cost_usd = serializers.DecimalField(
-        max_digits=20,
+        max_digits=28,
         decimal_places=2,
         allow_null=True,
         help_text="This connection's share of the monthly cost at list price. Null when rows or prices are unknown.",
@@ -364,7 +367,7 @@ class WarehouseMigrationCostEstimateSerializer(serializers.Serializer):
     )
     monthly_rows = serializers.IntegerField(help_text="Estimated rows synced each month, across every connection.")
     monthly_cost_usd = serializers.DecimalField(
-        max_digits=20,
+        max_digits=28,
         decimal_places=2,
         allow_null=True,
         help_text="Monthly cost of `monthly_rows` at PostHog's list price, free tier included. Ignores discounts, "

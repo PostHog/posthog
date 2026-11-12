@@ -2,8 +2,8 @@
 
 Fivetran's API returns no row counts, so the input is the monthly active rows (MAR) the user reports from the
 Fivetran Platform Connector or the Fivetran dashboard. MAR counts each changed row once a month. PostHog bills
-every row each sync moves, so for a table that syncs only changes MAR is a floor, and a table PostHog reloads in
-full each sync costs its rows once per sync.
+every row each sync moves, so MAR is a floor. A table PostHog reloads in full costs its whole size once per sync,
+and its MAR is at most that size, so MAR times syncs is a floor there too.
 """
 
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -16,7 +16,7 @@ from products.warehouse_sources.backend.migration.types import ItemProposal, Pos
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 USAGE_QUERY = """SELECT connection_name, destination_id, schema_name, table_name,
-       SUM(incremental_rows) / 3 AS monthly_rows
+       CAST(ROUND(SUM(incremental_rows) / 3) AS BIGINT) AS monthly_rows
 FROM <fivetran_platform_schema>.incremental_mar
 WHERE free_type = 'PAID'
   AND measured_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '3 months'
@@ -160,8 +160,9 @@ def _match_connections(
     unmatched: list[ReportedUsage] = []
     for report in usage:
         candidates = by_name.get(report.connection_name.lower(), [])
-        if report.destination_id is not None and len(candidates) > 1:
-            candidates = [c for c in candidates if c.destination_id == report.destination_id]
+        if report.destination_id is not None:
+            # A connection with no known destination still matches, since only a name clash loads destinations.
+            candidates = [c for c in candidates if c.destination_id in (None, report.destination_id)]
         # Two connections with one name in different destinations need the destination id to tell them apart.
         if len(candidates) != 1:
             unmatched.append(report)
@@ -183,6 +184,12 @@ def _connection_rows(
             confidence=Confidence.REPORTED,
             monthly_rows=0,
             notes=("PostHog creates this connection with syncing off, so it costs nothing until you turn syncing on.",),
+        )
+    if proposal.schemas == ():
+        return _ConnectionRows(
+            confidence=Confidence.REPORTED,
+            monthly_rows=0,
+            notes=("No Fivetran table of this connection moves to PostHog, so it syncs nothing.",),
         )
 
     notes: list[str] = []
@@ -226,8 +233,12 @@ def _connection_rows(
 
     confidence = Confidence.REPORTED
     if full_refresh:
+        confidence = Confidence.ESTIMATED
         names = ", ".join(f"`{name}`" for name in sorted(full_refresh))
-        notes.append(f"PostHog reloads {names} in full on every sync, so their rows count once per sync.")
+        notes.append(
+            f"PostHog reloads {names} in full on every sync, so each sync bills every row of the table. Fivetran "
+            "counts only the rows it changed, so the cost of these tables can be higher."
+        )
     if unknown_sync_type:
         confidence = Confidence.ESTIMATED
         notes.append(

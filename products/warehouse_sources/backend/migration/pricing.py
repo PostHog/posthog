@@ -25,20 +25,22 @@ def row_price_tiers() -> tuple[PriceTier, ...] | None:
     """The standard plan's graduated tiers, free tier included. None when the billing service cannot be read."""
     cached = cache.get(_CACHE_KEY)
     if cached is not None:
-        return cached
+        return _parsed_tiers(cached)
     try:
         billing = BillingManager(get_cached_instance_license())
-        tiers = _paid_tiers(billing.get_default_products(None, timeout=_TIMEOUT_SECONDS)["products"])
+        raw_tiers = _paid_plan_tiers(billing.get_default_products(None, timeout=_TIMEOUT_SECONDS)["products"])
     except Exception:
         # An estimate without prices still shows the rows, so a billing outage only drops the price.
         logger.exception("warehouse_migration_price_tiers_failed")
         return None
+    tiers = _parsed_tiers(raw_tiers) if raw_tiers is not None else None
     if tiers is not None:
-        cache.set(_CACHE_KEY, tiers, _CACHE_SECONDS)
+        # The billing service's JSON, not the parsed tiers, because the cache must hold only JSON-shaped values.
+        cache.set(_CACHE_KEY, raw_tiers, _CACHE_SECONDS)
     return tiers
 
 
-def _paid_tiers(products: list[dict[str, Any]]) -> tuple[PriceTier, ...] | None:
+def _paid_plan_tiers(products: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
     product = next((product for product in products if product.get("type") == _PRODUCT_TYPE), None)
     if product is None:
         return None
@@ -46,14 +48,18 @@ def _paid_tiers(products: list[dict[str, Any]]) -> tuple[PriceTier, ...] | None:
     plan = next((plan for plan in product.get("plans") or [] if plan.get("tiers")), None)
     if plan is None:
         return None
+    return [{key: tier.get(key) for key in ("up_to", "unit_amount_usd", "flat_amount_usd")} for tier in plan["tiers"]]
+
+
+def _parsed_tiers(raw_tiers: list[dict[str, Any]]) -> tuple[PriceTier, ...] | None:
     try:
         return tuple(
             PriceTier(
-                up_to=tier.get("up_to"),
+                up_to=tier["up_to"],
                 unit_amount_usd=Decimal(tier["unit_amount_usd"]),
-                flat_amount_usd=Decimal(tier.get("flat_amount_usd") or 0),
+                flat_amount_usd=Decimal(tier["flat_amount_usd"] or 0),
             )
-            for tier in plan["tiers"]
+            for tier in raw_tiers
         )
     except (KeyError, TypeError, InvalidOperation):
         logger.warning("warehouse_migration_price_tiers_unreadable")

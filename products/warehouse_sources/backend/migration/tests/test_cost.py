@@ -14,7 +14,7 @@ from products.warehouse_sources.backend.migration.cost import (
     ReportedUsage,
     estimate_cost,
 )
-from products.warehouse_sources.backend.migration.pricing import _paid_tiers
+from products.warehouse_sources.backend.migration.pricing import _paid_plan_tiers, _parsed_tiers
 from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedSchema
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -76,14 +76,16 @@ _HUBSPOT_TABLES = {"contact": "contacts", "users": "owners"}
 class TestEstimateCost(SimpleTestCase):
     @parameterized.expand(
         [
+            ("per_table_incremental", {"contact": "contacts"}, [("contact", 1_000)], Confidence.REPORTED, 1_000),
             (
-                "per_table_known_sync_types",
+                "full_refresh_table",
                 _HUBSPOT_TABLES,
                 [("contact", 1_000), ("users", 50)],
-                Confidence.REPORTED,
+                Confidence.ESTIMATED,
                 # A full refresh every 6 hours reloads `owners` 120 times a month.
                 1_000 + 50 * 120,
             ),
+            ("no_table_moves", {}, [(None, 7_000)], Confidence.REPORTED, 0),
             (
                 "a_planned_table_without_numbers",
                 _HUBSPOT_TABLES,
@@ -172,6 +174,18 @@ class TestEstimateCost(SimpleTestCase):
         ]
         assert estimate.unmatched_usage == (no_destination, unknown)
 
+    def test_usage_of_a_skipped_connection_with_the_same_name_is_dropped(self) -> None:
+        kept = _connection("shop", tables=None, destination_id="dest_us")
+        usage = [
+            ReportedUsage(connection_name="shop", destination_id="dest_eu", monthly_rows=9),
+            ReportedUsage(connection_name="shop", destination_id="dest_us", monthly_rows=2),
+        ]
+
+        estimate = _estimate([kept], usage, left_out_names=["shop"])
+
+        assert [c.monthly_rows for c in estimate.connections] == [2]
+        assert estimate.unmatched_usage == ()
+
     @parameterized.expand(
         [
             ("inside_the_free_tier", 400_000, 600_000, Decimal("0.00")),
@@ -239,4 +253,6 @@ class TestPaidTiers(SimpleTestCase):
     def test_reads_the_paid_plan(
         self, _name: str, products: list[dict[str, Any]], expected: tuple[PriceTier, ...] | None
     ) -> None:
-        assert _paid_tiers(products) == expected
+        raw_tiers = _paid_plan_tiers(products)
+
+        assert (_parsed_tiers(raw_tiers) if raw_tiers is not None else None) == expected

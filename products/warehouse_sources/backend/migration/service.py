@@ -248,8 +248,9 @@ def estimate_migration_cost(*, team_id: int, migration_id: UUID, usage: Sequence
             left_out_names.append(item.name)
         else:
             kept.append((item, proposal))
-    names = Counter(item.name.lower() for item, _ in kept)
-    # Only read when two connections share a name, since the snapshot can be large.
+    names = Counter([*(item.name.lower() for item, _ in kept), *(name.lower() for name in left_out_names)])
+    # Only read when two connections share a name, since the snapshot can be large. A skipped connection counts, so
+    # its usage, named by destination, does not land on the kept one.
     destinations = _destination_ids(team_id, migration_id) if any(count > 1 for count in names.values()) else {}
     connections = [
         CostedConnection(
