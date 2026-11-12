@@ -16,7 +16,9 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.messaging.backend.facade.transactional_email import CODE_SEND_CATEGORIES_FLAG
 from products.messaging.backend.models import MessageTemplate, SupabaseAuthEmailConfig
+from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.presentation.views.supabase_auth_emails import SUPABASE_AUTH_EMAILS_FLAG
 from products.messaging.backend.services.design_validation import validate_design
 from products.messaging.backend.services.supabase_auth_emails import SEND_BUDGET_SECONDS
@@ -184,6 +186,29 @@ class TestSupabaseAuthEmails(APIBaseTest):
             assert send["variables"]["user_metadata"] == {"first_name": "Jane"}
         # Only failures are tracked, so the event volume doesn't grow with the customer's traffic.
         assert not any(c.kwargs.get("event") == "supabase auth email hook" for c in capture.call_args_list)
+
+    def test_every_send_of_one_request_goes_out_in_the_templates_category(self, mock_post, flag, _capture):
+        account = MessageCategory.objects.create(
+            team=self.team, key="account", name="Account", category_type=MessageCategoryType.TRANSACTIONAL
+        )
+        MessageTemplate.objects.filter(id=self.template.id).update(message_category=account)
+        categories_answers = [True, False]
+        flag.side_effect = lambda key, *_args, **_kwargs: (
+            key != CODE_SEND_CATEGORIES_FLAG
+            or (categories_answers.pop(0) if len(categories_answers) > 1 else categories_answers[0])
+        )
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
+
+        response = self._post_hook(_payload("email_change", token_new="654321", token_hash_new="hash-new"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [call.kwargs["json"]["to"] for call in mock_post.call_args_list] == [
+            "current@example.com",
+            "new@example.com",
+        ]
+        assert [call.kwargs["json"].get("message_category") for call in mock_post.call_args_list] == [
+            {"id": str(account.id), "type": "transactional"}
+        ] * 2
 
     @parameterized.expand(
         [
