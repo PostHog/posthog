@@ -1,5 +1,6 @@
 import re
 import json
+import stat
 import shlex
 import base64
 import asyncio
@@ -21,6 +22,10 @@ from modal.exception import (
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
+)
+from modal.types import (
+    FileInfo as ModalFileInfo,
+    FileType as ModalFileType,
 )
 from modal_proto import api_pb2
 from parameterized import parameterized
@@ -100,6 +105,7 @@ from products.tasks.backend.logic.services.sandbox import (
     AgentServerResult,
     ExecutionResult,
     SandboxConfig,
+    SandboxDirEntry,
     SandboxTemplate,
     SandboxWorkload,
     health_check_timeout_seconds,
@@ -1982,7 +1988,6 @@ class TestModalSandboxCreateImageFallback:
 
     @pytest.mark.parametrize("image_id", ["im-verified", ""])
     def test_protected_dev_stack_never_reads_the_mutable_name(self, image_id: str) -> None:
-
         DevStackImageTarget.objects.create(
             region=get_instance_region() or "DEV",
             name="posthog-dev-stack",
@@ -3113,6 +3118,63 @@ class TestModalSandboxProxyRateLimit:
 
         assert not isinstance(exc.value, SandboxNotFoundError)
         assert exc.value.context["operation"] == "lookup"
+
+    def test_list_dir_reports_symlinks_as_themselves_through_a_bounded_listing(self, mock_sandbox: Any):
+        stdout = "f\t12\t5.5\tMEMORY.md\0l\t11\t5.5\tlink.md\0d\t0\t5.5\tnested\0p\t0\t5.5\tpipe.md\0"
+        execute = MagicMock(return_value=ExecutionResult(stdout=stdout, stderr="", exit_code=0))
+        mock_sandbox.execute = execute
+
+        assert mock_sandbox.list_dir("/tmp/workspace/memory", limit=201) == [
+            SandboxDirEntry(name="MEMORY.md", kind="file", size=12, mtime=5.5),
+            SandboxDirEntry(name="link.md", kind="symlink", size=11, mtime=5.5),
+            SandboxDirEntry(name="nested", kind="dir", size=0, mtime=5.5),
+            SandboxDirEntry(name="pipe.md", kind="other", size=0, mtime=5.5),
+        ]
+        assert execute.call_args.args[0].endswith(" | head -z -n 201")
+        mock_sandbox._sandbox.filesystem.list_files.assert_not_called()
+
+    def test_list_dir_of_a_missing_directory_is_none(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=3))
+
+        assert mock_sandbox.list_dir("/tmp/workspace/memory") is None
+
+    @pytest.mark.parametrize(
+        "file_type, mode, size, read_exit_code, expected",
+        [
+            (ModalFileType.FILE, stat.S_IFREG | 0o644, 8, 0, b"# Memory"),
+            (ModalFileType.SYMLINK, stat.S_IFLNK | 0o777, 8, 0, None),
+            (ModalFileType.FILE, stat.S_IFREG | 0o644, 11, 0, None),
+            # A FIFO would block head until a writer appears.
+            (ModalFileType.FILE, stat.S_IFIFO | 0o644, 0, 0, None),
+            # The file vanished or became a directory after the stat, so head failed.
+            (ModalFileType.FILE, stat.S_IFREG | 0o644, 8, 1, None),
+        ],
+    )
+    def test_read_file_reads_only_small_regular_files_through_a_capped_read(
+        self, mock_sandbox: Any, file_type: Any, mode: int, size: int, read_exit_code: int, expected: bytes | None
+    ):
+        mock_sandbox._sandbox.filesystem.stat.return_value = ModalFileInfo(
+            name="MEMORY.md",
+            path="/tmp/workspace/memory/MEMORY.md",
+            type=file_type,
+            size=size,
+            mode=mode,
+            permissions="rw-r--r--",
+            owner="root",
+            group="root",
+            modified_time=0.0,
+            symlink_target=None,
+        )
+        stdout = base64.b64encode(b"# Memory").decode() if read_exit_code == 0 else ""
+        execute = MagicMock(return_value=ExecutionResult(stdout=stdout, stderr="", exit_code=read_exit_code))
+        mock_sandbox.execute = execute
+
+        assert mock_sandbox.read_file("/tmp/workspace/memory/MEMORY.md", 10) == expected
+        if not stat.S_ISREG(mode) or size > 10:
+            execute.assert_not_called()
+        else:
+            assert execute.call_args.args[0].startswith("set -o pipefail; head -c 11 -- ")
+        mock_sandbox._sandbox.filesystem.read_bytes.assert_not_called()
 
     def test_write_file_rate_limit_skips_exec_fallback(self, mock_sandbox: Any):
         mock_sandbox._sandbox.filesystem.write_bytes.side_effect = _socks_rate_limit()

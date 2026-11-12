@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Protocol, Self
+from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
 from django.conf import settings
 
@@ -187,6 +187,45 @@ class ExecutionResult(BaseModel):
     stderr: str
     exit_code: int
     error: str | None = None
+
+
+@frozen
+class SandboxDirEntry:
+    name: str
+    # A symlink is reported as itself, never as the type of its target.
+    kind: Literal["file", "dir", "symlink", "other"]
+    size: int
+    mtime: float
+
+
+LIST_DIR_MISSING_EXIT_CODE = 3
+_FIND_KINDS: dict[str, Literal["file", "dir", "symlink"]] = {"f": "file", "d": "dir", "l": "symlink"}
+
+
+def list_dir_command(path: str, limit: int | None = None) -> str:
+    # NUL-terminated, because a filename may contain a newline and must not split into forged entries
+    # or let `head` count one entry twice.
+    quoted = shlex.quote(path)
+    command = (
+        f"test -d {quoted} || exit {LIST_DIR_MISSING_EXIT_CODE}; "
+        f"find {quoted} -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\0'"
+    )
+    if limit is not None:
+        command += f" | head -z -n {int(limit)}"
+    return command
+
+
+def parse_list_dir_output(stdout: str) -> list[SandboxDirEntry]:
+    entries: list[SandboxDirEntry] = []
+    for record in stdout.split("\0"):
+        parts = record.split("\t", 3)
+        if len(parts) != 4 or not parts[1].isdigit():
+            continue
+        kind, size, mtime, name = parts
+        entries.append(
+            SandboxDirEntry(name=name, kind=_FIND_KINDS.get(kind, "other"), size=int(size), mtime=float(mtime))
+        )
+    return entries
 
 
 class ExecutionStream(Protocol):
@@ -503,6 +542,23 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult: ...
+
+    def list_dir(self, path: str, *, limit: int | None = None) -> list[SandboxDirEntry] | None:
+        """Entries in `path`; None when it is missing or not a directory, so an empty directory stays distinct.
+
+        `limit` caps the entries inside the sandbox; pass `cap + 1` and read a longer result as truncated.
+
+        The agent controls the sandbox filesystem, so callers must validate every name and size.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support listing directories")
+
+    def read_file(self, path: str, max_bytes: int) -> bytes | None:
+        """The contents of `path`, or None when it is missing, not a regular file, or over `max_bytes`.
+
+        A file can grow between the size check and the read, so a result may hold up to
+        `max_bytes + 1` bytes and callers must re-check the length.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support reading files")
 
     def stop_agent_server(self) -> ExecutionResult:
         """Stop the agent server gracefully so it can flush terminal events."""

@@ -1,4 +1,5 @@
 from dataclasses import replace
+from typing import Any
 
 import pytest
 import time_machine
@@ -183,6 +184,25 @@ class TestRunStateSnapshotPaths(SimpleTestCase):
                 },
             ),
             (
+                "agent_memory_locked",
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                    "agent_memory_locked": True,
+                },
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                    "agent_memory_locked": True,
+                },
+            ),
+            (
+                "agent_memory_locked_without_snapshot",
+                {"agent_memory_locked": True},
+                {},
+            ),
+            (
                 "legacy_no_mount_path",
                 {"snapshot_external_id": "im-old"},
                 {},
@@ -199,7 +219,7 @@ class TestRunStateSnapshotPaths(SimpleTestCase):
             ("no_snapshot", {}, {}),
         ]
     )
-    def test_resume_snapshot_carry_state(self, _name: str, state: dict[str, str], expected: dict[str, str]) -> None:
+    def test_resume_snapshot_carry_state(self, _name: str, state: dict[str, Any], expected: dict[str, Any]) -> None:
         assert RunState.model_validate(state).resume_snapshot_carry_state() == expected
 
 

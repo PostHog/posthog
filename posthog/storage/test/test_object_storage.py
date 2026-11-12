@@ -23,6 +23,7 @@ from posthog.settings import (
 from posthog.storage.object_storage import (
     ObjectStorage,
     ObjectStorageError,
+    StoredObjectSummary,
     UnavailableStorage,
     copy_objects,
     get_presigned_post,
@@ -297,6 +298,61 @@ class TestObjectStorageStrictHead(SimpleTestCase):
 
         with self.assertRaises(ObjectStorageError):
             storage.head_object_strict("test-bucket", "test-key")
+
+
+class TestObjectStorageListObjectSummaries(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_prefix", [{"KeyCount": 0, "IsTruncated": False}], []),
+            (
+                "paginated",
+                [
+                    {
+                        "Contents": [{"Key": "p/a.md", "ETag": '"aa"', "Size": 1}],
+                        "IsTruncated": True,
+                        "NextContinuationToken": "page-2",
+                    },
+                    {"Contents": [{"Key": "p/b.md", "ETag": '"bb"', "Size": 2}], "IsTruncated": False},
+                ],
+                [
+                    StoredObjectSummary(key="p/a.md", etag='"aa"', size=1),
+                    StoredObjectSummary(key="p/b.md", etag='"bb"', size=2),
+                ],
+            ),
+        ]
+    )
+    def test_lists_every_page(self, _name: str, responses: list[dict], expected: list[StoredObjectSummary]) -> None:
+        mock_client = MagicMock()
+        mock_client.list_objects_v2.side_effect = responses
+        storage = ObjectStorage(mock_client)
+
+        assert storage.list_object_summaries("test-bucket", "p/") == expected
+        if len(responses) > 1:
+            assert mock_client.list_objects_v2.call_args_list[1].kwargs["ContinuationToken"] == "page-2"
+
+    def test_stops_paginating_at_the_limit(self) -> None:
+        mock_client = MagicMock()
+        mock_client.list_objects_v2.side_effect = [
+            {
+                "Contents": [{"Key": f"p/{name}.md", "ETag": '"aa"', "Size": 1} for name in ("a", "b", "c")],
+                "IsTruncated": True,
+                "NextContinuationToken": "page-2",
+            },
+        ]
+        storage = ObjectStorage(mock_client)
+
+        summaries = storage.list_object_summaries("test-bucket", "p/", limit=2)
+
+        assert [summary.key for summary in summaries] == ["p/a.md", "p/b.md"]
+        assert mock_client.list_objects_v2.call_count == 1
+
+    def test_raises_instead_of_reporting_an_empty_prefix_on_failure(self) -> None:
+        mock_client = MagicMock()
+        mock_client.list_objects_v2.side_effect = TimeoutError("object storage timed out")
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(ObjectStorageError):
+            storage.list_object_summaries("test-bucket", "p/")
 
 
 class TestObjectStorageClientFactory(SimpleTestCase):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import json
+import stat
 import time
 import uuid
 import shlex
@@ -31,8 +32,15 @@ from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
+    SandboxFilesystemNotADirectoryError as ModalSandboxFilesystemNotADirectoryError,
+    SandboxFilesystemNotFoundError as ModalSandboxFilesystemNotFoundError,
+    SandboxFilesystemPermissionError as ModalSandboxFilesystemPermissionError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
+)
+from modal.types import (
+    FileInfo as ModalFileInfo,
+    FileType as ModalFileType,
 )
 from modal_proto import api_pb2
 from python_socks import ProxyError as SocksProxyError
@@ -85,7 +93,14 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     capture_modal_output_if_debug,
     summarize_modal_output,
 )
-from products.tasks.backend.logic.services.sandbox import build_bundled_skills_clear_command, redact_sandbox_command
+from products.tasks.backend.logic.services.sandbox import (
+    LIST_DIR_MISSING_EXIT_CODE,
+    SandboxDirEntry,
+    build_bundled_skills_clear_command,
+    list_dir_command,
+    parse_list_dir_output,
+    redact_sandbox_command,
+)
 from products.tasks.backend.logic.services.task_filesystem import (
     TASK_FILESYSTEM_SCRIPT,
     TASK_FILESYSTEM_VERSION,
@@ -115,6 +130,26 @@ from .sandbox import (
 )
 
 logger = logging.getLogger(__name__)
+
+_MODAL_FILE_KINDS: dict[ModalFileType, Literal["file", "dir", "symlink"]] = {
+    ModalFileType.FILE: "file",
+    ModalFileType.DIRECTORY: "dir",
+    ModalFileType.SYMLINK: "symlink",
+}
+
+
+def _modal_entry_kind(info: ModalFileInfo) -> Literal["file", "dir", "symlink", "other"]:
+    # Modal reports FIFOs and sockets as FileType.FILE, and reading a FIFO blocks until a writer
+    # appears. The POSIX mode tells them apart; the enum is only a fallback for a mode without type bits.
+    if stat.S_IFMT(info.mode) == 0:
+        return _MODAL_FILE_KINDS.get(info.type, "other")
+    if stat.S_ISREG(info.mode):
+        return "file"
+    if stat.S_ISDIR(info.mode):
+        return "dir"
+    if stat.S_ISLNK(info.mode):
+        return "symlink"
+    return "other"
 
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
@@ -1702,6 +1737,51 @@ class ModalSandbox(AgentServerLaunchMixin):
                 {"sandbox_id": self.id, "path": path, "write_stage": write_stage, "error": str(e)},
                 cause=e,
             )
+
+    def _raise_unless_running(self) -> None:
+        if not self._is_running_cached():
+            raise SandboxNotRunningError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+    def list_dir(self, path: str, *, limit: int | None = None) -> list[SandboxDirEntry] | None:
+        self._raise_unless_running()
+        # Modal's filesystem listing returns every entry with no limit, and the agent controls how many there are.
+        result = self.execute(list_dir_command(path, limit))
+        if result.exit_code == LIST_DIR_MISSING_EXIT_CODE:
+            return None
+        if result.exit_code != 0:
+            raise SandboxExecutionError(
+                "Failed to list directory",
+                {"sandbox_id": self.id, "path": path, "stderr": result.stderr[:500]},
+                cause=RuntimeError(result.stderr[:500]),
+            )
+        return parse_list_dir_output(result.stdout)
+
+    def read_file(self, path: str, max_bytes: int) -> bytes | None:
+        self._raise_unless_running()
+        try:
+            info = self._sandbox.filesystem.stat(path)
+        except (
+            ModalSandboxFilesystemNotFoundError,
+            ModalSandboxFilesystemNotADirectoryError,
+            ModalSandboxFilesystemPermissionError,
+        ):
+            return None
+        except Exception as e:
+            _raise_if_proxy_failure(e, self.id, "filesystem_stat")
+            raise
+        if _modal_entry_kind(info) != "file" or info.size > max_bytes:
+            return None
+        # Modal's supported filesystem API has no bounded read, and a file can grow after the stat,
+        # so the bytes come from a capped shell read. Callers validate and cap the content, so a
+        # tampered shell can only corrupt the user's own memory.
+        result = self.execute(f"set -o pipefail; head -c {max_bytes + 1} -- {shlex.quote(path)} | base64 -w0")
+        if result.exit_code != 0:
+            return None
+        return base64.b64decode(result.stdout.strip())
 
     def _remove_temp_file(self, temp_path: str, step_timeout: int) -> None:
         try:

@@ -47,6 +47,8 @@ PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
 REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 PI_ACP_FEATURE_FLAG = "pi-acp"
 TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
+# Per-user gate for carrying Claude Code auto memory between cloud sandboxes.
+PERSIST_AGENT_MEMORY_FEATURE_FLAG = "tasks-persist-agent-memory"
 
 ANALYSIS_TARGET_TASK_ID_STATE_KEY = "analysis_target_task_id"
 ANALYSIS_TARGET_RUN_ID_STATE_KEY = "analysis_target_run_id"

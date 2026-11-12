@@ -113,6 +113,7 @@ from products.tasks.backend.temporal.process_task.utils import (
 )
 
 from .get_task_processing_context import TaskProcessingContext
+from .persist_agent_memory import MemoryEventIdentity, restore_agent_memory_into_sandbox
 
 logger = logging.getLogger(__name__)
 SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS = 10
@@ -1086,6 +1087,20 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             finally:
                 TaskRun.clear_sandbox_connection_state_atomic(ctx.run_id, sandbox.id)
             raise
+
+        # Every agent-server launch path runs after this activity returns, so the agent cannot
+        # observe or race a half-written memory directory.
+        if ctx.persist_agent_memory_enabled and ctx.task_created_by_id is not None:
+            with StepTimer("agent_memory_restore"):
+                restore_agent_memory_into_sandbox(
+                    sandbox,
+                    run_id=ctx.run_id,
+                    team_id=ctx.team_id,
+                    user_id=ctx.task_created_by_id,
+                    identity=MemoryEventIdentity(
+                        distinct_id=ctx.distinct_id, organization_id=ctx.organization_id, team_uuid=ctx.team_uuid
+                    ),
+                )
 
         log_with_activity_context(f"Sandbox provisioned: {sandbox.id}", run_id=ctx.run_id)
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={actual_used_snapshot})")

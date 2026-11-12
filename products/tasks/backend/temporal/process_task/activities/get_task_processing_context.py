@@ -29,6 +29,7 @@ from products.tasks.backend.constants import (
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    PERSIST_AGENT_MEMORY_FEATURE_FLAG,
     PI_ACP_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
@@ -50,7 +51,10 @@ from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
-from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
+from products.tasks.backend.logic.services.agent_instructions import (
+    agent_instructions_state_update,
+    receives_agent_memory,
+)
 from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_domains,
     _get_debug_only_ports,
@@ -169,6 +173,8 @@ class TaskProcessingContext:
     # (see .claude/rules/temporal-workflow-versioning.md, pattern 2).
     interactive_max_run_duration_seconds: int | None = None
     pi_acp_conversation_enabled: bool = False
+    # Captured at workflow start; the memory persist commands are gated on it together with a patch marker.
+    persist_agent_memory_enabled: bool = False
     # Which sandbox provider this run provisions on ("modal" or "hogland"). Captured at
     # workflow start and persisted into TaskRun.state at provision time, so activities
     # and out-of-band consumers route deterministically for the run's whole life.
@@ -435,6 +441,7 @@ RUN_FEATURE_FLAG_KEYS: list[str] = [
     HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
     DEV_STACK_PREVIEW_FEATURE_FLAG,
     PI_ACP_FEATURE_FLAG,
+    PERSIST_AGENT_MEMORY_FEATURE_FLAG,
 ]
 
 
@@ -1379,4 +1386,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         sandbox_backend=sandbox_backend,
         dev_stack_preview_enabled=dev_stack_preview_enabled,
         pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI and _is_pi_acp_enabled(flags=flags),
+        # Memory belongs to the task's creator, so a run another person drives must not read or write it.
+        persist_agent_memory_enabled=receives_agent_memory(task)
+        and (actor_user is None or actor_user.id == task.created_by_id)
+        and not state.get("agent_memory_locked")
+        and _flag_enabled(flags, PERSIST_AGENT_MEMORY_FEATURE_FLAG),
     )

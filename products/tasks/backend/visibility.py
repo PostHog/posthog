@@ -54,7 +54,7 @@ def _origins_by_profile(master_origins: Sequence[str], matches: Callable[[TaskPr
     return kept + [origin for origin, match in profiled.items() if match and origin not in master_origins]
 
 
-def _team_controlled_origins() -> list[str]:
+def team_controlled_origins() -> list[str]:
     return _origins_by_profile(TEAM_VISIBLE_ORIGIN_PRODUCTS, lambda profile: profile.drive == DrivePolicy.AUDIENCE)
 
 
@@ -94,7 +94,7 @@ def task_control_q(user_id: int | None, team_id: int | None = None) -> Q:
     """
     channeled_q = Q(channel_id__isnull=False) & _visible_channel_q(user_id, team_id) & _creator_q(user_id)
     legacy_q = Q(channel_id__isnull=True) & (
-        _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=_team_controlled_origins())
+        _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=team_controlled_origins())
     )
     return (
         (channeled_q | legacy_q) & scout_trial_visibility_q(user_id) & ~Q(origin_product__in=_product_private_origins())
