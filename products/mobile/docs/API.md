@@ -206,6 +206,7 @@ Without `repository`, the server skips the cleanup PR for an `ambiguous` target,
 The app never sends `set_repository_as_team_default` (needs `project:write` and project admin) or `disable_feature_flag` on archive (needs `feature_flag:write`).
 A 403 for a missing `experiment:*` scope goes to `reportScopeError(error, 'experiments')`.
 A missing `task:write` shows as an error in the sheet.
+The writes for one experiment run one at a time, so a late response cannot overwrite a later action.
 
 The Ship preset ranks variants like the variant picker, so it prefers an improvement over a significant regression.
 A rule-linked experiment can end on the phone. Ship, pause, resume and rollout changes stay on the flag's web page.
@@ -250,3 +251,4 @@ The numbers follow the web's `MetricsView/shared/utils.ts`:
   A list row does not know the metric kind, so it leaves out an absolute change.
 
 Chat opens `/chat` with `objectType: 'experiment'` and the experiment id, as the web's `SummarizeExperimentButton.tsx` does.
+For a link to another project, Chat first moves the session to that project. If the session cannot move, the web opens the experiment.

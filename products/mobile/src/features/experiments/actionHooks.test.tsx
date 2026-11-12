@@ -64,6 +64,41 @@ describe('experiment actions', () => {
         mockSource.fetchExperiment.mockResolvedValue(RUNNING)
     })
 
+    it('sends a later end only after an earlier pause answers, so the end is what stays', async () => {
+        const { result, client, unmount } = setup()
+        let completePause!: (value: ExperimentApi) => void
+        mockSource.pauseExperiment.mockImplementationOnce(
+            () =>
+                new Promise<ExperimentApi>((resolve) => {
+                    completePause = resolve
+                })
+        )
+        mockSource.endExperiment.mockResolvedValue(FINISHED)
+        let pause!: Promise<void>
+        let end!: Promise<void>
+        act(() => {
+            pause = result.current.pause.run('pause', jest.fn())
+        })
+        act(() => {
+            end = result.current.finish.run({
+                request: { kind: 'end', body: { conclusion: 'won', open_cleanup_pr: false } },
+                preset: 'end',
+                onFinished: jest.fn(),
+                onNeedsApproval: jest.fn(),
+            })
+        })
+        await waitFor(() => expect(mockSource.pauseExperiment).toHaveBeenCalled())
+        expect(mockSource.endExperiment).not.toHaveBeenCalled()
+        await act(async () => {
+            completePause({ ...RUNNING, status: 'paused' } as ExperimentApi)
+            await pause
+            await end
+        })
+        expect(client.getQueryData(key)).toEqual(FINISHED)
+        unmount()
+        client.clear()
+    })
+
     it.each(['ship', 'end'] as const)(
         'keeps the completed experiment when an older read finishes after %s',
         async (kind) => {

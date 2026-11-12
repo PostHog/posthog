@@ -8,6 +8,7 @@ import type { ExperimentApi } from '@/api/experiments'
 import { useAuthStore } from '@/auth/authStore'
 import { useViewer } from '@/auth/useViewer'
 import { EXPERIMENT_OBJECT_TYPE } from '@/features/chat/objectContext'
+import { followLinkProject } from '@/features/report/reportLinkScope'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
 import { ViewChrome } from '@/features/views/screen/ViewChrome'
 import { useViewBack } from '@/features/views/screen/ViewScreenFrame'
@@ -371,12 +372,18 @@ function ExperimentLoaded({
         : undefined
     const title = experiment.name.trim() || 'Untitled experiment'
     const openChat = useCallback((): void => {
+        // Chat reads the session's project, so an experiment from another project moves the session there first.
+        // When the session cannot move, the web opens the experiment instead of the chat loading the wrong project.
+        if (!followLinkProject(scope?.projectId)) {
+            openWeb?.()
+            return
+        }
         trackExperimentChatOpened()
         router.push({
             pathname: '/chat',
             params: { entry: 'experiment', objectType: EXPERIMENT_OBJECT_TYPE, objectId: id, objectLabel: title },
         })
-    }, [router, id, title])
+    }, [router, id, title, scope, openWeb])
 
     const explain = (target: AboutTarget): void => {
         trackExperimentNumberExplained({ what: target.kind === 'target' ? 'target' : target.what })

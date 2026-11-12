@@ -218,11 +218,39 @@ function changeRequestOf(error: unknown): ChangeRequestPendingError | null {
 }
 
 // Actions. Each one runs through `useAsyncAction`, so a second tap while one is in flight does nothing.
+// `useAsyncAction` locks only its own hook, and each sheet has its own. So the writes for one experiment also wait in
+// one queue: a late response from an earlier action cannot overwrite what a later action stored.
+
+const writeQueues = new Map<string, Promise<void>>()
+
+function queueWrite(key: string, write: () => Promise<void>): Promise<void> {
+    const run = (writeQueues.get(key) ?? Promise.resolve()).then(write)
+    const settled = run.then(
+        () => undefined,
+        () => undefined
+    )
+    writeQueues.set(key, settled)
+    void settled.then(() => {
+        if (writeQueues.get(key) === settled) {
+            writeQueues.delete(key)
+        }
+    })
+    return run
+}
+
+function useLifecycleAction<Args extends unknown[]>(
+    experimentId: string,
+    action: (...args: Args) => Promise<void>
+): AsyncAction<Args> {
+    const { scope } = useExperimentsContext()
+    const key = `${scope?.host ?? 'demo'}|${scope?.projectId ?? ''}|${experimentId}`
+    return useAsyncAction((...args: Args) => queueWrite(key, () => action(...args)))
+}
 
 export function useLaunchAction(experimentId: string): AsyncAction<[onDone: () => void]> {
     const queryClient = useQueryClient()
     const { scope, source } = useExperimentsContext()
-    return useAsyncAction(async (onDone: () => void) => {
+    return useLifecycleAction(experimentId, async (onDone: () => void) => {
         const session = sessionGeneration()
         try {
             // No optimistic patch: the sheet shows the wait, and a refused launch leaves nothing to undo.
@@ -258,7 +286,7 @@ export interface FinishRun {
 export function useFinishAction(experimentId: string): AsyncAction<[FinishRun]> {
     const queryClient = useQueryClient()
     const { scope, source } = useExperimentsContext()
-    return useAsyncAction(async ({ request, preset, onFinished, onNeedsApproval }: FinishRun) => {
+    return useLifecycleAction(experimentId, async ({ request, preset, onFinished, onNeedsApproval }: FinishRun) => {
         const session = sessionGeneration()
         try {
             let experiment: ExperimentApi
@@ -308,43 +336,46 @@ export function usePauseResumeAction(
 ): AsyncAction<['pause' | 'resume', (outcome: PauseResumeOutcome) => void]> {
     const queryClient = useQueryClient()
     const { scope, source } = useExperimentsContext()
-    return useAsyncAction(async (mode: 'pause' | 'resume', onDone: (outcome: PauseResumeOutcome) => void) => {
-        const session = sessionGeneration()
-        const pause = mode === 'pause'
-        const previous = await patchDetail(
-            queryClient,
-            scope,
-            experimentId,
-            (experiment) => withFlagActive({ ...experiment, status: pause ? 'paused' : 'running' }, !pause),
-            session
-        )
-        if (sessionGeneration() !== session) return
-        try {
-            const experiment = pause
-                ? await source.pauseExperiment(experimentId)
-                : await source.resumeExperiment(experimentId)
-            if (!(await applyExperiment(queryClient, scope, experiment, session))) return
-            trackPauseResume(mode)
-            onDone('done')
-        } catch (error) {
+    return useLifecycleAction(
+        experimentId,
+        async (mode: 'pause' | 'resume', onDone: (outcome: PauseResumeOutcome) => void) => {
+            const session = sessionGeneration()
+            const pause = mode === 'pause'
+            const previous = await patchDetail(
+                queryClient,
+                scope,
+                experimentId,
+                (experiment) => withFlagActive({ ...experiment, status: pause ? 'paused' : 'running' }, !pause),
+                session
+            )
             if (sessionGeneration() !== session) return
-            restoreDetail(queryClient, scope, experimentId, previous, session)
-            const pending = changeRequestOf(error)
-            if (pending) {
-                onDone(pending.alreadyPending ? 'already_waiting' : 'needs_approval')
-                return
+            try {
+                const experiment = pause
+                    ? await source.pauseExperiment(experimentId)
+                    : await source.resumeExperiment(experimentId)
+                if (!(await applyExperiment(queryClient, scope, experiment, session))) return
+                trackPauseResume(mode)
+                onDone('done')
+            } catch (error) {
+                if (sessionGeneration() !== session) return
+                restoreDetail(queryClient, scope, experimentId, previous, session)
+                const pending = changeRequestOf(error)
+                if (pending) {
+                    onDone(pending.alreadyPending ? 'already_waiting' : 'needs_approval')
+                    return
+                }
+                reportActionError(error)
+                throw error
             }
-            reportActionError(error)
-            throw error
         }
-    })
+    )
 }
 
 /** Archives without touching the flag: `disable_feature_flag` needs `feature_flag:write`. */
 export function useArchiveAction(experimentId: string): AsyncAction<[() => void]> {
     const queryClient = useQueryClient()
     const { scope, source } = useExperimentsContext()
-    return useAsyncAction(async (onDone: () => void) => {
+    return useLifecycleAction(experimentId, async (onDone: () => void) => {
         const session = sessionGeneration()
         const previous = await patchDetail(
             queryClient,
@@ -380,7 +411,7 @@ export interface ConclusionPatch {
 export function useEditConclusionAction(experimentId: string): AsyncAction<[ConclusionPatch, () => void]> {
     const queryClient = useQueryClient()
     const { scope, source } = useExperimentsContext()
-    return useAsyncAction(async ({ conclusion, comment }: ConclusionPatch, onDone: () => void) => {
+    return useLifecycleAction(experimentId, async ({ conclusion, comment }: ConclusionPatch, onDone: () => void) => {
         const session = sessionGeneration()
         const text = comment.trim()
         const patch = { conclusion, conclusion_comment: text || null }
