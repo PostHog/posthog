@@ -1449,8 +1449,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if instance.type == "folder":
             # The tree hides retired rows, so a retired leftover needs no folder to sit in.
-            leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/")).exclude(
-                type__in=RETIRED_FILE_SYSTEM_TYPES
+            leftovers = self._without_hidden_workflow_files(
+                self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/")).exclude(
+                    type__in=RETIRED_FILE_SYSTEM_TYPES
+                )
             )
             first_leftover = leftovers.first()
             if first_leftover:
@@ -1639,7 +1641,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 instance.save()
 
         # Repair folder tree for items we *didn't* move (hog functions in other teams under the moved folder)
-        leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{old_path}/"))
+        leftovers = self._without_hidden_workflow_files(
+            self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{old_path}/"))
+        )
         first_leftover = leftovers.first()
         if first_leftover:
             created_by = instance.created_by or cast(User, request.user)
@@ -1866,6 +1870,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    def _without_hidden_workflow_files(self, leftovers: QuerySet) -> QuerySet:
+        """Leftovers of a folder write that may get their parent folders back. A folder filed for a workflow or
+        template file the caller cannot read would show the caller that file's path, so those files get none."""
+        readable = self._filter_by_access_control(leftovers.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES))
+        return leftovers.exclude(Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) & ~Q(pk__in=readable.values("pk")))
 
     def _assure_parent_folders(self, path: str, created_by: User, team: Team | None = None) -> None:
         """

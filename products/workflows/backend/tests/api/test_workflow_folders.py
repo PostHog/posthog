@@ -342,7 +342,9 @@ class TestWorkflowFolders(APIBaseTest):
         return FileSystem.objects.filter(team=self.team, path="Secret plans").exists(), False
 
     def _refused_write(self, spell, write, *, on_folder: bool = False):
-        row, _member = self._deny_a_workflow_filed_under(spell)
+        row, _member = self._deny_a_workflow_filed_under(
+            spell, path="Filed/Private campaign/Synthetic denied" if on_folder else "Filed/Synthetic denied"
+        )
         target = (
             FileSystem.objects.create(team=self.team, path="Filed", depth=1, type="folder", ref="Filed")
             if on_folder
@@ -351,7 +353,12 @@ class TestWorkflowFolders(APIBaseTest):
         response = write(f"/api/projects/{self.team.id}/file_system/{target.id}/")
         rows = list(FileSystem.objects.filter(team=self.team, type="hog_flow").values_list("path", "ref"))
         if on_folder:
-            return rows, [(row.path, row.ref)]
+            hidden_folders = list(
+                FileSystem.objects.filter(team=self.team, type="folder", path__contains="Private campaign").values_list(
+                    "path", flat=True
+                )
+            )
+            return (rows, hidden_folders), ([(row.path, row.ref)], [])
         return (response.status_code in (403, 404), rows), (True, [(row.path, row.ref)])
 
     def _through_rename(self, spell):

@@ -1,7 +1,10 @@
+from uuid import UUID
+
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
+from posthog.api.file_system.access_levels import canonical_file_system_ref
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.refs import uuid_ref_key, uuid_ref_key_expression
 
@@ -40,3 +43,21 @@ class TestUuidRefKey(BaseTest):
         )
 
         self.assertEqual(sql_key, uuid_ref_key(ref))
+
+    @parameterized.expand(
+        [
+            ("uppercase", CANONICAL.upper()),
+            ("no_hyphens", CANONICAL.replace("-", "")),
+            ("braces", "{" + CANONICAL + "}"),
+            ("one_brace", CANONICAL + "}"),
+            ("urn", "urn:uuid:" + CANONICAL),
+            ("stray_hyphens", "-" + CANONICAL.replace("-", "") + "--"),
+        ]
+    )
+    def test_access_checks_resolve_a_keyed_ref_to_the_object_its_key_names(self, _name: str, ref: str) -> None:
+        key = uuid_ref_key(ref)
+
+        self.assertEqual(
+            [canonical_file_system_ref(file_type, ref) for file_type in ("hog_flow", "message_template")],
+            [str(UUID(key or ""))] * 2,
+        )

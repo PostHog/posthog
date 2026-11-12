@@ -46,12 +46,12 @@ def uuid_ref_key_expression(ref: Any = "ref") -> Case:
     )
 
 
-def uuid_refs_q(refs: Iterable[str], field: str = "ref") -> Q:
-    """Rows whose `field` names one of these UUID-keyed objects, in any spelling of its id."""
+def uuid_refs_q(refs: Iterable[str]) -> Q:
+    """Rows whose ref names one of these UUID-keyed objects, in any spelling of its id."""
     refs = set(refs)
     keys = sorted({key for ref in refs if (key := uuid_ref_key(ref))})
-    exact = Q(**{f"{field}__in": sorted(refs)})
-    return exact | Q(In(uuid_ref_key_expression(field), keys)) if keys else exact
+    exact = Q(ref__in=sorted(refs))
+    return exact | Q(In(uuid_ref_key_expression(), keys)) if keys else exact
 
 
 def file_refs_q(file_type: str | Iterable[str], refs: Iterable[str]) -> Q:
