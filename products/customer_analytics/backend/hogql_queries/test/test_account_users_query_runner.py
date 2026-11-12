@@ -37,6 +37,7 @@ from products.customer_analytics.backend.hogql_queries.account_persons_catalog i
     ACCOUNT_PERSONS_CATALOG_FLAG,
     AccountPersonsCatalog,
 )
+from products.customer_analytics.backend.logic import account_person_memberships as memberships_logic
 from products.customer_analytics.backend.logic.account_persons import AccountPersonsReader
 from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.presentation.views.account_persons import AccountPersonsQuerySerializer
@@ -468,7 +469,10 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             ],
         )
 
-    def test_membership_enrichment_resolves_aliases_and_excludes_inaccessible_accounts(self) -> None:
+    @parameterized.expand([(100, 500), (1, 1)])
+    def test_membership_enrichment_resolves_aliases_and_excludes_inaccessible_accounts(
+        self, alias_page_size: int, query_batch_size: int
+    ) -> None:
         other_key = "second-workspace"
         hidden_key = "hidden-workspace"
         other = create_account(team_id=self.team.pk, external_id=other_key, name="Second workspace")
@@ -488,11 +492,19 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         outside = create_person(team=self.team, distinct_ids=["outside-person"], is_identified=True)
         self._insert_membership("outside-person", "2024-01-01", "2024-01-05", group_key=other_key)
         flush_persons_and_events()
-        response = self.client.post(
-            self.endpoint + "memberships/",
-            {"person_ids": [str(self.first.uuid), str(self.second.uuid), str(outside.uuid)]},
-            format="json",
-        )
+        with (
+            patch.object(memberships_logic, "ALIAS_PAGE_SIZE", alias_page_size),
+            patch.object(memberships_logic, "MEMBERSHIP_QUERY_BATCH_SIZE", query_batch_size),
+            patch.object(
+                memberships_logic, "list_membership_keys", wraps=memberships_logic.list_membership_keys
+            ) as queries,
+        ):
+            response = self.client.post(
+                self.endpoint + "memberships/",
+                {"person_ids": [str(self.first.uuid), str(self.second.uuid), str(outside.uuid)]},
+                format="json",
+            )
+        assert all(len(call.args[2]) <= query_batch_size for call in queries.call_args_list)
         assert response.status_code == 200, response.content
         accounts = {item["person_id"]: {account["id"] for account in item["accounts"]} for item in response.json()}
         assert accounts == {
