@@ -1465,9 +1465,7 @@ class TestAdminConsoleApiKeys(BaseTest):
             self._personal_key(label="Outsider key", user=outsider),
         ]
         # The oldest key comes last in the run, so the owner narrows it while the run changes the others.
-        narrowed = self._personal_key(
-            label="Narrowed during the run key", created_at=timezone.now() - timedelta(days=1)
-        )
+        narrowed = self._personal_key(label="Narrowed during the run key", created_at=datetime(2026, 1, 1, tzinfo=UTC))
         url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/{operation}/"
 
         def narrow(instance: PersonalAPIKey, **kwargs: object) -> None:
@@ -1499,10 +1497,10 @@ class TestAdminConsoleApiKeys(BaseTest):
         }
         assert PersonalAPIKey.objects.get(pk=narrowed.pk).scoped_organizations == [str(other.pk)]
         untouched.append(narrowed)
-        assert set(
-            PersonalAPIKey.objects.filter(pk__in=[key.pk for key in untouched]).values_list("secure_value", flat=True)
-        ) == {key.secure_value for key in untouched}
-        in_reach = PersonalAPIKey.objects.filter(pk__in=[unscoped.pk, scoped_here.pk])
+        assert [PersonalAPIKey.objects.get(pk=key.pk).secure_value for key in untouched] == [
+            key.secure_value for key in untouched
+        ]
+        in_reach = PersonalAPIKey.objects.filter(user=self.user, pk__in=[unscoped.pk, scoped_here.pk])
         if operation == "revoke-all":
             assert not in_reach.exists()
             exposed.delay.assert_not_called()

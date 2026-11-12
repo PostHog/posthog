@@ -227,6 +227,7 @@ class OrganizationPersonalApiKeys:
     def lock_previewed(self, key_id: str, rolled_before: datetime | None) -> PersonalAPIKey | None:
         # Postgres refuses FOR UPDATE with the DISTINCT of the reach query, so the lock is taken by primary key and
         # the reach is checked once the row is locked.
+        # nosemgrep: idor-lookup-without-user -- staff-only console action; the ID comes from the signed preview
         key = PersonalAPIKey.objects.select_for_update(of=("self",)).select_related("user").filter(pk=key_id).first()
         qualifying = self.previewed([key_id])
         if rolled_before is not None:
