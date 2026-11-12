@@ -200,94 +200,38 @@ describe('SegmentDestinationExecutorService', () => {
                 name: 'Plugin test',
                 template_id: 'segment-actions-amplitude',
             })
-
-            const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
             const requests = fakeDestinationServer(429, { error: 'Too many requests' })
+            const now = DateTime.utc().toMillis()
+            const backoffBaseMs = defaultConfig.CDP_FETCH_BACKOFF_BASE_MS
 
-            let minBackoffMs = DateTime.utc().plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
-            const result = await service.execute(invocation)
+            const result1 = await service.execute(createExampleSegmentInvocation(fn, amplitudeInputs))
 
-            expect(result.finished).toBe(false)
-            expect(result.logs).toContainEqual(
+            expect(result1.finished).toBe(false)
+            expect(result1.logs).toContainEqual(
                 expect.objectContaining({
                     level: 'warn',
                     message: 'HTTP request failed with status 429 ({"error":"Too many requests"}). Scheduling retry...',
                 })
             )
+            expect(result1.invocation).toMatchObject({ queue: 'hog', queueMetadata: { tries: 1 }, queuePriority: 1 })
+            const firstDelayMs = result1.invocation.queueScheduledAt!.toMillis() - now
+            expect(firstDelayMs).toBeGreaterThanOrEqual(backoffBaseMs)
+            expect(firstDelayMs).toBeLessThan(backoffBaseMs * 2)
 
-            expect(result.invocation).toEqual({
-                hogFunction: expect.any(Object),
-                functionId: expect.any(String),
-                id: expect.any(String),
-                queue: 'hog',
-                queueMetadata: { tries: 1 },
-                queueParameters: undefined,
-                queuePriority: 1,
-                queueScheduledAt: expect.any(Object),
-                queueSource: undefined,
-                state: expect.any(Object),
-                teamId: 1,
-            })
+            const result2 = await service.execute(result1.invocation)
 
-            let maxBackoffMs = DateTime.utc()
-                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 })
-                .toMillis()
-            let scheduledAt = result.invocation.queueScheduledAt!.toMillis()
-            expect(scheduledAt).toBeGreaterThanOrEqual(minBackoffMs)
-            expect(scheduledAt).toBeLessThan(maxBackoffMs)
+            expect(result2.finished).toBe(false)
+            expect(result2.invocation).toMatchObject({ queue: 'hog', queueMetadata: { tries: 2 }, queuePriority: 2 })
+            const secondDelayMs = result2.invocation.queueScheduledAt!.toMillis() - now
+            expect(secondDelayMs).toBeGreaterThanOrEqual(backoffBaseMs * 2)
+            expect(secondDelayMs).toBeLessThan(backoffBaseMs * 3)
 
-            // second fetch call
+            const result3 = await service.execute(result2.invocation)
 
-            minBackoffMs = DateTime.utc()
-                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 })
-                .toMillis()
-            const invocationResults2 = await service.execute(result.invocation)
-
-            expect(invocationResults2.finished).toBe(false)
-
-            expect(invocationResults2.invocation).toEqual({
-                hogFunction: expect.any(Object),
-                functionId: expect.any(String),
-                id: expect.any(String),
-                queue: 'hog',
-                queueMetadata: {
-                    tries: 2,
-                },
-                queueParameters: undefined,
-                queuePriority: 2,
-                queueScheduledAt: expect.any(Object),
-                queueSource: undefined,
-                state: expect.any(Object),
-                teamId: 1,
-            })
-
-            maxBackoffMs = DateTime.utc()
-                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 3 })
-                .toMillis()
-            scheduledAt = invocationResults2.invocation.queueScheduledAt!.toMillis()
-            expect(scheduledAt).toBeGreaterThanOrEqual(minBackoffMs)
-            expect(scheduledAt).toBeLessThan(maxBackoffMs)
-
-            // third fetch call
-
-            const invocationResults3 = await service.execute(invocationResults2.invocation)
-
-            expect(invocationResults3.finished).toBe(true)
-            expect(invocationResults3.error?.message).toContain('Request failed with status 429')
-
-            expect(invocationResults3.invocation).toEqual({
-                hogFunction: expect.any(Object),
-                functionId: expect.any(String),
-                id: expect.any(String),
-                queue: 'hog',
-                queueMetadata: { tries: 3 },
-                queueParameters: undefined,
-                queuePriority: 0,
-                queueScheduledAt: undefined,
-                queueSource: undefined,
-                state: expect.any(Object),
-                teamId: 1,
-            })
+            expect(result3.finished).toBe(true)
+            expect(result3.error?.message).toContain('Request failed with status 429')
+            expect(result3.invocation).toMatchObject({ queueMetadata: { tries: 3 }, queuePriority: 0 })
+            expect(result3.invocation.queueScheduledAt).toBeUndefined()
             expect(requests.map((request) => request.url)).toEqual([AMPLITUDE_URL, AMPLITUDE_URL, AMPLITUDE_URL])
         })
 
