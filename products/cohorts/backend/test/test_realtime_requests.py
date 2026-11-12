@@ -60,7 +60,7 @@ class TestRealtimeCohortRequests(BaseTest):
         super().setUp()
         self.peak_day_events = 500
         scan = mock.patch(
-            "products.cohorts.backend.realtime_enablement.estimate_behavioral_scan_events",
+            "products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events",
             side_effect=self._scan_estimate,
         )
         sizing = mock.patch(
@@ -243,7 +243,7 @@ class TestRealtimeCohortRequests(BaseTest):
             (
                 "enable_scan_error",
                 None,
-                "realtime_enablement.estimate_behavioral_scan_events",
+                "backfill.runs.estimate_behavioral_scan_events",
                 RuntimeError("ClickHouse timeout"),
                 RealtimeCohortRequestState.FAILED,
                 "Behavioral run failed: ClickHouse timeout",
@@ -251,7 +251,7 @@ class TestRealtimeCohortRequests(BaseTest):
             (
                 "behavioral_backfill_scan_error",
                 CohortBackfillKind.BEHAVIORAL,
-                "realtime_enablement.estimate_behavioral_scan_events",
+                "backfill.runs.estimate_behavioral_scan_events",
                 RuntimeError("ClickHouse timeout"),
                 RealtimeCohortRequestState.FAILED,
                 "ClickHouse timeout",

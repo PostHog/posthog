@@ -185,7 +185,7 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
         BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=1_000_000,
     )
     @patch(
-        "products.cohorts.backend.realtime_enablement.estimate_behavioral_scan_events",
+        "products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events",
         side_effect=RuntimeError("ClickHouse timeout"),
     )
     def test_enable_handles_each_team_and_fails_when_one_is_not_enabled(self, _scan_estimate: Any) -> None:

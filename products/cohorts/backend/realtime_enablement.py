@@ -13,18 +13,17 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.backfill.finalize import refresh_readiness_caches
-from products.cohorts.backend.backfill.pinning import pin_behavioral_run
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
 from products.cohorts.backend.backfill.runs import (
     INAPPLICABLE_BACKFILL_REASONS,
+    BehavioralScanOverLimit,
     behavioral_backfill_ineligibility_reason,
     check_person_run_preconditions,
     create_person_team_backfill_run,
     create_team_backfill_run,
-    judge_team_cohorts,
     person_backfill_ineligibility_reason,
 )
-from products.cohorts.backend.backfill.sizing import PersonSeedEstimateScanCapExceeded, estimate_behavioral_scan_events
+from products.cohorts.backend.backfill.sizing import PersonSeedEstimateScanCapExceeded
 from products.cohorts.backend.models.backfill import (
     ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
     CohortBackfillKind,
@@ -288,31 +287,19 @@ def create_behavioral_team_run(
     max_events_per_day: int,
     created_by_id: int | None = None,
 ) -> CohortBackfillRun:
-    """`create_team_backfill_run` behind the scan limit of `create_cohort_backfill_run`, refusing with
-    ``ValueError`` like the person creator. A limit of 0 skips the scan estimate."""
-    scan_estimate = None
-    if max_events_per_day:
-        eligible = [
-            cohort
-            for cohort, reason in judge_team_cohorts(team_id, cohort_ids, behavioral_backfill_ineligibility_reason)
-            if reason is None
-        ]
-        pinned = pin_behavioral_run(eligible, Team.objects.get(id=team_id))
-        scan_estimate = estimate_behavioral_scan_events(
+    """A scan limit refusal says how staff accept the volume. A limit of 0 skips the scan estimate."""
+    try:
+        return create_team_backfill_run(
             team_id,
-            pinned["event_names"],
-            flag_calls_table=pinned["flag_calls_table"],
+            CohortBackfillTrigger.TEAM_ENABLEMENT,
+            cohort_ids,
+            created_by_id,
             max_events_per_day=max_events_per_day,
         )
-        if scan_estimate.over_limit:
-            raise ValueError(
-                f"The run would scan {scan_estimate.peak_day_events} events on its busiest day "
-                f"({scan_estimate.peak_day}), above the limit of {scan_estimate.max_events_per_day}. "
-                "To accept the volume, start a behavioral backfill that skips the scan limit."
-            )
-    return create_team_backfill_run(
-        team_id, CohortBackfillTrigger.TEAM_ENABLEMENT, cohort_ids, created_by_id, scan_estimate=scan_estimate
-    )
+    except BehavioralScanOverLimit as error:
+        raise ValueError(
+            f"{error} To accept the volume, start a behavioral backfill that skips the scan limit."
+        ) from error
 
 
 def describe_enablement(team_id: int, enablement: TeamEnablement) -> list[str]:
