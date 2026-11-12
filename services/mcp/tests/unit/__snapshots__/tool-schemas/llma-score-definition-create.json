@@ -6,6 +6,51 @@
             "description": "New scorers are always created as active.",
             "type": "boolean"
         },
+        "calculation": {
+            "default": "reported",
+            "description": "Reported or composite. This cannot be changed after creation.\n\n* `reported` - Reported\n* `composite` - Composite",
+            "enum": ["reported", "composite"],
+            "type": "string"
+        },
+        "composition": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "expression": {
+                            "description": "Formula using the declared input aliases. Supports +, -, *, /, comparisons, and/or/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 * precision + recall) / 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.",
+                            "maxLength": 1024,
+                            "type": "string"
+                        },
+                        "inputs": {
+                            "description": "Named, version-pinned input scorers for the same item. Nested composites are not supported.",
+                            "items": {
+                                "properties": {
+                                    "alias": {
+                                        "description": "Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.",
+                                        "maxLength": 32,
+                                        "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                                        "type": "string"
+                                    },
+                                    "scorer_version_id": {
+                                        "description": "Exact immutable version of an ordinary input scorer.",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["alias", "scorer_version_id"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["expression", "inputs"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Required for composite scorers: expression and exact input versions."
+        },
         "config": {
             "anyOf": [
                 {
