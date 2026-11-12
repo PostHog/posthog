@@ -23,7 +23,7 @@ export function PlatformAlertRuleMetadata({
                         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 m-0" translate="no">
                             {Object.entries(entries).map(([name, value]) => (
                                 <div key={name} className="contents">
-                                    <dt className="font-mono text-secondary">{name}</dt>
+                                    <dt className="font-mono text-secondary break-all">{name}</dt>
                                     <dd className="m-0 break-all">{value}</dd>
                                 </div>
                             ))}

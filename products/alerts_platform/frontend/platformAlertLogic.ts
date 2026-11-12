@@ -17,7 +17,6 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Scene } from 'scenes/sceneTypes'
@@ -34,6 +33,8 @@ import {
 } from './generated/api.schemas'
 import {
     RuleMetadataForm,
+    errorMessage,
+    fieldError,
     ruleMetadataEntries,
     ruleMetadataEntriesError,
     ruleMetadataRecord,
@@ -41,6 +42,10 @@ import {
 import { PLATFORM_ALERTS_BREADCRUMB } from './platformAlertsLogic'
 
 const EMPTY_RULE_METADATA_FORM: RuleMetadataForm = { labels: [], annotations: [] }
+const RULE_METADATA_FIELD_BY_ATTR: Record<string, keyof RuleMetadataForm> = {
+    labels: 'labels',
+    annotations: 'annotations',
+}
 
 export interface PlatformAlertLogicProps {
     id: string
@@ -243,21 +248,14 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
                 }) as DeepPartialMap<RuleMetadataForm, ValidationErrorType>,
             submit: async ({ labels, annotations }: RuleMetadataForm) => {
                 try {
-                    await platformAlertsPartialUpdate(String(values.currentTeamId), props.id, {
+                    const updated = await platformAlertsPartialUpdate(String(values.currentTeamId), props.id, {
                         source_kind: values.configuration!.source_kind,
                         labels: ruleMetadataRecord(labels),
                         annotations: ruleMetadataRecord(annotations),
                     })
+                    actions.loadConfigurationSuccess(updated)
                 } catch (error) {
-                    if (error instanceof ApiError && (error.attr === 'labels' || error.attr === 'annotations')) {
-                        actions.setRuleMetadataFormManualErrors({ [error.attr]: error.detail })
-                    } else {
-                        lemonToast.error(
-                            error instanceof ApiError && error.detail
-                                ? `Couldn't save labels and annotations. ${error.detail}`
-                                : "Couldn't save labels and annotations. Try again."
-                        )
-                    }
+                    actions.setRuleMetadataFormManualErrors(fieldError(error, RULE_METADATA_FIELD_BY_ATTR))
                     throw error
                 }
             },
@@ -379,16 +377,27 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
                 source_kind: values.configuration?.source_kind,
             })
         },
-        submitRuleMetadataFormSuccess: ({ ruleMetadataForm }) => {
+        submitRuleMetadataFormFailure: ({ error }) => {
+            if (!Object.keys(fieldError(error, RULE_METADATA_FIELD_BY_ATTR)).length) {
+                lemonToast.error(`Couldn't save labels and annotations. ${errorMessage(error)}`)
+            }
+        },
+        // A server error can name the other field, such as an annotation that references a removed
+        // label, and kea-forms clears it only when that field changes.
+        setRuleMetadataFormValue: () => {
+            if (Object.keys(values.ruleMetadataFormManualErrors).length) {
+                actions.setRuleMetadataFormManualErrors({})
+            }
+        },
+        submitRuleMetadataFormSuccess: () => {
             // pinned: analytics event names and properties. Renaming them breaks dashboards.
             posthog.capture('platform alert rule metadata saved', {
                 configuration_id: props.id,
                 source_kind: values.configuration?.source_kind,
-                label_count: Object.keys(ruleMetadataRecord(ruleMetadataForm.labels)).length,
-                annotation_count: Object.keys(ruleMetadataRecord(ruleMetadataForm.annotations)).length,
+                label_count: Object.keys(values.configuration?.labels ?? {}).length,
+                annotation_count: Object.keys(values.configuration?.annotations ?? {}).length,
             })
             lemonToast.success('Labels and annotations saved')
-            actions.loadConfiguration()
         },
         snoozeGroupFor: ({ groupingKey, duration }) => {
             const { hours } = GROUP_SNOOZE_DURATIONS.find((option) => option.duration === duration)!

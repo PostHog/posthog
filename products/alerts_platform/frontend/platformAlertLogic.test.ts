@@ -191,12 +191,21 @@ describe('platformAlertLogic', () => {
     )
 
     test.each<[string, ApiError | null, boolean, Record<string, string | undefined>]>([
-        ['a save closes the modal and reloads the alert', null, false, {}],
+        ['a save closes the modal and shows the saved alert', null, false, {}],
         [
             'a 400 on annotations keeps the modal open with the message on that field',
             new ApiError('Bad request', 400, undefined, { attr: 'annotations', detail: 'Must start with https://.' }),
             true,
             { annotations: 'Must start with https://.' },
+        ],
+        [
+            'a 400 on one label maps to the labels field',
+            new ApiError('Bad request', 400, undefined, {
+                attr: 'labels__team',
+                detail: 'This field may not be blank.',
+            }),
+            true,
+            { labels: 'This field may not be blank.' },
         ],
     ])('rule metadata: %s', async (_, failure, staysOpen, manualErrors) => {
         if (failure) {
@@ -225,6 +234,9 @@ describe('platformAlertLogic', () => {
         })
         expect(logic.values.ruleMetadataModalOpen).toBe(staysOpen)
         expect(logic.values.ruleMetadataFormManualErrors).toEqual(manualErrors)
-        expect(mockRetrieve).toHaveBeenCalledTimes(staysOpen ? 0 : 1)
+        logic.actions.setRuleMetadataFormValue('labels', [{ name: 'team', value: 'apm' }])
+        expect(logic.values.ruleMetadataFormManualErrors).toEqual({})
+        expect(mockRetrieve).not.toHaveBeenCalled()
+        expect(logic.values.configuration?.labels).toEqual(staysOpen ? { team: 'apm' } : CONFIGURATION.labels)
     })
 })

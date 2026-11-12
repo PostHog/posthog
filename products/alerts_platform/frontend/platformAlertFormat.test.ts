@@ -166,7 +166,7 @@ describe('platformAlertFormat', () => {
                 { name: 'team', value: 'apm' },
                 { name: 'team ', value: 'logs' },
             ],
-            '"team" is used more than once',
+            '"team" is used more than once. Use each name once.',
         ],
     ])('ruleMetadataEntriesError: %s', (_, entries, expected) => {
         expect(ruleMetadataEntriesError(entries)).toEqual(expected)

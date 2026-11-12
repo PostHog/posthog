@@ -1,3 +1,4 @@
+import { ApiError } from 'lib/api-error'
 import { urls } from 'scenes/urls'
 
 import {
@@ -175,5 +176,22 @@ export function ruleMetadataEntriesError(entries: RuleMetadataEntry[]): string |
     }
     const names = entries.map(({ name }) => name.trim()).filter(Boolean)
     const repeated = names.find((name, index) => names.indexOf(name) !== index)
-    return repeated ? `"${repeated}" is used more than once` : undefined
+    return repeated ? `"${repeated}" is used more than once. Use each name once.` : undefined
+}
+
+export function errorMessage(error: unknown): string {
+    return error instanceof ApiError && error.detail ? error.detail : 'Try again in a moment.'
+}
+
+/** The form field a server-side validation error belongs to, if any. */
+export function fieldError<F extends string>(
+    error: unknown,
+    fieldByAttr: Record<string, F>
+): Partial<Record<F, string>> {
+    // A nested error, such as one label's value, arrives as `labels__team`.
+    const attr = error instanceof ApiError ? error.attr?.split('__')[0] : undefined
+    if (attr && attr in fieldByAttr) {
+        return { [fieldByAttr[attr]]: errorMessage(error) } as Partial<Record<F, string>>
+    }
+    return {}
 }
