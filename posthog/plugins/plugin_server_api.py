@@ -339,7 +339,6 @@ def prepare_transactional_email_attachment_uploads(
     )
 
 
-# Cancel and reschedule share the send's key on their own audience, so a send token can't cancel an email or move it.
 WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL_JWT_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
     settings_name="WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRETS",
