@@ -1,14 +1,8 @@
-"""Curated query: merge-queue landing stats for the repo hub landing page.
+"""Curated query: merge-queue landing stats over merged PRs with at least one gate run.
 
-Gate-run attribution rides the runs builder's gate detection (SPEC §6, ``logic/merge_queue.py``):
-``is_merge_queue`` marks actor-corroborated gate runs, ``pr_number`` is already re-keyed to the
-source PR, and ``gate_attempt_expr`` names the attempt a run belongs to, so this module adds no
-branch parsing of its own. The population is merged PRs with at
-least one corroborated gate run: all authors, bots included, because these figures measure the
-queue's mechanics, not author behavior (the locked bots/drafts recipe governs cycle-time medians,
-a different question). ``had_failed_gate`` is a CI-outcome proxy for eviction: the queue's own
-records are not in the GitHub source. Where a team syncs them (the opt-in Trunk merge-queue
-table), ``query_merge_queue_trunk_outcomes`` reads the real verdicts instead.
+The population is every author, bots included, because the figures measure the queue and not author
+behavior. ``had_failed_gate`` is a CI-outcome proxy for eviction, because the GitHub source holds no
+queue records. ``query_merge_queue_trunk_outcomes`` reads Trunk's verdicts where a team syncs them.
 """
 
 from dataclasses import dataclass
@@ -26,10 +20,8 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 )
 from products.engineering_analytics.backend.logic.views.trunk_merge_queue import TRUNK_OUT_OF_QUEUE_STATES
 
-# Three layers so no SELECT reads an alias it defines: the inner select groups attempts per source
-# PR, the middle names the per-PR measure, and the outer splits the current and previous windows on
-# merge time. A cancelled gate run counts as an attempt but not a failure (an attempt evicted by a
-# neighbor's failure is not this PR's failure).
+# Three layers so that no SELECT reads an alias it defines. A cancelled gate run counts as an attempt
+# but not a failure, because an attempt evicted by a neighbor's failure is not this PR's failure.
 _MERGE_QUEUE_SELECT = """
     SELECT
         countIf(__CUR__) AS merged_cur,
@@ -71,9 +63,8 @@ _MERGE_QUEUE_SELECT = """
 
 @dataclass(frozen=True, kw_only=True)
 class MergeQueueWindowStats:
-    """Landing stats over merged PRs with at least one corroborated gate run, for a window and its
-    previous twin. The percentiles measure first gate run start to merge, the observable anchor
-    for enqueue-to-merge; pending time before gate testing starts is not visible in this data."""
+    """The percentiles measure first gate run start to merge. Pending time before gate testing starts
+    is not visible in this data."""
 
     merged_pr_count: int
     merged_pr_count_prev: int
@@ -113,9 +104,8 @@ _EMPTY_STATS = MergeQueueWindowStats(
 )
 
 
-# Trunk records each entry's terminal state directly, so eviction here is the queue's own verdict
-# rather than the CI-outcome proxy above. Windowed on the entry's last state change because Trunk
-# keeps no state history, so that approximates conclusion time.
+# Windowed on the entry's last state change, which approximates conclusion time because Trunk keeps
+# no state history.
 _TRUNK_OUTCOMES_SELECT = """
     SELECT
         countIf(failed_or_cancelled AND __CUR__) / nullIf(countIf(concluded AND __CUR__), 0) AS failed_or_cancelled_share_cur,
@@ -136,8 +126,7 @@ _TRUNK_OUTCOMES_SELECT = """
 
 @dataclass(frozen=True, kw_only=True)
 class TrunkQueueOutcomes:
-    """Queue outcomes from Trunk's own records, for a window and its previous twin. Everything is
-    None when no TrunkIo source has the merge-queue endpoint synced (``available``)."""
+    """Every figure is None when ``available`` is False, which means no Trunk merge-queue table is synced."""
 
     available: bool
     failed_or_cancelled_share: float | None
@@ -162,8 +151,7 @@ def query_merge_queue_trunk_outcomes(
     date_to: datetime | None,
     prev_from: datetime,
 ) -> TrunkQueueOutcomes:
-    """Trunk-recorded queue outcomes for [date_from, date_to] and [prev_from, date_from], one scan;
-    the unavailable shape when the opt-in Trunk merge-queue table isn't synced."""
+    """Trunk-recorded queue outcomes for [date_from, date_to] and [prev_from, date_from)."""
     source = curated.trunk_merge_queue_source()
     if source is None:
         return _TRUNK_UNAVAILABLE
@@ -204,10 +192,9 @@ def query_merge_queue_overview(
     date_to: datetime | None,
     prev_from: datetime,
 ) -> MergeQueueWindowStats:
-    """Merge-queue landing stats for [date_from, date_to] and [prev_from, date_from], one scan.
+    """Landing stats for [date_from, date_to] and [prev_from, date_from), keyed on ``merged_at``.
 
-    The population keys on ``merged_at`` like every merge median. Each comparison window applies
-    ``GATE_RUN_LOOKBACK`` from its own start, while the shared source scan begins at the earlier floor.
+    Each window applies ``GATE_RUN_LOOKBACK`` from its own start.
     """
     gate_from = prev_from - GATE_RUN_LOOKBACK
     windows = window_pair_predicates("merged_at", date_to=date_to)

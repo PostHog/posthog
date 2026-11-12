@@ -4,8 +4,9 @@ per send, so sends get the workflow's metrics, run history and versions."""
 import re
 import json
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from datetime import datetime
 from email.utils import parseaddr
 from typing import Any, Literal, Protocol
 from uuid import UUID
@@ -20,11 +21,17 @@ from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
+    prepare_transactional_email_attachment_uploads,
     send_accepted_transactional_email,
     send_transactional_email as run_transactional_workflow,
 )
 
 from products.messaging.backend.facade.contracts import (
+    AttachmentNotUploaded,
+    AttachmentsRefused,
+    AttachmentUploadRequest,
+    AttachmentUploadSlot,
+    AttachmentUploadTarget,
     CodeEmail,
     ContentTooLarge,
     CopiesNotAllowed,
@@ -38,7 +45,9 @@ from products.messaging.backend.facade.contracts import (
     InvalidRequest,
     MarketingTemplate,
     MessageCategoryKind,
+    MessageTooLarge,
     NamedSenderNotVerified,
+    PresentAttachment,
     QueuedEmail,
     QuotaLimited,
     RecipientOptedOut,
@@ -56,6 +65,7 @@ from products.messaging.backend.facade.contracts import (
     TransactionalEmailError,
     TransactionalEmailPaused,
     UnsubscribeLinkRequired,
+    UploadQuotaExceeded,
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
@@ -201,6 +211,39 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         InvalidRequest,
         "The email pipeline couldn't accept a field of this email, so it wasn't sent. Check the addresses and "
         "fields, then send it again.",
+    ),
+}
+
+FILES_REFUSALS: dict[str, tuple[str, str, str]] = {
+    "workflow_shape_not_supported": (
+        "This email's workflow can't send files, so PostHog didn't send the email.",
+        "A send with files needs a workflow with a trigger, one transactional email step, then an exit.",
+        "Send files through a workflow that has a trigger, then one transactional email step, then an exit, or "
+        "send this email without files.",
+    ),
+    "workflow_can_wait": (
+        "This email's workflow can hold a send, so PostHog didn't send the email with its files.",
+        "A step or a sending rate limit in this workflow can hold the send, so its files could expire before the "
+        "email goes out.",
+        "Send files through a workflow whose transactional email step follows the trigger directly and has no "
+        "sending rate limit, or send this email without files.",
+    ),
+    "email_render_limit_exceeded": (
+        "PostHog couldn't check the size of this email with its files, so it didn't send it.",
+        "Rendering this email's template went over a limit on time or length, so the size of the email with its "
+        "files couldn't be checked.",
+        "Simplify the email's template, or send this email without files.",
+    ),
+    "utm_value_too_long": (
+        "A UTM value in this email's workflow is too long, so PostHog didn't send the email with its files.",
+        "A UTM value is longer than 1,000 characters, so the size of this email with its files couldn't be checked.",
+        "Shorten each UTM value of the email step to 1,000 characters or fewer, or send this email without files.",
+    ),
+    "email_body_too_many_tags": (
+        "This email's template has too many Liquid tags, so PostHog didn't send the email with its files.",
+        "The email step has more than 10,000 Liquid tags, so the size of this email with its files couldn't be "
+        "checked.",
+        "Use 10,000 Liquid tags or fewer in the email step, or send this email without files.",
     ),
 }
 
@@ -627,10 +670,10 @@ def _accepted_send(team_id: int, email: CodeEmail, kind: MessageCategoryKind) ->
 def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
     return _without_empty(
         {
+            "sha256": attachment.sha256,
             "filename": attachment.filename,
-            "content": attachment.content,
-            "contentType": attachment.content_type,
-            "contentId": attachment.content_id,
+            "content_type": attachment.content_type,
+            "content_id": attachment.content_id,
         }
     )
 
@@ -677,13 +720,18 @@ def _queue(
     _observe_cdp_call(time.monotonic() - started_at)
     CDP_SEND_RESULTS.labels(result=_cdp_response_result(response.status_code)).inc()
 
+    answer = _answer(response)
+    refusal_code = _refusal_code(answer)
+    if (payload.get("send") or {}).get("attachments") and (
+        attachment_refusal := _attachment_refusal(refusal_code, answer)
+    ):
+        raise attachment_refusal
     if response.status_code == 413:
         raise ContentTooLarge(
             "The email is larger than PostHog can send. Make its content or data smaller, and link to "
             "large images and files instead of embedding them."
         )
     if response.status_code != 202:
-        refusal_code = _refusal_code(response)
         unknown_field = _send_field_an_older_pipeline_refused(refusal_code) if response.status_code == 400 else None
         if unknown_field is not None:
             logger.warning(
@@ -707,10 +755,45 @@ def _queue(
         if refusal is None:
             raise DeliveryUnavailable()
         error_class, message = refusal
-        raise error_class(message)
+        error = error_class(message)
+        error.attachment_bytes = _attachment_bytes(answer)
+        raise error
 
-    body = response.json()
-    return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+    return QueuedEmail(
+        message_id=str(answer["invocation_id"]),
+        replayed=bool(answer.get("replayed", False)),
+        attachment_bytes=_attachment_bytes(answer),
+    )
+
+
+def _attachment_refusal(refusal_code: str | None, answer: dict[str, Any]) -> TransactionalEmailError | None:
+    sha256 = answer.get("sha256") if isinstance(answer.get("sha256"), str) else None
+    error: TransactionalEmailError
+    if refusal_code == "field_not_accepted":
+        error = FieldNotAccepted("attachments")
+    elif refusal_code == "attachment_not_uploaded":
+        error = AttachmentNotUploaded(sha256)
+    elif refusal_code == "message_too_large":
+        error = MessageTooLarge(sha256)
+    elif refusal_code is not None and refusal_code in FILES_REFUSALS:
+        message, why, fix = FILES_REFUSALS[refusal_code]
+        error = AttachmentsRefused(
+            refusal_code, message, why=_explanation(answer, "reason") or why, fix=_explanation(answer, "fix") or fix
+        )
+    else:
+        return None
+    error.attachment_bytes = _attachment_bytes(answer)
+    return error
+
+
+def _explanation(answer: dict[str, Any], key: str) -> str | None:
+    value = answer.get(key)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _attachment_bytes(answer: dict[str, Any]) -> int | None:
+    total = answer.get("attachment_bytes")
+    return total if isinstance(total, int) and not isinstance(total, bool) and total >= 0 else None
 
 
 def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
@@ -726,10 +809,86 @@ def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
     return None
 
 
-def _refusal_code(response: requests.Response) -> str | None:
+def _answer(response: requests.Response) -> dict[str, Any]:
     try:
         body = response.json()
     except ValueError:
-        return None
-    code = body.get("error") if isinstance(body, dict) else None
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _refusal_code(answer: dict[str, Any]) -> str | None:
+    code = answer.get("error")
     return code if isinstance(code, str) else None
+
+
+def prepare_attachment_uploads(team: Team, files: Sequence[AttachmentUploadRequest]) -> list[AttachmentUploadSlot]:
+    payload = {"files": [{"sha256": file.sha256, "size": file.size} for file in files]}
+    try:
+        response = prepare_transactional_email_attachment_uploads(team.id, payload)
+    except Exception as e:
+        logger.exception("transactional_email_attachment_uploads_failed", team_id=team.id)
+        raise DeliveryUnavailable() from e
+    if response.status_code == 200:
+        return _answered_slots(team, files, response)
+    answer = _answer(response)
+    refusal_code = _refusal_code(answer)
+    if refusal_code == "field_not_accepted":
+        raise FieldNotAccepted("attachments")
+    if refusal_code == "message_too_large":
+        sha256 = answer.get("sha256")
+        raise MessageTooLarge(sha256 if isinstance(sha256, str) else None)
+    if refusal_code == "upload_quota_exceeded":
+        raise UploadQuotaExceeded("This project uploaded as many file bytes as it can today.")
+    if response.status_code != 503:
+        logger.error(
+            "transactional_email_attachment_uploads_rejected",
+            team_id=team.id,
+            status_code=response.status_code,
+            refusal_code=refusal_code,
+        )
+    if refusal_code == "invalid_request":
+        raise InvalidRequest("The email pipeline refused this file list.")
+    raise DeliveryUnavailable()
+
+
+def _answered_slots(
+    team: Team, files: Sequence[AttachmentUploadRequest], response: requests.Response
+) -> list[AttachmentUploadSlot]:
+    try:
+        slots = [_upload_slot(slot) for slot in response.json()["files"]]
+    except (ValueError, KeyError, TypeError) as e:
+        logger.exception("transactional_email_attachment_uploads_unreadable", team_id=team.id)
+        raise DeliveryUnavailable() from e
+    if [slot.sha256 for slot in slots] != [file.sha256 for file in files]:
+        logger.error("transactional_email_attachment_uploads_mismatched", team_id=team.id)
+        raise DeliveryUnavailable()
+    return slots
+
+
+def _upload_slot(slot: dict[str, Any]) -> AttachmentUploadSlot:
+    if slot["status"] == "present":
+        return PresentAttachment(sha256=slot["sha256"], expires_at=datetime.fromisoformat(slot["expires_at"]))
+    if slot["status"] != "upload":
+        raise ValueError(f"Unknown attachment upload status: {slot['status']}")
+    return AttachmentUploadTarget(
+        sha256=_text(slot, "sha256"),
+        url=_text(slot, "url"),
+        method=_text(slot, "method"),
+        headers=_text_map(slot, "headers"),
+        url_expires_at=datetime.fromisoformat(slot["url_expires_at"]),
+    )
+
+
+def _text(slot: dict[str, Any], key: str) -> str:
+    value = slot[key]
+    if not isinstance(value, str):
+        raise TypeError(f"Attachment upload `{key}` is not a string")
+    return value
+
+
+def _text_map(slot: dict[str, Any], key: str) -> dict[str, str]:
+    value = slot[key]
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        raise TypeError(f"Attachment upload `{key}` is not a map of strings")
+    return value

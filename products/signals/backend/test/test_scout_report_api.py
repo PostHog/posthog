@@ -22,13 +22,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.integration import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.artefact_schemas import (
-    AutostartSkip,
-    Priority,
-    PriorityAssessment,
-    SuggestedReviewers,
-    TaskRunArtefact,
-)
+from products.signals.backend.artefact_schemas import AutostartSkip, SuggestedReviewers, TaskRunArtefact
 from products.signals.backend.auto_start import _evaluate_link_gates, maybe_autostart_from_report_artefacts
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -58,7 +52,6 @@ from products.signals.backend.scout_harness.tools.report import (
     _extract_linked_repository,
     _report_classification_props,
     _resolve_report_repository,
-    _wants_repo_selection,
     edit_report_sync,
 )
 from products.signals.backend.scout_harness.tools.report_author import USER_REPORT_DAILY_LIMIT, ScoutRunReportAuthor
@@ -1729,9 +1722,25 @@ class TestScoutReportAPI(APIBaseTest):
         assert artefact is not None
         assert json.loads(artefact.content)["repository"] == expected
 
+    def test_emit_with_pr_intent_and_no_repository_keeps_the_linked_target_manual_only(self) -> None:
+        run = _make_run(self.team)
+        payload = self._payload(
+            summary="Traced to https://github.com/acme/widgets/pull/7",
+            priority="P1",
+            priority_explanation="Checkout is broken for every user.",
+            suggested_reviewers=[{"github_login": "octocat", "reason": "Owns checkout"}],
+        )
+        with _safe_judge(), patch(EMBED_PATH), patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS):
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        artefact = self._latest_artefact(response.json()["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        assert artefact is not None
+        content = json.loads(artefact.content)
+        assert (content["repository"], content["autostart_eligible"]) == ("acme/widgets", False)
+
     def test_combined_rewrite_and_reviewer_edit_autostarts_on_the_refreshed_repository(self) -> None:
-        # One edit can both move the report onto a new repository and add the reviewer that lets an
-        # inferred target autostart. Autostart reads the selection as it stands and is idempotent, so
+        # One edit can both move the report onto a new repository and add a reviewer, which re-runs
+        # autostart. Autostart reads the selection as it stands and is idempotent, so
         # refreshing after it would open the implementation task against the repository the same edit
         # just replaced, with no second chance to correct it.
         run = _make_run(self.team)
@@ -3189,38 +3198,6 @@ class TestBuildSuggestedReviewers(APIBaseTest):
         ]
 
 
-_P1 = PriorityAssessment(priority=Priority.P1, explanation="big blast radius")
-_PICKED_REVIEWER = SuggestedReviewers.model_validate([{"github_login": "picked"}])
-# An owner-flagged reviewer only exists because the scout picked an owner, so it carries PR intent
-# like any other pick — `is_skill_owner` governs autostart identity, not intent.
-_OWNER_FLAGGED_REVIEWER = SuggestedReviewers.model_validate([{"github_login": "owner", "is_skill_owner": True}])
-
-
-class TestWantsRepoSelection(SimpleTestCase):
-    """The PR-intent gate for repo selection. The load-bearing case: an owner-flagged reviewer is a
-    scout pick (nothing is injected), so it counts as intent — re-excluding it would skip repo
-    selection for a prioritized report whose scout deliberately routed to an owner."""
-
-    @parameterized.expand(
-        [
-            ("picked_reviewer_with_priority_is_pr_intent", None, _P1, _PICKED_REVIEWER, True),
-            ("owner_flagged_reviewer_with_priority_is_pr_intent", None, _P1, _OWNER_FLAGGED_REVIEWER, True),
-            ("reviewer_without_priority_is_not_pr_intent", None, None, _PICKED_REVIEWER, False),
-            ("explicit_repository_always_selects", "posthog/posthog", None, None, True),
-            ("priority_without_reviewers_is_not_pr_intent", None, _P1, None, False),
-        ]
-    )
-    def test_wants_repo_selection(
-        self,
-        _name: str,
-        repository: str | None,
-        priority: PriorityAssessment | None,
-        reviewers: SuggestedReviewers | None,
-        expected: bool,
-    ) -> None:
-        assert _wants_repo_selection(repository, priority, reviewers) is expected
-
-
 def _evidence(*descriptions: str) -> list[ReportEvidence]:
     return [ReportEvidence(description=d, source_id=f"s{i}") for i, d in enumerate(descriptions)]
 
@@ -3266,19 +3243,18 @@ class TestExtractLinkedRepository(SimpleTestCase):
         assert _extract_linked_repository("", "https://github.com/acme/widgets", _evidence(), []) is None
 
 
-class TestResolveReportRepositoryGateSkipped(SimpleTestCase):
+class TestResolveOmittedReportRepository(SimpleTestCase):
     def _resolve(self, summary: str) -> RepoSelectionResult | None:
         with patch(
             "products.signals.backend.scout_harness.tools.report._connected_repositories",
             return_value=_CONNECTED_REPOS,
         ):
-            return async_to_sync(_resolve_report_repository)(
+            return _resolve_report_repository(
                 team_id=1,
                 repository=None,
                 title="Crash on upload",
                 summary=summary,
                 evidence=_evidence(),
-                wants_full_selection=False,
             )
 
     def test_linked_repo_seeds_a_manual_only_target(self) -> None:

@@ -1039,11 +1039,21 @@ class TestSendCalendarAPI(APIBaseTest):
         HogFlowBatchJob.objects.filter(id=job.id).update(created_at=created_at)
         return str(job.id)
 
-    def _get(self, start=None, end=None):
-        return self.client.get(
-            f"/api/projects/{self.team.id}/hog_flows/send_calendar/",
-            {"start": (start or self.RANGE_START).isoformat(), "end": (end or self.RANGE_END).isoformat()},
-        )
+    def _get(self, start=None, end=None, ids=None):
+        params = {"start": (start or self.RANGE_START).isoformat(), "end": (end or self.RANGE_END).isoformat()}
+        if ids is not None:
+            params["ids"] = ids
+        return self.client.get(f"/api/projects/{self.team.id}/hog_flows/send_calendar/", params)
+
+    def test_ids_return_only_the_requested_flows(self):
+        wanted = self._flow("Launch email", email=_email_step())
+        self._flow("Other email", email=_email_step())
+
+        response = self._get(ids=str(wanted.id))
+        invalid = self._get(ids="not-an-id")
+
+        assert [row["id"] for row in response.json()] == [str(wanted.id)]
+        assert invalid.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
         [

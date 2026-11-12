@@ -95,7 +95,8 @@ The box is named `wt-<label>` and the mirror goes to `/home/hog/posthog` over SS
 To make Hogland the default, including for automatic boxes, pass `--provider hogland` together with `--auto`.
 `hogli devbox:config:rm worktree-provider` goes back to Coder.
 `worktrees:clean --stop-boxes` hibernates a Hogland box, and `--delete-boxes` deletes it.
-`--clone-from` and `--start-app` work only with Coder.
+`--clone-from <label>` clones the running Hogland devbox `wt-<label>` with `hogland devbox clone`, which needs a recent `hogland` CLI.
+`--start-app` on a new box saves the file `~/.config/hogli/start-app` on it, and every later `devbox:worktree` run then starts the app with `hogli up -d`.
 
 ## Prerequisites
 

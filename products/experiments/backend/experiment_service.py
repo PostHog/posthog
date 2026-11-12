@@ -38,7 +38,7 @@ from posthog.api.cohort import (
     CohortSerializer,
     get_flags_blocking_cohort_deletion,
 )
-from posthog.api.utils import ServiceRequest
+from posthog.api.utils import ServiceRequest, parse_id_list
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import (
     ACTIONS,
@@ -97,7 +97,7 @@ from products.experiments.backend.metric_calculation.config import (
     stamp_calculation_keys,
 )
 from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
-from products.experiments.backend.metric_resolution import MetricRole, apply_saved_metric_overrides, find_metric_dict
+from products.experiments.backend.metric_resolution import MetricRole, find_metric_dict
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
     defined_event_names,
@@ -1112,19 +1112,6 @@ class ExperimentService:
             raise ValidationError(
                 f"Legacy shared metrics can't be added to an experiment: {', '.join(legacy_names)}. "
                 "Use a shared metric of kind 'ExperimentMetric' instead."
-            )
-
-        # The breakdowns of a link replace those of the saved query, so a valid saved metric can become a
-        # metric that cannot run, such as a percentile metric with breakdowns. A link without breakdowns
-        # leaves the saved definition as it is, so only those links need the check.
-        saved_queries_by_id = dict(saved_metrics.values_list("id", "query"))
-        for i, saved_metric in enumerate(saved_metrics_ids):
-            metadata = saved_metric.get("metadata") or {}
-            if not metadata.get("breakdowns"):
-                continue
-            parse_and_validate_metric(
-                apply_saved_metric_overrides(saved_queries_by_id[int(saved_metric["id"])], metadata),
-                error_prefix=f"Invalid saved metric at index {i}: ",
             )
 
     @staticmethod
@@ -4550,6 +4537,10 @@ class ExperimentService:
                 queryset = queryset.filter(archived=archived_bool)
             else:
                 queryset = queryset.filter(archived=False)
+
+            feature_flag_ids = parse_id_list(query_params.get("feature_flag_ids"), name="feature_flag_ids", parse=int)
+            if feature_flag_ids is not None:
+                queryset = queryset.filter(feature_flag_id__in=feature_flag_ids)
 
             feature_flag_id = query_params.get("feature_flag_id")
             if feature_flag_id:
