@@ -47,7 +47,7 @@ Colocate widget code in `widgets/<product>/` — do not scaffold empty `hooks/` 
 - `EXPECTED_WIDGET_TYPES` / `WIDGET_REGISTRY` — `backend/widget_registry.py` (re-exports `widget_specs/registry.py`; enforced in `test_run_widgets.py` — no separate FE union file)
 - `WIDGET_CATALOG` — `backend/widget_catalog.py` (derived from `WIDGET_SPECS`)
 - `DASHBOARD_WIDGET_CATALOG` — `frontend/widget_types/catalog.ts` (hand-written UI metadata)
-- OpenAPI config serializers — `backend/widget_specs/openapi.py` (derived from `WIDGET_SPECS`; re-exported from `api/widget_openapi_serializers.py`)
+- OpenAPI config serializers — `backend/widget_specs/openapi.py` (derived from `WIDGET_SPECS`; re-exported from `presentation/widget_openapi_serializers.py`)
 
 CI: `test_run_widgets.py` (registry + catalog + OpenAPI serializer count), `registry.test.tsx` (FE catalog ↔ registry).
 
@@ -63,8 +63,6 @@ Dashboards already have **insight tiles** for HogQL/query visualizations — com
 | Product-native list/table/card context     | **Widget** (`error_tracking_list`, `session_replay_list`, …)  |
 
 If intake is chart-only, **stop** — help the engineer add the right insight to the dashboard instead of a new `widget_type`. Lists may include small non-chart metadata (badges, sparklines in a row) when the product scene does; the tile body is still a list, not a chart canvas.
-
-**Exception: `metrics`.** Metrics are not an insight type, so the `metrics` widget is the dashboard chart for them. It reuses the metrics product's editor (builder, PromQL, SQL), runner, and panels, and follows the dashboard date range like an insight tile (`dashboard_filter_keys`). Do not use it as a precedent for a chart over an insight query kind.
 
 Per-type add flow (ordered checklist): [checklist-new-widget-type.md](checklist-new-widget-type.md).
 
@@ -95,8 +93,6 @@ WIDGET_SPECS[YOUR_TYPE] = WidgetSpec(
 ```
 
 - Config validation is **Pydantic-only** — no per-type `validate_<type>_config` functions
-- Optional `WidgetSpec` fields: `dashboard_filter_keys` (the `DashboardFilter` keys the widget follows; run_widgets passes `dashboard_id` and only those keys, saved filters merged with the viewer's override, and the manifest writes them as `dashboardFilterKeys` so the frontend refetches the tile only when one of them changes), `session_throttle="per_viewer"` (a browser session counts against a per-viewer chart throttle instead of the shared per-team widget throttle; API keys and OAuth keep the shared one), `public_config_exclude` (config keys shared dashboards never receive), `creation_flag` (also written to `widget-form-fields.json` as `creationFlag`, which hides the type in the picker)
-- Raise `WidgetQueryError(message)` from `widgets/errors.py` for an expected failure the viewer should read (no access, an invalid query). The tile shows the message; other exceptions show a generic error and are logged
 - `run_<type>_widget` lives in `widgets/<widget_type>.py` — call the **same** query runner the standalone product uses
 - Registry wiring checklist: [checklist-new-widget-type.md §1–2](checklist-new-widget-type.md)
 - Product RBAC: [permissions-and-sharing.md § Product RBAC](permissions-and-sharing.md#product-rbac)
@@ -124,8 +120,6 @@ Checklist steps: [checklist-new-widget-type.md §7](checklist-new-widget-type.md
 Catalog entry in `widget_types/catalog.ts` drives add modal, layouts, headers, and **public/shared placeholder copy** (previews live in `widgets/previews/dashboardWidgetPreviews.ts`) — registry alone is not enough.
 
 Optional catalog `availability` declares project setup prerequisites (exception autocapture, etc.). Gating runs at **tile render** via `WidgetRuntimeAvailabilityGuard`, not in the add modal — see [availability-and-gating.md](availability-and-gating.md).
-
-Other optional catalog fields: `pickerPresets` (several picker cards for one `widget_type`, each with its own label and `defaultConfig`; selection keys are `<widget_type>:<preset id>` and previews get `presetId`), `openEditorOnAdd` (the settings modal opens when one such tile is added), and `dashboardControls(config)` (the dashboard filter controls the tile follows, for a spec with `dashboard_filter_keys`). Registry entries can set `getDefaultTitle(config)` for the card title of an unnamed tile.
 
 ## Widget type vs catalog group
 
@@ -160,7 +154,7 @@ Import `Component` / `EditModal` directly in `registry.tsx` (no `React.lazy`). E
 - BE: OpenAPI polymorphic config serializer count matches registry (`test_run_widgets.py`)
 - BE: catalog `config_schema` matches Pydantic JSON schema (`test_widget_config_schema_parity.py`)
 - BE: per-type `widget_type` enum overrides (`test_widget_openapi_enums.py`; `build:widget-types` preflight)
-- BE: dashboard PATCH OpenAPI ⊆ runtime writables (`test_dashboard_openapi.py` + `api/test/dashboard_openapi_test_helpers.py`)
+- BE: dashboard PATCH OpenAPI ⊆ runtime writables (`test_dashboard_openapi.py` + `tests/api/dashboard_openapi_test_helpers.py`)
 - FE: `DASHBOARD_WIDGET_REGISTRY satisfies Record<DashboardWidgetCatalogKey, …>`
 - FE: `DASHBOARD_WIDGET_PREVIEWS` (`widgets/previews/dashboardWidgetPreviews.ts`) keyed by catalog; `registry.test.tsx` covers every catalog key
 - FE: Zod config top-level keys match backend property map (`widgetConfigSchemaParity.test.ts` + `widget-config-property-keys.json`)

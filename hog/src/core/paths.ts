@@ -1,7 +1,47 @@
-import { isAbsolute, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path'
+
+import { HogError } from './errors'
+import type { Runtime } from './runtime'
 
 export function absolutePath(root: string, path: string): string {
     return isAbsolute(path) ? path : resolve(root, path)
+}
+
+// Whether an absolute `path` is inside the absolute `folder`. The folder itself is not inside it.
+export function isInside(folder: string, path: string): boolean {
+    const inside = relative(folder, path)
+    return inside !== '' && inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside)
+}
+
+// Where a write to `path` lands once links resolve, even when the folders above it don't exist yet. A link
+// to a missing target counts as missing here, so it doesn't resolve.
+export async function realWritePath(runtime: Pick<Runtime, 'exists' | 'realPath'>, path: string): Promise<string> {
+    const missing: string[] = []
+    let existing = path
+
+    while (!(await runtime.exists(existing)) && dirname(existing) !== existing) {
+        missing.unshift(basename(existing))
+        existing = dirname(existing)
+    }
+
+    return join(await runtime.realPath(existing), ...missing)
+}
+
+export async function findGitRoot(
+    runtime: Pick<Runtime, 'cwd' | 'exists'>
+): Promise<{ root: string; gitPath: string } | undefined> {
+    let folder = runtime.cwd()
+    for (;;) {
+        const gitPath = join(folder, '.git')
+        if (await runtime.exists(gitPath)) {
+            return { root: folder, gitPath }
+        }
+        const parent = dirname(folder)
+        if (parent === folder) {
+            return undefined
+        }
+        folder = parent
+    }
 }
 
 // The path to store in posthog.json, relative to its folder. A sibling folder stays relative, as
@@ -9,4 +49,42 @@ export function absolutePath(root: string, path: string): string {
 export function storedPath(root: string, path: string): string {
     const rel = relative(root, path)
     return isAbsolute(rel) ? path : rel
+}
+
+// hog's own folder, where it keeps its settings, the approvals it waits for and, without a keychain,
+// its credentials. posthog-cli's ~/.posthog folder is not hog's: only `hog auth migrate` reads it.
+export function hogDir(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir' | 'isDevelopment'>): string {
+    const { env, platform } = runtime
+    const home = runtime.homeDir()
+    const name = runtime.isDevelopment ? 'hog-dev' : 'hog'
+    let folder: string | undefined
+    if (platform === 'win32') {
+        // Local, not Roaming: a domain profile copies Roaming to a server and to every machine the
+        // person signs in to, and this folder can hold credentials.
+        folder = env.LOCALAPPDATA
+            ? win32.join(env.LOCALAPPDATA, name)
+            : home && win32.join(home, 'AppData', 'Local', name)
+    } else if (platform === 'darwin') {
+        folder = home && posix.join(home, 'Library', 'Application Support', name)
+    } else {
+        // The XDG spec says to ignore a relative XDG_CONFIG_HOME.
+        const xdg = env.XDG_CONFIG_HOME && posix.isAbsolute(env.XDG_CONFIG_HOME) ? env.XDG_CONFIG_HOME : undefined
+        folder = xdg ? posix.join(xdg, name) : home && posix.join(home, '.config', name)
+    }
+    if (!folder) {
+        throw new HogError(
+            'no_home_directory',
+            "hog couldn't find your home folder to keep its settings in.",
+            platform === 'win32' ? 'Set LOCALAPPDATA to your local app data folder.' : 'Set HOME to your home folder.'
+        )
+    }
+    return folder
+}
+
+export function hogFile(
+    runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir' | 'isDevelopment'>,
+    name: string
+): string {
+    const folder = hogDir(runtime)
+    return runtime.platform === 'win32' ? win32.join(folder, name) : posix.join(folder, name)
 }

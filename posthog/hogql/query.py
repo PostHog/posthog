@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Sequence
 from datetime import datetime
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
@@ -71,12 +72,15 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.multi_query import SharingQuery, is_query_sharing_enabled
 from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.resolver import Resolver, ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
+from posthog.hogql.team_first_prewhere import should_check_team_first_in_prewhere
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
@@ -85,7 +89,9 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import (
@@ -113,6 +119,49 @@ tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
 MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
+
+
+def _contains_raw_bytes(value: object) -> bool:
+    if value is None or isinstance(value, str):
+        return False
+    if isinstance(value, bytes):
+        return True
+    if isinstance(value, list):
+        return any(_contains_raw_bytes(item) for item in value)
+    if isinstance(value, tuple):
+        return any(_contains_raw_bytes(item) for item in value)
+    if isinstance(value, dict):
+        return any(_contains_raw_bytes(key) or _contains_raw_bytes(item) for key, item in value.items())
+    return False
+
+
+def _raise_for_raw_bytes_in_string_results(
+    rows: Sequence[Sequence[object]], types: Sequence[tuple[str, str]], query_type: str
+) -> None:
+    """Reject raw bytes in String results because query responses and their cache use JSON."""
+    columns_with_bytes: list[str] = []
+    for column, (column_name, column_type) in enumerate(types):
+        if "String" not in column_type:
+            continue
+        if any(_contains_raw_bytes(row[column]) for row in rows):
+            columns_with_bytes.append(column_name)
+
+    if not columns_with_bytes:
+        return
+
+    if query_type == "HogQLQuery":
+        column_names = ", ".join(repr(column_name) for column_name in columns_with_bytes)
+        raise QueryError(
+            f"Query result column(s) {column_names} contain raw bytes that cannot be returned as JSON. "
+            "Encode the affected values with `hex()` or `base64Encode()` in your query to preserve the original bytes."
+        )
+
+    error = QueryError(
+        "Some values in these results aren't valid text, so the results can't be shown. "
+        "Check the event and person properties used here for values with invalid characters."
+    )
+    capture_exception(error, {"query_type": query_type, "columns": columns_with_bytes})
+    raise error
 
 
 @frozen
@@ -147,6 +196,10 @@ class HogQLQueryExecutor:
     pretty: Optional[bool] = True
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
     hogql_context: Optional[HogQLContext] = None
+    _sharing_ast: ast.SelectQuery | ast.SelectSetQuery | None = dataclasses.field(default=None, init=False, repr=False)
+    _capture_sharing_ast: bool = dataclasses.field(default=False, init=False, repr=False)
+    _sharing_default_top_level_limit: bool = dataclasses.field(default=False, init=False, repr=False)
+    _sharing_removed_limit: int | None = dataclasses.field(default=None, init=False, repr=False)
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_context: Optional[HogQLContext] = None
     clickhouse_sql: Optional[str] = None
@@ -158,12 +211,14 @@ class HogQLQueryExecutor:
     direct_dialect: Optional[HogQLDialect] = None
     connection_id: Optional[str] = None
     expected_direct_engine: str | None = None
+    trino_canary: bool = False
     send_raw_query: bool = False
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
     resolver_factory: Optional[ResolverFactory] = None
     refresh_stale_view_columns: bool = True
+    returned_row_limit: int | None = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -222,9 +277,9 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor._process_variables")
     def _process_variables(self):
         with self.timings.measure("variables"):
-            if self.variables and len(self.variables.keys()) > 0:
+            if self.variables or find_placeholders(self.select_query).has_variables:
                 self.select_query = replace_variables(
-                    node=self.select_query, variables=list(self.variables.values()), team=self.team
+                    node=self.select_query, variables=list((self.variables or {}).values()), team=self.team
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._process_placeholders")
@@ -362,6 +417,14 @@ class HogQLQueryExecutor:
             )
 
         with self.timings.measure("print_prepared_ast"):
+            if self._capture_sharing_ast:
+                self._sharing_ast = select_query_hogql
+                # The executor injects a safety limit for ordinary queries. It does not affect a
+                # top-level count, but must not make it look like the caller supplied LIMIT.
+                if self._sharing_default_top_level_limit and isinstance(self._sharing_ast, ast.SelectQuery):
+                    if isinstance(self._sharing_ast.limit, ast.Constant) and type(self._sharing_ast.limit.value) is int:
+                        self._sharing_removed_limit = self._sharing_ast.limit.value
+                    self._sharing_ast.limit = None
             self.hogql = print_prepared_ast(
                 select_query_hogql,
                 self.hogql_context,
@@ -506,7 +569,8 @@ class HogQLQueryExecutor:
                 context=direct_context,
                 dialect=dialect,
                 pretty=self.pretty if self.pretty is not None else True,
-            )
+            ),
+            dialect=dialect,
         )
         self.direct_context = direct_context
         self.direct_values = direct_context.values
@@ -568,8 +632,8 @@ class HogQLQueryExecutor:
         if self._references_information_schema(direct_context):
             return None
 
-        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the optional backend only for Trino queries
-            transpile_hogql_to_trino_with_database,
+        from posthog.hogql.transforms.trino.manifest import (
+            transpile_hogql_to_trino_with_database,  # noqa: PLC0415 -- load the optional backend only for Trino queries
         )
 
         transpiled = transpile_hogql_to_trino_with_database(
@@ -590,7 +654,7 @@ class HogQLQueryExecutor:
 
         self.hogql = transpiled.hogql
         self.print_columns = list(transpiled.print_columns)
-        self.direct_sql = ensure_single_direct_statement(transpiled.sql)
+        self.direct_sql = ensure_single_direct_statement(transpiled.sql, dialect="trino")
         self.direct_values = transpiled.values
         self.direct_source_id = str(source.id)
         self.direct_dialect = "trino"
@@ -628,6 +692,17 @@ class HogQLQueryExecutor:
         except BaseHogQLError:
             return {}
         return types
+
+    def _modifiers_tag(self) -> dict[str, Any]:
+        tag = {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
+        if (
+            isinstance(self.clickhouse_settings, HogQLGlobalSettings)
+            and self.clickhouse_settings.move_primary_key_columns_to_end_of_prewhere is False
+        ):
+            # Temporary rollout marker, not a real modifier. Remove it with the `hogql-team-first-prewhere` flag.
+            # It goes here because `query_log_archive` keeps `modifiers` and drops unknown top-level tags.
+            tag["teamFirstPrewhere"] = True
+        return tag
 
     def _column_formats(self) -> list[str | None] | None:
         if self.send_raw_query and self.connection_id is not None:
@@ -713,7 +788,10 @@ class HogQLQueryExecutor:
                 query_type=self.query_type,
                 debug=bool(self.debug),
                 principal=(
-                    DirectQueryPrincipal(value=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}")
+                    DirectQueryPrincipal(
+                        value=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}",
+                        trino_canary=self.trino_canary,
+                    )
                     if isinstance(self.user, User) and self.user.pk is not None
                     else None
                 ),
@@ -774,13 +852,23 @@ class HogQLQueryExecutor:
                     settings=settings,
                 )
 
-            if self.clickhouse_context.workload == Workload.LOGS and self.query_type == "HogQLQuery":
+            if self.clickhouse_context.workload in PINNED_CLUSTER_WORKLOADS and self.query_type == "HogQLQuery":
                 if settings.max_bytes_to_read is None:
                     settings.max_bytes_to_read = get_hogql_max_bytes_to_read_for_logs_user_queries(
                         self.team.organization
                     )
                 if settings.read_overflow_mode is None:
                     settings.read_overflow_mode = "throw"
+
+            # Batch exports pass a `HogQLQuerySettings` subclass, which has no field for this setting.
+            if isinstance(settings, HogQLGlobalSettings) and should_check_team_first_in_prewhere(
+                self.team, self.clickhouse_prepared_ast
+            ):
+                # ON can help when index selection is precise; OFF can help when it leaves lots of irrelevant
+                # rows inside the selected granules. Small teams can share granules with many other teams,
+                # so an early team_id check can avoid expensive property evaluation on other teams' rows.
+                # OFF allows the optimizer to check team_id earlier; it does not force it first.
+                settings.move_primary_key_columns_to_end_of_prewhere = False
 
             with self.timings.measure("print_prepared_ast"):
                 if self.clickhouse_prepared_ast is None:
@@ -852,7 +940,8 @@ class HogQLQueryExecutor:
                 self,
                 query=query,
                 settings=settings,
-                context=dataclasses.replace(self.context, limit_top_select=False),
+                # The source query gets its own set, so its flag-call reads do not tag the query that embeds its rows.
+                context=dataclasses.replace(self.context, limit_top_select=False, flag_calls_read=set()),
                 limit_context=LimitContext.QUERY,
             )
             executor._prompt_jev_tables = self._prompt_jev_tables
@@ -903,6 +992,11 @@ class HogQLQueryExecutor:
         if embedded_select:
             _EmbeddedSelectSettingsValidator().visit(self.select_query)
         if not embedded_select:
+            self._sharing_default_top_level_limit = (
+                self._capture_sharing_ast
+                and isinstance(self.select_query, ast.SelectQuery)
+                and self.select_query.limit is None
+            )
             self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
@@ -983,9 +1077,7 @@ class HogQLQueryExecutor:
                 **self.context.read_tags(),
                 plan_fingerprint=plan_fingerprint,
                 timings=timings_dict,
-                modifiers=(
-                    {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
-                ),
+                modifiers=self._modifiers_tag(),
             )
 
             workload = self.workload
@@ -1021,6 +1113,9 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
+                _raise_for_raw_bytes_in_string_results(
+                    self.results[: self.returned_row_limit], self.types, self.query_type
+                )
             except Exception as e:
                 if self.debug:
                     self.results = []
@@ -1066,6 +1161,57 @@ class HogQLQueryExecutor:
                     printed_sql=self.clickhouse_sql,
                 )
 
+    @tracer.start_as_current_span("HogQLQueryExecutor.prepare_for_sharing")
+    def prepare_for_sharing(self, *, query_id: str, scope_key: str) -> SharingQuery:
+        """Compile without execution, scoped to one caller-validated request.
+
+        The returned logical AST owns its literals, so it can be rewritten and compiled
+        again without merging independently allocated ClickHouse parameter names.
+        """
+        if self.connection_id is not None or self.send_raw_query:
+            raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can share execution.")
+        self._capture_sharing_ast = True
+        self._sharing_default_top_level_limit = False
+        self._sharing_removed_limit = None
+        try:
+            prepared = self._prepare_execution()
+            sharing_ast = self._sharing_ast
+            default_limit = self._sharing_removed_limit
+        finally:
+            self._capture_sharing_ast = False
+            self._sharing_default_top_level_limit = False
+            self._sharing_removed_limit = None
+            self._sharing_ast = None
+        if prepared.engine != "clickhouse" or sharing_ast is None:
+            raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can share execution.")
+        context_key = repr(
+            (
+                scope_key,
+                self.team.pk,
+                self.user.pk if self.user else None,
+                id(self.context.user_access_control),
+                self.context.bypass_warehouse_access_control,
+                self.context.apply_events_retention_floor,
+                _restriction_key(prepared.context.restricted_properties),
+                self.query_modifiers,
+                self.clickhouse_settings,
+                self.workload,
+                self.ch_user,
+                self.limit_context,
+                prepared.context.timezone,
+                prepared.context.database.get_timezone() if prepared.context.database else None,
+                prepared.context.database.get_week_start_day() if prepared.context.database else None,
+            )
+        )
+        return SharingQuery(
+            query_id=query_id,
+            query=clone_expr(sharing_ast, clear_types=True, clear_locations=True),
+            context_key=context_key,
+            output_columns=tuple(self.print_columns),
+            sharing_enabled=is_query_sharing_enabled(self.team),
+            default_limit=default_limit,
+        )
+
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")
     def generate_clickhouse_sql(self) -> tuple[str, HogQLContext]:
         prepared_execution = self._prepare_execution()
@@ -1095,12 +1241,14 @@ class HogQLQueryExecutor:
 
     def _refreshed_stale_view_columns(self, started_at: datetime) -> bool:
         view_ids = self.context.referenced_saved_query_ids
-        if not self.refresh_stale_view_columns or not view_ids:
+        if not self.refresh_stale_view_columns or not view_ids or self.user is None:
             return False
         try:
             if data_modeling_api.refresh_view_columns(self.team, view_ids, self.user):
                 return True
             return data_modeling_api.views_updated_since(self.team, view_ids, started_at)
+        except ConcurrencyLimitExceeded:
+            return False
         except Exception as e:
             capture_exception(e, {"team_id": self.team.pk})
             return False
@@ -1186,6 +1334,10 @@ class HogQLQueryExecutor:
             )
             for s in self.used_data_warehouse_sources
         ]
+
+
+def _restriction_key(restricted: set[RestrictedProperty] | None) -> tuple[str, ...] | None:
+    return tuple(sorted(repr(prop) for prop in restricted)) if restricted is not None else None
 
 
 _MISSING_COLUMN_MESSAGES = (UNRESOLVED_FIELD_MESSAGE, FIELD_NOT_FOUND_MESSAGE)

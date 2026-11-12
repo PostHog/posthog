@@ -1,9 +1,5 @@
 import { defineCommand } from '@/core/command'
-import { printDiagnostics, type Diagnostics } from '@/core/diagnostics'
-
-interface MetadataResponse extends Diagnostics {
-    isValid?: boolean | null
-}
+import { DiagnosticsReport, printDiagnostics } from '@/core/diagnostics'
 
 export default defineCommand({
     description: 'Check the syntax and types of a HogQL query without running it',
@@ -16,9 +12,11 @@ export default defineCommand({
 
     async run({ args, ctx }) {
         const api = await ctx.posthog()
-        const response = await api.post<MetadataResponse>('query', {
-            query: { kind: 'HogQLMetadata', language: 'hogQL', query: args.query },
-        })
+        const response = await api.post(
+            'query',
+            { query: { kind: 'HogQLMetadata', language: 'hogQL', query: args.query } },
+            DiagnosticsReport
+        )
         return { query: args.query, response }
     },
 

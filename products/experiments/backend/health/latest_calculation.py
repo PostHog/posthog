@@ -1,11 +1,24 @@
 import re
+from collections.abc import Mapping
+from datetime import datetime, timedelta
 from typing import Any
 
+from posthog.schema import ExperimentStatsBaseValidated
+
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.experiments.backend.facade.enums import ExposuresPath
-from products.experiments.backend.health.context import LatestCalculation, MetricCalculationFailure
+from products.experiments.backend.health.context import (
+    LatestCalculation,
+    MetricCalculationFailure,
+    RatioSide,
+    ZeroMetric,
+    ingestion_proof_events,
+    ingestion_records_project,
+)
 from products.experiments.backend.health.metric_compiles import can_hold_evaluation_rules, without_available_fields
+from products.experiments.backend.logic.result_stats import VariantResult, parse_stored_response
 from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
     build_calculation_configs,
@@ -13,6 +26,7 @@ from products.experiments.backend.metric_calculation.config import (
     team_experiments_configs,
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_validation import event_last_seen, metric_nodes
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
 from products.experiments.backend.recalculation import get_latest_recalculation
 from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
@@ -76,6 +90,110 @@ def _load_latest_calculation(experiment: Experiment) -> LatestCalculation:
         failures=failures,
         completed_count=len(completed),
         completed_exposures_paths=results.exposures_paths(completed) if failures else frozenset(),
+        zero_metrics=_zero_metrics(
+            experiment, [(configs[row.metric_uuid], row) for row in results.with_zero_baseline(completed)]
+        ),
+        hours_of_data=(run.query_to - experiment.start_date) / timedelta(hours=1)
+        if run.query_to is not None and experiment.start_date is not None
+        else None,
+    )
+
+
+@frozen
+class _ZeroResult:
+    calculation_config: MetricCalculationConfig
+    # None when the metric itself reads zero, rather than a side of a ratio.
+    ratio_side: RatioSide | None
+    stats: tuple[ExperimentStatsBaseValidated | VariantResult, ...]
+    # The nodes that the zero reads, without the other side of a ratio.
+    nodes: tuple[dict, ...]
+
+    @property
+    def events(self) -> tuple[str, ...]:
+        names = (node.get("event") for node in self.nodes if node.get("kind") == "EventsNode")
+        return tuple(dict.fromkeys(name for name in names if isinstance(name, str) and name.strip()))
+
+    @property
+    def warehouse_tables(self) -> tuple[str, ...]:
+        names = (node.get("table_name") for node in self.nodes if node.get("kind") == "ExperimentDataWarehouseNode")
+        return tuple(dict.fromkeys(name for name in names if isinstance(name, str) and name))
+
+
+def _zero_metrics(
+    experiment: Experiment, completed: list[tuple[MetricCalculationConfig, ExperimentMetricResult]]
+) -> tuple[ZeroMetric, ...]:
+    zero = [result for config, row in completed for result in _zero_results(config, row)]
+    if not zero:
+        return ()
+    events = {event for result in zero for event in result.events}
+    last_seen = event_last_seen(experiment.team.project_id, ingestion_proof_events(events)) if events else {}
+    # While ingestion skips the project, `last_seen_at` stays old for an event that still arrives.
+    if not ingestion_records_project(last_seen):
+        last_seen = {}
+    return tuple(_zero_metric(experiment, result, last_seen) for result in zero)
+
+
+def _zero_results(calculation_config: MetricCalculationConfig, row: ExperimentMetricResult) -> tuple[_ZeroResult, ...]:
+    """The metric, or each side of a ratio, that reads zero in every variant of the row."""
+    response = parse_stored_response(row.result)
+    if response is None or response.baseline is None:
+        return ()
+    stats = (response.baseline, *(response.variant_results or []))
+    definition = calculation_config.definition
+    # `sum_squares` tells a metric of zeros from values that cancel out.
+    numerator_is_zero = all(stat.sum == 0 and stat.sum_squares == 0 for stat in stats)
+    if definition.get("metric_type") != "ratio":
+        if not numerator_is_zero:
+            return ()
+        nodes = tuple(metric_nodes(dict(definition)))
+        return (_ZeroResult(calculation_config=calculation_config, ratio_side=None, stats=stats, nodes=nodes),)
+    sides: list[RatioSide] = []
+    if numerator_is_zero:
+        sides.append("numerator")
+    if all(_denominator_is_zero(stat) for stat in stats):
+        sides.append("denominator")
+    return tuple(
+        _ZeroResult(
+            calculation_config=calculation_config,
+            ratio_side=side,
+            stats=stats,
+            nodes=(node,) if isinstance(node := definition.get(side), dict) else (),
+        )
+        for side in sides
+    )
+
+
+def _denominator_is_zero(stat: ExperimentStatsBaseValidated | VariantResult) -> bool:
+    # A variant without exposures gets zero stats that leave the denominator unset.
+    if stat.number_of_samples == 0:
+        return True
+    return stat.denominator_sum == 0 and not stat.denominator_sum_squares
+
+
+def _zero_metric(experiment: Experiment, result: _ZeroResult, last_seen: Mapping[str, datetime]) -> ZeroMetric:
+    calculation_config = result.calculation_config
+    start_date = experiment.start_date
+    return ZeroMetric(
+        metric_id=calculation_config.metric_id,
+        name=calculation_metric_name(experiment, calculation_config),
+        role=calculation_config.role,
+        exposures=sum(stat.number_of_samples for stat in result.stats),
+        ratio_side=result.ratio_side,
+        definition=calculation_config.definition,
+        # `step_counts` holds the entities that reached each step of the metric, so its first count is the largest.
+        reached_earlier_step=sum(stat.step_counts[0] for stat in result.stats if stat.step_counts),
+        events=result.events,
+        warehouse_tables=result.warehouse_tables,
+        has_blank_event=any(
+            node.get("kind") == "EventsNode" and node.get("event") is not None and not str(node["event"]).strip()
+            for node in result.nodes
+        ),
+        has_filters=any(node.get("properties") for node in result.nodes),
+        stopped_events={
+            event: seen
+            for event in result.events
+            if (seen := last_seen.get(event)) is not None and start_date is not None and seen < start_date
+        },
     )
 
 

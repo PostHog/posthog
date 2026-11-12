@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPin, IconPinFilled, IconPlus } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonInput, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { Badge, Button, Input, Item, ItemContent, ItemDescription, Skeleton, Text } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, ReplayTabs, SessionRecordingPlaylistType } from '~/types'
@@ -32,33 +32,33 @@ export function ReplayCollectionsSegment({ logicKey }: { logicKey: string }): JS
 
     return (
         <div
-            className="flex flex-col flex-1 min-h-0 border rounded bg-surface-primary overflow-hidden"
+            data-quill
+            className="flex flex-col flex-1 min-h-0 border border-border rounded bg-background text-foreground overflow-hidden"
             data-attr="list-collections"
         >
-            <div className="flex items-center gap-2 p-2 border-b">
-                <LemonInput
+            <div className="flex items-center gap-2 p-2 border-b border-border">
+                <Input
                     type="search"
-                    size="small"
+                    size="sm"
                     className="flex-1"
                     placeholder="Search collections"
                     value={filters.search || ''}
-                    onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
+                    onChange={(event) => setSavedPlaylistsFilters({ search: event.target.value || undefined })}
                     data-attr="list-collections-search"
                 />
                 <AccessControlAction
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconPlus />}
+                    <Button
+                        variant="primary"
                         onClick={() => void createCollection()}
                         loading={creating}
                         data-attr="list-collections-new"
                     >
+                        <IconPlus />
                         New
-                    </LemonButton>
+                    </Button>
                 </AccessControlAction>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto">
@@ -81,17 +81,21 @@ export function ReplayCollectionsSegment({ logicKey }: { logicKey: string }): JS
                 )}
                 <CollectionSectionHeading title="Your collections" description="Made by your team." />
                 {loadPlaylistsFailed ? (
-                    <LemonBanner type="error" className="m-2">
-                        Couldn't load your collections. Refresh the page to try again.
-                    </LemonBanner>
+                    <Item variant="outline" tone="destructive" className="m-2">
+                        <ItemContent>
+                            <ItemDescription>
+                                Couldn't load your collections. Refresh the page to try again.
+                            </ItemDescription>
+                        </ItemContent>
+                    </Item>
                 ) : playlistsLoading && playlists.results.length === 0 ? (
                     <RowSkeletons count={4} />
                 ) : playlists.results.length === 0 ? (
-                    <p className="text-secondary text-xs m-0 px-3 py-4 text-center">
+                    <Text size="xs" variant="muted" className="px-3 py-4 text-center">
                         {searching
                             ? 'No collections match your search.'
                             : 'No collections yet. Create one to group recordings.'}
-                    </p>
+                    </Text>
                 ) : (
                     playlists.results.map((playlist) => (
                         <CollectionRow
@@ -103,15 +107,20 @@ export function ReplayCollectionsSegment({ logicKey }: { logicKey: string }): JS
                     ))
                 )}
             </div>
-            <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-t text-xs">
-                <span className="text-secondary">
+            <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-t border-border text-xs">
+                <span className="text-muted-foreground">
                     {playlists.count > playlists.results.length
                         ? `Showing ${playlists.results.length} of ${playlists.count}`
                         : ''}
                 </span>
-                <Link to={urls.replay(ReplayTabs.Playlists)} data-attr="list-collections-manage">
+                <Button
+                    variant="link"
+                    size="inline"
+                    render={<LinkPrimitive to={urls.replay(ReplayTabs.Playlists)} />}
+                    data-attr="list-collections-manage"
+                >
                     Manage collections
-                </Link>
+                </Button>
             </div>
         </div>
     )
@@ -127,28 +136,26 @@ function CollectionRow({
     onClick: () => void
 }): JSX.Element {
     const counts = getCollectionCounts(playlist.recordings_counts)
+    const total = counts?.total || 0
     return (
-        <LemonButton
-            fullWidth
-            size="small"
+        <Button
+            size="row"
+            left
             className="rounded-none"
-            icon={icon}
             onClick={onClick}
-            sideIcon={
-                counts ? (
-                    <LemonBadge.Number
-                        count={counts.total || 0}
-                        status={counts.unwatched ? 'primary' : 'muted'}
-                        size="small"
-                        maxDigits={3}
-                        showZero
-                    />
-                ) : undefined
-            }
             data-attr={playlist.is_synthetic ? 'list-collections-row-synthetic' : 'list-collections-row'}
         >
-            <span className="truncate font-normal">{playlist.name || playlist.derived_name || 'Unnamed'}</span>
-        </LemonButton>
+            {icon}
+            <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>
+            {counts && (
+                <Badge
+                    variant={counts.unwatched ? 'info' : 'default'}
+                    className="ml-auto group-hover/button:bg-fill-selected"
+                >
+                    {total > 999 ? '999+' : total}
+                </Badge>
+            )}
+        </Button>
     )
 }
 
@@ -156,7 +163,7 @@ function RowSkeletons({ count }: { count: number }): JSX.Element {
     return (
         <div className="flex flex-col gap-1 p-2">
             {Array.from({ length: count }, (_, i) => (
-                <LemonSkeleton key={i} className="h-7" />
+                <Skeleton key={i} className="h-7" />
             ))}
         </div>
     )

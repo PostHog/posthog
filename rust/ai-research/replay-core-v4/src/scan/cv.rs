@@ -7,10 +7,13 @@ use std::io::Read;
 
 use crate::bytescan::{self as scan, Span};
 use crate::compression;
+use crate::inspect::edits::EditSource;
 use serde::de::IgnoredAny;
 
 use super::canvas::{self, CanvasImage};
-use super::images::{extract_images, Declined, ImageSink};
+use crate::v4_image_refs::ImageDecline;
+
+use super::images::{extract_images, ImageSink};
 use super::message::{canonicalize_keys, Event, Message};
 
 const FULL_SNAPSHOT: u8 = 2;
@@ -34,12 +37,61 @@ pub fn decode(bytes: &[u8], span: Span) -> Result<Vec<u8>, CvError> {
 }
 
 fn compressed_bytes(bytes: &[u8], span: Span) -> Result<Vec<u8>, CvError> {
+    match latin1_bytes(bytes, span) {
+        Some(compressed) => Ok(compressed),
+        None => unescaped_latin1(bytes, span),
+    }
+}
+
+fn unescaped_latin1(bytes: &[u8], span: Span) -> Result<Vec<u8>, CvError> {
     let text = scan::unescape(bytes, span).map_err(|e| CvError::Malformed(e.0))?;
     let mut compressed = Vec::with_capacity(text.len());
     for c in text.chars() {
         compressed.push(u8::try_from(u32::from(c)).map_err(|_| CvError::NotLatin1)?);
     }
     Ok(compressed)
+}
+
+/// What [`unescaped_latin1`] returns for a string of latin-1 characters, in one pass. `None` for any other string.
+fn latin1_bytes(bytes: &[u8], span: Span) -> Option<Vec<u8>> {
+    let raw = bytes.get(span.0..span.1)?;
+    let inner = raw.strip_prefix(b"\"")?.strip_suffix(b"\"")?;
+    let mut out = Vec::with_capacity(inner.len());
+    let mut at = 0;
+    while let Some(&byte) = inner.get(at) {
+        at += 1;
+        let decoded = match byte {
+            b'\\' => {
+                at += 1;
+                match *inner.get(at - 1)? {
+                    escaped @ (b'"' | b'\\' | b'/') => escaped,
+                    b'b' => 0x08,
+                    b'f' => 0x0c,
+                    b'n' => b'\n',
+                    b'r' => b'\r',
+                    b't' => b'\t',
+                    b'u' => {
+                        let (character, consumed) = scan::decode_unicode(inner, at).ok()?;
+                        at += consumed;
+                        u8::try_from(u32::from(character)).ok()?
+                    }
+                    _ => return None,
+                }
+            }
+            0x00..=0x7f => byte,
+            0xc2 | 0xc3 => {
+                let next = *inner.get(at)?;
+                if next & 0xc0 != 0x80 {
+                    return None;
+                }
+                at += 1;
+                ((byte & 0x03) << 6) | (next & 0x3f)
+            }
+            _ => return None,
+        };
+        out.push(decoded);
+    }
+    Some(out)
 }
 
 fn decompress(compressed: &[u8]) -> Result<Vec<u8>, CvError> {
@@ -95,12 +147,11 @@ fn repaired_len(decoded: &[u8]) -> usize {
         .sum()
 }
 
-fn json_text(decoded: Vec<u8>) -> Option<Vec<u8>> {
-    let mut text = match String::from_utf8(decoded) {
-        Ok(text) => text.into_bytes(),
-        Err(error) => String::from_utf8_lossy(error.as_bytes())
-            .into_owned()
-            .into_bytes(),
+fn json_text(decoded: Vec<u8>, valid_utf8: bool) -> Option<Vec<u8>> {
+    let mut text = if valid_utf8 {
+        decoded
+    } else {
+        String::from_utf8_lossy(&decoded).into_owned().into_bytes()
     };
     if text.starts_with("\u{feff}".as_bytes()) {
         text.drain(..3);
@@ -276,11 +327,17 @@ fn expand_within(inner: &[u8], event: &Event, room: usize) -> (Expansion, usize)
             };
             let decoded_len = decoded.len();
             // The player's repair turns each invalid byte into three, so the repaired text must fit too.
-            if repaired_len(&decoded) > room.saturating_sub(cost) {
+            let valid_utf8 = std::str::from_utf8(&decoded).is_ok();
+            let repaired = if valid_utf8 {
+                decoded_len
+            } else {
+                repaired_len(&decoded)
+            };
+            if repaired > room.saturating_sub(cost) {
                 return (Expansion::Skipped, cost.saturating_add(decoded_len));
             }
             cost = cost.saturating_add(decoded_len);
-            let Some(json) = json_text(decoded) else {
+            let Some(json) = json_text(decoded, valid_utf8) else {
                 return (Expansion::Failed, cost);
             };
             // U+FFFD takes three bytes where an invalid byte took one.
@@ -409,11 +466,18 @@ pub fn extract_event_images(
     inner: &[u8],
     event: &Event,
     sink: &mut ImageSink<'_>,
+    copy: Option<&mut Copier<'_>>,
 ) -> Option<Vec<u8>> {
-    let (mut stored, takes_images) = match &*expansion(inner, event) {
-        Expansion::Failed | Expansion::Skipped => (None, false),
-        Expansion::Decoded(fields) => (Some(expanded(inner, event, fields)), true),
-        Expansion::Plain => (move_out_canvas_images(inner, event, sink), true),
+    let (mut stored, takes_images) = match (&*expansion(inner, event), copy) {
+        (Expansion::Failed | Expansion::Skipped, _) => (None, false),
+        (Expansion::Decoded(fields), copy) => (Some(expanded(inner, event, fields, copy)), true),
+        // Only a canvas event holds canvas images, and only a DOM event holds slots that the writer changes.
+        (Expansion::Plain, Some(copy)) => {
+            let mut out = Vec::with_capacity(event.span.1 - event.span.0);
+            copy(EditSource::Payload, inner, event.span, &mut out);
+            (Some(out), true)
+        }
+        (Expansion::Plain, None) => (move_out_canvas_images(inner, event, sink), true),
     };
     let arrived = &inner[event.span.0..event.span.1];
     if let Cow::Owned(one_line) = without_line_breaks(stored.as_deref().unwrap_or(arrived)) {
@@ -473,9 +537,9 @@ fn move_out_canvas_images(
         let replacement = match image {
             CanvasImage::Base64(span) => match scan::unescape(inner, span) {
                 Ok(payload) => sink.take_base64(payload.as_bytes()),
-                Err(_) => sink.decline(Declined::Undecodable),
+                Err(_) => sink.decline(ImageDecline::Undecodable),
             },
-            CanvasImage::Pixels(_) => sink.decline(Declined::Unsupported),
+            CanvasImage::Pixels(_) => sink.decline(ImageDecline::Unsupported),
         };
         let mut quoted = Vec::with_capacity(replacement.len() + 2);
         scan::write_json_string(&replacement, &mut quoted);
@@ -514,13 +578,26 @@ fn write_object(
     out.push(b'}');
 }
 
-fn expanded(inner: &[u8], event: &Event, fields: &[Decoded]) -> Vec<u8> {
+/// Copies a range of the payload or of a decoded string into the stored event, with what the writer changes there.
+pub type Copier<'c> = dyn FnMut(EditSource, &[u8], Span, &mut Vec<u8>) + 'c;
+
+fn expanded(
+    inner: &[u8],
+    event: &Event,
+    fields: &[Decoded],
+    mut copy: Option<&mut Copier<'_>>,
+) -> Vec<u8> {
     let mut out = Vec::with_capacity(event.span.1 - event.span.0);
     let json = |span: Span| {
         fields
             .iter()
             .find(|f| f.span == span)
             .map(|f| f.json.as_deref())
+    };
+    let mut put = |source: EditSource, bytes: &[u8], range: Span, out: &mut Vec<u8>| match &mut copy
+    {
+        Some(copy) => copy(source, bytes, range, out),
+        None => out.extend_from_slice(&bytes[range.0..range.1]),
     };
     write_object(inner, event.span, &mut out, |key, value, out| {
         if key == b"cv" {
@@ -530,22 +607,24 @@ fn expanded(inner: &[u8], event: &Event, fields: &[Decoded]) -> Vec<u8> {
             if let Some(decoded) = json(value) {
                 // A full snapshot whose data is empty has no data, as in the player.
                 let Some(decoded) = decoded else { return false };
-                out.extend_from_slice(decoded);
+                put(EditSource::Field(value), decoded, (0, decoded.len()), out);
                 return true;
             }
             if scan::is_object(inner, value) {
                 write_object(inner, value, out, |_, value, out| {
                     match json(value) {
-                        Some(Some(decoded)) => out.extend_from_slice(decoded),
+                        Some(Some(decoded)) => {
+                            put(EditSource::Field(value), decoded, (0, decoded.len()), out)
+                        }
                         Some(None) => return false,
-                        None => out.extend_from_slice(&inner[value.0..value.1]),
+                        None => put(EditSource::Payload, inner, value, out),
                     }
                     true
                 });
                 return true;
             }
         }
-        out.extend_from_slice(&inner[value.0..value.1]);
+        put(EditSource::Payload, inner, value, out);
         true
     });
     out
@@ -610,8 +689,10 @@ mod tests {
             .events
             .iter()
             .map(|e| {
-                serde_json::from_slice(&extract_event_images(&message.inner, e, &mut sink).unwrap())
-                    .unwrap()
+                serde_json::from_slice(
+                    &extract_event_images(&message.inner, e, &mut sink, None).unwrap(),
+                )
+                .unwrap()
             })
             .collect();
 
@@ -662,7 +743,7 @@ mod tests {
                 .events
                 .iter()
                 .map(|e| {
-                    let stored = extract_event_images(&message.inner, e, &mut sink)
+                    let stored = extract_event_images(&message.inner, e, &mut sink, None)
                         .unwrap_or_else(|| message.inner[e.span.0..e.span.1].to_vec());
                     serde_json::from_slice(&stored).unwrap()
                 })
@@ -706,7 +787,7 @@ mod tests {
         );
         let mut sink = sink();
         assert_eq!(
-            extract_event_images(&message.inner, &message.events[1], &mut sink),
+            extract_event_images(&message.inner, &message.events[1], &mut sink, None),
             None
         );
 
@@ -812,7 +893,7 @@ mod tests {
         let stored: Vec<Vec<u8>> = message
             .events
             .iter()
-            .map(|e| extract_event_images(&message.inner, e, &mut sink).unwrap())
+            .map(|e| extract_event_images(&message.inner, e, &mut sink, None).unwrap())
             .collect();
         assert!(stored
             .iter()
@@ -843,12 +924,51 @@ mod tests {
         let mut message =
             message_with(json!([{"type": 2, "timestamp": 1, "data": compressed, "cv": "2024-10"}]));
         message.decode_compressed();
-        let stored = extract_event_images(&message.inner, &message.events[0], &mut sink()).unwrap();
+        let stored =
+            extract_event_images(&message.inner, &message.events[0], &mut sink(), None).unwrap();
         assert!(String::from_utf8_lossy(&stored).contains(r#""textContent":"a"#));
         assert_eq!(
             serde_json::from_slice::<Value>(&stored).unwrap(),
             json!({"type": 2, "timestamp": 1, "data": {"node": {"type": 3, "textContent": "a\u{fffd}b", "id": 1}}})
         );
+    }
+
+    #[test]
+    fn reads_a_latin1_string_in_one_pass_as_the_unescaper_does() {
+        let mut strings: Vec<Vec<u8>> = Vec::new();
+        for code in 0..=0x17f_u32 {
+            let character = char::from_u32(code).unwrap();
+            strings.push(serde_json::to_vec(&format!("a{character}b")).unwrap());
+            strings.push(format!(r#""\u{code:04x}\u{code:04X}""#).into_bytes());
+        }
+        strings.push(br#""\"\\\/\b\f\n\r\t""#.to_vec());
+        for malformed in [
+            &br#""\q""#[..],
+            br#""\"#,
+            br#""\u00""#,
+            br#""\ud83d\ude00""#,
+            br#""\ud83d""#,
+            b"\"\xc3\"",
+            b"\"\xc3\x28\"",
+            b"\"\xc0\x80\"",
+            b"\"\x80\"",
+            b"\"\xe2\x82\xac\"",
+            b"\"",
+            b"no quotes",
+        ] {
+            strings.push(malformed.to_vec());
+        }
+        let mut read = 0;
+        for string in &strings {
+            let span = (0, string.len());
+            let expected = unescaped_latin1(string, span);
+            if let Some(bytes) = latin1_bytes(string, span) {
+                read += 1;
+                assert_eq!(Ok(bytes), expected, "{}", string.escape_ascii());
+            }
+            assert_eq!(compressed_bytes(string, span), expected);
+        }
+        assert_eq!(read, 2 * 256 + 1);
     }
 
     #[test]
@@ -868,7 +988,10 @@ mod tests {
         ]));
         let mut sink = sink();
         for event in &message.events {
-            assert_eq!(extract_event_images(&message.inner, event, &mut sink), None);
+            assert_eq!(
+                extract_event_images(&message.inner, event, &mut sink, None),
+                None
+            );
         }
         assert!(sink.images.is_empty());
     }
@@ -877,7 +1000,7 @@ mod tests {
     fn moves_every_canvas_image_out_or_declines_it() {
         enum Outcome {
             Stored(&'static str),
-            Marker(Declined),
+            Marker(ImageDecline),
             Kept,
         }
         let png = b"\x89PNG\r\n\x1a\nframe".as_slice();
@@ -920,7 +1043,7 @@ mod tests {
             (
                 draw(bitmap("image/bmp", b"BMbitmap")),
                 format!("/data/commands/0/args/0{blob}"),
-                Outcome::Marker(Declined::Unsupported),
+                Outcome::Marker(ImageDecline::Unsupported),
             ),
             (
                 draw(bitmap(
@@ -928,7 +1051,15 @@ mod tests {
                     b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf",
                 )),
                 format!("/data/commands/0/args/0{blob}"),
-                Outcome::Marker(Declined::Avif),
+                Outcome::Stored("image/avif"),
+            ),
+            (
+                draw(bitmap(
+                    "image/avif",
+                    b"\x00\x00\x00\x20ftypavis\x00\x00\x00\x00avisavifmif1msf1",
+                )),
+                format!("/data/commands/0/args/0{blob}"),
+                Outcome::Marker(ImageDecline::Avif),
             ),
             (
                 draw(
@@ -936,7 +1067,7 @@ mod tests {
                     "data": [{"rr_type": "ArrayBuffer", "base64": "A"}]}]}),
                 ),
                 format!("/data/commands/0/args/0{blob}"),
-                Outcome::Marker(Declined::Undecodable),
+                Outcome::Marker(ImageDecline::Undecodable),
             ),
             (
                 commands(
@@ -944,7 +1075,7 @@ mod tests {
                     "args": [{"rr_type": "Uint8ClampedArray", "args": [[255, 0, 0, 255]]}, 1, 1]}, 0, 0]}]),
                 ),
                 "/data/commands/0/args/0/args/0".to_owned(),
-                Outcome::Marker(Declined::Unsupported),
+                Outcome::Marker(ImageDecline::Unsupported),
             ),
             (
                 webgl(
@@ -952,12 +1083,12 @@ mod tests {
                     json!([3553, 0, 6408, 1, 1, 0, 6408, 5121, {"rr_type": "Uint8Array", "args": [[255, 0, 0, 255]]}]),
                 ),
                 "/data/args/8/args/0".to_owned(),
-                Outcome::Marker(Declined::Unsupported),
+                Outcome::Marker(ImageDecline::Unsupported),
             ),
             (
                 webgl("bufferData", json!([34962, buffer(b"vertices"), 35044])),
                 "/data/args/1/base64".to_owned(),
-                Outcome::Marker(Declined::Unsupported),
+                Outcome::Marker(ImageDecline::Unsupported),
             ),
             (
                 draw(json!({"rr_type": "HTMLImageElement", "src": "https://example.com/a.png"})),
@@ -977,7 +1108,7 @@ mod tests {
         for (event, pointer, outcome) in cases {
             let message = message_with(json!([event]));
             let mut sink = sink();
-            let stored = extract_event_images(&message.inner, &message.events[0], &mut sink)
+            let stored = extract_event_images(&message.inner, &message.events[0], &mut sink, None)
                 .map(|stored| serde_json::from_slice::<Value>(&stored).unwrap());
             let replacement = match outcome {
                 Outcome::Kept => {

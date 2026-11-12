@@ -13,18 +13,31 @@ import aioboto3
 import pytest_asyncio
 import botocore.exceptions
 
-from posthog.models.integration import AWSRedshiftRoleBasedIntegration, Integration, IntegrationError
+from posthog.models.integration import (
+    AWSRedshiftRoleBasedIntegration,
+    Integration,
+    IntegrationError,
+    RedshiftProvisionedCluster,
+    RedshiftServerlessWorkgroup,
+    parse_redshift_host,
+)
 
-from products.batch_exports.backend.service import AWSCredentials, BatchExportEventsModel
+from products.batch_exports.backend.service import AWSCredentials, BatchExportEventsModel, BatchExportInsertInputs
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     ClientErrorGroup,
+    CopyParameters,
     InsufficientS3PermissionsError,
-    ProvisionedCluster,
+    RedshiftCopyActivityInputs,
+    RedshiftInsertInputs,
     RedshiftS3CopyError,
-    ServerlessWorkgroup,
+    S3StageBucketParameters,
+    ServerConnectionParameters,
+    TableParameters,
+    _get_redshift_client_inputs,
     _get_redshift_credentials_policy_statements,
+    _get_s3_bucket_aws_credentials,
     _get_table_schemas,
-    _parse_redshift_host,
+    _resolve_copy_authorization,
     check_and_raise_redshift_copy_error,
     is_s3_read_access_denied,
     upload_manifest_file,
@@ -327,22 +340,22 @@ async def test_check_and_raise_redshift_copy_error_iam_role(error, expected_erro
     [
         (
             "examplecluster.abc123xyz789.us-west-2.redshift.amazonaws.com",
-            ProvisionedCluster(cluster_identifier="examplecluster", region="us-west-2"),
+            RedshiftProvisionedCluster(cluster_identifier="examplecluster", region="us-west-2"),
         ),
         (
             "default-wg.123456789012.us-east-1.redshift-serverless.amazonaws.com",
-            ServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1"),
+            RedshiftServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1"),
         ),
     ],
 )
 def test_parse_redshift_host(host, expected):
-    assert _parse_redshift_host(host) == expected
+    assert parse_redshift_host(host) == expected
 
 
 @pytest.mark.parametrize("host", ["localhost", "my-redshift.example.com", "8.8.8.8", ""])
 def test_parse_redshift_host_rejects_unrecognized_endpoints(host):
     with pytest.raises(IntegrationError):
-        _parse_redshift_host(host)
+        parse_redshift_host(host)
 
 
 def _aws_redshift_role_integration(**extra_config) -> AWSRedshiftRoleBasedIntegration:
@@ -359,7 +372,7 @@ def _aws_redshift_role_integration(**extra_config) -> AWSRedshiftRoleBasedIntegr
 
 def test_provisioned_cluster_credentials_policy_scopes_to_exact_resources():
     integration = _aws_redshift_role_integration(groups=["exporters"], auto_create=True)
-    server = ProvisionedCluster(cluster_identifier="examplecluster", region="us-west-2")
+    server = RedshiftProvisionedCluster(cluster_identifier="examplecluster", region="us-west-2")
 
     statements = _get_redshift_credentials_policy_statements(integration, server, "posthog")
 
@@ -378,7 +391,7 @@ def test_provisioned_cluster_credentials_policy_scopes_to_exact_resources():
 def test_serverless_workgroup_credentials_policy_scopes_to_workgroup_arn():
     workgroup_arn = "arn:aws:redshift-serverless:us-east-1:123456789012:workgroup/abc-123"
     integration = _aws_redshift_role_integration(workgroup_arn=workgroup_arn)
-    server = ServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1")
+    server = RedshiftServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1")
 
     statements = _get_redshift_credentials_policy_statements(integration, server, "posthog")
 
@@ -395,7 +408,7 @@ def test_serverless_workgroup_credentials_policy_requires_workgroup_arn():
     # There must never be a wildcard fallback here: without the exact workgroup ARN
     # the policy cannot be scoped, so credentials must not be requested at all.
     integration = _aws_redshift_role_integration()
-    server = ServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1")
+    server = RedshiftServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1")
 
     with pytest.raises(IntegrationError):
         _get_redshift_credentials_policy_statements(integration, server, "posthog")
@@ -412,7 +425,55 @@ def test_serverless_workgroup_credentials_policy_requires_workgroup_arn():
 )
 def test_serverless_workgroup_credentials_policy_rejects_mismatched_arn(workgroup_arn):
     integration = _aws_redshift_role_integration(workgroup_arn=workgroup_arn)
-    server = ServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1")
+    server = RedshiftServerlessWorkgroup(workgroup="default-wg", account_id="123456789012", region="us-east-1")
 
     with pytest.raises(IntegrationError):
         _get_redshift_credentials_policy_statements(integration, server, "posthog")
+
+
+async def test_client_inputs_require_an_integration():
+    inputs = RedshiftInsertInputs(
+        batch_export=BatchExportInsertInputs(
+            team_id=1,
+            data_interval_start=None,
+            data_interval_end="2024-01-01T00:00:00+00:00",
+            batch_export_id=str(uuid.uuid4()),
+        ),
+        connection=ServerConnectionParameters(database="db", port=5439, host="fake.example.com"),
+        table=TableParameters(schema_name="public", name="events"),
+    )
+
+    with pytest.raises(IntegrationError, match="no linked integration"):
+        await _get_redshift_client_inputs(inputs)
+
+
+@pytest.mark.parametrize("field_name", ["bucket_credentials", "authorization"])
+async def test_copy_rejects_inline_aws_keys(field_name: str):
+    """COPY must not stage or load with inline AWS keys left in `copy_inputs`."""
+    inline_keys = AWSCredentials(aws_access_key_id="key", aws_secret_access_key="secret")
+    integration_id = 1
+    inputs = RedshiftCopyActivityInputs(
+        batch_export=BatchExportInsertInputs(
+            team_id=1,
+            data_interval_start="2024-01-01T00:00:00+00:00",
+            data_interval_end="2024-01-01T01:00:00+00:00",
+        ),
+        connection=ServerConnectionParameters(database="dev", port=5439),
+        table=TableParameters(schema_name="public", name="events", properties_data_type="varchar"),
+        copy=CopyParameters(
+            s3_bucket=S3StageBucketParameters(
+                name="bucket",
+                region_name="us-east-1",
+                credentials=inline_keys if field_name == "bucket_credentials" else integration_id,
+            ),
+            s3_key_prefix="prefix",
+            authorization=inline_keys if field_name == "authorization" else integration_id,
+        ),
+        integration_id=1,
+    )
+    resolve = _get_s3_bucket_aws_credentials if field_name == "bucket_credentials" else _resolve_copy_authorization
+
+    with pytest.raises(IntegrationError, match=f"Inline AWS keys in the Redshift COPY '{field_name}'") as exc_info:
+        await resolve(inputs)
+
+    assert "secret" not in str(exc_info.value)

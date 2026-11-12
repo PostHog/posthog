@@ -57,7 +57,7 @@ ee/benchmarks/results
 frontend/storybook-static
 max-test-venv/
 mts_example_*.json
-node_modules/
+node_modules
 object_storage/
 playwright/e2e-vrt/**/*-darwin.png
 pnpm-error.log
@@ -159,6 +159,9 @@ posthog/management/commands/clear_demo_data.py
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 .claude/plans/
+
+# Ignore Conductor local settings
+.conductor/settings.local.toml
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml

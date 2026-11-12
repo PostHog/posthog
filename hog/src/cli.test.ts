@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 
 import { LEGACY_COMMANDS } from '@/commands/legacy'
 import { VERSION } from '@/version'
@@ -15,11 +16,7 @@ describe('hog', () => {
             ['-o', 'json', 'help', 'query', 'run'],
             'Usage: hog query run',
         ],
-        [
-            'command help lists examples and scopes',
-            ['query', 'run', '--help'],
-            'Needs a personal API key with: query:read',
-        ],
+        ['command help lists examples and scopes', ['query', 'run', '--help'], 'Needs the scopes: query:read'],
     ])('%s', async (_name, argv, stdout) => {
         const result = await runHog(argv)
         expect(result.exitCode).toBe(0)
@@ -66,11 +63,12 @@ describe('hog', () => {
     })
 
     test.each([
-        ['login', 'Did you mean `hog auth login`?'],
-        ['sourcemap', '`sourcemap` is `hog error-tracking inject|upload|process` in hog.'],
-        ['exp', '`exp` is `hog query|endpoints|schema` in hog.'],
-    ])('a command that moved, like %s, points to its new name', async (name, message) => {
-        const result = await runHog([name, 'upload'])
+        ['login', ['login', 'upload'], 'Did you mean `hog auth login`?'],
+        ['sourcemap', ['sourcemap', 'upload'], '`sourcemap` is `hog error-tracking inject|upload|process` in hog.'],
+        ['exp', ['exp', 'upload'], '`exp` is `hog query|endpoints|schema` in hog.'],
+        ['api skill', ['api', 'skill', 'install', 'posthog-flags'], '`skill` is `hog skills list|add` in hog.'],
+    ])('a command that moved, like %s, points to its new name', async (_name, argv, message) => {
+        const result = await runHog(argv)
         expect(result.exitCode).toBe(2)
         expect(result.error().message).toContain(message)
     })
@@ -85,7 +83,12 @@ describe('hog', () => {
     test('commands lists every command for agents', async () => {
         const result = await runHog(['commands'], { env: { CLAUDECODE: '1' } })
         expect(result.exitCode).toBe(0)
-        const manifest = result.json()
+        const manifest = result.json(
+            z.looseObject({
+                globalOptions: z.array(z.unknown()),
+                commands: z.array(z.looseObject({ name: z.string() })),
+            })
+        )
         expect(manifest).toMatchObject({ cli: 'hog', agent: 'claude-code', aliases: { et: 'error-tracking' } })
         expect(manifest.globalOptions).toContainEqual(expect.objectContaining({ flags: '-o, --output <format>' }))
         expect(manifest.commands.find((command: { name: string }) => command.name === 'query run')).toMatchObject({
@@ -93,10 +96,17 @@ describe('hog', () => {
             arguments: [{ name: 'query', required: true, stdin: true }],
             scopes: ['query:read'],
         })
+        expect(
+            manifest.commands.filter((command) => command.refusesCI === true).map((command) => command.name)
+        ).toEqual(['setup', 'auth migrate', 'ci setup'])
         expect(manifest.commands.map((command: { name: string }) => command.name)).toEqual([
+            'setup',
             'auth login',
+            'auth add',
             'auth logout',
+            'auth migrate',
             'auth status',
+            'ci setup',
             'query run',
             'query check',
             'query editor',
@@ -107,8 +117,13 @@ describe('hog', () => {
             'api schema',
             'api call',
             'api access',
-            'api skill',
             'api agents-md',
+            'skills',
+            'skills list',
+            'skills search',
+            'skills read',
+            'skills add',
+            'mcp add',
             'error-tracking inject',
             'error-tracking clone',
             'error-tracking upload',

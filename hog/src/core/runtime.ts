@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { access, chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
-import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
+import type { ApiToolLibrary, SkillsLibrary, SkillsLibraryOptions } from '@posthog/mcp/src/cli/library-types'
 
 import { HogError } from './errors'
 import { clackPrompts, type Prompts } from './prompts'
@@ -18,10 +18,24 @@ export type RuntimeFetch = (
     init?: RequestInit & { timeoutMs?: number; skipRateLimit?: boolean }
 ) => Promise<Response>
 
+// The operating system's secret store: Keychain on macOS, Credential Manager on Windows and Secret
+// Service on Linux. Every item belongs to hog's own service, so `name` only has to be unique within hog.
+export interface Secrets {
+    // Resolves to null when there is no item with this name.
+    get: (name: string) => Promise<string | null>
+    set: (name: string, value: string) => Promise<void>
+    // Resolves to false when there was no item to delete.
+    delete: (name: string) => Promise<boolean>
+}
+
 // Everything a command touches outside its own arguments. Tests build one by hand,
 // so no command reads `process` or the network directly.
 export interface Runtime {
     env: Env
+    platform: NodeJS.Platform
+    // True for `bun src/index.ts`, false for a compiled hog. A run from source keeps its credentials
+    // and settings apart, so it never reads or replaces those of an installed hog.
+    isDevelopment: boolean
     stdinIsTTY: boolean
     stdoutIsTTY: boolean
     stdoutHasColors: boolean
@@ -30,7 +44,8 @@ export interface Runtime {
     writeStderr: (text: string) => void
     fetch: RuntimeFetch
     now: () => number
-    sleep: (ms: number) => Promise<void>
+    // Resolves early when `signal` aborts, so a timer that lost a race doesn't keep hog running.
+    sleep: (ms: number, signal?: AbortSignal) => Promise<void>
     homeDir: () => string | undefined
     cwd: () => string
     exists: (path: string) => Promise<boolean>
@@ -42,21 +57,48 @@ export interface Runtime {
     glob: (pattern: string, cwd: string) => Promise<string[]>
     // Writes a project file, such as a generated SDK, and creates the folders above it.
     writeFile: (path: string, contents: string) => Promise<void>
+    // Where a write to `path` lands, with every link resolved. A missing file resolves inside its
+    // folder's real path. Throws for a link to a missing file, whose write could land anywhere.
+    realPath: (path: string) => Promise<string>
+    // Both replace the file with one rename, so a failed write leaves the old contents. `replaceFile`
+    // keeps an existing file's mode, and `writePrivateFile` makes the file readable only by its owner.
+    replaceFile: (path: string, contents: string) => Promise<void>
     writePrivateFile: (path: string, contents: string) => Promise<void>
+    // Creates a private file unless the path exists, and resolves to false if it does, so it works as a lock.
+    createFile: (path: string, contents: string) => Promise<boolean>
     removeFile: (path: string) => Promise<void>
     readStdin: () => Promise<string>
     // Resolves to false when no browser could be started, for example on a server without one.
     openUrl: (url: string) => Promise<boolean>
     prompts: Prompts
+    secrets: Secrets
     // The project token for anonymous usage events. Undefined turns them off, as in tests.
     telemetryToken: string | undefined
     // Accepts any TLS certificate from here on, for every request, including the API tools' own.
     skipTlsVerification: () => void
     // The MCP server's tool catalog, which `hog api` browses and calls. Loaded on first use: it is large.
     loadApiTools: () => Promise<ApiToolLibrary>
+    // The PostHog agent skills `hog skills read` serves. Loaded on first use, like the tool catalog.
+    loadSkills: (options: SkillsLibraryOptions) => Promise<SkillsLibrary>
 }
 
 const BROWSER_LAUNCH_MS = 1000
+
+// `pnpm --filter @posthog/mcp build:cli:library` writes both libraries, so a run from source before it fails with a hint.
+async function loadMcpLibrary<T>(load: () => Promise<T>, code: string, name: string): Promise<T> {
+    try {
+        return await load()
+    } catch (error) {
+        if ((error as { code?: string }).code === 'ERR_MODULE_NOT_FOUND') {
+            throw new HogError(
+                code,
+                `hog couldn't find ${name}.`,
+                'Run `pnpm --filter @posthog/hog build:mcp`, then run the command again.'
+            )
+        }
+        throw error
+    }
+}
 
 function browserCommand(url: string): string[] {
     switch (process.platform) {
@@ -70,9 +112,108 @@ function browserCommand(url: string): string[] {
     }
 }
 
+// `bun src/index.ts` runs as the bun executable, a compiled hog as itself.
+const FROM_SOURCE = basename(process.execPath).replace(/\.exe$/i, '') === 'bun'
+
+// Keychain calls that haven't settled. A call hog stopped waiting for, such as one behind a dialog
+// nobody answers, keeps the process alive, so the entry point ends the process when this is not zero.
+let pendingSecretCalls = 0
+
+export function hasPendingSecretCalls(): boolean {
+    return pendingSecretCalls > 0
+}
+
+async function tracked<T>(call: () => Promise<T>): Promise<T> {
+    pendingSecretCalls += 1
+    try {
+        return await call()
+    } finally {
+        pendingSecretCalls -= 1
+    }
+}
+
+function bunSecrets(service: string): Secrets {
+    return {
+        get: (name) => tracked(() => Bun.secrets.get({ service, name })),
+        // Windows only: the default `enterprise` lets a roaming profile copy the item to every machine the
+        // person signs in to. Bun before 1.4.3 ignores the option, so the item still roams there.
+        // TODO: require Bun 1.4.3+ (engines.bun and the flox pin) once hog can move to it.
+        set: (name, value) =>
+            tracked(() =>
+                Bun.secrets.set({ service, name, value, persist: 'local' } as Parameters<typeof Bun.secrets.set>[0])
+            ),
+        delete: (name) => tracked(() => Bun.secrets.delete({ service, name })),
+    }
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+        if (signal?.aborted) {
+            resolve()
+            return
+        }
+        const timer = setTimeout(resolve, ms)
+        signal?.addEventListener(
+            'abort',
+            () => {
+                clearTimeout(timer)
+                resolve()
+            },
+            { once: true }
+        )
+    })
+}
+
+// A rename is atomic, so a crash never leaves a half-written file. The temporary name is random and
+// `wx` refuses an existing path, so nobody can plant a symlink there first. `keep` keeps an existing
+// file's mode, and a new file gets the default one. The mode is set with chmod, because the umask
+// would strip bits from a mode passed to the write.
+async function writeAtomically(path: string, contents: string, mode: number | 'keep'): Promise<void> {
+    const fileMode =
+        mode === 'keep'
+            ? await stat(path).then(
+                  (stats) => stats.mode & 0o7777,
+                  () => undefined
+              )
+            : mode
+    const temporary = `${path}.${randomUUID()}.tmp`
+
+    try {
+        await writeFile(temporary, contents, { flag: 'wx', mode: fileMode === undefined ? 0o666 : 0o600 })
+        if (fileMode !== undefined) {
+            await chmod(temporary, fileMode)
+        }
+
+        await rename(temporary, path)
+    } catch (error) {
+        await rm(temporary, { force: true })
+        throw error
+    }
+}
+
+async function realPath(path: string): Promise<string> {
+    try {
+        return await realpath(path)
+    } catch (error) {
+        const missing = (error as NodeJS.ErrnoException).code === 'ENOENT'
+        if (
+            !missing ||
+            (await lstat(path).then(
+                () => true,
+                () => false
+            ))
+        ) {
+            throw error
+        }
+        return join(await realpath(dirname(path)), basename(path))
+    }
+}
+
 export function processRuntime(): Runtime {
     return {
         env: process.env,
+        platform: process.platform,
+        isDevelopment: FROM_SOURCE,
         stdinIsTTY: process.stdin.isTTY === true,
         stdoutIsTTY: process.stdout.isTTY === true,
         stdoutHasColors: process.stdout.isTTY === true && process.stdout.hasColors(),
@@ -89,10 +230,13 @@ export function processRuntime(): Runtime {
                 timeoutMs === undefined ? init : { ...init, signal: AbortSignal.timeout(timeoutMs) }
             ),
         now: () => Date.now(),
-        sleep: (ms) => Bun.sleep(ms),
+        sleep,
         homeDir: () => {
             try {
-                return homedir()
+                const home = homedir()
+                // When HOME is unset and the user has no passwd entry, Node throws but Bun returns "/".
+                // A "/" that came from HOME itself is a real choice, so it still counts.
+                return !home || (home === '/' && !process.env.HOME) ? undefined : home
             } catch {
                 return undefined
             }
@@ -122,16 +266,21 @@ export function processRuntime(): Runtime {
             await mkdir(dirname(path), { recursive: true })
             await writeFile(path, contents)
         },
-        // A rename is atomic, so a crash never leaves a half-written file. The temporary name is
-        // random and `wx` refuses an existing path, so nobody can plant a symlink there first.
+        realPath: (path) => realPath(resolve(path)),
+        replaceFile: (path, contents) => writeAtomically(path, contents, 'keep'),
         writePrivateFile: async (path, contents) => {
             await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-            const temporary = `${path}.${randomUUID()}.tmp`
+            await writeAtomically(path, contents, 0o600)
+        },
+        createFile: async (path, contents) => {
+            await mkdir(dirname(path), { recursive: true, mode: 0o700 })
             try {
-                await writeFile(temporary, contents, { mode: 0o600, flag: 'wx' })
-                await rename(temporary, path)
+                await writeFile(path, contents, { mode: 0o600, flag: 'wx' })
+                return true
             } catch (error) {
-                await rm(temporary, { force: true })
+                if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+                    return false
+                }
                 throw error
             }
         },
@@ -153,25 +302,23 @@ export function processRuntime(): Runtime {
             }
         },
         prompts: clackPrompts(),
+        secrets: bunSecrets(FROM_SOURCE ? 'com.posthog.hog.dev' : 'com.posthog.hog'),
         telemetryToken: DEFAULT_TELEMETRY_TOKEN,
         skipTlsVerification: () => {
             // Runs only for --skip-ssl-verification, posthog-cli's opt-in flag for self-hosted certificates.
             process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // nosemgrep: trailofbits.generic.node-disable-certificate-validation.node-disable-certificate-validation
         },
-        loadApiTools: async () => {
-            try {
-                const { createApiToolLibrary } = await import('@posthog/mcp/dist/cli-library.mjs')
-                return createApiToolLibrary()
-            } catch (error) {
-                if ((error as { code?: string }).code === 'ERR_MODULE_NOT_FOUND') {
-                    throw new HogError(
-                        'api_tools_missing',
-                        "hog couldn't find the API tool catalog.",
-                        'Run `pnpm --filter @posthog/hog build:mcp`, then run the command again.'
-                    )
-                }
-                throw error
-            }
-        },
+        loadApiTools: () =>
+            loadMcpLibrary(
+                async () => (await import('@posthog/mcp/dist/cli-library.mjs')).createApiToolLibrary(),
+                'api_tools_missing',
+                'the API tool catalog'
+            ),
+        loadSkills: (options) =>
+            loadMcpLibrary(
+                async () => (await import('@posthog/mcp/dist/cli-skills.mjs')).createSkillsLibrary(options),
+                'skills_missing',
+                'the skills library'
+            ),
     }
 }

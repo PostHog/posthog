@@ -277,10 +277,13 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
         >= repartition_oom_threshold()
     ):
         return False
+    # The equality filters are the schema and the team so that `idx_extdatajob_schema_team` serves
+    # this read as one index range. An equality filter on a column outside that index, such as the
+    # source, makes Postgres read every job the schema has run.
     earlier_jobs = [
         (str(job_id), status, rows_synced)
         for job_id, status, rows_synced in ExternalDataJob.objects.filter(
-            pipeline_id=schema.source_id, schema_id=schema.id, created_at__lt=job.created_at
+            team_id=schema.team_id, schema_id=schema.id, created_at__lt=job.created_at
         )
         .order_by("-created_at")
         .values_list("id", "status", "rows_synced")[:MEASUREMENT_CHAIN_LIMIT]

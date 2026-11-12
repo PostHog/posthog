@@ -1,3 +1,4 @@
+import re
 import math
 from typing import Any, cast
 
@@ -19,6 +20,11 @@ from products.experiments.stats.shared.statistics import (
     RatioStatistic,
     SampleMeanStatistic,
     StatisticError,
+)
+from products.experiments.stats.tests.test_statistics import (
+    DEGENERATE_QUANTILE_CASES,
+    QUANTILE_CONTROL,
+    QUANTILE_TREATMENT,
 )
 
 
@@ -165,6 +171,45 @@ class TestTwoSidedTTest(TestCase):
         self.assertAlmostEqual(uplift["mean"], expected_uplift["mean"], places=4)
         self.assertAlmostEqual(uplift["stddev"], expected_uplift["stddev"], places=4)
 
+    @parameterized.expand(
+        [
+            (
+                "absolute",
+                DifferenceType.ABSOLUTE,
+                1.415000000000001,
+                (0.08506091978298969, 2.744939080217012),
+                0.0370517987954897,
+            ),
+            (
+                "relative",
+                DifferenceType.RELATIVE,
+                0.12982842462611258,
+                (0.003037963247587039, 0.2566188860046381),
+                0.044762375592802384,
+            ),
+        ]
+    )
+    def test_two_sided_ttest_with_quantile_statistic(self, _name, difference_type, expected, ci, p_value):
+        method = FrequentistMethod(FrequentistConfig(alpha=0.05, difference_type=difference_type))
+        result = method.run_test(QUANTILE_TREATMENT, QUANTILE_CONTROL)
+
+        self.assertAlmostEqual(result.point_estimate, expected, places=12)
+        self.assertAlmostEqual(result.confidence_interval[0], ci[0], places=10)
+        self.assertAlmostEqual(result.confidence_interval[1], ci[1], places=10)
+        self.assertAlmostEqual(result.p_value, p_value, places=9)
+
+    @parameterized.expand(
+        [
+            (f"{name}_{mode}", treatment, control, error, sequential)
+            for name, treatment, control, error in DEGENERATE_QUANTILE_CASES
+            for mode, sequential in [("fixed_horizon", False), ("sequential", True)]
+        ]
+    )
+    def test_rejects_quantile_without_usable_variance(self, _name, treatment, control, error, sequential):
+        method = FrequentistMethod(FrequentistConfig(sequential_testing_enabled=sequential))
+        with self.assertRaisesRegex(StatisticError, re.escape(f"Treatment statistic validation failed: {error}")):
+            method.run_test(treatment, control)
+
 
 class TestSequentialMath(TestCase):
     """Unit tests for the sequential testing primitives (rho, half-width, p-value)."""
@@ -275,6 +320,24 @@ class TestSequentialTwoSidedTTest(TestCase):
     def test_invalid_tuning_parameter_raises(self):
         with self.assertRaises(StatisticError):
             SequentialTwoSidedTTest(alpha=0.05, sequential_tuning_parameter=0)
+
+    def test_quantile_statistic_uses_exposed_users_as_the_sample_size(self):
+        tuning_parameter = 800
+        result = SequentialTwoSidedTTest(alpha=0.05, sequential_tuning_parameter=tuning_parameter).run_test(
+            QUANTILE_TREATMENT, QUANTILE_CONTROL, DifferenceType.RELATIVE
+        )
+
+        pooled_variance = calculate_variance_pooled(QUANTILE_TREATMENT, QUANTILE_CONTROL, DifferenceType.RELATIVE)
+        users = QUANTILE_TREATMENT.n_clusters + QUANTILE_CONTROL.n_clusters
+        halfwidth = sequential_interval_halfwidth(pooled_variance * users, users, tuning_parameter, alpha=0.05)
+        self.assertAlmostEqual(result.confidence_interval[0], result.point_estimate - halfwidth, places=12)
+        self.assertAlmostEqual(result.confidence_interval[1], result.point_estimate + halfwidth, places=12)
+        self.assertAlmostEqual(
+            result.p_value,
+            sequential_p_value(result.point_estimate, pooled_variance, users, tuning_parameter, alpha=0.05),
+            places=12,
+        )
+        self.assertLess(result.p_value, 1.0)
 
 
 class TestSequentialTwoSidedTTestGoldenValues(TestCase):

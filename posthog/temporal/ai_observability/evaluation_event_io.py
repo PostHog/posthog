@@ -15,7 +15,11 @@ from products.ai_observability.backend.ai_event_lookup import fetch_generation_e
 # before it reaches `ai_events`, where it is read, so a miss gets two retries before it fails the
 # run. Only a live reference waits between them: a backfill miss is usually an expired row.
 GENERATION_NOT_FOUND_MAX_ATTEMPTS = 3
-GENERATION_NOT_FOUND_RETRY_DELAY = timedelta(seconds=15)
+# The waits before the second and third read of a live reference. A large generation can reach
+# `ai_events` well after it reaches `events`. With the scheduler's start delay, the last read runs
+# about two and a half minutes after the scheduler sees the event.
+GENERATION_NOT_FOUND_RETRY_DELAYS = (timedelta(seconds=30), timedelta(seconds=90))
+GENERATION_NOT_FOUND_RETRY_WINDOW = sum(GENERATION_NOT_FOUND_RETRY_DELAYS, timedelta())
 
 
 class GenerationNotFoundError(NonReportableApplicationError):
@@ -101,11 +105,14 @@ def hydrate_event_reference(event_data: dict[str, Any]) -> dict[str, Any]:
         event_data.get("trace_id"),
     )
     if event is None:
-        if temporalio.activity.in_activity() and temporalio.activity.info().attempt < GENERATION_NOT_FOUND_MAX_ATTEMPTS:
+        attempt = temporalio.activity.info().attempt if temporalio.activity.in_activity() else None
+        if attempt is not None and attempt < GENERATION_NOT_FOUND_MAX_ATTEMPTS:
             raise NonReportableApplicationError(
                 "Generation not found",
                 type=GENERATION_NOT_FOUND,
-                next_retry_delay=GENERATION_NOT_FOUND_RETRY_DELAY if event_data.get("awaiting_ingestion") else None,
+                next_retry_delay=GENERATION_NOT_FOUND_RETRY_DELAYS[attempt - 1]
+                if event_data.get("awaiting_ingestion")
+                else None,
             )
         # A live reference still fails the run and reaches error tracking: the scheduler saw the
         # event, so a miss after the retries means ingestion lost or delayed it.

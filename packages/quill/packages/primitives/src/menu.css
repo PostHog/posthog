@@ -60,6 +60,29 @@
         overflow: hidden auto;
     }
 
+    .quill-menu__content[data-flush] .quill-menu__scroller {
+        display: flex;
+        flex-direction: column;
+        max-height: min(calc(var(--spacing, 0.25rem) * 72), var(--available-height));
+        padding: 0;
+        overflow: hidden;
+    }
+
+    .quill-menu__input {
+        flex-shrink: 0;
+        padding: 0.25rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .quill-menu__list {
+        flex: 1;
+        min-height: 0;
+        padding: 0.25rem;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scroll-padding-block: 0.25rem;
+    }
+
     .quill-menu__content[data-closed] .quill-menu__scroller,
     .quill-menu__sub-content[data-closed] .quill-menu__scroller {
         overflow: hidden;
@@ -130,7 +153,12 @@
     }
 
     /* A leading avatar in a menu row takes the row's icon size, so avatars and icons line up down the menu. */
-    :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger'], .quill-menu-item__title)
+    :is(
+            [data-slot='dropdown-menu-item'],
+            [data-slot='dropdown-menu-checkbox-item'],
+            [data-slot='dropdown-menu-sub-trigger'],
+            .quill-menu-item__title
+        )
         > [data-slot='avatar'][data-size] {
         --avatar-size: 0.875rem;
 
@@ -182,42 +210,15 @@
     }
 
     /*
-     * Consecutive checked items merge corners into a seamless block — mirrors
-     * the aria-selected/aria-checked Button rules, scoped to menu items so the
-     * effect reads even when Base UI wraps items in a group/list container.
-     */
-    :is(
-        [data-slot='dropdown-menu-checkbox-item'],
-        [data-slot='dropdown-menu-radio-item'],
-        [data-slot='context-menu-checkbox-item'],
-        [data-slot='context-menu-radio-item']
-    ):is([aria-checked='true'], [data-checked]):has(+ :is([aria-checked='true'], [data-checked])) {
-        border-bottom-right-radius: 0;
-        border-bottom-left-radius: 0;
-    }
-
-    :is([aria-checked='true'], [data-checked])
-        + :is(
-            [data-slot='dropdown-menu-checkbox-item'],
-            [data-slot='dropdown-menu-radio-item'],
-            [data-slot='context-menu-checkbox-item'],
-            [data-slot='context-menu-radio-item']
-        ):is([aria-checked='true'], [data-checked]) {
-        border-top-left-radius: 0;
-        border-top-right-radius: 0;
-    }
-
-    /*
-     * Menu items show no focus ring — the `[data-highlighted]` background fill
-     * is the sole active-item indicator for both mouse and keyboard. Suppress
-     * both the `data-highlighted` ring and the `:focus-visible` ring Button
-     * carries. The redundant `.quill-button` only raises specificity, so this
-     * outranks Button's own ring rules regardless of stylesheet order.
+     * Button's `[data-highlighted]` ring is the sole active-item indicator.
+     * Menu rows take real focus as the pointer moves, so `:focus-visible` must
+     * not paint a second ring. The redundant `.quill-button` only raises
+     * specificity, so this outranks Button's own ring rules regardless of
+     * stylesheet order.
      */
     :is(.quill-menu__content, .quill-menu__sub-content)
-        .quill-button:is(.quill-button--variant-default, .quill-button--variant-destructive):is(
-            [data-highlighted],
-            :focus-visible
+        .quill-button:is(.quill-button--variant-default, .quill-button--variant-destructive):focus-visible:not(
+            [data-highlighted]
         ) {
         border-color: transparent;
         box-shadow: none;

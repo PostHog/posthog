@@ -80,3 +80,25 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
         ):
             assert self._call(untagged_followup=True, confirmed=False) is False
         mock_denial.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("not_approved_mention", False, False, True, True),
+            ("null_consent_mention", None, False, True, True),
+            ("not_approved_unconfirmed_reply", False, True, True, False),
+            ("approved_mention", True, False, False, False),
+        ]
+    )
+    def test_ai_consent_gates_the_run_before_the_quota(
+        self, _name, approved, untagged_followup, expect_blocked, expect_denial
+    ):
+        self.org.is_ai_data_processing_approved = approved
+        self.org.save()
+        with (
+            patch("ee.billing.quota_limiting.is_team_limited", return_value=False),
+            patch("products.slack_app.backend.api.post_ai_processing_not_approved_denial") as mock_denial,
+        ):
+            blocked = self._call(untagged_followup=untagged_followup, confirmed=False)
+
+        assert blocked is expect_blocked
+        assert mock_denial.called is expect_denial

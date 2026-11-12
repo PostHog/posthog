@@ -124,6 +124,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "LogEntry",
         "OAuthAccessToken",
         "OAuthApplication",
+        "OAuthDeviceGrant",
         "OAuthGrant",
         "OAuthIDToken",
         "OAuthRefreshToken",
@@ -157,6 +158,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ReviewRun",
         "DigestChannel",
         "DigestRun",
+        "RoutingRun",
+        "RoutingRunOwner",
         # --- Accessed via parent FK (no direct team-scoped lookup needed) ---
         "AlertSubscription",
         "Approval",
@@ -169,6 +172,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # never by user-supplied CommentSlackThread id through an API. Fail-closed via
         # TeamScopedManager (TeamScopedRootMixin) on top.
         "CommentSlackThread",
+        # Watch rows for a DAG node. The watch and unwatch actions resolve the node from the URL
+        # first and write the row through it, and no endpoint takes a user-supplied row id.
+        # Fail-closed via TeamScopedManager (TeamScopedRootMixin) on top.
+        "NodeSubscription",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
         "StreamlitAppVersion",
@@ -224,6 +231,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Staff-only OneToOne extension keyed on the team, edited in Django admin and read by the
         # events cleanup schedule; no endpoint looks it up by a user-supplied ID.
         "TeamEventsRetentionConfig",
+        # OneToOne extension keyed on the team, written and read only by the events cleanup schedule;
+        # no endpoint looks it up by a user-supplied ID.
+        "TeamEventsPlanDeletion",
         "TeamFeatureFlagsConfig",
         # Staff-only OneToOne extension keyed on the team, written by a management command and read
         # by the realtime cohort pipeline; no endpoint looks it up by a user-supplied ID.
@@ -305,6 +315,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Nonce",
         "OAuthAccessToken",
         "OAuthApplication",
+        "OAuthDeviceGrant",
         "OAuthGrant",
         "OAuthIDToken",
         "OAuthRefreshToken",
@@ -327,6 +338,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "DevStackImageTarget",
         "DevStackImageAttempt",
         "License",
+        "SandboxSenderTenantState",
         # --- Deprecated ---
         "Prompt",
         "PromptSequence",
@@ -343,10 +355,12 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "MCPRegistryTool",  # tools of an MCPRegistryServer (scoped via the catalog row)
         "MCPRankingRun",  # one scoring pass over the global registry index
         "MCPRankingScore",  # per-server score of an MCPRankingRun (scoped via the run/catalog rows)
+        "EmailHardBounce",  # instance-global email addresses that do not exist, written from hard bounces
         # --- Special (has source_team + destination_team, not a plain team) ---
         "ResourceTransfer",
         # --- Organization-scoped (correctly above team level) ---
         "OrganizationDomain",
+        "OrganizationIPRestrictions",
         "OrganizationIntegration",
         "OrganizationInvite",
         "OrganizationMembership",

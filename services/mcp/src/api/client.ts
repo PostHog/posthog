@@ -4,7 +4,10 @@ import { z } from 'zod'
 import { MCP_CLIENT_IP_HEADERS, signedClientIpHeaders } from '@/lib/client-ip-signature'
 import { getUserAgent } from '@/lib/constants'
 import {
+    describeTransportCause,
     ErrorCode,
+    ExperimentNotStartedError,
+    formatSafeRequestTarget,
     hasTimeoutCause,
     isTimeoutError,
     parseRetryAfterSeconds,
@@ -13,7 +16,9 @@ import {
     PostHogRateLimitError,
     PostHogTransportError,
     PostHogValidationError,
+    ToolInputValidationError,
 } from '@/lib/errors'
+import { parseInsufficientScopeChallenge } from '@/lib/missing-scope'
 import { getSearchParamsFromRecord, sanitizeHeaders, sanitizeHeaderValue } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -114,16 +119,6 @@ function clampActorsLimit(value: unknown): number {
     return Math.min(Math.max(Math.trunc(value), 1), ACTORS_MAX_LIMIT)
 }
 
-/** The `detail` string from a drf-exceptions-hog error body, when the body carries one. */
-function parseErrorDetail(errorText: string): string | undefined {
-    try {
-        const detail = JSON.parse(errorText)?.detail
-        return typeof detail === 'string' && detail ? detail : undefined
-    } catch {
-        return undefined
-    }
-}
-
 function clampActorsOffset(value: unknown): number {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return 0
@@ -189,6 +184,7 @@ export interface QueryEndpointResponse {
     // serializes the field explicitly rather than omitting it. Carries both warehouse-sync
     // warnings and object-level access control warnings.
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+    warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
 }
 
 export interface ApiConfig {
@@ -281,6 +277,29 @@ export class ApiClient {
     // Every request, SSE stream and endpoint helper on this class funnels through here, which is what
     // lets `ForwardingApiClient` re-route a whole client at one seam (see lib/connection-forwarding.ts).
     protected async fetch(url: string, options?: RequestInit): Promise<Response> {
+        const authValues = [this.config.apiToken]
+        if (options?.headers) {
+            const entries =
+                options.headers instanceof Headers
+                    ? [...options.headers.entries()]
+                    : Array.isArray(options.headers)
+                      ? options.headers
+                      : Object.entries(options.headers)
+            authValues.push(
+                ...entries.filter(([name]) => name.toLowerCase() === 'authorization').map(([, value]) => value)
+            )
+        }
+        // Reject instead of sanitizing credentials: changing a token would authenticate a different value.
+        if (authValues.some((value) => /[\x00-\x1f\x7f-\x9f\u0100-\uffff]/.test(value))) {
+            throw new PostHogApiError({
+                status: 401,
+                statusText: 'Unauthorized',
+                body: '',
+                url,
+                method: options?.method ?? 'GET',
+                message: ErrorCode.INVALID_API_KEY,
+            })
+        }
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
             // Every value below originates from the MCP client, so it is sanitized here at
@@ -330,13 +349,27 @@ export class ApiClient {
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'
         }
-        const response = await fetch(url, {
-            ...options,
-            headers: {
-                ...defaultHeaders,
-                ...options?.headers,
-            },
-        })
+        let response: Response
+        try {
+            response = await fetch(url, {
+                ...options,
+                headers: {
+                    ...defaultHeaders,
+                    ...options?.headers,
+                },
+            })
+        } catch (cause) {
+            if (isAbortError(cause) && !isTimeoutError(cause)) {
+                throw new DOMException('The request was canceled.', 'AbortError')
+            }
+            throw new PostHogTransportError({
+                url,
+                method: options?.method ?? 'GET',
+                attempts: 1,
+                retryable: SAFE_HTTP_METHODS.has((options?.method ?? 'GET').toUpperCase()),
+                cause,
+            })
+        }
         if (response.headers.get('X-PostHog-Suppress-Analytics') === 'true') {
             this.config.onPrivateResponse?.()
         }
@@ -365,7 +398,9 @@ export class ApiClient {
             pathname.includes('//') ||
             new URL(pathname, this.baseUrl).pathname !== pathname
         ) {
-            throw new Error('Invalid API path')
+            throw new ToolInputValidationError(
+                'Invalid API path: a path parameter is empty, ".", or "..". Send a valid resource id and try again.'
+            )
         }
         const searchParams = new URLSearchParams()
         if (opts.query) {
@@ -457,7 +492,7 @@ export class ApiClient {
         }
 
         if (!response.body) {
-            throw new Error(`SSE response has no body: ${opts.method} ${url}`)
+            throw new Error(`SSE response has no body: ${opts.method} ${formatSafeRequestTarget(url)}`)
         }
 
         const timeoutMs = opts.timeoutMs ?? SSE_DEFAULT_TIMEOUT_MS
@@ -548,7 +583,7 @@ export class ApiClient {
             return undefined
         }
         const experimentId = experimentMatch[1]
-        console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
+        console.error(`[API] Experiment ${experimentId} not found on ${method} ${formatSafeRequestTarget(url)}`)
         return new PostHogApiError({
             status: response.status,
             statusText: response.statusText,
@@ -564,9 +599,8 @@ export class ApiClient {
 
     /**
      * PostHog also answers 401 when the token is valid but the account state is not, so the
-     * bare sentinel told those callers to reconnect a credential that was never the problem.
-     * It stays at the front of the message because the re-auth path matches on it, and the
-     * server's reason and the status now ride along.
+     * sentinel must retain the account-access hint without echoing arbitrary server details.
+     * The original body remains available to callers that need the account-state response.
      */
     private buildUnauthorizedError(
         response: Response,
@@ -574,14 +608,15 @@ export class ApiClient {
         url: string,
         method: string
     ): PostHogApiError {
-        const detail = parseErrorDetail(errorText)
         return new PostHogApiError({
             status: response.status,
             statusText: response.statusText,
             body: errorText,
             url,
             method,
-            message: detail ? `${ErrorCode.INVALID_API_KEY}: ${detail}` : ErrorCode.INVALID_API_KEY,
+            message: errorText
+                ? `${ErrorCode.INVALID_API_KEY}: Verify your API key and account access.`
+                : ErrorCode.INVALID_API_KEY,
         })
     }
 
@@ -614,16 +649,17 @@ export class ApiClient {
         }
 
         if (response.status === 403 && errorData?.code === 'permission_denied') {
-            const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
+            const scopeMatch = /required scope ['"]([a-z_]+:[a-z_]+)['"]/.exec(errorData.detail || '')
             const missingScope = scopeMatch?.[1]
             // Warn, not error: PostHogPermissionError is thrown and handled by callers,
             // and a missing scope is a user-config issue rather than a service bug.
             console.warn(
-                `[API] Permission denied on ${method} ${url}: ${errorData.detail || 'unknown'}${missingScope ? ` (missing scope: ${missingScope})` : ''}`
+                `[API] Permission denied on ${method} ${formatSafeRequestTarget(url)}: 403${missingScope ? ` (missing scope: ${missingScope})` : ''}`
             )
             return new PostHogPermissionError({
                 detail: errorData.detail || 'permission denied',
                 missingScope,
+                challengeScopes: parseInsufficientScopeChallenge(response.headers.get('WWW-Authenticate')),
                 url,
                 method,
             })
@@ -631,8 +667,7 @@ export class ApiClient {
 
         if (errorData?.type === 'validation_error') {
             const detail = errorData.detail || errorData.code || 'unknown'
-            const attrLog = errorData.attr ? ` (field: ${errorData.attr})` : ''
-            console.error(`[API] Validation error on ${method} ${url}: ${detail}${attrLog}`)
+            console.error(`[API] Validation error on ${method} ${formatSafeRequestTarget(url)}: ${response.status}`)
             return new PostHogValidationError({
                 detail,
                 attr: errorData.attr ?? undefined,
@@ -643,7 +678,7 @@ export class ApiClient {
             })
         }
 
-        console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
+        console.error(`[API] Request failed on ${method} ${formatSafeRequestTarget(url)}: ${response.status}`)
         return new PostHogApiError({
             status: response.status,
             statusText: response.statusText,
@@ -700,6 +735,9 @@ export class ApiClient {
                 // short throws here, and that failure is transport, not a bad response.
                 bodyText = await response.text()
             } catch (error) {
+                if (error instanceof PostHogApiError) {
+                    return { success: false, error }
+                }
                 const canRetry =
                     !signal.aborted &&
                     !isAbortError(error) &&
@@ -707,7 +745,9 @@ export class ApiClient {
                     isSafeMethod &&
                     transportRetries < TRANSPORT_MAX_RETRIES
                 if (!canRetry) {
-                    console.error(`[API] Transport failure on ${method} ${url}: ${String(error)}`)
+                    console.error(
+                        `[API] Transport failure on ${method} ${formatSafeRequestTarget(url)}: ${describeTransportCause(error)}`
+                    )
                     return {
                         success: false,
                         error: new PostHogTransportError({
@@ -724,7 +764,7 @@ export class ApiClient {
                 const delayMs = backoffMs / 2 + Math.random() * (backoffMs / 2)
                 transportRetries++
                 console.warn(
-                    `[API] Transport failure on ${method} ${url}: ${String(error)}. Retrying in ${Math.round(delayMs)}ms (attempt ${transportRetries}/${TRANSPORT_MAX_RETRIES})`
+                    `[API] Transport failure on ${method} ${formatSafeRequestTarget(url)}: ${describeTransportCause(error)}. Retrying in ${Math.round(delayMs)}ms (attempt ${transportRetries}/${TRANSPORT_MAX_RETRIES})`
                 )
                 await waitUnlessAborted(delayMs, options?.signal)
                 continue
@@ -745,7 +785,9 @@ export class ApiClient {
                 })
 
                 if (rateLimitRetries === RATE_LIMIT_MAX_RETRIES) {
-                    console.error(`[API] Rate limit (429) retries exhausted on ${method} ${url}`)
+                    console.error(
+                        `[API] Rate limit (429) retries exhausted on ${method} ${formatSafeRequestTarget(url)}`
+                    )
                     return rateLimitFailure()
                 }
 
@@ -760,7 +802,7 @@ export class ApiClient {
 
                 if (delayMs > waitBudgetMs) {
                     console.warn(
-                        `[API] Rate limited (429) on ${method} ${url}. Requested wait of ${Math.round(delayMs / 1000)}s exceeds the remaining ${Math.round(waitBudgetMs / 1000)}s retry budget; not retrying.`
+                        `[API] Rate limited (429) on ${method} ${formatSafeRequestTarget(url)}. Requested wait of ${Math.round(delayMs / 1000)}s exceeds the remaining ${Math.round(waitBudgetMs / 1000)}s retry budget; not retrying.`
                     )
                     return rateLimitFailure()
                 }
@@ -768,7 +810,7 @@ export class ApiClient {
                 waitBudgetMs -= delayMs
                 rateLimitRetries++
                 console.warn(
-                    `[API] Rate limited (429) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES})`
+                    `[API] Rate limited (429) on ${method} ${formatSafeRequestTarget(url)}. Retrying in ${Math.round(delayMs)}ms (attempt ${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES})`
                 )
                 await waitUnlessAborted(delayMs, options?.signal)
                 continue
@@ -1101,6 +1143,19 @@ export class ApiClient {
                 )
             },
 
+            getHealth: async ({
+                experimentId,
+                signal,
+            }: {
+                experimentId: number
+                signal?: AbortSignal
+            }): Promise<Result<Schemas.ExperimentHealth>> => {
+                return this.fetchJson<Schemas.ExperimentHealth>(
+                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/health/`,
+                    { signal }
+                )
+            },
+
             getExposures: async ({
                 experimentId,
                 refresh = false,
@@ -1131,7 +1186,7 @@ export class ApiClient {
                 if (!experiment.start_date) {
                     return {
                         success: false,
-                        error: new Error(
+                        error: new ExperimentNotStartedError(
                             `Experiment "${experiment.name}" has not started yet. Exposure data is only available for started experiments.`
                         ),
                     }
@@ -1384,6 +1439,34 @@ export class ApiClient {
                         message: `No insight found with short_id: ${insightId} in project ${projectId}. Use insights-list to find the insight. If the insight is in a different project, use switch-project.`,
                     }),
                 }
+            },
+
+            saveExplanation: async ({
+                insightId,
+                data,
+            }: {
+                insightId: number
+                data: Record<string, unknown>
+            }): Promise<Result<Schemas.ChartExplanation>> => {
+                return this.fetchJson<Schemas.ChartExplanation>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/explanations/`,
+                    { method: 'POST', body: JSON.stringify({ data }) }
+                )
+            },
+
+            updateExplanation: async ({
+                insightId,
+                explanationId,
+                data,
+            }: {
+                insightId: number
+                explanationId: string
+                data: Record<string, unknown>
+            }): Promise<Result<Schemas.ChartExplanation>> => {
+                return this.fetchJson<Schemas.ChartExplanation>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/explanations/${encodeURIComponent(explanationId)}/`,
+                    { method: 'PUT', body: JSON.stringify({ data }) }
+                )
             },
 
             create: async ({ data }: { data: Record<string, any> }): Promise<Result<Schemas.Insight>> => {
@@ -1662,6 +1745,7 @@ export class ApiClient {
                 columns?: unknown[] | null
                 formatted_results?: string
                 warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+                warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
                 has_next?: boolean
                 next_cursor?: string | null
             }> => {
@@ -1670,6 +1754,7 @@ export class ApiClient {
                     columns?: unknown[] | null
                     formatted_results?: string
                     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+                    warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
                     has_next?: boolean
                     next_cursor?: string | null
                 }>({

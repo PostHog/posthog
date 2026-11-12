@@ -1,7 +1,7 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ConversationState } from '../types'
-import { conversationalMessages } from './conversationalMessages'
+import { turnHasContent } from './conversationalMessages'
 import { ErrorCallout } from './ErrorCallout'
 import { ThreadTurn } from './ThreadTurn'
 import { useSearchHighlight } from './useSearchHighlight'
@@ -34,7 +34,7 @@ export function Thread({
         return <ErrorCallout message={conversation.message} />
     }
     const { turns, activeTurnId } = conversation
-    if (turns.every((turn) => conversationalMessages(turn.messages).length === 0 && !turn.error)) {
+    if (turns.every((turn) => !turnHasContent(turn) && !turn.error)) {
         return (
             <p className="m-0 text-secondary">
                 This trace has no conversation to show. Switch to Spans to see its steps.
@@ -50,6 +50,7 @@ export function Thread({
                     isActive={turns.length > 1 && turn.id === activeTurnId}
                     onSelectMessage={onSelectMessage}
                     matchingNodeIds={matchingNodeIds}
+                    highlightQuery={highlightQuery}
                 />
             ))}
         </div>

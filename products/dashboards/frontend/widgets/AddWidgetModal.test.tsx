@@ -117,6 +117,38 @@ describe('AddWidgetModal', () => {
         expect(sectionHeadings()).toHaveLength(8)
     })
 
+    it('hides the canvas app widget unless its creation flag is on', () => {
+        renderAddWidgetModal()
+        expect(screen.queryByText('Canvas app')).not.toBeInTheDocument()
+        cleanup()
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SMALL_SOFTWARE_APPS], {
+            [FEATURE_FLAGS.SMALL_SOFTWARE_APPS]: true,
+        })
+        renderAddWidgetModal()
+        expect(screen.getByText('Canvas', { selector: 'h5' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Canvas app')).toBeInTheDocument()
+    })
+
+    it('drops a stored canvas app selection once its creation flag turns off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SMALL_SOFTWARE_APPS], {
+            [FEATURE_FLAGS.SMALL_SOFTWARE_APPS]: true,
+        })
+        renderAddWidgetModal()
+        await userEvent.click(screen.getByLabelText('Canvas app'))
+        await userEvent.click(screen.getByLabelText('Top issues'))
+        expect(screen.getByTestId('add-widget-submit')).toHaveTextContent('Add 2 widgets')
+        cleanup()
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SMALL_SOFTWARE_APPS]: false })
+        const onAdd = jest.fn().mockResolvedValue(undefined)
+        renderAddWidgetModal({ onAdd })
+        expect(screen.getByTestId('add-widget-submit')).toHaveTextContent('Add widget')
+        await userEvent.click(screen.getByTestId('add-widget-submit'))
+
+        expect(onAdd).toHaveBeenCalledWith([expect.objectContaining({ widgetType: 'error_tracking_list' })])
+    })
+
     it('allows multi-select checkbox behavior within grouped layout', async () => {
         renderAddWidgetModal()
 
@@ -129,39 +161,6 @@ describe('AddWidgetModal', () => {
 
         await userEvent.click(topIssuesCard)
         expect(topIssuesCard).toHaveAttribute('aria-checked', 'false')
-    })
-
-    it('offers metric presets only with the metrics and insight builder flags, and adds the picked preset as a metrics widget', async () => {
-        const onAdd = jest.fn().mockResolvedValue(undefined)
-        renderAddWidgetModal({ onAdd })
-        expect(screen.queryByLabelText('Single stat')).not.toBeInTheDocument()
-        cleanup()
-
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
-        renderAddWidgetModal({ onAdd })
-        expect(screen.queryByLabelText('Single stat')).not.toBeInTheDocument()
-        cleanup()
-
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.METRICS]: true,
-            [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
-        })
-        renderAddWidgetModal({ onAdd })
-        expect(['Time series', 'Single stat', 'Heatmap'].map((label) => !!screen.queryByLabelText(label))).toEqual([
-            true,
-            true,
-            true,
-        ])
-
-        await userEvent.click(screen.getByLabelText('Single stat'))
-        await userEvent.click(screen.getByTestId('add-widget-submit'))
-
-        expect(onAdd).toHaveBeenCalledWith([
-            {
-                widgetType: 'metrics',
-                config: { query: expect.objectContaining({ kind: 'MetricsQuery', display: { type: 'stat' } }) },
-            },
-        ])
     })
 
     it('submits all selected widget types', async () => {

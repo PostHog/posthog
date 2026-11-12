@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.sync_alerts import DEFAULT_FAILURE_ALERT_FLAG, WAREHOUSE_ALERTS_FLAG
 
 pytestmark = [
     pytest.mark.django_db,
@@ -35,6 +36,7 @@ SENDER_PATH = (
     "products.data_warehouse.backend.logic.external_data_source.notifications.send_external_data_failure_digest"
 )
 FLAG_PATH = "products.warehouse_sources.backend.sync_alerts.default_alert.posthog_feature_flag_enabled"
+BOTH_FLAGS = (WAREHOUSE_ALERTS_FLAG, DEFAULT_FAILURE_ALERT_FLAG)
 
 
 def _create_team_and_source() -> tuple[Team, ExternalDataSource]:
@@ -282,17 +284,24 @@ class TestNotifyExternalDataSyncFailures:
         assert schema.last_error_notified_at is None
 
     @pytest.mark.parametrize(
-        "flag_on,email_project_members,scoped,enabled,expected_sent",
+        "flags_on,email_project_members,scoped,enabled,expected_sent",
         [
-            pytest.param(True, True, False, True, False, id="an_alert_emails_members_about_every_source"),
-            pytest.param(False, True, False, True, True, id="flag_off"),
-            pytest.param(True, False, False, True, True, id="the_alert_does_not_email"),
-            pytest.param(True, True, True, True, True, id="the_alert_watches_one_source"),
-            pytest.param(True, True, False, False, True, id="the_alert_is_disabled"),
+            pytest.param(BOTH_FLAGS, True, False, True, False, id="an_alert_emails_members_about_every_source"),
+            pytest.param((), True, False, True, True, id="flags_off"),
+            pytest.param((DEFAULT_FAILURE_ALERT_FLAG,), True, False, True, True, id="only_the_failure_email_flag_on"),
+            pytest.param((WAREHOUSE_ALERTS_FLAG,), True, False, True, True, id="only_the_warehouse_alerts_flag_on"),
+            pytest.param(BOTH_FLAGS, False, False, True, True, id="the_alert_does_not_email"),
+            pytest.param(BOTH_FLAGS, True, True, True, True, id="the_alert_watches_one_source"),
+            pytest.param(BOTH_FLAGS, True, False, False, True, id="the_alert_is_disabled"),
         ],
     )
     def test_skips_the_digest_only_when_an_alert_emails_members_about_every_source(
-        self, flag_on: bool, email_project_members: bool, scoped: bool, enabled: bool, expected_sent: bool
+        self,
+        flags_on: tuple[str, ...],
+        email_project_members: bool,
+        scoped: bool,
+        enabled: bool,
+        expected_sent: bool,
     ) -> None:
         team, source = _create_team_and_source()
         schema = ExternalDataSchema.objects.create(
@@ -319,7 +328,10 @@ class TestNotifyExternalDataSyncFailures:
                 created_by_id=None,
             )
 
-        with patch(FLAG_PATH, return_value=flag_on), patch(SENDER_PATH, return_value=True) as mock_sender:
+        with (
+            patch(FLAG_PATH, side_effect=lambda flag, *args, **kwargs: flag in flags_on),
+            patch(SENDER_PATH, return_value=True) as mock_sender,
+        ):
             notify_external_data_sync_failures(team.pk)
 
         schema.refresh_from_db()

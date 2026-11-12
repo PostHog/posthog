@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from functools import reduce
@@ -16,6 +16,7 @@ from posthog.schema import (
     CohortPropertyFilter,
     EventPropertyFilter,
     ExperimentEventExposureConfig,
+    ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
     PersonPropertyFilter,
     PropertyOperator,
@@ -29,11 +30,12 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models import EventDefinition, PropertyDefinition, effective_project_id_expr
+from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
 )
+from products.experiments.backend.facade.daily_calculation import daily_calculation_end, is_past_daily_calculation
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
@@ -47,8 +49,12 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 from products.experiments.backend.logic.result_stats import MetricResultStats
 from products.experiments.backend.metric_resolution import MetricRole, saved_metric_link_role, saved_metric_links
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.metric_validation import defined_event_names, extract_entity_nodes
-from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.experiments.backend.metric_validation import defined_event_names, event_last_seen, extract_entity_nodes
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentToSavedMetric,
+    live_experiments_for_flag,
+)
 from products.experiments.backend.running_time_target import RunningTimeTarget
 from products.feature_flags.backend.facade.edits import (
     BucketingChange,
@@ -73,6 +79,13 @@ def changes_of_kind[C: FlagChange](changes: tuple[FlagChange, ...], kind: type[C
     return tuple(change for change in changes if isinstance(change, kind))
 
 
+def split_changed_after_the_end(changes: tuple[FlagChange, ...], ended_at: datetime | None) -> bool:
+    """Whether the flag's split is no longer the one that the run's users got."""
+    return ended_at is not None and any(
+        change.changed_at > ended_at for change in changes_of_kind(changes, SplitChange)
+    )
+
+
 @frozen
 class ChangeWindow:
     start: datetime
@@ -84,7 +97,9 @@ class FlagHistory:
     """The changes of the flag after launch that can have moved exposed people, and whether anyone was exposed
     before them. A change before the first exposure moved nobody, so it does not count."""
 
-    launched_at: datetime
+    # The experiment's start date, which can lie before its launch. The results count exposures from it, so the history
+    # and its exposure windows start there too.
+    start_date: datetime
     team_timezone: str
     # Every change of every kind, in time order.
     changes: tuple[FlagChange, ...]
@@ -141,7 +156,7 @@ class FlagHistoryNotChecked:
     """A flag history that was not compared with the exposures, and the reason. Every change counts."""
 
     reason: FlagHistoryNotCheckedReason
-    launched_at: datetime
+    start_date: datetime
     team_timezone: str
     # Every change since launch, in time order. Empty for NO_HISTORY_ACCESS, which does not read them.
     changes: tuple[FlagChange, ...]
@@ -175,6 +190,9 @@ class ReachableCondition:
     variant_property: VariantProperty | None
     # The cohorts whose members the condition matches. A `not_in` cohort filter matches the users outside the cohort.
     member_cohort_ids: frozenset[int] = frozenset()
+    # Whether the condition has no filters, or only filters that leave users out, so it includes nearly everyone who
+    # reaches it.
+    includes_everyone: bool = False
 
 
 @frozen
@@ -185,6 +203,8 @@ class FlagState:
     variants: tuple[FlagVariant, ...]
     # The release conditions that can serve a request, in evaluation order.
     reachable_conditions: tuple[ReachableCondition, ...]
+    early_exit: bool = False
+    saved_at: datetime | None = None
 
 
 @frozen
@@ -213,10 +233,29 @@ class PauseHistory:
     write these entries, from the page, the API or MCP. A flag disabled or enabled anywhere else, such as on the flag
     page, writes none."""
 
-    launched_at: datetime
+    start_date: datetime
     team_timezone: str
     # The time of the latest entry when it is a pause. None when it is a resume, or the experiment has no entry.
     paused_at: datetime | None
+
+
+@frozen
+class ExperimentOnFlag:
+    """Another experiment of the project that uses the same feature flag. The API lets several experiments share one
+    flag, so the flag's state can belong to one of them. It has no name or id, because the reader of this experiment
+    may have no access to the other one."""
+
+    start_date: datetime | None
+    ended_at: datetime | None
+    archived: bool
+
+    @property
+    def is_draft(self) -> bool:
+        return self.start_date is None
+
+    @property
+    def is_running(self) -> bool:
+        return self.start_date is not None and self.ended_at is None
 
 
 @frozen
@@ -361,6 +400,37 @@ class MetricCalculationFailure:
     exposures_path: ExposuresPath | None
 
 
+RatioSide = Literal["numerator", "denominator"]
+
+
+@frozen
+class ZeroMetric:
+    """A metric, or one side of a ratio metric, whose latest calculation reads zero in every variant, which the results
+    page shows as "Not enough data yet" at any sample size."""
+
+    metric_id: str
+    name: str
+    role: MetricRole
+    # The persons or groups of the result, across the variants.
+    exposures: int
+    # The side of a ratio that reads zero, each side its own `ZeroMetric`. None for the other metric types.
+    ratio_side: RatioSide | None
+    # The effective definition now, which holds the outlier handling and the retention window.
+    definition: Mapping[str, Any]
+    # The persons or groups that reached a step of a funnel before the last one. Zero for the other metric types.
+    reached_earlier_step: int
+    # The events that the zero reads by name, without the other side of a ratio.
+    events: tuple[str, ...]
+    # The data warehouse tables that the zero reads, without the other side of a ratio.
+    warehouse_tables: tuple[str, ...]
+    # Whether the zero reads an event node with a blank name, which matches no event. "All events" stores no name.
+    has_blank_event: bool
+    # Whether the zero reads a node with property filters.
+    has_filters: bool
+    # Of `events`, those that the project last received before launch, by the time of the last one.
+    stopped_events: Mapping[str, datetime]
+
+
 @frozen
 class LatestCalculation:
     """The latest finished calculation of the experiment's metrics, whose results and errors the results page
@@ -375,6 +445,11 @@ class LatestCalculation:
     completed_count: int
     # Where the queries of those results read the exposures, when there is a failure to compare them with.
     completed_exposures_paths: frozenset[ExposuresPath]
+    # Of those results, the ones that read zero in every variant.
+    zero_metrics: tuple[ZeroMetric, ...] = ()
+    # The hours from launch to the end of the data of this calculation. None when no calculation has finished. The
+    # page can show a calculation from days ago until its refresh finishes.
+    hours_of_data: float | None = None
 
 
 @frozen
@@ -506,6 +581,8 @@ class HealthContext:
     # None while the experiment has not ended.
     ended_at: datetime | None
     is_paused: bool
+    # Whether the experiment can stop enrolling users while it keeps measuring, by the rule the freeze action enforces.
+    can_freeze_exposure: bool
     archived: bool
     team_timezone: str
     flag: FlagState | None
@@ -517,11 +594,15 @@ class HealthContext:
     # answer this. None before launch, when the experiment has no flag, when the flag's latest call came after the
     # end, or when PostHog can't record the calls of this organization's flags.
     flag_called_during_run: bool | None
-    # Whether the flag's latest recorded call came after the end. False only when no call is recorded in the
-    # ENDED_FLAG_QUIET_PERIOD after the end, also for a flag without a recorded call. None before the end, when the
-    # experiment has no flag, before that period is over, or when PostHog can't record the calls of this
-    # organization's flags.
+    # Whether PostHog has recorded a call of the flag after the end and in the last ENDED_FLAG_QUIET_PERIOD, so that
+    # one stray call doesn't count as a flag that is still read. False only once that period after the end is over.
+    # None before the end, when the experiment has no flag, before that period is over without a call, or when
+    # PostHog can't record the calls of this organization's flags.
     flag_called_after_end: bool | None
+    # The flag's latest recorded call. None when the experiment has no flag, or the flag has no recorded call.
+    flag_last_called_at: datetime | None
+    # The other non-deleted experiments on the flag.
+    other_experiments_on_flag: tuple[ExperimentOnFlag, ...]
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
@@ -530,6 +611,13 @@ class HealthContext:
     primary_metric_count: int
     secondary_metric_count: int
     hours_since_launch: float | None
+    # From the start date, which can be earlier than the launch. The daily calculation and the experiment list count
+    # from it.
+    hours_since_start: float | None
+    # Whether the daily calculation leaves out the experiment, by the rule the daily jobs apply.
+    past_daily_calculation: bool
+    # None without a start date.
+    daily_calculation_ends_at: datetime | None
     metric_events: tuple[MetricEvents, ...]
     # None when the stored exposure criteria don't parse.
     exposure_events: ExposureEvents | None
@@ -578,6 +666,7 @@ def parse_flag_state(
     variants: object,
     aggregation_group_type_index: int | None = None,
     early_exit: bool = False,
+    saved_at: datetime | None = None,
 ) -> FlagState:
     conditions = groups if isinstance(groups, list) else []
     flag_variants = parse_variants(variants)
@@ -592,6 +681,8 @@ def parse_flag_state(
             _reachable_condition(index + 1, conditions[index], variant_keys, aggregation_group_type_index)
             for index in reachable
         ),
+        early_exit=early_exit,
+        saved_at=saved_at,
     )
 
 
@@ -609,6 +700,30 @@ def _member_cohort_ids(condition: Mapping[str, Any]) -> frozenset[int]:
     )
 
 
+_EXCLUDING_OPERATORS = frozenset(
+    {
+        PropertyOperator.IS_NOT,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.NOT_STARTS_WITH,
+        PropertyOperator.NOT_ENDS_WITH,
+        PropertyOperator.NOT_REGEX,
+        PropertyOperator.NOT_BETWEEN,
+        PropertyOperator.NOT_IN,
+        PropertyOperator.IS_NOT_SET,
+        PropertyOperator.SEMVER_NEQ,
+        PropertyOperator.IS_CLEANED_PATH_NOT_EXACT,
+    }
+)
+
+
+def _includes_everyone(condition: Mapping[str, Any]) -> bool:
+    properties = condition.get("properties")
+    if not isinstance(properties, list) or not properties:
+        return True
+    return all(isinstance(prop, dict) and prop.get("operator") in _EXCLUDING_OPERATORS for prop in properties)
+
+
 def _reachable_condition(
     number: int, condition: Mapping[str, Any], variant_keys: set[str], flag_aggregation: int | None
 ) -> ReachableCondition:
@@ -618,6 +733,7 @@ def _reachable_condition(
         pinned_variant=pinned,
         variant_property=None if pinned is None else _variant_property(condition, pinned, flag_aggregation),
         member_cohort_ids=_member_cohort_ids(condition),
+        includes_everyone=_includes_everyone(condition),
     )
 
 
@@ -675,6 +791,7 @@ def _load_flag_state(experiment: Experiment) -> FlagState | None:
         variants=flag.variants,
         aggregation_group_type_index=flag.aggregation_group_type_index,
         early_exit=flag.early_exit,
+        saved_at=flag.updated_at,
     )
 
 
@@ -709,11 +826,25 @@ def _flag_called_after_end(experiment: Experiment) -> bool | None:
     if not experiment.is_stopped or end_date is None or feature_flag_id is None:
         return None
     last_called_at = experiment.feature_flag.last_called_at
-    if last_called_at is not None and last_called_at > end_date:
+    now = timezone.now()
+    if last_called_at is not None and last_called_at > max(end_date, now - ENDED_FLAG_QUIET_PERIOD):
         return True
-    if timezone.now() - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
+    if now - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
         return None
     return None if _flag_calls_unrecorded(experiment) else False
+
+
+def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag, ...]:
+    others = (
+        live_experiments_for_flag(experiment.feature_flag_id)
+        .filter(team_id=experiment.team_id)
+        .exclude(id=experiment.id)
+        .values_list("start_date", "end_date", "archived", named=True)
+    )
+    return tuple(
+        ExperimentOnFlag(start_date=other.start_date, ended_at=other.end_date, archived=other.archived)
+        for other in others
+    )
 
 
 def _flag_calls_unrecorded(experiment: Experiment) -> bool:
@@ -748,6 +879,9 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     try:
         criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
     except pydantic.ValidationError:
+        return None
+    if criteria is not None and isinstance(criteria.exposure_config, ExperimentWarehouseNativeExposureConfig):
+        # The exposures live in the customer's warehouse, so no event of this project describes them.
         return None
     # A deleted flag carries a tombstone in its key, and the exposure query reads the key without it.
     flag_key = experiment.feature_flag.key_without_tombstone() if experiment.feature_flag_id else None
@@ -920,25 +1054,28 @@ def _received(
     }
 
 
+def ingestion_proof_events(experiment_events: Iterable[str]) -> set[str]:
+    """The events whose `last_seen_at` can show that ingestion records the project: the flag calls and the events of
+    the experiment."""
+    return {DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT, *experiment_events}
+
+
+def ingestion_records_project(last_seen: Mapping[str, datetime]) -> bool:
+    """Whether ingestion writes the project's definitions now, from `last_seen` of `ingestion_proof_events`. A missing
+    or stale definition proves nothing without it. Ingestion can be set to skip a team, and then writes no definition at
+    all. It refreshes `last_seen_at` of an event that it sees about once an hour. So a flag call or an event of the
+    experiment seen within the margin shows that it records the project."""
+    recent = timezone.now() - _DEFINITION_RECREATION_MARGIN
+    return any(seen >= recent for seen in last_seen.values())
+
+
 def _ingestion_records_project(
     experiment: Experiment, metric_events: tuple[MetricEvents, ...], exposure_events: ExposureEvents | None
 ) -> bool:
-    """Whether ingestion writes the project's definitions now, which a missing definition needs to prove anything.
-    Ingestion can be set to skip a team, and then writes no definition at all. It refreshes `last_seen_at` of an event
-    that it sees about once an hour. So a flag call or an event of the experiment seen within the margin shows that it
-    records the project."""
-    names = {DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT, *(event for m in metric_events for event in m.events)}
+    names = ingestion_proof_events(event for m in metric_events for event in m.events)
     if exposure_events is not None and exposure_events.custom_event is not None:
         names.add(exposure_events.custom_event)
-    return (
-        EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
-        .filter(
-            effective_project_id=experiment.team.project_id,
-            name__in=names,
-            last_seen_at__gte=timezone.now() - _DEFINITION_RECREATION_MARGIN,
-        )
-        .exists()
-    )
+    return ingestion_records_project(event_last_seen(experiment.team.project_id, names))
 
 
 def _deletions_since(experiment: Experiment) -> datetime:
@@ -988,6 +1125,7 @@ def load_health_context(
     exposures: ExposureTotals | None = None,
     *,
     flag_history: FlagHistory | FlagHistoryNotChecked | None = None,
+    can_read_flag_history: bool = False,
 ) -> HealthContext:
     links = saved_metric_links(experiment)
     shared_metric_roles = [saved_metric_link_role(link) for link in links]
@@ -1001,19 +1139,25 @@ def load_health_context(
         has_ended=experiment.is_stopped,
         ended_at=experiment.end_date if experiment.is_stopped else None,
         is_paused=experiment.is_paused,
+        can_freeze_exposure=experiment.can_freeze_exposure,
         archived=experiment.archived,
         team_timezone=experiment.team.timezone,
         flag=_load_flag_state(experiment),
         flag_called=flag_called,
         flag_called_during_run=_flag_called_during_run(experiment, flag_called),
         flag_called_after_end=_flag_called_after_end(experiment),
+        flag_last_called_at=experiment.feature_flag.last_called_at if experiment.feature_flag_id else None,
+        other_experiments_on_flag=_other_experiments_on_flag(experiment),
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
         ),
         baseline_variant_key=_configured_baseline_variant_key(experiment.stats_config),
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
-        hours_since_launch=experiment.hours_since_launch,
+        hours_since_launch=experiment.hours_since_launch(read_activity_log=can_read_flag_history),
+        hours_since_start=experiment.hours_since_start,
+        past_daily_calculation=is_past_daily_calculation(experiment.start_date, timezone.now()),
+        daily_calculation_ends_at=daily_calculation_end(experiment.start_date),
         metric_events=metric_events,
         exposure_events=exposure_events,
         events_received=events_received,

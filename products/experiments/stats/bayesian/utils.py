@@ -5,19 +5,31 @@ This module provides fundamental Bayesian statistical calculations including
 posterior updates, credible intervals, and probability calculations.
 """
 
+from typing import TYPE_CHECKING
+
 from scipy.stats import norm
 
 from ..shared.enums import DifferenceType
-from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
-from ..shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
+from ..shared.statistics import AnyStatistic, StatisticError
+from ..shared.utils import (
+    get_mean,
+    get_sample_size,
+    get_variance,
+    relative_effect,
+    relative_effect_variance,
+    validate_test_inputs,
+)
 from .priors import GaussianPrior
+
+if TYPE_CHECKING:
+    from ..shared.statistics import RelativeEffectBaseline
 
 
 def calculate_effect_size_and_variance(
-    treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
-    control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+    treatment_stat: AnyStatistic,
+    control_stat: AnyStatistic,
     difference_type: DifferenceType,
-    unadjusted_mean: float | None = None,
+    relative_effect_baseline: RelativeEffectBaseline | None = None,
 ) -> tuple[float, float]:
     """
     Calculate effect size and its variance for Bayesian analysis.
@@ -26,15 +38,14 @@ def calculate_effect_size_and_variance(
         treatment_stat: Treatment group statistic
         control_stat: Control group statistic
         difference_type: Type of difference to calculate
-        unadjusted_mean: Optional override for the denominator in relative calculations.
-            When provided, used instead of the control mean. This is useful for CUPED
-            where the adjusted control mean differs from the original control mean.
+        relative_effect_baseline: Raw baseline moments for CUPED relative effects.
+            Includes its covariance with the adjusted treatment-control difference.
 
     Returns:
         Tuple of (effect_size, effect_variance)
 
     Raises:
-        StatisticError: If control mean is zero for relative calculations
+        StatisticError: If the baseline mean is zero for relative calculations
     """
     treatment_mean = get_mean(treatment_stat)
     control_mean = get_mean(control_stat)
@@ -49,55 +60,13 @@ def calculate_effect_size_and_variance(
         effect_variance = treatment_var / treatment_n + control_var / control_n
 
     elif difference_type == DifferenceType.RELATIVE:
-        denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
-        if denominator <= 0:
-            raise StatisticError("Control mean must be positive for relative difference calculation")
-
-        # Direct relative difference: (μ_T - μ_C) / μ_C
-        effect = (treatment_mean - control_mean) / denominator
-
-        # Using delta method for ratios
-        effect_variance = variance_of_ratios(
-            mean_numerator=treatment_mean,
-            var_numerator=treatment_var / treatment_n,
-            mean_denominator=denominator,
-            var_denominator=control_var / control_n,
-            covariance=0,  # No covariance between treatment and control
-        )
+        effect = relative_effect(treatment_stat, control_stat, relative_effect_baseline)
+        effect_variance = relative_effect_variance(treatment_stat, control_stat, relative_effect_baseline)
 
     else:
         raise StatisticError(f"Unsupported difference type: {difference_type}")
 
     return effect, effect_variance
-
-
-def variance_of_ratios(
-    mean_numerator: float, var_numerator: float, mean_denominator: float, var_denominator: float, covariance: float
-) -> float:
-    """
-    Calculate variance of ratio using delta method.
-
-    For ratio R = M/D, the variance is approximately:
-    Var(R) ≈ Var(M)/D² + M²Var(D)/D⁴ - 2M*Cov(M,D)/D³
-
-    Args:
-        mean_numerator: Mean of numerator
-        var_numerator: Variance of numerator
-        mean_denominator: Mean of denominator
-        var_denominator: Variance of denominator
-        covariance: Covariance between numerator and denominator
-
-    Returns:
-        Variance of the ratio
-    """
-    if abs(mean_denominator) < 1e-10:
-        raise StatisticError("Denominator mean cannot be zero for ratio variance calculation")
-
-    return (
-        var_numerator / mean_denominator**2
-        + mean_numerator**2 * var_denominator / mean_denominator**4
-        - 2 * mean_numerator * covariance / mean_denominator**3
-    )
 
 
 def calculate_posterior(effect_size: float, effect_variance: float, prior: GaussianPrior) -> tuple[float, float]:
@@ -202,8 +171,8 @@ def credible_interval(posterior_mean: float, posterior_std: float, alpha: float 
 
 
 def validate_inputs(
-    treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
-    control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+    treatment_stat: AnyStatistic,
+    control_stat: AnyStatistic,
 ) -> None:
     """
     Validate input statistics for Bayesian analysis.

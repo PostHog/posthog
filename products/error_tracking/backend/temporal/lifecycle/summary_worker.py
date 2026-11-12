@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 MIN_ISSUE_SUMMARY_WORKER_SLOTS = 3
-# Alert dispatch, embedding and severity inference share this worker's activity slots.
+# Alert dispatch, embedding, severity inference and tagging share this worker's activity slots.
 MIN_NON_SUMMARY_WORKER_SLOTS = 2
 
 
@@ -48,7 +48,7 @@ def generate_summary_on_worker(
     # Checked outside the generator, which reports every attempt as an event, so a team without the flag sends none.
     if not issue_summaries_on_write_enabled(team_id):
         return IssueSummaryOutcome.DISABLED
-    # Skip instead of wait, because a waiting activity still holds its slot. The read path generates the summary.
+    # Skip instead of wait, because a waiting activity still holds its slot. The issue then gets no summary.
     if not ISSUE_SUMMARY_WORKER_SLOTS.acquire(blocking=False):
         logger.warning("error_tracking_issue_summary_worker_busy", team_id=team_id, issue_id=issue_id, trigger=trigger)
         report_worker_busy(team_id, issue_id, trigger)

@@ -6,6 +6,8 @@ Internal cross-module references and mock patches must target the defining submo
 directly (e.g. `posthog.models.integration.slack.SlackIntegration`), never this shim.
 """
 
+from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError, integration_secret_decrypt_counter
+
 from .anthropic import (
     ANTHROPIC_CLIENT_TIMEOUT_SECONDS,
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -26,6 +28,7 @@ from .auth_types import (
     register_kind_auth_types,
 )
 from .aws import (
+    AnyRedshiftIntegration,
     AWSCredentialsIntegration,
     AWSRedshiftIntegration,
     AWSRedshiftRoleBasedIntegration,
@@ -33,8 +36,12 @@ from .aws import (
     AWSS3Integration,
     AWSS3RoleBasedIntegration,
     DuplicateNameError,
+    RedshiftProvisionedCluster,
+    RedshiftServerlessWorkgroup,
     S3CompatibleIntegration,
     is_unique_aws_role_by_organization_id,
+    parse_redshift_host,
+    redshift_integration_from_record,
     validate_aws_credentials,
 )
 from .azure_blob import AzureBlobIntegration, AzureBlobIntegrationError
@@ -77,17 +84,17 @@ from .google_cloud import (
     is_unique_service_account_by_organization_id,
 )
 from .jira import JiraIntegration
-from .linear import LinearIntegration
+from .linear import LinearIntegration, LinearIntegrationError, LinearRateLimitedError
 from .linkedin_ads import LinkedInAdsIntegration
 from .meta import InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
 from .model import (
+    PUBLIC_INTEGRATION_KIND_CHOICES,
+    WAREHOUSE_SOURCE_TYPE_CONFIG_KEY,
     Integration,
     IntegrationModelManager,
     IntegrationQuerySet,
-    UndecryptedIntegrationSecretError,
     aget_integration_by_id,
     defer_repository_cache_fields,
-    integration_secret_decrypt_counter,
 )
 from .oauth import (
     INSTAGRAM_OAUTH_SCOPE,
@@ -133,15 +140,15 @@ from .refresh_tracking import (
     REFRESH_FAILURE_REASON_OTHER,
     REFRESH_FAILURE_REASON_RATE_LIMITED,
     REFRESH_FAILURE_REASON_UNREADABLE_SECRET,
+    REFRESH_SUCCESS_PATCH,
     REFRESH_TERMINAL_FAILURE_COUNT,
     issuing_oauth_client_ids,
+    oauth_client_patch,
     oauth_refresh_counter,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
-    record_oauth_client_used,
-    record_refresh_failure,
-    record_refresh_success,
     refresh_backoff_active,
+    refresh_failure_patch,
 )
 from .slack import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
@@ -191,9 +198,9 @@ __all__ = [
     "REFRESH_FAILURE_REASON_OTHER",
     "REFRESH_FAILURE_REASON_UNREADABLE_SECRET",
     "oauth_refresh_failure_reason",
-    "record_refresh_failure",
-    "record_refresh_success",
-    "record_oauth_client_used",
+    "refresh_failure_patch",
+    "REFRESH_SUCCESS_PATCH",
+    "oauth_client_patch",
     "issuing_oauth_client_ids",
     "refresh_backoff_active",
     "CONFIG_PUSH_IDENTITY_VERIFICATION",
@@ -207,6 +214,8 @@ __all__ = [
     "OauthClientCredentials",
     "OauthConfig",
     "POSTHOG_SLACK_SCOPE",
+    "PUBLIC_INTEGRATION_KIND_CHOICES",
+    "WAREHOUSE_SOURCE_TYPE_CONFIG_KEY",
     "OAUTH_CLIENT_CREDENTIAL_KEYS",
     "SALESFORCE_OAUTH_KINDS",
     "POSTHOG_CONNECT_KIND",
@@ -238,6 +247,8 @@ __all__ = [
     "EmailIntegration",
     "cleanup_ses_identity_on_integration_delete",
     "LinearIntegration",
+    "LinearIntegrationError",
+    "LinearRateLimitedError",
     "SUPPORTED_EXTERNAL_ISSUE_PROVIDERS",
     "external_issue_url",
     "is_supported_external_issue_provider",
@@ -280,6 +291,11 @@ __all__ = [
     "AWSCredentialsIntegration",
     "AWSS3Integration",
     "AWSRedshiftIntegration",
+    "AnyRedshiftIntegration",
+    "RedshiftProvisionedCluster",
+    "RedshiftServerlessWorkgroup",
+    "parse_redshift_host",
+    "redshift_integration_from_record",
     "S3CompatibleIntegration",
     "STRIPE_POSTHOG_SECRET_NAMES",
     "StripeIntegration",

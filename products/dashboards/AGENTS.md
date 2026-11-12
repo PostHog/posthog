@@ -6,7 +6,7 @@ Do not treat every dashboard change as a widget change.
 ## Choose the change type
 
 - For dashboard metadata, layouts, insight tiles, text cards, button tiles, or templates, use the product models and API in this directory.
-- For dashboard performance work, read [PERFORMANCE.md](./PERFORMANCE.md) before changing loading, scrolling, edit-mode transitions, tile movement, resize, or chart rendering. It covers work across tiles, browser layout, chart drawing, and measurement.
+- For dashboard performance work, read [PERFORMANCE.md](./PERFORMANCE.md) before changing loading, scrolling, layout autosave, tile movement, resize, or chart rendering. It covers work across tiles, browser layout, chart drawing, and measurement.
 - For a tile with `widget_id`, read [`CONTRIBUTING.md`](./CONTRIBUTING.md). It defines widget architecture, registry parity, generated files, and validation commands.
 - For dashboard creation or updates through PostHog tools, read [`building-a-dashboard`](./skills/building-a-dashboard/SKILL.md).
 - For scheduled dashboard delivery, read [`managing-subscriptions`](../subscriptions/skills/managing-subscriptions/SKILL.md).
@@ -18,5 +18,5 @@ Do not treat every dashboard change as a widget change.
 - Register every widget type in the backend and frontend registries.
 - Define each widget config in `backend/widget_specs/configs.py` before you change generated frontend config types.
 - Run `hogli build:openapi` after you change `widget_specs/`.
-- Use dashboard insight tiles for charts and trends of insight queries. Do not create a widget type for them. The metrics widgets (`metrics` and `metrics_table`) are the exception, because metrics are not an insight type.
+- Use dashboard insight tiles for charts and trends. Do not create a widget type for them.
 - Read [`manage-dashboard-widgets`](../../.agents/skills/manage-dashboard-widgets/SKILL.md) when you add a widget type or change a shipped widget.

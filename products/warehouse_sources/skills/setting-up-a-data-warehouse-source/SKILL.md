@@ -1,10 +1,10 @@
 ---
 name: setting-up-a-data-warehouse-source
 description: >
-  Guide the user through connecting a new data warehouse source — Postgres, MySQL, Stripe, Hubspot, MongoDB,
-  Salesforce, BigQuery, Snowflake, and so on. Use when the user wants to "connect Stripe", "import data from
-  Postgres", "add a new data source", "sync my warehouse tables", or wants to pick sync methods for each table. Walks
-  through source-type discovery, credential validation, table discovery, per-table sync_type selection, and the
+  Guide the user through connecting a new data warehouse source, including databases, SaaS tools, and bucket files.
+  Use when the user wants to "connect Stripe", "import data from Postgres", "import files from a bucket",
+  "upload a file", "add a new data source", or pick sync methods for each table. This skill covers
+  source-type discovery, credential validation, table discovery, per-table sync_type selection, and the
   final create call. Also covers picking a good prefix, what to do right after creation, and sending a source's
   tables to the user's own warehouse (Snowflake, BigQuery, Postgres, S3 and other destinations).
 ---
@@ -12,6 +12,12 @@ description: >
 # Setting up a data warehouse source
 
 Use this skill when the user wants to connect an external data source to PostHog's data warehouse for the first time.
+
+Use `AmazonS3` for Amazon S3, `GoogleCloudStorage` for Google Cloud Storage, `AzureBlob` for Azure Blob, and
+`CloudflareR2` for Cloudflare R2. For a local file, direct the user to upload it in the PostHog app. That flow
+creates a `FileUpload` source. No MCP tool uploads files.
+
+Bucket sources use `full_refresh` by default.
 
 **Default to the one-step flow:** `data-warehouse-source-setup` validates credentials, discovers every table, enables
 them with sensible sync defaults (incremental where possible), and creates the source in a single call — no
@@ -22,6 +28,7 @@ hand-pick which tables sync or set non-default sync types per table.
 ## When to use this skill
 
 - The user wants to connect a new source: "connect Stripe", "import my Postgres orders table", "sync Hubspot contacts"
+- The user wants to import bucket files or upload a local file
 - The user isn't sure what source types PostHog supports
 - The user has credentials but doesn't know how to structure the `schemas` payload
 - The user wants guidance on which sync method to pick per table
@@ -43,6 +50,7 @@ hand-pick which tables sync or set non-default sync types per table.
 | `external-data-schemas-list`                           | See per-table sync status once the source is created                                                                      |
 | `external-data-destinations-list`                      | See existing destinations, including the PostHog warehouse                                                                |
 | `external-data-destinations-connect-link`              | Secure browser link where the user enters a destination's credentials; returns nothing secret                             |
+| `external-data-destinations-connect-link-status`       | Poll with the link's `connect_token` to get the integration the user saved                                                |
 | `external-data-destinations-create`                    | Create a destination from the integration the connect page saved                                                          |
 | `external-data-destinations-add-sources`               | Attach existing sources to a destination                                                                                  |
 | `external-data-sources-destinations-update`            | Set a source's full destination list, for example to keep the PostHog warehouse before attaching                          |
@@ -154,6 +162,9 @@ field definitions. The response is a dict keyed by source type. Each entry descr
 Match the user's request to a source. If they said "Postgres", look up `Postgres`. If they said something ambiguous
 like "database", present the top relevant matches (Postgres, MySQL, MongoDB, BigQuery, Snowflake, Redshift) and let
 them pick.
+
+For bucket files, use the canonical `source_type`: `AmazonS3`, `GoogleCloudStorage`, `AzureBlob`, or `CloudflareR2`.
+For a local file, use the app's upload flow. It creates a `FileUpload` source after the user uploads the file.
 
 For OAuth-based sources (Hubspot, Salesforce, Google Ads), the wizard entry hints at an OAuth flow. These typically
 need the user to authorize in the PostHog UI rather than pasting credentials — explain this and direct them to the
@@ -343,11 +354,12 @@ Azure Blob storage. These tools exist only when the feature is on for the projec
 1. Call `external-data-destinations-list` first. If a destination for that target already exists, reuse it, but only
    when its `status` is `healthy`. A `failing` or `paused` one needs fixing first (see the end of this section).
 2. Call `external-data-destinations-connect-link` with the `destination_type` (for S3-compatible storage such as R2 or
-   MinIO, also pass `integration_kind: "s3-compatible"`). Share `connect_url` and wait until the user says they are
-   done. The page saves an integration and shows its id.
-3. Ask the user for the id the page showed. If they cannot give it, call `integrations-list` with the returned
-   `integration_kind` and take the entry with the latest `created_at` (the list is oldest first). Confirm its
-   `display_name` with the user before you use it.
+   MinIO, also pass `integration_kind: "s3-compatible"`). Share `connect_url`. The user must open it while logged in
+   to PostHog as the same user this session acts as. The page saves an integration.
+3. Call `external-data-destinations-connect-link-status` with the returned `connect_token` every few seconds until
+   `status` is `connected` or `expired`. When it is `connected`, confirm `display_name` with the user and use
+   `integration_id`. When it is `expired`, get a new link. If the user saved the connection as another PostHog user,
+   the page shows the integration id instead: ask the user for it.
 4. Ask the user for the target (database and schema, dataset, bucket and prefix, and so on), then call
    `external-data-destinations-create` with `type`, `name`, `integration` and `config`. Creation tests the
    connection for every type except Redshift, and a 400 names the field to fix. A wrong Redshift target only shows up

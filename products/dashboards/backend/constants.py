@@ -25,6 +25,8 @@ LOGS_LIST_DEFAULT_LIMIT = 50
 # Six columns fit rate, errors and three percentiles side by side.
 METRICS_TABLE_MAX_COLUMNS = 6
 METRICS_TABLE_MAX_FILTERS = 5
+# A row is one combination of the group-by label values, e.g. a view and an HTTP method.
+METRICS_TABLE_MAX_GROUP_BY = 3
 METRICS_TABLE_MAX_LIMIT = 100
 METRICS_TABLE_DEFAULT_LIMIT = 25
 # Points per sparkline, and also the bucket count of the query. A query returns one row per bucket and label
@@ -35,11 +37,6 @@ METRICS_TABLE_SPARKLINE_POINTS = 30
 METRICS_TABLE_RETRY_BUCKETS = 6
 # Metrics queries span at most 31 days, so the longer widget presets are not allowed.
 METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES = frozenset({"-90d"})
-
-# Metrics widgets store a whole query in their config; these caps keep a stored config small.
-METRICS_WIDGET_MAX_CLAUSES = 10
-METRICS_WIDGET_MAX_QUERY_TEXT_LENGTH = 10_000
-METRICS_WIDGET_MAX_QUERY_JSON_LENGTH = 64_000
 
 # Cap widgets per batch create / run-widgets request.
 MAX_WIDGETS_BATCH_SIZE = 10

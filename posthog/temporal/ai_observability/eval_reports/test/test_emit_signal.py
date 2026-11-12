@@ -3,10 +3,13 @@ import random
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from django.test import override_settings
+
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 
-from posthog.models import Organization, PropertyDefinition, Team, User
+from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.models import Organization, Team, User
 from posthog.temporal.ai_observability.eval_reports.emit_signal import (
     EmitEvalReportSignalInputs,
     EvalReportSignalSummary,
@@ -18,6 +21,7 @@ from posthog.temporal.ai_observability.eval_reports.emit_signal import (
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role
+from products.event_definitions.backend.models import PropertyDefinition
 from products.signals.backend.models import SignalSourceConfig
 
 
@@ -133,6 +137,7 @@ async def _setup_org_not_ai_approved(ateam):
 # `ai_product` is the Go-gateway opt-in. Dropping it reverts this site to the Python gateway
 # and unattributes its spend, with no call failing to show it.
 @pytest.mark.asyncio
+@override_settings(AI_GATEWAY_URL="https://ai-gateway.test/v1", AI_GATEWAY_API_KEY="phs_test")
 async def test_eval_report_summary_opts_in_as_aio_eval_reports_for_signals():
     summary = EvalReportSignalSummary(title="Pass rate dropped", description="d", significance=0.5)
     with patch(
@@ -145,6 +150,16 @@ async def test_eval_report_summary_opts_in_as_aio_eval_reports_for_signals():
     kwargs = summary_call.call_args.kwargs
     assert kwargs["ai_product"] == "aio_eval_reports_for_signals"
     assert kwargs["stage"] == "eval_report_signal_summary"
+
+
+@pytest.mark.asyncio
+@override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+async def test_eval_report_summary_refuses_the_python_gateway_when_go_is_unconfigured():
+    with patch("posthog.temporal.ai_observability.eval_reports.emit_signal.call_llm", new=AsyncMock()) as summary_call:
+        with pytest.raises(GatewayNotConfiguredError):
+            await summarize_report_for_signal(_make_inputs(team_id=1), _make_content())
+
+    summary_call.assert_not_awaited()
 
 
 @pytest.mark.asyncio

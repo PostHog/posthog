@@ -48,6 +48,8 @@ class SourceWeights:
     repeat_view_days: float = 0.0
     # A new day of opening a product scene.
     scene_views: float = 0.0
+    # A distinct MCP session after the pair's watermark, without plumbing routes.
+    mcp: float = 1.0
 
 
 @frozen
@@ -71,6 +73,8 @@ class ActivitySummaryConfig:
     min_update_interval_hours: float = MIN_UPDATE_INTERVAL.total_seconds() / 3600
     max_versions: int = MAX_VERSIONS
     emit_embeddings: bool = True
+    # Also emits the vector of `summary_profile_text`. `emit_embeddings: false` stops both vectors.
+    emit_profile_embeddings: bool = False
     capture_events: bool = True
     # Count viewed objects in the queue. When off, the view weights and the view cold start do not apply.
     count_views: bool = False
@@ -100,6 +104,10 @@ class ActivitySummaryConfig:
     rebuild_before: datetime.datetime | None = None
     # The largest share of a tick that rebuilds of stale summaries can take. Other updates get the rest.
     rebuild_budget_share: float = 0.3
+    # The share of a tick kept for the first summary of pairs that opened the Inbox. The other passes get the unused part.
+    inbox_visit_budget_share: float = 0.2
+    # An outdated summary older than this is due as stale, inside `rebuild_budget_share`. Null means never.
+    outdated_rebuild_after_days: float | None = None
     mcp_buffer_enabled: bool = False
     # The buffer keeps the enrolled teams of these organizations and of the `mcp_buffer_percentage` rollout.
     # Use `mcp_buffer_percentage: 100` for every enrolled team.
@@ -112,6 +120,8 @@ class ActivitySummaryConfig:
     mcp_buffer_days: int = 10
     # Renders the buffer in the input. Apart from `mcp_buffer_enabled`, so the buffer can fill before the prompt uses it.
     mcp_render_enabled: bool = False
+    # Drains the buffer's dirty set into the queue, so a pair with only MCP calls can come due. Needs `mcp_render_enabled`.
+    mcp_queue_enabled: bool = False
 
 
 DISABLED = ActivitySummaryConfig()
@@ -126,6 +136,10 @@ def _positive_number(value: Any, default: float) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
         return default
     return float(value)
+
+
+def _optional_positive_number(value: Any) -> float | None:
+    return _positive_number(value, 0.0) or None
 
 
 def _fraction(value: Any, default: float) -> float:
@@ -222,6 +236,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         ),
         max_versions=_positive_int(payload.get("max_versions"), defaults.max_versions),
         emit_embeddings=_bool(payload.get("emit_embeddings"), defaults.emit_embeddings),
+        emit_profile_embeddings=_bool(payload.get("emit_profile_embeddings"), defaults.emit_profile_embeddings),
         capture_events=_bool(payload.get("capture_events"), defaults.capture_events),
         count_views=_bool(payload.get("count_views"), defaults.count_views),
         source_weights=parse_source_weights(payload.get("source_weights")),
@@ -247,6 +262,8 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         limits=parse_limits(payload.get("limits")),
         rebuild_before=_timestamp(payload.get("rebuild_before")),
         rebuild_budget_share=_fraction(payload.get("rebuild_budget_share"), defaults.rebuild_budget_share),
+        inbox_visit_budget_share=_fraction(payload.get("inbox_visit_budget_share"), defaults.inbox_visit_budget_share),
+        outdated_rebuild_after_days=_optional_positive_number(payload.get("outdated_rebuild_after_days")),
         mcp_buffer_enabled=_bool(payload.get("mcp_buffer_enabled"), defaults.mcp_buffer_enabled),
         mcp_buffer_organization_ids=_organization_ids(payload.get("mcp_buffer_organization_ids")),
         mcp_buffer_percentage=_percentage(payload.get("mcp_buffer_percentage"), defaults.mcp_buffer_percentage),
@@ -257,6 +274,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
             _positive_int(payload.get("mcp_buffer_days"), defaults.mcp_buffer_days), MAX_MCP_BUFFER_DAYS
         ),
         mcp_render_enabled=_bool(payload.get("mcp_render_enabled"), defaults.mcp_render_enabled),
+        mcp_queue_enabled=_bool(payload.get("mcp_queue_enabled"), defaults.mcp_queue_enabled),
     )
 
 

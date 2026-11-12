@@ -3,7 +3,6 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -14,7 +13,6 @@ import { FILE_UPLOAD_ACCEPT, fileUploadSourceLogic } from '../fileUploadSourceLo
 export function FileUploadSourceForm(): JSX.Element {
     const { fileUpload, isFileUploadSubmitting, uploadStage, uploadPercent } = useValues(fileUploadSourceLogic)
     const { selectFiles, setTableName, setFileFormat } = useActions(fileUploadSourceLogic)
-    const objectStorageSourcesEnabled = useFeatureFlag('DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES')
 
     const busyReason = !isFileUploadSubmitting
         ? undefined
@@ -60,11 +58,9 @@ export function FileUploadSourceForm(): JSX.Element {
                 </LemonField>
                 <div className="mb-4 flex flex-col gap-1 text-xs text-secondary">
                     <span>Files can be up to 50MB.</span>
-                    {objectStorageSourcesEnabled && (
-                        <span data-attr="file-upload-billing-note">
-                            Rows imported from this file count toward your data warehouse rows synced.
-                        </span>
-                    )}
+                    <span data-attr="file-upload-billing-note">
+                        Rows imported from this file count toward your data warehouse rows synced.
+                    </span>
                 </div>
 
                 <LemonField name="table_name" label="Table name">

@@ -1,5 +1,3 @@
-from collections import defaultdict
-
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.framework import (
@@ -10,7 +8,6 @@ from posthog.temporal.health_checks.framework import (
     build_signal_extra,
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
-from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 
@@ -23,31 +20,12 @@ MIN_EVENTS_PER_HOST = 50
 MAX_HOSTS_IN_PAYLOAD = 10
 
 
-PARTIAL_PROXY_SQL = """
-SELECT
-    team_id,
-    JSONExtractString(properties, '$host') AS host,
-    countIf(JSONHas(properties, '$lib_custom_api_host')) > 0 AS has_proxy,
-    count() AS event_count
-FROM events
-WHERE team_id IN %(team_ids)s
-  AND event IN ('$pageview', '$screen')
-  AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
-  AND JSONExtractString(properties, '$host') != ''
-GROUP BY team_id, host
-HAVING event_count >= %(min_events_per_host)s
-ORDER BY event_count DESC
-LIMIT %(max_hosts_per_bucket)s BY team_id, has_proxy
-"""
-
-
 class PartialProxyCheck(RollupHealthCheck):
     name = "partial_proxy"
     kind = "partial_proxy"
     owner = JobOwners.TEAM_WEB_ANALYTICS
     schedule = "45 6 * * *"
     active_since_days = 30
-    reads_rollup = False
     rollup_model = HostProxyDaily
     window_days = PARTIAL_PROXY_LOOKBACK_DAYS
     remediation = Remediation(
@@ -113,28 +91,6 @@ class PartialProxyCheck(RollupHealthCheck):
             )
             proxied_by_team[team_id] = [host.host for host in busy if host.proxied][:MAX_HOSTS_IN_PAYLOAD]
             unproxied_by_team[team_id] = [host.host for host in busy if not host.proxied][:MAX_HOSTS_IN_PAYLOAD]
-        return _partial_proxy_issues(proxied_by_team, unproxied_by_team)
-
-    def detect_from_events(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        rows = execute_clickhouse_health_team_query(
-            PARTIAL_PROXY_SQL,
-            team_ids=team_ids,
-            lookback_days=PARTIAL_PROXY_LOOKBACK_DAYS,
-            params={
-                "min_events_per_host": MIN_EVENTS_PER_HOST,
-                "max_hosts_per_bucket": MAX_HOSTS_IN_PAYLOAD,
-            },
-        )
-
-        proxied_by_team: dict[int, list[str]] = defaultdict(list)
-        unproxied_by_team: dict[int, list[str]] = defaultdict(list)
-        for team_id, host, has_proxy, _event_count in rows:
-            if not is_valid_host(host):
-                continue
-            if has_proxy:
-                proxied_by_team[team_id].append(host)
-            else:
-                unproxied_by_team[team_id].append(host)
         return _partial_proxy_issues(proxied_by_team, unproxied_by_team)
 
 

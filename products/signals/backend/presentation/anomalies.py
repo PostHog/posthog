@@ -221,7 +221,7 @@ class AnomalySearchResponseSerializer(serializers.Serializer):
     scoring_enabled = serializers.BooleanField(
         help_text=(
             "Whether anomaly scoring scores this project now. False when scoring does not cover the "
-            "project, or when the project turned it off in its self-driving settings. Scores written "
+            "project, or when the project turned it off in its Product analytics source. Scores written "
             "before scoring was turned off are still returned."
         )
     )
@@ -234,6 +234,18 @@ class AnomalySearchResponseSerializer(serializers.Serializer):
     )
     insights_scored_in_range = serializers.IntegerField(
         help_text="Insights with at least one scored bucket in the range. Results cover only these insights."
+    )
+    scored_days = serializers.IntegerField(
+        help_text=(
+            "Distinct UTC days with a scored daily bucket of any insight series in the last 28 days. It does not "
+            "follow the requested range, and it counts scores written before scoring was turned off."
+        )
+    )
+    scored_history_ready = serializers.BooleanField(
+        help_text=(
+            "True when `scored_days` is 14 or more. Until then the project has too little scored history to rely "
+            "on its scores, even when `scoring_enabled` is true."
+        )
     )
     date_from = ProjectDateTimeField(help_text="The applied start of the range, in the project timezone.")
     date_to = ProjectDateTimeField(help_text="The applied end of the range, in the project timezone.")
@@ -304,7 +316,7 @@ class AnomalyInsightResponseSerializer(serializers.Serializer):
     scoring_enabled = serializers.BooleanField(
         help_text=(
             "Whether anomaly scoring scores this project now. False when scoring does not cover the "
-            "project, or when the project turned it off in its self-driving settings. Scores written "
+            "project, or when the project turned it off in its Product analytics source. Scores written "
             "before scoring was turned off are still returned."
         )
     )
@@ -431,6 +443,8 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "scoring_enabled": result.scoring_enabled,
                     "watched_insights": result.watched_insights,
                     "insights_scored_in_range": result.insights_scored_in_range,
+                    "scored_days": result.scored_days,
+                    "scored_history_ready": result.scored_history_ready,
                     "date_from": date_range.date_from,
                     "date_to": date_range.date_to,
                     "group_by": filters.group_by,

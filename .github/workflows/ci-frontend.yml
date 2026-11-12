@@ -107,6 +107,16 @@ jobs:
             replay_shared: >-
                 ${{ (steps.filter.outputs.replay_shared || 'true') == 'true' }}
             complexity_files: ${{ steps.filter.outputs.complexity_files }}
+            # The API caps lists at 3000 rows. Renames expand to two paths, so a
+            # count mismatch also keeps the full scan rather than trusting a partial list.
+            markdown: >-
+                ${{ github.event_name != 'pull_request'
+                    || startsWith(github.head_ref, 'trunk-merge/')
+                    || steps.filter.outputs.markdown != 'false'
+                    || github.event.pull_request.changed_files == null
+                    || steps.filter.outputs.all_files_count == ''
+                    || steps.filter.outputs.all_files_count >= 3000
+                    || steps.filter.outputs.all_files_count != github.event.pull_request.changed_files }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -135,6 +145,24 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
                   filters: |
+                      all_files:
+                        - '**'
+                      markdown: &markdown_inputs
+                        - '**/*.{md,mdx}'
+                        - '**/.markdownlint*'
+                        - '.config/**'
+                        - '**/.gitignore'
+                        - '**/package.json'
+                        - '**/.npmrc'
+                        - '**/.pnpmfile.*'
+                        - 'pnpm-*.yaml'
+                        - 'patches/**'
+                        - '.nvmrc'
+                        - '.node-version'
+                        - '.github/workflows/ci-frontend.yml'
+                        - '.github/actions/paths-filter/**'
+                        - '.github/actions/pnpm-install/**'
+                        - '.github/actions/setup-pnpm/**'
                       # Consumed as a file list (complexity_files) by the changed-file
                       # complexity check — the PR files API, not a hand-rolled git diff.
                       complexity:
@@ -145,6 +173,7 @@ jobs:
                           - 'products/**/*.ts'
                           - 'products/**/*.tsx'
                       frontend:
+                        - *markdown_inputs
                         - '.github/scripts/jest-retries.cjs'
                         - '.github/scripts/jest-select.js'
                         - 'patches/jest-junit@16.0.0.patch'
@@ -305,9 +334,6 @@ jobs:
             full_run_reason_detail: ${{ steps.classify.outputs.full_run_reason_detail }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
 
             - name: Compute changed files
               id: diff
@@ -316,6 +342,7 @@ jobs:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
                   set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$GITHUB_SHA"
                   git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
                   # `...` resolves against the merge-base so files merged in from base
                   # don't inflate the diff (mirrors find-affected-stories / snob).
@@ -440,6 +467,7 @@ jobs:
               run: pnpm exec oxfmt --check "**/*.{yaml,yml}"
 
             - name: Lint markdown files
+              if: needs.changes.outputs.markdown != 'false'
               run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
 
     frontend-bundle-size:
@@ -452,8 +480,6 @@ jobs:
         timeout-minutes: 15
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  filter: blob:none
 
             # The bundle-size build below git-resets to the base branch mid-job, which
             # removes this repo's local actions from the workspace — a local
@@ -514,6 +540,22 @@ jobs:
             - name: Build frontend (bundle-size + eager-graph report)
               run: pnpm --filter=@posthog/frontend build:with-report
 
+            # Reads the layer report the build above wrote, so it needs no second esbuild pass. It runs
+            # before the base build resets the tree, because the baseline it compares with must be the
+            # PR's. continue-on-error keeps the base build and the CI report running; the last step of
+            # this job turns a failure here into the job's verdict.
+            - name: Check frontend layer imports
+              id: layer-check
+              if: github.event_name == 'pull_request'
+              continue-on-error: true
+              run: |
+                  REPORT="frontend/layer-report-${GITHUB_SHA}.json"
+                  if [ ! -f "$REPORT" ] || ! grep -q -- '--from-report' frontend/bin/check-layers.mjs; then
+                      echo "Skipping frontend layer check, no layer report or check script on this checkout"
+                      exit 0
+                  fi
+                  node frontend/bin/check-layers.mjs --from-report "$REPORT"
+
             # The PR's layer graph, written by build:with-report before the base build replaces it.
             - name: Upload frontend layer graph
               id: layer-graph
@@ -557,17 +599,43 @@ jobs:
                       cp frontend/bin/post-layer-comment.mjs frontend/bin/post-layer-comment-pr.mjs
                   fi
 
-            - name: Build base branch for size comparison
-              # A broken base build (install/esbuild — which --report-only does not cover) must
-              # only cost the vs-base delta, never redden every open PR's job. The comment steps
-              # below already degrade to "no base measurement" when the base reports are absent.
+            # The base branch's five report files are a pure function of the base tree, and
+            # every PR based on the same master commit needs exactly the same five. Cache them
+            # under that commit so a run pays the ~150 s base build only when nobody has built
+            # it yet. A master push caches its own reports, so a PR usually finds its base
+            # already built and skips the second build entirely.
+            - name: Restore base branch reports
+              id: base-reports
+              # A cache outage must cost the ~150 s build, never the required check: on any
+              # failure `cache-hit` stays unset, which sends the run down the build path.
               continue-on-error: true
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .base-reports
+                  key: frontend-base-reports-${{ github.event.pull_request.base.sha }}
+
+            - name: Check out base branch for size comparison
+              # A fetch/checkout failure must only cost the vs-base comparison, never redden
+              # the required check: the comment steps degrade to "no base measurement".
+              continue-on-error: true
+              if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
-                  git fetch -n origin "$BASE_SHA"
+                  git fetch -n --depth=1 --filter=blob:none origin "$BASE_SHA"
                   git reset --hard "$BASE_SHA"
+
+            # A broken base build (install/esbuild — which --report-only does not cover) must
+            # only cost the vs-base delta, never redden every open PR's job. The comment steps
+            # below already degrade to "no base measurement" when the base reports are absent.
+            - name: Build base branch for size comparison
+              continue-on-error: true
+              if: >-
+                  github.event_name == 'pull_request' &&
+                  !startsWith(github.head_ref, 'trunk-merge/') &&
+                  steps.base-reports.outputs.cache-hit != 'true'
+              run: |
                   # dist/ is untracked so it survives the reset. Without a clean, the base
                   # build layers differently-hashed chunks on top of the PR's, inflating the
                   # base measurement by hundreds of MiB and making every PR's dist-size delta
@@ -576,6 +644,62 @@ jobs:
                   pnpm --filter=@posthog/frontend... install
                   pnpm --filter=@posthog/frontend build:with-report
                   du -sb frontend/dist | cut -f1 > frontend/dist-size-base.txt
+
+            - name: Install cached base branch reports
+              continue-on-error: true
+              if: >-
+                  github.event_name == 'pull_request' &&
+                  !startsWith(github.head_ref, 'trunk-merge/') &&
+                  steps.base-reports.outputs.cache-hit == 'true'
+              run: |
+                  # Same filenames and same base tree as the build above left behind, so every
+                  # step below reads them exactly as it did before the cache existed. A file
+                  # missing from the entry degrades that one report section, which is how a
+                  # failed base build already behaves.
+                  for file in bundle-size-report.json eager-graph-report.json layer-report.json toolbar-size-report.json dist-size-base.txt; do
+                      if [ -f ".base-reports/$file" ]; then
+                          cp ".base-reports/$file" "frontend/$file"
+                      else
+                          echo "::warning::cached base reports have no $file; that section shows no delta"
+                      fi
+                  done
+                  echo "Reused the base-branch reports cached for ${{ github.event.pull_request.base.sha }}"
+
+            # Only a default-branch write is readable from every PR's ref, so the cache is
+            # filled by master pushes rather than by whichever PR happens to miss first.
+            # A master push builds master itself, which produces exactly the base reports a
+            # PR based on that commit wants.
+            - name: Stage master branch reports for the cache
+              id: stage-master
+              if: >-
+                  github.event_name == 'push' &&
+                  github.ref == 'refs/heads/master' &&
+                  github.repository == 'PostHog/posthog'
+              run: |
+                  mkdir -p .base-reports
+                  for file in bundle-size-report.json eager-graph-report.json layer-report.json toolbar-size-report.json; do
+                      if [ ! -f "frontend/$file" ]; then
+                          echo "No $file on this checkout; not caching the master reports"
+                          exit 0
+                      fi
+                  done
+                  for file in bundle-size-report.json eager-graph-report.json layer-report.json toolbar-size-report.json; do
+                      cp "frontend/$file" ".base-reports/$file"
+                  done
+                  du -sb frontend/dist | cut -f1 > .base-reports/dist-size-base.txt
+                  echo "complete=true" >> "$GITHUB_OUTPUT"
+
+            - name: Save master branch reports
+              continue-on-error: true
+              if: >-
+                  github.event_name == 'push' &&
+                  github.ref == 'refs/heads/master' &&
+                  github.repository == 'PostHog/posthog' &&
+                  steps.stage-master.outputs.complete == 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .base-reports
+                  key: frontend-base-reports-${{ github.sha }}
 
             # Each frontend check contributes one section to a single ci-report comment
             # (how a section writer picks the PR vs base report is report-files.mjs's story).
@@ -717,6 +841,12 @@ jobs:
                         "event_type": ${{ toJSON(github.event_name) }}
                       }
 
+            - name: Fail on frontend layer check
+              if: ${{ !cancelled() && steps.layer-check.outcome == 'failure' }}
+              run: |
+                  echo "::error::The frontend layer check failed. Read the log of the 'Check frontend layer imports' step for the cause. A layer failure there names each new upward import or fixed baseline entry, and the command that fixes it."
+                  exit 1
+
     frontend-typescript-checks:
         name: Frontend typechecking
         needs: [changes]
@@ -736,9 +866,9 @@ jobs:
         # creds for the same reason). GitHub warns against exposing a larger runner with a
         # static IP range to fork pull requests, so keep this runner's group off static IPs.
         runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-24.04-8core' }}
-        # Kea typegen invalidates on changes to any logic plus everything that depends on it.
+        # Kea typegen checks every logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is
-        # large, so the budget must fit a cache miss on top of the baseline build.
+        # large, so the budget must fit full generation on top of the baseline build.
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -762,31 +892,14 @@ jobs:
             - name: Prepare frontend
               run: bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Restore .typegen cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .typegen
-                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-typegen-
-
-            - name: Build products
-              run: pnpm --filter=@posthog/frontend build:products
-
             - name: Check if products.tsx and products.json are up to date
               run: pnpm --filter=@posthog/frontend build:products && git diff --exit-code
 
             - name: Kea typegen
-              run: pnpm --filter=@posthog/frontend typegen:write
+              run: pnpm --filter=@posthog/frontend typegen:write:no-cache
 
             - name: Re-format files after typegen
               run: pnpm exec oxfmt "./{products,frontend/src}/**/*.{ts,tsx}"
-
-            - name: Save .typegen cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .typegen
-                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
 
             - parallel:
                   - name: Run typescript check (tsgo)
@@ -810,22 +923,14 @@ jobs:
                   - name: Validate SetupTaskId completions
                     run: node bin/validate-setup-tasks.mjs
 
-            # Warn-only until the baseline has settled on master; then drop continue-on-error.
-            - name: Check frontend layer imports
-              continue-on-error: true
-              run: |
-                  if [ ! -f frontend/bin/check-layers.mjs ]; then
-                      echo "Skipping frontend layer check, script not present on this checkout"
-                      exit 0
-                  fi
-                  node frontend/bin/check-layers.mjs
-
-            # Warn-only until the baseline has settled on master; then drop continue-on-error.
+            # continue-on-error keeps the cached schema check below running; the last step of this job
+            # turns a failure here into the job's verdict.
             - name: Check frontend stylesheet imports
+              id: css-coupling
               continue-on-error: true
               run: |
-                  if [ ! -f frontend/bin/check-css-coupling.mjs ]; then
-                      echo "Skipping frontend stylesheet import check, script not present on this checkout"
+                  if [ ! -f frontend/bin/check-css-coupling.mjs ] || [ ! -f frontend/bin/css-coupling-baseline.txt ]; then
+                      echo "Skipping frontend stylesheet import check, script or baseline not present on this checkout"
                       exit 0
                   fi
                   node frontend/bin/check-css-coupling.mjs
@@ -868,6 +973,12 @@ jobs:
               run: |
                   printf '%s\n' "$BODY" >> "$GITHUB_STEP_SUMMARY"
                   echo "::error::This PR removes fields that cached query responses can still hold. Apply the cache-impact-deprecated, cache-impact-accepted or cache-impact-bumped label, then re-run this job. The job summary lists the cost of each option."
+                  exit 1
+
+            - name: Fail on frontend stylesheet import check
+              if: ${{ !cancelled() && steps.css-coupling.outcome == 'failure' }}
+              run: |
+                  echo "::error::The frontend stylesheet import check failed. Read the log of the 'Check frontend stylesheet imports' step for each new coupling or fixed baseline entry, and the command that fixes it."
                   exit 1
 
     jest:

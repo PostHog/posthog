@@ -39,7 +39,10 @@ class HogFlowBatchJobState(LabeledStrEnum):
     QUEUED = "queued"
     ACTIVE = "active"
     COMPLETED = "completed"
+    # Set after a completed run settles with some of its sends errored, and the rest sent.
+    PARTIALLY_FAILED = "partially_failed", "Partially failed"
     CANCELLED = "cancelled"
+    # The run could not fan out to its audience, or it settled with every send errored.
     FAILED = "failed"
 
 
@@ -88,6 +91,13 @@ class WorkflowImportStatus(LabeledStrEnum):
     FAILED = "failed", "Failed"
 
 
+class WorkflowImportSegmentCohortStatus(LabeledStrEnum):
+    CREATED = "created", "Created"
+    REUSED = "reused", "Reused"
+    WOULD_CREATE = "would_create", "Would create"
+    NOT_CONVERTED = "not_converted", "Not converted"
+
+
 class HogFlowState(LabeledStrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
@@ -100,6 +110,7 @@ class HogFlowOriginProduct(LabeledStrEnum):
     LOOPS = "loops", "Loops"
     BROADCASTS = "broadcasts", "Broadcasts"
     TRANSACTIONAL_EMAILS = "transactional_emails", "Transactional emails"
+    TRANSACTIONAL_EMAIL_KEYS = "transactional_email_keys", "Transactional email keys"
 
 
 class HogFlowEmailSendingPausedBy(LabeledStrEnum):
@@ -202,3 +213,18 @@ class EmailDomainSetupStepState(LabeledStrEnum):
     DONE = "done", "Done"
     PENDING = "pending", "Pending"
     FAILED = "failed", "Failed"
+
+
+class PushTokenImportStatus(LabeledStrEnum):
+    RUNNING = "running", "Import running"
+    COMPLETED = "completed", "Import completed"
+    CANCELLED = "cancelled", "Import cancelled"
+    FAILED = "failed", "Import failed"
+
+
+class PushTokenImportRowFailureReason(LabeledStrEnum):
+    INVALID_ROW = "invalid_row", "The line is missing a value or a value is too long"
+    UNKNOWN_PERSON = "unknown_person", "No person has this distinct ID"
+    TOKEN_MISMATCH = "token_mismatch", "The token does not fit this channel"
+    NOT_STORED = "not_stored", "The device was not stored"
+    PERSON_PROCESSING_DISABLED = "person_processing_disabled", "Person processing is off for this person"

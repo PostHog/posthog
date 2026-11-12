@@ -21,7 +21,14 @@ from products.signals.backend.activity_summary.render import (
     days_text,
 )
 
-PROMPT_VERSION = 8
+# The document key that `summary_text` is embedded under.
+EMBEDDING_DOCUMENT_TYPE = "activity_summary"
+EMBEDDING_RENDERING = "summary_text"
+
+PROMPT_VERSION = 9
+# Summaries below this rebuild at once, others age in. Raise it only when old summaries must not stay served,
+# for example when a `summary_text` change makes old vectors incomparable.
+MIN_PROMPT_VERSION = 9
 
 MAX_THEMES = 6
 MAX_MODES = 3
@@ -63,10 +70,15 @@ The input has these parts:
 - Tasks: work the person gave to PostHog AI or the Slack agent. Each line starts with a "t" ref, then has the day, the tags in brackets and the goal. "(xN)" is the number of runs.
 - Things they created or changed in PostHog: each line has the day, the action, the type and the name of the object. "(xN)" is the number of changes. "agent" is the reason their coding agent gave for the change.
 - What their AI agent looked into over MCP: one line per agent session. Each line starts with an "m" ref, then has the day, the number of calls and the intents the agent stated, in order. The agent looked these up for the person, and changed nothing. Treat them as the person's interests and open questions. Never write that the person built or changed something because of them.
+- Reports in the Inbox: the Inbox suggests reports to the person, and each line is one report with the day, the title and what the person did with it, the strongest first. Read the lines as evidence of different strength:
+  - Claimed the work, started a task, linked a pull request, left a note, edited it or resolved it: the person cares about this topic. This is the strongest evidence.
+  - "dismissed it as not interested": the person does not care about this topic. Never count it as an interest, and never make it a theme or put it in the headline.
+  - Other dismissals and snoozes are triage. They show neither interest nor its absence. "dismissed N reports at once" is bulk triage and says nothing about one topic.
+  - A rating, a Slack discussion or an open is weaker evidence. The Inbox chose to show the report, so an open alone is not an interest. Use these lines only to support a thread that other lines show.
 - Things they opened in PostHog: one line per object, with the number of days they opened it and the last day.
 - The previous summary, when there is one.
 
-The tasks and the lines of changes, MCP sessions and opens cover only the time since the previous summary. Keep what the previous summary says unless the new activity changes it.
+The tasks and the lines of changes, MCP sessions, Inbox reports and opens cover only the time since the previous summary. Keep what the previous summary says unless the new activity changes it.
 
 How to write:
 - Be concrete. Name the dashboards, insights, flags, experiments, accounts, features and goals that matter. Use the names that the input uses.
@@ -87,7 +99,7 @@ Return JSON:
   - `refs`: the refs that show this thread. A ref is the evidence for the theme, so cite only lines that are about this thread. Use the "o" refs of its objects, the "t" refs of its tasks and the "m" refs of its MCP sessions. A "p" ref only shows that the person opened the pages of a product, so cite one only when no other ref shows the thread. Every theme needs at least one ref. Leave out a theme that no ref shows.
 - `modes`: at most {max_modes} modes that describe how they work in this project overall, from the same list, the main one first. Use only modes that a theme has.
 - `profile`: markdown, at most {profile_max_chars} characters, with these sections in this order:
-  - `## Working on`: the threads they build or change, with the objects by name. A task or MCP session never goes here.
+  - `## Working on`: the threads they build or change, with the objects by name, and the Inbox reports they acted on. A task or MCP session never goes here.
   - `## Keeps an eye on`: objects they opened on {min_watched_days} or more days and did not edit. Mention product pages at most once, without counts. Leave out this section when there is nothing to name.
   - `## Recently asked about`: what they asked PostHog AI or the Slack agent, and what their agent looked into over MCP. Only when there are tasks or MCP sessions.
   - `## Earlier context`: what the previous summary says that the new activity does not repeat. Only when there is a previous summary.
@@ -371,3 +383,15 @@ def summary_text(summary: dict[str, Any]) -> str:
     """The text that gets embedded: the headline, then the theme labels in the model's order."""
     labels = [theme["label"] for theme in summary.get("themes", [])]
     return f"{summary['headline']}\nThemes: {'; '.join(labels)}" if labels else summary["headline"]
+
+
+def summary_profile_text(summary: dict[str, Any]) -> str | None:
+    """The `summary_text`, then the profile. None when the summary has no profile, because the text would
+    match `summary_text`.
+
+    A second embedded rendering, so a backtest can compare it with `summary_text` on the same builds. A
+    format change needs a new rendering name, so old and new vectors never share one."""
+    profile = summary.get("profile")
+    if not isinstance(profile, str) or not profile.strip():
+        return None
+    return f"{summary_text(summary)}\n\n{profile.strip()}"

@@ -1,6 +1,7 @@
 import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 
 import { ClickHouseClient } from '@clickhouse/client'
+import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 
 import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
@@ -89,6 +90,7 @@ describe('RerunPaginatorService integration', () => {
             // max_attempts filter. Defaults to 0.
             rerunAttempts?: number
             scheduledAt?: Date
+            firstScheduledAt?: Date
         }>
     ): Promise<void> => {
         for (const r of rows) {
@@ -108,6 +110,7 @@ describe('RerunPaginatorService integration', () => {
                     timings: [],
                     attempts: 0,
                     rerunAttempts: r.rerunAttempts,
+                    firstScheduledAt: r.firstScheduledAt?.toISOString().replace('T', ' ').replace('Z', '000'),
                 },
                 teamId: team.id,
                 functionId: hogFunction.id,
@@ -269,6 +272,9 @@ describe('RerunPaginatorService integration', () => {
         await closeHub(hub)
     })
 
+    const enqueuedIds = (): string[] =>
+        hogQueue.queueInvocations.mock.calls.flatMap(([invocations]) => invocations.map((i) => i.id))
+
     const buildState = (overrides: Partial<RerunJobState> = {}): RerunJobState => ({
         function_kind: 'hog_function',
         function_id: hogFunction.id,
@@ -346,6 +352,103 @@ describe('RerunPaginatorService integration', () => {
             expect(enqueued.map((i) => i.id)).toEqual(['inv-real'])
             // by-ids mode marks done once remaining_ids is drained, regardless of
             // whether every id had a matching CH row.
+            expect(next.progress.done).toBe(true)
+        })
+
+        it('walks an ID list too long for one ClickHouse query param, including pages with no matches', async () => {
+            const ids = Array.from({ length: 3000 }, () => randomUUID())
+            const [first, last] = [ids[0], ids[ids.length - 1]]
+            await seedRows([
+                { invocation_id: first, status: 'failed', error: new Error('5xx') },
+                { invocation_id: last, status: 'failed', error: new Error('5xx') },
+            ])
+
+            let state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        invocation_ids: ids,
+                    },
+                },
+            })
+            let pages = 0
+            while (!state.progress.done) {
+                ;({ state } = await paginator.processPage(team.id, state, {
+                    jobId: 'test-rerun-job',
+                    createdAt: DateTime.now(),
+                }))
+                expect(state.progress.last_error).toBeUndefined()
+                pages += 1
+                if (!state.progress.done) {
+                    // A worker from before page-by-page IDs reads only this list, so it can't resend covered runs.
+                    expect(state.request.filter.invocation_ids).toEqual(ids.slice(pages * RERUN_PAGE_SIZE))
+                }
+            }
+
+            const enqueued = hogQueue.queueInvocations.mock.calls.flatMap(
+                (c) => c[0] as CyclotronJobInvocationHogFunction[]
+            )
+            expect(enqueued.map((i) => i.id)).toEqual([first, last])
+            expect(state.progress.queued).toBe(2)
+            expect(pages).toBe(ids.length / RERUN_PAGE_SIZE)
+        })
+
+        it('reruns an ID once when a job queued earlier repeats it across pages', async () => {
+            await seedRows([{ invocation_id: 'inv-repeated', status: 'failed', error: new Error('5xx') }])
+            const others = Array.from({ length: RERUN_PAGE_SIZE }, () => randomUUID())
+
+            let state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        invocation_ids: ['inv-repeated', ...others, 'inv-repeated'],
+                    },
+                },
+            })
+            while (!state.progress.done) {
+                ;({ state } = await paginator.processPage(team.id, state, {
+                    jobId: 'test-rerun-job',
+                    createdAt: DateTime.now(),
+                }))
+            }
+
+            const enqueued = hogQueue.queueInvocations.mock.calls.flatMap(
+                (c) => c[0] as CyclotronJobInvocationHogFunction[]
+            )
+            expect(enqueued.map((i) => i.id)).toEqual(['inv-repeated'])
+        })
+
+        it('keeps a job that started before page-by-page IDs on its cursor, so it does not rerun earlier rows', async () => {
+            await seedRows([
+                { invocation_id: 'inv-newer', status: 'failed', scheduledAt: new Date('2026-05-02T00:00:00Z') },
+                { invocation_id: 'inv-older', status: 'failed', scheduledAt: new Date('2026-05-01T00:00:00Z') },
+            ])
+
+            const state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        invocation_ids: ['inv-newer', 'inv-older'],
+                    },
+                },
+                progress: {
+                    queued: 1,
+                    skipped: 0,
+                    done: false,
+                    cursor: { scheduled_at: '2026-05-02T00:00:00.000000', invocation_id: 'inv-newer' },
+                },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+
+            const enqueued = hogQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
+            expect(enqueued.map((i) => i.id)).toEqual(['inv-older'])
             expect(next.progress.done).toBe(true)
         })
 
@@ -529,6 +632,95 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.queued).toBe(1)
             expect(next.progress.skipped).toBe(1)
         })
+
+        it('matches a run by the window of its first scheduled time, whatever day its last row lands on', async () => {
+            const run = (id: string, start: string, end: string) => [
+                {
+                    invocation_id: id,
+                    status: 'running' as const,
+                    scheduledAt: new Date(start),
+                    firstScheduledAt: new Date(start),
+                },
+                {
+                    invocation_id: id,
+                    status: 'failed' as const,
+                    error: new Error('boom'),
+                    scheduledAt: new Date(end),
+                    firstScheduledAt: new Date(start),
+                },
+            ]
+            await seedRows([
+                ...run('finishes-after-window', '2026-02-01T23:00:00Z', '2026-02-02T01:00:00Z'),
+                ...run('started-before-window', '2026-01-31T23:00:00Z', '2026-02-01T01:00:00Z'),
+            ])
+
+            const state = buildState({
+                paging: 'run_start',
+                request: {
+                    filter: { window_start: '2026-02-01T00:00:00Z', window_end: '2026-02-02T00:00:00Z' },
+                },
+            })
+
+            await paginator.processPage(team.id, state, { jobId: 'test-rerun-job', createdAt: DateTime.now() })
+            expect(enqueuedIds()).toEqual(['finishes-after-window'])
+        })
+
+        it.each([
+            {
+                paging: 'run_start' as const,
+                cursor: { scheduled_at: '2026-02-01 12:00:00.000000', invocation_id: 'later-start' },
+                expectedIds: ['spans-days'],
+                expectedCursor: { scheduled_at: '2026-02-01 10:00:00.000000', invocation_id: 'spans-days' },
+            },
+            {
+                // A job created before the switch carries no paging mode and keeps paging by last row.
+                paging: undefined,
+                cursor: { scheduled_at: '2026-02-02 09:00:00.000000', invocation_id: 'spans-days' },
+                expectedIds: ['later-start'],
+                expectedCursor: { scheduled_at: '2026-02-01 12:00:00.000000', invocation_id: 'later-start' },
+            },
+        ])(
+            'resumes a $paging job from its cursor without skipping or repeating a run',
+            async ({ paging, cursor, expectedIds, expectedCursor }) => {
+                await seedRows([
+                    {
+                        invocation_id: 'spans-days',
+                        status: 'running',
+                        scheduledAt: new Date('2026-02-01T10:00:00Z'),
+                        firstScheduledAt: new Date('2026-02-01T10:00:00Z'),
+                    },
+                    {
+                        invocation_id: 'later-start',
+                        status: 'failed',
+                        error: new Error('boom'),
+                        scheduledAt: new Date('2026-02-01T12:00:00Z'),
+                        firstScheduledAt: new Date('2026-02-01T12:00:00Z'),
+                    },
+                    {
+                        invocation_id: 'spans-days',
+                        status: 'failed',
+                        error: new Error('boom'),
+                        scheduledAt: new Date('2026-02-02T09:00:00Z'),
+                        firstScheduledAt: new Date('2026-02-01T10:00:00Z'),
+                    },
+                ])
+
+                const state = buildState({
+                    paging,
+                    request: {
+                        filter: { window_start: '2026-02-01T00:00:00Z', window_end: '2026-02-03T00:00:00Z' },
+                    },
+                    progress: { queued: 0, skipped: 0, done: false, cursor },
+                })
+
+                const { state: next } = await paginator.processPage(team.id, state, {
+                    jobId: 'test-rerun-job',
+                    createdAt: DateTime.now(),
+                })
+                expect(enqueuedIds()).toEqual(expectedIds)
+                expect(next.progress.cursor).toEqual(expectedCursor)
+            }
+        )
 
         it('honours max_count by capping queued+skipped at the user-provided limit', async () => {
             await seedRows([

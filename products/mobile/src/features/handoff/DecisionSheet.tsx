@@ -1,13 +1,14 @@
 import { type ReactElement, useMemo, useRef } from 'react'
-import { ScrollView, Text, useWindowDimensions } from 'react-native'
+import type { ScrollViewInstance } from 'react-native'
+import { ScrollView, Text } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
-
 import type { DecisionAnswerInput, DecisionQuestion } from '@/model/types'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { createStyles } from '@/ui/theme'
 import { type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import { DecisionCard } from './DecisionCard'
 import { SheetPageHeader } from './SheetPageHeader'
@@ -30,9 +31,9 @@ export function DecisionSheet({
     notice,
 }: DecisionSheetProps): ReactElement {
     const styles = useStyles()
-    const { height } = useWindowDimensions()
+    const { height } = useSceneDimensions()
     const keyboard = useReanimatedKeyboardAnimation()
-    const scroll = useRef<ScrollView>(null)
+    const scroll = useRef<ScrollViewInstance>(null)
     const replyFocused = useRef(false)
     const listGesture = useMemo(() => Gesture.Native(), [])
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, 0) }))

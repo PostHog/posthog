@@ -82,6 +82,16 @@ Because this channel can't be enumerated, it is closed by construction rather th
    A model is reachable with no import: `apps.get_model("label", "Class")`, migrations, admin, fixtures.
    tach cannot see that, so a model or migration change always re-runs the full suite.
    `hogli product:lint` blocks a narrowing that leaves the surface out.
+4. Keep in the inputs every module that outside suites run without an import:
+   - a module with a signal receiver on a sender of core or another product;
+   - a module that a test outside the product names by dotted path, as a patch target does;
+   - a module that core loads by name through `load_product_modules`;
+   - `backend/apps.py` and every product module it imports, because Django runs the AppConfig in every process;
+   - a module that registers into a `register_*` hook of core or another product, and the module that defines what it registers;
+   - a module that core settings name by dotted path, such as a middleware.
+
+   `hogli product:lint` finds each of them and fails until each module is in the inputs.
+   It watches the entry module, not everything that module calls: code behind it is tested in the product, like code behind the facade.
 
 A product whose views still hold business logic is not soundly skippable even if nothing imports it.
 This is also why "no in-process callers, so we don't need a facade" is the wrong test: a product whose only consumers are over HTTP (node services, the generated TS/MCP types) is _not_ facade-optional — there the facade's whole job is sealing its own presentation.
@@ -111,9 +121,10 @@ These cross the boundary as classes — allowed only under all three rules:
    The lint reads coverage per location rather than per subtree, so it cannot hold that scope; the repo invariant `test_product_analytics_drives_only_the_watched_subtree` does, and it fails when a line names code outside the watched subtree.
    The other locations stay in the inputs by presence until their channel (Celery task names, Temporal workflow names, Max tool names) is read the same way.
 3. **Validated registration.**
-   Registration points check `issubclass(cls, Base)` and reject anything else.
+   A registration point accepts only implementations of its base and rejects anything else.
    Import linters (tach, import-linter) see only the import graph; _what an object is_ can only be checked at runtime, at the door.
-   `ee/hogai/registry.py` (MaxTool) is the reference implementation: subclass auto-registration with validation.
+   `MaxTool` is the reference implementation: a class registers itself by subclassing (`__init_subclass__` in `ee/hogai/tool.py`), so only a `MaxTool` enters the registry, and the hook rejects an unknown tool name.
+   The Temporal worker, Celery task discovery and `get_query_runner` do not validate yet: they accept whatever the wiring location holds.
 
 Django models never cross, with or without an approved base.
 A model cannot be narrowed: whatever interface it presents, the object still carries managers, `save()`/`delete()`, FK descriptors that query other tables on attribute access, and reverse relations added by other apps.
@@ -450,18 +461,57 @@ If both presentation and logic need the same utility (caching, permissions, etc.
 User RBAC stays on the **viewset** — it depends on the authenticated `request`/`user`, which the facade doesn't have (facades also run from Celery, CLIs, and other products). Declare it the standard way: `scope_object` plus `scope_object_read_actions`/`scope_object_write_actions`, and let the shared permission classes (`APIScopePermission`, `AccessControlPermission`) on `TeamAndOrgViewSetMixin` enforce API-scope and resource access. See `products/visual_review/backend/presentation/views.py`.
 
 A view that fetches a contract from the facade has no model instance for DRF's `get_object()` to check.
-It still checks object access through the same permission stack, with an `ObjectAccessRef` from `products/access_control/backend/facade/contracts.py` in place of the instance:
+It still checks object access through the same permission stack:
 
-- Override `safely_get_object()` to fetch the contract through the facade. `TeamAndOrgViewSetMixin` forbids overriding `get_object()` itself.
-- Build `ObjectAccessRef(resource=..., id=..., team_id=..., created_by_id=...)` from the contract and return it. Return `None` for a missing object, which becomes a 404.
-- The mixin's `get_object()` then calls `check_object_permissions` on the reference. Every permission class on the view runs, and `AccessControlPermission` resolves the object's access from the reference.
-- `LogEntryMixin` and `AppMetricsMixin` read only `.id` from `get_object()`, so they keep working without the model.
-- An action that needs the contract itself can fetch it, build the reference, and call `self.check_object_permissions(self.request, ref)` directly.
+- Override `read_object()` to fetch the contract through the facade, filtered by team. Return `None` for a missing object, which becomes a 404. `TeamAndOrgViewSetMixin` forbids overriding `get_object()` itself.
+- The mixin's `get_object()` calls `check_object_permissions` on the contract and returns the contract. Actions, `LogEntryMixin`, `AppMetricsMixin` and DRF's detail `OPTIONS` metadata get the contract from `get_object()`.
+- `AccessControlPermission` needs an `ObjectAccessRef` (`products/access_control/backend/facade/contracts.py`) to resolve the object's access. Override `object_access_ref(record)` to build it from the contract. Set `fallback_parent` when the resource inherits access from a parent object (`RESOURCE_FALLBACK_MAP`).
+- When no access rule can name one record, for example when `scope_object` is not an access-control resource, set `records_have_object_access_rules = False` instead.
+- A view that does neither fails closed: the object check raises.
 
 Do not call `AccessControlPermission` methods by hand, and do not pass `UserAccessControl` or a required level into the facade.
-A resource that inherits access from a parent object (`RESOURCE_FALLBACK_MAP`) needs the model instance, and a reference for it raises.
+`UserAccessControl` object methods take a model instance only. They raise on a contract.
 
 The facade owns **tenant scoping** (`team_id` enforced via `for_team(team_id)` / a `ProductTeamModel` fail-closed manager) and **domain invariants** (state machines, idempotency) — these must hold for every caller, so they live below the HTTP boundary; user RBAC must not. Keeping RBAC in the shared DRF stack also lets cross-cutting permission tests enforce it consistently across products.
+
+### Path ids
+
+A view that reads through the facade has no `queryset`, so nothing can read the type of a URL kwarg from a model.
+Declare the types on the view: `path_parameters = {"pk": UUID}`.
+`TeamAndOrgViewSetMixin` parses each declared kwarg before the handler runs, and answers 404 for a malformed value, the same as a queryset view.
+The handler gets `pk: UUID`, and the OpenAPI schema shows `format: uuid`.
+A named capture in an action's `url_path` goes in the same mapping.
+A nested parent lookup goes in by its bare name: `"pipeline_id": UUID` types the `parent_lookup_pipeline_id` kwarg.
+`team_id`, `project_id` and `organization_id` do not, because `parents_query_dict` resolves them.
+To describe an id in the API docs, declare `PathParameter(type=UUID, description="...")` instead of the bare type.
+Do not parse path ids by hand. See `products/visual_review/backend/presentation/views.py`.
+
+### How do lists page?
+
+A facade returns contracts, not a queryset, so a view cannot hand its rows to a DRF paginator.
+The facade pages in SQL instead, and the view builds the standard response from that page.
+`posthog/paging.py` holds the page types, `posthog/queryset_paging.py` pages a queryset into them, and `posthog/api/pagination.py` holds the view helpers.
+
+- A facade list function takes a `PageRequest` (or a `CursorPageRequest`) and returns `Page[Contract]`.
+  Page the queryset with `select_page` (or `select_cursor_page`), then convert the rows with `page.map(...)`.
+  Both helpers count the whole list and add the primary key as the last sort term, so the page order is deterministic.
+  An offset page can still shift when rows are added or deleted between requests.
+  A cursor page does not skip or repeat a row, unless the ordering values of a row change between requests.
+  The queryset must hold one row per item, so a join that duplicates rows breaks both forms.
+- The view sets `pagination_class = FacadeLimitOffsetPagination` and returns `facade_page_response(self, fetch)`, where `fetch` calls the facade with the page.
+  For a cursor list, subclass `FacadeCursorPagination`, set `ordering`, and return `facade_cursor_page_response(self, fetch)`.
+  A cursor stores every ordering field of the row at the page edge, so the contract must expose those fields and `id`.
+- Use limit/offset for a list that people browse with a total.
+  Use a cursor for a list that grows at the top while people read it, such as batch export runs or deliveries, because offsets shift as rows arrive.
+  Do not add page-number lists.
+- Every list returns `count`, `next`, `previous` and `results`, so clients and MCP tools page every product the same way.
+  Add extra fields beside them when a list needs them, and do not replace them.
+- Do not set paginator attributes by hand, build a fake queryset for a paginator, or return a whole list for the view to slice.
+  The `no-hand-set-paginator-state` semgrep rule blocks the first.
+- Every paginator extends a base in `posthog/api/pagination.py`: `BoundedLimitOffsetPagination`, `BoundedPageNumberPagination` or `StableCursorPagination`.
+  `posthog/test/repo_invariants/test_pagination_contract.py` fails for a registered view whose paginator does not.
+
+`products/visual_review/backend/presentation/views.py` shows the limit/offset form.
 
 ### Why not mix with the facade?
 

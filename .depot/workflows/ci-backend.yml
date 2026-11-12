@@ -115,8 +115,9 @@ on:
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one group per event; cancel-superseded-runs cancels stale runs. Push: per-SHA so master
-    # pushes never cancel each other (check-migrations always completes).
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.head_ref || github.ref }}
+    # pushes never cancel each other (check-migrations always completes). `depot ci run` (event `api`)
+    # gets a per-run group: it has the master ref, and would otherwise queue behind the hourly run.
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.event_name == 'api' && format('api-{0}', github.run_id) || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
@@ -148,8 +149,9 @@ env:
     # The root conftest ends a green pytest session with os._exit once every report is written.
     # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
     POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
-    # Scheduled runs test master even when Depot does not populate github.ref.
-    IS_MASTER: ${{ github.event_name == 'schedule' || github.ref == 'refs/heads/master' }}
+    # Scheduled runs test master even when Depot does not populate github.ref. `depot ci run`
+    # (event `api`) has the master ref but runs an unreviewed local patch, so it is not master.
+    IS_MASTER: ${{ github.event_name == 'schedule' || (github.ref == 'refs/heads/master' && github.event_name != 'api') }}
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
@@ -223,7 +225,7 @@ jobs:
             # gate reads this output, so the label cannot reach them while the paths
             # filter says false. Nothing under .github/ is in the backend filter, so
             # a sharding or timing script change was untestable on its own PR.
-            backend: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.backend || 'true') }}
+            backend: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || ((steps.filter.outputs.backend || 'true') == 'true' || steps.filter.outputs.product_skills_read_at_runtime == 'true') && 'true' || 'false' }}
             timing_scripts: ${{ fromJSON(toJSON(steps.filter.outputs)).timing_scripts }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
@@ -249,10 +251,11 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
+            # `depot ci run` (event `api`) applies its patch after this step, which fails in a sparse tree.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-                  sparse-checkout: .depot/actions/paths-filter
+                  sparse-checkout: ${{ github.event_name != 'api' && '.depot/actions/paths-filter' || '' }}
                   sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
@@ -303,6 +306,10 @@ jobs:
                         # products/desktop is the imported desktop app; it has its own
                         # desktop-* CI and must not drag this suite onto its PRs
                         - '!products/desktop/**'
+                        # Warehouse source vendors have their own job in ci-python.yml. They
+                        # match 'products/**/*.py' above, so a vendor-only diff would start this
+                        # suite too. The product code the vendors build on stays under backend/.
+                        - '!products/warehouse_sources/sources/**'
                         # Each product's package.json declares the per-product
                         # backend:test script that turbo-discover reads to
                         # compose the Product matrix. Without this entry,
@@ -314,6 +321,11 @@ jobs:
                         # backend:mcp-surface task). Add a manifest here only with that wiring.
                         - products/feature_flags/mcp/tools.yaml
                         - products/tasks/mcp/tools.yaml
+                        # The message normalizer tests read the case file shared with the frontend and the
+                        # frontend's copies of the bundled recipes. Both are turbo inputs of ai_observability's
+                        # backend:test, in products/ai_observability/turbo.json.
+                        - 'products/ai_observability/shared/**'
+                        - 'packages/llm-normalizer/src/normalizer/recipe/default_recipes/**'
                         - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
                         - bin/check_uv_python_compatibility.py
@@ -390,6 +402,9 @@ jobs:
                         # files from `backend_files`.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                      product_skills_read_at_runtime:
+                        - 'products/signals/skills/**'
+                        - 'products/review_hog/skills/**'
                       legacy:
                         # Non-product backend code — when only products/ change,
                         # turbo-discover uses Turbo query affectedness to detect changed
@@ -494,16 +509,17 @@ jobs:
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
                       repo_invariants:
-                        # posthog/test/repo_invariants/ reads AGENTS.md and the semgrep
-                        # rule ids it names. Both are excluded from the backend filter
-                        # (markdown is dropped outright, .semgrep is not listed), so a
-                        # change to either would skip repo-checks and report green while
+                        # posthog/test/repo_invariants/ reads AGENTS.md, the .agents/
+                        # guides, and the semgrep rule ids they name. All are excluded
+                        # from the backend filter (markdown is dropped outright,
+                        # .semgrep is not listed), so a change to any would skip repo-checks and report green while
                         # leaving a tag pointing at a rule that no longer exists.
                         # The out-of-band domain ratchet reads these trees, so a resolver added there must run it.
                         - 'nodejs/src/**'
                         - 'rust/**'
                         - 'products/desktop/**'
                         - 'AGENTS.md'
+                        - '.agents/*.md'
                         - '.semgrep/**'
                         - 'pyproject.toml'
                         # A generated file in a frontend-only PR still needs a known producer.
@@ -525,6 +541,16 @@ jobs:
                         # _EXTERNAL_COMPANION_SKILL_DIRS in products/signals/backend/scout_harness/lazy_seed.py
                         # names this companion skill from another product.
                         - 'products/replay_vision/skills/exploring-replay-vision-observations/**'
+                        # repo-checks fails a test file that a pull request leaves with no team owner,
+                        # Jest included, and no other filter matches a new frontend test. The filter
+                        # reports a moved file as added. Keep in step with runner_for_path in
+                        # packages/owners-yaml/owners_yaml/census.py.
+                        - added: '**/test_*.py'
+                        - added: '**/*_test.py'
+                        - added: '**/*.{test,spec}.{js,jsx,ts,tsx}'
+                        # That check and the other hogli commands in repo-checks import modules from
+                        # this tree, and the backend filter matches only the ones the test setup imports.
+                        - 'tools/hogli-commands/**'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through
@@ -579,13 +605,16 @@ jobs:
                         - 'products/*/mcp/**/*.yaml'
                         - 'products/*/mcp/prompts/**/*.md'
                         - 'services/mcp/schema/tool-definitions.json'
-                        - 'services/mcp/schema/tool-definitions-v2.json'
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
-                        - 'services/mcp/schema/tool-definitions-all.json'
                         # Exec command reference templates - feed generate-exec-docs.ts
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
+                        # WebMCP exec tool - rendered from the templates above by generate-webmcp-exec-tool.ts
+                        - 'services/mcp/src/hono/instructions.ts'
+                        - 'services/mcp/src/lib/instructions-formatter.ts'
+                        - 'services/mcp/src/lib/instructions.ts'
+                        - 'products/webmcp/frontend/execTool.generated.ts'
                         # Desktop API client - regenerated by bin/build-desktop-api-client.sh
                         - 'products/desktop/packages/api-client/src/generated.ts'
                         - 'products/desktop/packages/api-client/endpoint-allowlist.json'
@@ -1631,6 +1660,9 @@ jobs:
             - name: Check for new files under ee/
               if: github.event_name == 'pull_request'
               run: python .github/scripts/check-no-new-ee-files.py --against HEAD^1 --committed
+            - name: Check for test files left with no team owner
+              if: github.event_name == 'pull_request'
+              run: ./bin/hogli lint:test-owners --against HEAD^1 --committed
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
             - name: Flag deterministic failure
@@ -1693,7 +1725,7 @@ jobs:
               with:
                   enable-cache: false
             - name: Install Python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-dev --package posthog --package hogli
             - name: Validate changed product.yaml owners
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -4472,7 +4504,7 @@ jobs:
             (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped') &&
             (
             github.event_name == 'schedule' ||
-            (github.event_name != 'pull_request' && github.event_name != 'push' && github.ref == 'refs/heads/master') ||
+            (github.event_name != 'pull_request' && github.event_name != 'push' && github.event_name != 'api' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
             )

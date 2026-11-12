@@ -1,38 +1,5 @@
-"""Signals billing — a flat credit charge per report that ships an implementation PR.
-
-Signals is billed on outcomes, not LLM spend: each signal report whose implementation task
-opens a pull request is charged a flat number of credits, once. The chargeable moment is
-deterministic — the first implementation `TaskRun` with a `pr_url` set — so a report is
-billed exactly once, in the period that PR first appeared, regardless of any later status
-changes, re-judgements, or additional runs.
-
-Billing eligibility uses the `SignalReportTask` implementation bridge and the first task-run
-PR URL. PR-link artefacts also include external work, so their presence cannot authorize a charge.
-
-Because this is a billing source it fails closed: a run only bills when its PR URL is a GitHub
-URL and the run, task, bridge, and report teams all agree, so malformed bridge rows never
-produce a charge.
-
-Credits use the same unit as ai_credits: 1 credit = $0.01, so the flat $15 charge is 1500
-credits.
-
-Two mechanisms remove a report from billing:
-
-- **Refunds** (retrospective, `SignalReportRefund`): an `excluded`-path refund makes the usage
-  query skip the report entirely — committed strictly on the same UTC day as the first billable
-  PR run, so no usage send (all of which happen ≥3h45m into the next UTC day) can ever observe
-  the exclusion flipping. A `credited`-path refund is deliberately NOT consulted here: usage
-  stays truthful and the money comes back as a billing-service credit.
-- **Exemptions** (prospective, `SignalReport.billing_exempt_reason`): PostHog-system-origin
-  reports are marked never-billable before their billable moment exists, so they never enter
-  usage (nor, via the same query driving quota `todays_usage`, consume a free-tier slot).
-
-Emergent semantic to be aware of: because of the `billed_earlier` idempotency check below, a
-report whose first billable PR run has been refunded can NEVER be billed again — a later, second
-PR run on the same report finds the first run before the period and is skipped, and the first
-run itself is refund-excluded (excluded path) or already handled by a credit (credited path).
-This is why restoring a refunded report is blocked at the API layer: refund → restore → new PR
-would otherwise be repeatable free work.
+"""A report's first implementation PR determines its legacy charge, even after a refund.
+Usage billing counts finalized spend; both meters feed reporting and quota refresh.
 """
 
 import uuid
@@ -41,7 +8,7 @@ from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
-from django.db.models import F, Min, OuterRef, QuerySet, Subquery, Sum
+from django.db.models import Exists, F, Min, OuterRef, Q, QuerySet, Subquery, Sum
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
@@ -50,7 +17,14 @@ from posthog.models.organization import BillingPeriod
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.enums import SignalSourceProduct
-from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportRefund,
+    SignalReportTask,
+    SignalScoutRun,
+    SignalSpend,
+)
+from products.signals.backend.pricing import SIGNALS_CREDITS_PER_DOLLAR as SIGNALS_CREDITS_PER_DOLLAR
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.api import GITHUB_PR_URL_PREFIX
@@ -60,7 +34,6 @@ if TYPE_CHECKING:
 
 _IMPLEMENTATION = TASK_RUN_TYPE_IMPLEMENTATION
 
-SIGNALS_CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 
 # Flat credits charged once per report whose implementation shipped a PR ($15).
 SIGNALS_CREDITS_PER_REPORT_WITH_PR = 15 * SIGNALS_CREDITS_PER_DOLLAR  # 1500
@@ -85,7 +58,11 @@ def _bridges_with_pr_run(*, include_manual: bool = False, **run_created_at: date
     happened to be on it. The run-level conditions sit in one `filter()` so they all resolve
     against the same `TaskRun` row.
     """
+    usage_billed = SignalSpend.objects.unscoped().filter(task_run_id=OuterRef("task__runs__id"), usage_billing=True)
     return SignalReportTask.objects.filter(
+        Q() if include_manual else ~Exists(usage_billed),
+        Q(task__runs__state__self_driving_funding__funding__isnull=True)
+        | ~Q(task__runs__state__self_driving_funding__funding__in=["trial", "operator"]),
         **({} if include_manual else {"task__runs__state__billing_product__isnull": True}),
         relationship=_IMPLEMENTATION,
         task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,
@@ -108,6 +85,14 @@ class BillingExemptionError(Exception):
 # runs' `emitted_report_ids` tally (report-channel scouts author their reports directly).
 BILLING_EXEMPT_SCOUT_SKILLS: dict[str, str] = {
     "signals-scout-health-checks": SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK,
+}
+
+# Scout skills whose own runs never bill. This is a superset of `BILLING_EXEMPT_SCOUT_SKILLS`:
+# inbox-validation is seeded enabled for every team to re-check PostHog's resolved reports, so no
+# person chooses to run it. Its follow-up reports are about the team's own product, so they and
+# their implementation PRs stay billable, which is why it is not in `BILLING_EXEMPT_SCOUT_SKILLS`.
+BILLING_EXEMPT_SCOUT_RUN_SKILLS: frozenset[str] = frozenset(BILLING_EXEMPT_SCOUT_SKILLS) | {
+    "signals-scout-inbox-validation",
 }
 
 # Same policy for the signal channel: sources owned by PostHog systems (e.g. the temporal

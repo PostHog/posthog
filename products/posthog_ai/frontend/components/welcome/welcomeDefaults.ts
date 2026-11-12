@@ -1,7 +1,7 @@
 // Default, overridable content for the Welcome primitive. Shipped here so both consumers (the tasks
 // composer and the new PostHog AI welcome) share one source; pass your own list to override.
 
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 export const DEFAULT_HEADLINES: readonly string[] = [
     'How can I help you build?',
@@ -19,7 +19,7 @@ export function pickHeadline(headlines: readonly string[] = DEFAULT_HEADLINES, s
     if (headlines.length === 0) {
         return ''
     }
-    if (inStorybook() || inStorybookTestRunner()) {
+    if (inStorybook()) {
         return headlines[0]
     }
     const index = seed !== undefined ? seed % headlines.length : Math.floor(Math.random() * headlines.length)

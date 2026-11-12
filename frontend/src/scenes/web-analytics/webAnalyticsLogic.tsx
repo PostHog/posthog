@@ -40,6 +40,7 @@ import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { UnexpectedNeverError, isNotNil } from 'lib/utils/guards'
 import { hogql } from 'lib/utils/hogql'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
@@ -50,7 +51,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
-import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { InsightVizRenderer, WebOverviewRenderer } from '~/queries/Query/queryNodeRenderers'
 import {
     ActionConversionGoal,
     ActionsNode,
@@ -73,6 +74,7 @@ import {
     WebStatsTableQuery,
     WebVitalsMetric,
 } from '~/queries/schema/schema-general'
+import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/web-analytics-schema-guards'
 import {
     AvailableFeature,
     BaseMathType,
@@ -95,7 +97,7 @@ import {
 } from '~/types'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { CompareFilter, CurrencyCode } from '../../queries/schema/schema-general'
+import type { CompareFilter, CurrencyCode, WebAnalyticsQueryModifiers } from '../../queries/schema/schema-general'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import {
     ActiveHoursTab,
@@ -142,6 +144,7 @@ import { IncludeHostToggle } from './IncludeHostToggle'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
 import { WebAnalyticsLogicProps } from './webAnalyticsLogicProps'
+import { applyWebQueryModifiers } from './webQueryModifiers'
 
 export interface DateFilterState {
     dateFrom: string | null
@@ -196,6 +199,7 @@ export interface webAnalyticsLogicValues {
     currentFiltersConfig: WebAnalyticsFiltersConfig
     dateFilter: DateFilterState
     deviceTab: string
+    effectiveWebQueryModifiers: WebAnalyticsQueryModifiers
     exportAllDisabledReason: string | null
     filters: {
         compareFilter: CompareFilter
@@ -257,9 +261,11 @@ export interface webAnalyticsLogicValues {
     }
     tileVisualizations: Record<TileId, TileVisualizationOption>
     tiles: WebAnalyticsTile[]
+    tilesWithoutQueryModifiers: WebAnalyticsTile[]
     useWebAnalyticsPrecompute: boolean | null
     warmablePresetShortId: string | null
     webAnalyticsFilters: WebAnalyticsPropertyFilters
+    webQueryModifiers: WebAnalyticsQueryModifiers
     webVitalsMetricQuery: InsightVizNode<TrendsQuery>
     webVitalsPercentile: WebVitalsPercentile
     webVitalsTab: WebVitalsMetric
@@ -527,6 +533,9 @@ export interface webAnalyticsLogicActions {
     setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean | null) => {
         useWebAnalyticsPrecompute: boolean | null
     }
+    setWebQueryModifiers: (patch: WebAnalyticsQueryModifiers) => {
+        patch: WebAnalyticsQueryModifiers
+    }
     setWebVitalsPercentile: (percentile: WebVitalsPercentile) => {
         percentile: WebVitalsPercentile
     }
@@ -682,7 +691,7 @@ export interface webAnalyticsLogicMeta {
             focusModeEnabled: boolean,
             focusModeConcerns: WebAnalyticsConcern[]
         ) => boolean
-        tiles: (
+        tilesWithoutQueryModifiers: (
             productTab: ProductTab,
             tabs: {
                 activeHoursTab: string
@@ -716,6 +725,14 @@ export interface webAnalyticsLogicMeta {
             restrictedUiEnabled: boolean,
             hiddenTiles: TileId[],
             warmablePresetShortId: string | null
+        ) => WebAnalyticsTile[]
+        effectiveWebQueryModifiers: (
+            webQueryModifiers: WebAnalyticsQueryModifiers,
+            featureFlags: FeatureFlagsSet
+        ) => WebAnalyticsQueryModifiers
+        tiles: (
+            tilesWithoutQueryModifiers: WebAnalyticsTile[],
+            effectiveWebQueryModifiers: WebAnalyticsQueryModifiers
         ) => WebAnalyticsTile[]
         getNewInsightUrl: (
             tiles: WebAnalyticsTile[]
@@ -828,6 +845,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean | null) => ({ useWebAnalyticsPrecompute }),
+        setWebQueryModifiers: (patch: WebAnalyticsQueryModifiers) => ({ patch }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -1061,6 +1079,17 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 {
                     setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
                     clearFilters: () => false,
+                },
+            ],
+            webQueryModifiers: [
+                {} as WebAnalyticsQueryModifiers,
+                persistConfig,
+                {
+                    // A key set to `undefined` in the patch is removed, so the query falls back to the team default.
+                    setWebQueryModifiers: (state, { patch }) =>
+                        Object.fromEntries(
+                            Object.entries({ ...state, ...patch }).filter(([, value]) => value !== undefined)
+                        ) as WebAnalyticsQueryModifiers,
                 },
             ],
             useWebAnalyticsPrecompute: [
@@ -1726,7 +1755,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             (showFocusMode: boolean, focusModeEnabled: boolean, focusModeConcerns: WebAnalyticsConcern[]): boolean =>
                 showFocusMode && focusModeEnabled && focusModeConcerns.length > 0,
         ],
-        tiles: [
+        tilesWithoutQueryModifiers: [
             (s) => [
                 s.productTab,
                 s.tabs,
@@ -3201,11 +3230,28 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 )
             },
         ],
+        effectiveWebQueryModifiers: [
+            (s) => [s.webQueryModifiers, s.featureFlags],
+            (
+                webQueryModifiers: WebAnalyticsQueryModifiers,
+                featureFlags: FeatureFlagsSet
+            ): WebAnalyticsQueryModifiers =>
+                // Stored modifiers apply only while the flag is on, so turning the flag off stops sending them.
+                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_QUERY_MODIFIERS] ? webQueryModifiers : {},
+        ],
+        tiles: [
+            (s) => [s.tilesWithoutQueryModifiers, s.effectiveWebQueryModifiers],
+            (tiles: WebAnalyticsTile[], effectiveWebQueryModifiers: WebAnalyticsQueryModifiers): WebAnalyticsTile[] =>
+                applyWebQueryModifiers(tiles, effectiveWebQueryModifiers),
+        ],
         getNewInsightUrl: [(s) => [s.tiles], (tiles: WebAnalyticsTile[]) => getNewInsightUrlFactory(tiles)],
     })),
 
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
+        // The default tab draws the overview tiles and insight charts. Fetch them alongside the tile queries.
+        void InsightVizRenderer.preload()
+        void WebOverviewRenderer.preload()
         actions.loadShouldShowGeoIPQueries()
     }),
 
@@ -3241,7 +3287,11 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             } else if (productTab === ProductTab.LIVE) {
                 return urls.webAnalyticsLive()
             } else if (productTab === ProductTab.CONTENT_AUTOPILOT) {
-                return urls.webAnalyticsContentAutopilot()
+                // A prompt page keeps its own path, so a shared header control doesn't close the prompt.
+                const path = removeProjectIdIfPresent(router.values.location.pathname)
+                return path.startsWith(`${urls.webAnalyticsContentAutopilot()}/prompts/`)
+                    ? path
+                    : urls.webAnalyticsContentAutopilot()
             } else if (productTab === ProductTab.BOT_ANALYTICS) {
                 // Bot tab maintains its own filter state in `botAnalyticsLogic`, so we serialize
                 // those filters here instead of `rawWebAnalyticsFilters` (which only describes the
@@ -3507,15 +3557,6 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 return
             }
 
-            // Redirect away from bot analytics tab if the feature flag is disabled
-            if (
-                productTab === ProductTab.BOT_ANALYTICS &&
-                !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]
-            ) {
-                router.actions.replace(urls.webAnalytics())
-                return
-            }
-
             if (
                 productTab === ProductTab.PAGE_PERFORMANCE &&
                 !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]
@@ -3529,7 +3570,10 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 return
             }
 
-            if (productTab === ProductTab.CONTENT_AUTOPILOT && !isContentAutopilotEnabled(values.featureFlags)) {
+            if (
+                [ProductTab.CONTENT_AUTOPILOT, ProductTab.BOT_ANALYTICS].includes(productTab) &&
+                !isContentAutopilotEnabled(values.featureFlags)
+            ) {
                 router.actions.replace(urls.webAnalytics())
                 return
             }
@@ -3702,6 +3746,10 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             },
             '/web/agents': (_, searchParams) => {
                 toAction({ productTab: ProductTab.AGENTS }, searchParams)
+            },
+            // The prompt detail page belongs to the AI visibility tab; the prompt detail logic opens the prompt.
+            '/web/content-autopilot/prompts/:promptId': (_, searchParams) => {
+                toAction({ productTab: ProductTab.CONTENT_AUTOPILOT }, searchParams)
             },
             '/web/:productTab': toAction,
         }

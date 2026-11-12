@@ -79,17 +79,159 @@ Keep ingestion, ClickHouse, and replay storage running, wait for the returned se
 If a session is missing, inspect local capture, ingestion, and replay storage logs before recording a playback pass.
 The dummy's normal development shortcut can choose the latest project; the explicit command above keeps the SDK on the account's selected project.
 
+## Duo and resizable windows
+
+Use Xcode 27.1 or newer with an iPhone Duo runtime. Capture matching native before-and-after screens on iOS and Android; simulators and emulators qualify, as described in `../AGENTS.md`.
+
+1. Open a report unfolded, scroll it, open Resolve and enter a note. Fold, unfold, rotate and
+   enter Split View on either side. Include a half-open pose with an active fold. Verify the report, scroll position and note remain, and sheets stay within one safe pane. In a short horizontal pane, open Model, scroll to its last option, and use Reset. When a fold leaves panes too small for an inbox/report pair, verify that the single report stays on one side.
+2. Change filters in the expanded inbox pane and select another report. Verify its highlight,
+   data and actions. A confirmation sheet must block the inbox and navigation behind its scrim.
+3. Tap Home from a report and switch Chats and Views through horizontal navigation and the rail.
+   Check pinned Errors and Sessions slots, larger text and shorter windows too. On Duo with a vertical system rail, verify the original icons and Chat action occupy native tabs and toolbars, without tab labels or a second app rail. On a regular iPhone and on Android, verify the original floating pill and Chat button. Opening a sheet must block the header and navigation behind its scrim. Rotate back to horizontal bars from a report, Chat, and each tab; verify that no native header remains above the custom controls. Pin and unpin Errors or Sessions from Views and use Undo after the tab host remounts.
+4. Enter a chat draft, queue a message and open Model. Resize with a streaming reply and the
+   keyboard visible. Keep the conversation, draft and queue without a duplicate send or stream.
+5. Scroll Views to a later chart pin, expand and collapse the window, and verify the same pin
+   stays near the top. Check menus, chart and number pins, and full-screen insights.
+6. Check empty and error states, long titles, and asymmetric safe areas on both sides. No
+   control should overlap system UI, clip, or require a particular fold pose.
+
+### Repeatable screenshot comparisons
+
+Use `.argent/flows/screenshot-capture.yaml` to capture Inbox, Report, Handoff, Chat with the keyboard,
+and Views from repository demo data. It launches the production app identity on either platform:
+`com.posthog.code.mobile` on iOS and `com.posthog.mobile` on Android. It leaves Views open.
+`.argent/flows/screenshot-landscape.yaml` continues from there on iOS and captures the same surfaces after rotation.
+These flows collect review images; they do not perform pixel-diff assertions or replace the smoke flows.
+
+Keep the base captures, then repeat on the same virtual devices after each layout revision.
+Record the source commit, model, OS, pixel dimensions, orientation, posture, theme, and text size beside each set.
+Use separate artifact directories such as `before/iphone-portrait` and `after/duo-inner-landscape`.
+Do not compare portrait-locked base screens with landscape screenshots as though the orientations match.
+
+| Virtual device                                           | Capture matrix                                | Reference native pixels                        |
+| -------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------- |
+| Ordinary iPhone, initially iPhone 17 Pro / iOS 27.0      | Portrait and landscape                        | 1206×2622 and 2622×1206                        |
+| Android, initially Pixel 9 / Android 16 API 36 at 420dpi | Portrait and landscape                        | 1080×2424 and 2424×1080                        |
+| iPhone Duo / iOS 27.1                                    | Closed cover, inner portrait, inner landscape | Cover 1398×2034; inner 2007×2853 and 2853×2007 |
+
+#### Build and prepare
+
+Use bundled Release builds with analytics and OTA updates disabled, so screenshots show the selected checkout.
+For iOS, use `scripts/ci-argent-build.sh` below. For Android, generate the native project in a disposable checkout
+with `CI=1 EXPO_NO_DOTENV=1 APP_VARIANT=production pnpm exec expo prebuild --platform android --no-install`.
+Set `expo.modules.updates.ENABLED` to `false` in the generated `android/app/src/main/AndroidManifest.xml` before building.
+With JDK 17, Android SDK/build tools 36 and the generated project's NDK installed, run:
+
+```sh
+cd android
+CI=1 EXPO_NO_DOTENV=1 EXPO_NO_TELEMETRY=1 DO_NOT_TRACK=1 APP_VARIANT=production \
+EXPO_PUBLIC_POSTHOG_KEY='' EXPO_PUBLIC_POSTHOG_HOST='' \
+./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --max-workers=2 --console=plain
+```
+
+The APK is `android/app/build/outputs/apk/release/app-release.apk`. Use the emulator's architecture if it differs.
+Reinstall the selected build on a dedicated test device before each run to reset demo state; the flow expects **Try the demo**.
+Select explicit device IDs from `xcrun simctl list devices` or `adb devices`. Never reset a person's device or account for these captures.
+Use light appearance and the default text size for matching pairs; record accessibility variants separately.
+
+#### Capture and keep the PNGs
+
+From `products/mobile`, with the pinned private Argent install on PATH:
+
+```sh
+capture_device='<explicit simulator UDID>'
+capture_dir='/tmp/mobile-screenshots/after/iphone-portrait'
+mkdir -p "$capture_dir"
+argent run rotate --udid "$capture_device" --orientation Portrait
+argent e2e run screenshot-capture --platform ios --device "$capture_device" \
+    --output "$capture_dir" --json > "$capture_dir/report.json"
+```
+
+For Android, use its serial and `--platform android`. For Duo, select the posture before the portrait run:
+`argent run fold --udid "$capture_device" --posture closed` for the cover, or `--posture open` for the inner screen.
+An open posture initially turns the UI landscape, so rotate to Portrait again before `screenshot-capture`.
+For iOS landscape, run `screenshot-landscape` immediately after a successful portrait run, with a separate output directory.
+Its explicit `rotation: LandscapeLeft` makes the exported iOS framebuffer upright.
+
+Successful tool screenshots live in temporary Argent storage, even when `--output` is supplied.
+Copy them out before stopping the server. This exports stable names from either flow's JSON report:
+
+```sh
+python3 - "$capture_dir/report.json" "$capture_dir" <<'PY'
+import json
+import shutil
+import sys
+from pathlib import Path
+
+report = json.loads(Path(sys.argv[1]).read_text())
+if not report['ok']:
+    raise SystemExit('Capture failed; inspect the report before using its screenshots.')
+output = Path(sys.argv[2])
+output.mkdir(parents=True, exist_ok=True)
+for step in report['steps']:
+    if step['kind'] == 'echo':
+        name = step['message'].lower()
+    if step.get('tool') == 'screenshot':
+        shutil.copyfile(step['result']['image']['hostPath'], output / f'{name}.png')
+PY
+```
+
+Inspect every PNG, including the fully settled keyboard. Use an invented unsent draft if keyboard suggestions expose clipboard contents.
+Preserve raw images and label matching pairs **before** and **after**. The PR composites resize each portrait capture to 600px wide,
+place the pair on a neutral canvas with padding, and label the model and surface. Compare the native PNGs when checking small details.
+For a bezel view, capture the actual Device Hub window and crop surrounding controls while retaining about 60px of padding.
+Keep that framed presentation separate from the raw app screenshots.
+Upload reviewed images using `hogli pr:upload-image --print-markdown <files...>`; acknowledge its public-upload warning with `--yes`.
+Insert the resulting pinned image URLs into the existing PR description without removing earlier evidence.
+
+#### Capture tooling workarounds
+
+- Keep Argent 0.30.1 in a private install and expose the Android SDK and `adb` on PATH before starting its server.
+  If an emulator is visible to `adb` but absent from Argent, launch that dedicated AVD with `-grpc-use-token`.
+  Keep connection tokens out of screenshots, logs attached to the PR, and source control.
+- A native-devtools launch failure can need one restart of that private server. Retry the capture, then use direct device inspection
+  if it still cannot connect. Do not restart another task's server or report a skipped capture as a pass.
+  `argent run describe --udid "$capture_device"` can still read the iOS accessibility tree when selector flows cannot run.
+  Navigate with its current element coordinates and `gesture-tap`, then capture each state with `argent run screenshot`.
+- On Android, dismiss Gboard's first-run handwriting prompt. For a dedicated emulator, disable stylus handwriting with
+  `adb -s "$capture_device" shell settings put secure stylus_handwriting_enabled 0` and enable its software keyboard with
+  `adb -s "$capture_device" shell settings put secure show_ime_with_hard_keyboard 1`.
+- Android selector taps after rotation mis-targeted controls in the reference run. Inspect the current screenshot or element tree,
+  then use `adb -s "$capture_device" shell input tap <x-pixels> <y-pixels>` and `adb ... exec-out screencap -p` if needed.
+  Recalculate coordinates for each device and posture. Do not reuse the old screen's coordinates.
+- If the dedicated emulator stops answering shell requests, restart that AVD rather than restarting the shared `adb` server.
+- Capture landscape chat with the keyboard open on both platforms. The input, model and mode controls, and Send must remain visible.
+  Gboard must keep the app composer visible rather than opening its full-screen editor.
+  Scroll the empty-state suggestions, send a demo reply, and rotate with an unsent draft to check that the draft survives.
+
+For a complete layout review, also capture sign-in, Settings and its project picker, inbox filters and row actions,
+full report details, handoff options, verdict and decision sheets, saved chats, Views browse and detail screens,
+full-screen charts, and the Errors and Sessions lists and details.
+When demo mode cannot supply a detail screen, use invented diagnostic fixtures and label those captures separately;
+record the provider substitutions and do not claim live data or replay playback coverage.
+Capture every distinct screen on the open Duo, then repeat affected screens in portrait and on the closed cover.
+Keep matching ordinary-phone screenshots for each changed screen. Record unreachable states as missing coverage.
+After returning from chat, rotate a report and check that its footer stays attached to the content with one compose action.
+
 ## Chat navigation and header
+
+In a new chat, fail a send with a multi-line error while the keyboard is open. Check that the full notice and Dismiss button stay above the composer without overlapping suggestions.
+Tap empty space to dismiss the keyboard, refocus the draft, then drag down in the suggestions area to dismiss it again.
+Repeat with larger system text. Suggestions must scroll when they do not fit, and dismissing the notice must preserve the draft.
+For an unsaved draft, check that Retry save remains visible and disabled while saving. For a lost connection, check Reconnect and Dismiss.
 
 On iOS and Android, open an existing chat and start a new chat. Both must fill the screen without a
 sheet grabber or drag-down dismissal. Header Back and platform Back return to the previous page;
 a direct link falls back to the configured default page. Scroll a long thread under the title-free
 blurred header and focus the composer to check the keyboard and safe-area spacing.
 
-New chat and the ellipsis share the Inbox's pill control. Open the menu, copy the link, and confirm
+Saved chats show New chat and the ellipsis in a bordered pill beside the labeled Back chip. Open the menu, copy the link, and confirm
 it targets the current project and chat. Archive a saved chat and confirm it disappears from Chats
 only after success. Fail each action and retry; repeated taps must not start duplicate requests.
-An unsaved chat has no link or task to archive, so its ellipsis is disabled.
+An unsaved chat shows only Back, aligned with Settings, until the first message creates a task.
+Open New chat several times and check that the page finishes sliding in before the keyboard rises from the bottom.
+Repeat with the AI access check delayed so the composer mounts after the transition, and check the compact landscape layout.
 
 ## Chat drafts and rich replies
 
@@ -150,6 +292,40 @@ On a development build with notifications enabled:
    underneath. Also tap New chat, then tap a push for the conversation you just left; it must reopen.
 6. Repeat a delivery with the app backgrounded or terminated. App-side filtering does **not** provide the same
    guarantees there; server consolidation and synchronized snoozes remain follow-ups in [GAPS.md](GAPS.md).
+
+### Android notification taps after process death
+
+Use a rebuilt Android development client. Keep the app's task in Recents when killing its
+process; force-stop and removing the task test different startup paths.
+Send test pushes as described in [Push notifications](PUSH.md#testing) and tap them in the
+system tray. Use different reports in a project the test account can access. To kill the process
+without removing the task, substitute the installed variant's package in these commands.
+
+```sh
+adb shell input keyevent KEYCODE_HOME
+adb shell am kill com.posthog.mobile
+adb shell pidof com.posthog.mobile # must print nothing
+```
+
+Disconnect the debugger if it keeps the development build alive.
+
+Verify these sequences against both base and proposed builds:
+
+1. Open report A, background the app, and tap a notification for report B with the process alive.
+2. Repeat after killing the background process while retaining its task. B must open once.
+3. Start a fresh task by tapping a notification for A, navigate to another report, background
+   and kill the process, then tap a notification for B. B must open without reopening A.
+4. Repeat the notification-launched task sequence but reopen from Recents with no new tap.
+   The original notification must not replay.
+5. Tap a notification to start a fresh task, then kill its process before JavaScript routes it.
+   Reopen from Recents without another tap. The pending target must open once.
+   Repeat while signed out, kill and reopen, then sign in. The pending target must still open.
+6. Background the app and tap a local snooze reminder, then open a report deep link.
+   Both must still reach their targets.
+7. While routing is waiting for sign-in, tap a push for A and then a snooze reminder for B.
+   Sign in and verify only B opens. Repeat with the tap order reversed and verify only A opens.
+
+Also perform real push delivery checks on physical Android and iOS devices before marking the PR ready.
 
 ## Demo walkthrough on the iOS simulator
 
@@ -227,7 +403,7 @@ DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fun
 export PATH="/tmp/mobile-argent-tools/node_modules/.bin:$PATH"
 bash scripts/ci-argent-build.sh /tmp/mobile-argent-build /tmp/mobile-argent-artifacts
 bash scripts/ci-argent.sh \
-    /tmp/mobile-argent-build/Build/Products/Release-iphonesimulator/PostHog.app \
+    /tmp/mobile-argent-build/Build/Products/Release-iphonesimulator/PostHogApp.app \
     /tmp/mobile-argent-artifacts
 ```
 
@@ -281,3 +457,101 @@ Argent's `argent-create-flow` skill describes the rules. Replay the whole flow b
 - **A `visible` check passes while a sheet covers the screen.**
   The screen under a sheet stays in the accessibility tree. Check that the sheet is `hidden` first, as the flow does.
 - **iOS asks "Open in PostHog?"** after `xcrun simctl openurl`. Tap Open. The question does not come every time.
+
+## Native replay prototype
+
+Recording is off unless `EXPO_PUBLIC_POSTHOG_REPLAY=1` and an analytics project key are set.
+It runs only in internal iOS/Android builds, after demo hydration, while signed out in demo mode.
+Leaving demo mode or signing in stops recording, including pending starts. Live and sign-in UI
+also has a root `ph-no-capture` mask. Store builds and Expo web cannot start this recorder.
+
+The `@posthog/react-native-plugin` dependency autolinks as a native module. It is not an Expo
+config plugin; do not add it to `app.config.ts`'s `plugins` array. Run `pnpm ios` or `pnpm android`
+to rebuild with it. An OTA update cannot add native modules. Expo Go cannot record.
+Enable **Record user sessions** in the project receiving the app's own usage analytics.
+Use a dedicated test project and fixture data for validation.
+
+The SDK configuration masks text, inputs, images and sandboxed iOS views, disables touch
+coordinates, and disables recording logs and network telemetry. Native push autocapture and
+rage-click capture are also off; the app keeps its existing Expo notification integration. The
+iOS Info.plist switch disables the SDK push-open hook before JavaScript starts. Remote project settings still
+control whether recording starts. `startSessionRecording()` resolving does not prove recording
+is active: the SDK can retry while waiting for remote configuration. Check the received recording.
+
+The workspace patch for `@posthog/react-native-plugin@2.12.7` keeps native automatic recording disabled, including when the React Native SDK initializes replay for a manual start.
+Explicit starts still record, but an explicit stop prevents delayed remote configuration, session changes or event triggers from restarting capture.
+The patch covers the plugin's JavaScript entry points and leaves its native code unchanged.
+Keep this patch until the React Native SDK preserves manual-only recording through native initialization; `src/lib/demoReplay.sdk.test.ts` checks that boundary with the real SDK and verifies that stopping cancels pending retries when configuration arrives later.
+
+On both iOS and Android, before allowing live-data capture:
+
+1. Launch with the replay variable absent and confirm no recording. Repeat in a store build
+   with the variable set. Neither may record.
+2. In an internal build with the variable set, enter **Try the demo**, navigate for at least
+   ten seconds, scroll a report and open a chat. Confirm a native replay arrives in the test project.
+3. Inspect snapshots for masked text, passwords, images and system pickers. Test keyboard entry,
+   a Mermaid WebView and a Skia chart. Native text masking cannot establish that custom-rendered
+   content is masked. Demo fixtures are the only permitted content for this prototype.
+4. Leave demo mode while remote configuration is delayed, and sign in. Confirm recording stops,
+   never restarts after remote configuration arrives, and the live root stays masked.
+5. Background, foreground, terminate and relaunch. Verify SDK session rotation and recordings
+   agree. Check the underlying Android API 26+ and iOS 13+ requirements against the app's higher
+   deployment targets. Native build success alone does not validate capture or privacy.
+
+See [React Native replay installation](https://posthog.com/docs/session-replay/installation/react-native)
+and [privacy controls](https://posthog.com/docs/session-replay/privacy).
+
+## Web/mobile handoff prototype
+
+The shared handoff protocol lives in `shared/handoffProtocol.ts`. Its local TypeScript configuration lets Storybook build it without installing Expo. The browser integration lives in `frontend/src/lib/utils/webMobileHandoff.ts` at the repository root.
+
+This prototype correlates separate sessions. It does not produce one recording spanning web and
+native. Identity (`distinct_id`), authentication, analytics sessions (`$session_id`) and the
+random `handoff_id` are separate. No identity or session setter is called during a handoff.
+
+The installed React Native SDK 4.84.2 can read and rotate sessions, but cannot bootstrap or set
+an existing session ID through its public API. The native replay plugin starts with the React
+Native SDK's own session ID. Overriding `$session_id` on a capture would therefore misrepresent
+recording continuity. The web SDK supports `bootstrap.sessionID`, but accepting one from an
+unsigned deep link would not establish a trusted same-user session. This prototype keeps both
+SDKs' session management intact. The handoff opt-in enables `enablePersistSessionIdAcrossRestart`
+on native, so returning to native can retain its existing session within the SDK's idle and
+maximum-duration limits, even after a process restart. That does not transfer the web session.
+
+For an end-to-end check, run the web app with the `mobile-session-handoff` feature flag enabled,
+and an internal native build with `EXPO_PUBLIC_POSTHOG_HANDOFF=1`. Both clients must send to the
+same test analytics project to query correlation together. The handoff flag is independent of
+recording: a correlation event does not prove that either session has a replay.
+
+1. Sign in to the same PostHog host in the native app. Open an insight, chart detail, view,
+   or chat link in the browser. Only HTTPS links inside the signed-in host and current
+   `/project/<id>/` are decorated. External links, other regions/projects, OAuth and existing
+   fragment links keep their navigation unchanged. The source event carries `handoff_id`.
+2. The web app removes the fragment marker before SDK initialization and emits
+   `web_session_handoff_received` when its flag is enabled. Match its `handoff_id` to
+   `mobile_session_handoff_started`. Compare the events' SDK-assigned `$session_id` values:
+   they are distinct, and neither identity has changed because of the link.
+3. To exercise web-to-native from a local test page in the running PostHog web app, add a normal
+   anchor with `href="posthog-dev://inbox"` (or `posthog-preview://inbox`) using browser developer
+   tools. Click it. The page's delegated click handler adds a marker and emits
+   `web_session_handoff_started`. Native strips the marker and emits
+   `mobile_session_handoff_received`, including on cold start. No new web navigation button
+   is shipped by this prototype. Production `posthog://` links are excluded.
+4. Return to the original client and confirm its own session continues within SDK timeouts.
+   After expiration, confirm its SDK starts a new session. Log out and switch accounts;
+   authentication and normal identity reset must remain independent of the handoff.
+5. Try disabled flags, an expired marker, duplicate markers and an OAuth callback. They must
+   not alter identity, authentication or session state. Existing routing must still work.
+
+Markers contain a random UUID and send time, expire after two minutes, and travel in the
+fragment rather than a query or referrer. No token, user ID, source session ID, report title or
+message enters the marker. Correlation is unverified diagnostic metadata: never use it for
+access control, identity merging, or session adoption. Device clocks must agree; future markers
+are rejected. URL fragments can still be observed by local browser scripts and history.
+
+True cross-platform continuation needs a supported React Native session bootstrap/setter,
+verified native-recorder synchronization, trusted account/project-bound exchange, and player
+validation for mixed web/native recordings. No SDK internals or persisted session storage are
+modified here. See [SDK bootstrapping](https://posthog.com/docs/libraries/bootstrapping),
+[session semantics](https://posthog.com/docs/data/sessions), and
+[React Native bootstrap support request](https://github.com/PostHog/posthog-js/issues/4978).

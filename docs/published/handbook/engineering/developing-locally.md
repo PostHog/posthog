@@ -77,7 +77,7 @@ If you commit from a devbox, keep your previous signing key on GitHub.
 A devbox signs through your forwarded SSH agent, which can't hold a Secure Enclave key, so it keeps signing with the previous key.
 Otherwise, once no repository signs with your previous key, remove it from your GitHub settings, so it can't sign verified commits anymore. Commits you already pushed stay verified.
 
-PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
+PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) attach to the PR description through `gh pr edit --attach` when the branch has an open PR and your gh supports `--attach`. Otherwise they upload to the public PostHog/pr-assets repo, and prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
 
 #### macOS
 
@@ -191,6 +191,12 @@ Three env files come into play when `hogli start` runs:
 
 Precedence (highest wins): `shell env > .env.local > .env.development > .env.services`.
 
+Outside tests, `DEBUG=1` defaults `TRUSTED_PROXIES` to `127.0.0.1,::1` so the backend can extract client IPs forwarded by the local Docker proxy on macOS. An explicit `TRUSTED_PROXIES` value overrides this default. Production has no default trusted proxies.
+
+Livestream uses the same proxy modes as Django, with a `LIVESTREAM_` prefix. Set `LIVESTREAM_IS_BEHIND_PROXY=1` to use forwarded client IPs. Set `LIVESTREAM_TRUST_ALL_PROXIES=True` when ingress controls the `X-Forwarded-For` header; this uses its first client address, matching Django's trust-all mode. Otherwise, list the actual reverse proxy CIDRs in `LIVESTREAM_TRUSTED_PROXIES`. Both boolean settings default to false. Direct mode ignores forwarded headers, and the explicit allowlist mode does not automatically trust private, loopback, or link-local peers.
+
+Streaming for IP-restricted organizations also requires matching dedicated signing keys in `LIVESTREAM_AUTHORIZATION_SIGNING_KEYS` for both Django and livestream. Both accept comma-separated keys, newest first. Use independently generated keys per environment; neither setting falls back to another secret. Configure both services before testing restricted streams. The service signs short-lived policy requests bound to the viewer token and team; a viewer token alone cannot read allowlists. Staff impersonation uses a separately cached viewer token bounded by the originating session or OAuth credential. Livestream authorization rechecks that source and the staff account; expired or revoked sources cannot authorize streams. Session-backed tokens also stop working after a password change or removal of the session’s authentication backend. Session auth hashes accept the configured fallback signing keys.
+
 To run AI features locally, you'll need API keys for OpenAI, Anthropic, and others. PostHog employees can pull them from 1Password without ever pasting raw values:
 
 ```bash
@@ -273,6 +279,10 @@ Then start the stack again with `hogli up`.
 
 **ClickHouse "get_mempolicy" warning**
 You might see `get_mempolicy: Operation not permitted` in the ClickHouse logs. This is harmless and can be ignored. To verify ClickHouse started properly, run `docker exec -it posthog-clickhouse-1 bash` then `clickhouse-client --query "SELECT 1"`.
+
+**ClickHouse system log tables missing locally**
+The dev stack mounts `docker/clickhouse/config.d/dev-system-logs.xml`, which turns off `query_views_log`, `metric_log` and `asynchronous_metric_log` to keep an idle ClickHouse quiet. `query_log`, `query_thread_log`, `text_log` and `trace_log` stay on.
+To profile with the other tables, remove the `dev-system-logs.xml` line from the `clickhouse` volumes in `docker-compose.dev.yml` and run `hogli up` again.
 
 **Database migration errors**
 If you see `fe_sendauth: no password supplied`, set `DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog` and ensure containers are running. On ARM machines, you may also hit `psycopg2` errors – see [this comment](https://github.com/psycopg/psycopg2/issues/1216#issuecomment-820556849) for fixes.
@@ -369,6 +379,8 @@ hogli test posthog/test/test_example.py -k test_something
 ```
 
 To see debug logs (such as ClickHouse queries), add argument `--log-cli-level=DEBUG`.
+
+Plain `pytest` works the same way. Backend tests need Postgres. The test ClickHouse database is created when a test first uses ClickHouse, so tests that never query ClickHouse also run while ClickHouse is down. A test that does query it fails with an error that says how to start it.
 
 You can also run tests for all files changed on the current branch:
 

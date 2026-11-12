@@ -29,6 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.sync_alerts.destinations import WAREHOUSE_ALERTS_FLAG
 from products.warehouse_sources.backend.sync_alerts.wording import SOURCE_ID_KEY
 
 logger = structlog.get_logger(__name__)
@@ -63,11 +64,14 @@ class DefaultAlertOutcome(StrEnum):
 
 
 def failure_email_enabled(team: Team) -> bool:
-    """Whether alerts replace the failure digest for this project. A flag that cannot be read is off,
-    which keeps the digest, so a flags outage costs a duplicate email and never a missing one."""
+    """Whether alerts replace the failure digest for this project. Both flags must be on, because without
+    the warehouse alerts flag nobody in the project can see, edit or turn off the default alert. A flag
+    that cannot be read is off, which keeps the digest, so a flags outage costs a duplicate email and
+    never a missing one."""
     try:
-        return posthog_feature_flag_enabled(
-            DEFAULT_FAILURE_ALERT_FLAG, str(team.uuid), organization_id=team.organization_id, team_id=team.id
+        return all(
+            posthog_feature_flag_enabled(flag, str(team.uuid), organization_id=team.organization_id, team_id=team.id)
+            for flag in (WAREHOUSE_ALERTS_FLAG, DEFAULT_FAILURE_ALERT_FLAG)
         )
     except Exception as error:
         capture_exception(error, {"team_id": team.id})

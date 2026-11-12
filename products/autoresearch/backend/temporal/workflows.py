@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import field, replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from functools import partial
 from typing import Optional, TypeVar, cast
 
@@ -27,13 +27,13 @@ with workflow.unsafe.imports_passed_through():
     import asyncio as _asyncio
 
     from django.db import transaction
-    from django.db.models import QuerySet
+    from django.db.models import Exists, OuterRef, Q, QuerySet
     from django.utils import timezone as django_timezone
 
     from posthog.models.team.team import Team
     from posthog.models.user import User
 
-    from products.actions.backend.models.action import Action
+    from products.actions.backend.facade.contracts import ActionNotFound
     from products.autoresearch.backend.access import has_autoresearch_access
     from products.autoresearch.backend.dataset.labeling import build_target_condition
     from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
@@ -53,6 +53,7 @@ with workflow.unsafe.imports_passed_through():
         run_inference_for_pipeline,
         score_shadow_set_for_run,
     )
+    from products.autoresearch.backend.limits import check_training_run_cap, limits_for_team, training_run_usage
     from products.autoresearch.backend.models import (
         AutoresearchModel,
         AutoresearchPipeline,
@@ -60,8 +61,18 @@ with workflow.unsafe.imports_passed_through():
         AutoresearchTrainingRun,
     )
     from products.autoresearch.backend.query import BATCH_QUERY, SCORING_QUERY
-    from products.autoresearch.backend.training.runner import run_training
-    from products.autoresearch.backend.training.schedule import research_schedule, schedule_runs_for
+    from products.autoresearch.backend.training.runner import check_launchable, run_training
+    from products.autoresearch.backend.training.schedule import (
+        NO_CHAMPION_PRIORITY,
+        RESCUE_PRIORITY,
+        RESEARCH_PRIORITY,
+        KickoffRank,
+        awaiting_first_champion,
+        kickoff_rank,
+        research_schedule,
+        schedule_runs_for,
+        scheduled_kickoff_reason,
+    )
     from products.autoresearch.backend.training.stale import fail_stale_training_runs
     from products.tasks.backend.facade.access import get_desktop_access_decision
     from products.tasks.backend.facade.usage import task_run_usage_limited
@@ -209,7 +220,7 @@ def _champion_for_inference(pipeline: AutoresearchPipeline) -> AutoresearchModel
         build_target_condition(
             target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
         )
-    except (ValueError, Action.DoesNotExist) as exc:
+    except (ValueError, ActionNotFound) as exc:
         raise ApplicationError(f"The pipeline's target cannot be resolved: {exc}", non_retryable=True)
     model = (
         AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
@@ -670,6 +681,8 @@ class ActivePipeline:
     team_id: int
     # Validation runs on every sweep; scoring and training kickoff only on a cadence day.
     score_due: bool
+    # A bootstrapping pipeline whose first champion rolled back. The sweep only kicks off its training.
+    kickoff_only: bool = False
 
 
 @frozen
@@ -732,6 +745,7 @@ class KickoffTrainingResult:
     kicked_off: bool
     # "explore" | "scheduled" | "not_due" | "manual_only" | "already_running" | "already_ran_today"
     # | "not_eligible" | "tasks_gated" | "no_creator" | "not_launchable" | "rescue_unscorable" | "rescue_throttled"
+    # | "team_daily_cap"
     reason: str
     error: Optional[str] = None
     # Why an expected skip happened, without counting it as a failure.
@@ -768,6 +782,10 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     A catch-up lists nothing while the daily sweep of that date still runs (``activity_mark_daily_sweep``),
     including its kickoff, validation and shadow phases, so the two sweeps never exceed one bound
     together. The next catch-up tick tries again.
+
+    The daily sweep also lists each ``bootstrapping`` pipeline whose first champion rolled back
+    (``awaiting_first_champion()``), last and with ``kickoff_only``, so its research schedule
+    continues. It has no champion, so the sweep does not score or validate it.
     """
     fail_stale_inference_runs()
     fail_stale_training_runs()
@@ -778,13 +796,17 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     yesterday = today - timedelta(days=1)
     # unscoped() because the coordinator's job is exactly to sweep every team. The
     # pipelines it returns carry their team so the downstream activities can scope.
+    sweep_filter = Q(status__in=_LIVE_STATUSES)
+    if inp.catch_up_date is None:
+        sweep_filter |= awaiting_first_champion()
     candidates = (
         AutoresearchPipeline.objects.unscoped()
-        .filter(status__in=_LIVE_STATUSES)
+        .filter(sweep_filter)
         # A null is_active counts as deactivated, as ActiveOrganizationPermission reads it.
         .filter(team__organization__is_active=True)
         .exclude(team__organization__is_pending_deletion=True)
-        .select_related("team", "created_by")
+        # The access check reads each team's organization.
+        .select_related("team__organization", "created_by")
         .order_by("created_at")
     )
     pipelines: list[tuple[bool, ActivePipeline]] = []
@@ -798,10 +820,20 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
             creator, team_id=pipeline.team_id, organization_id=str(pipeline.team.organization_id)
         ):
             continue
-        # By calendar day, because a run finishes some time after the 02:00 UTC tick and an
-        # elapsed-time comparison would skip the next day's tick.
+        if pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING:
+            # score_due stays True for a coordinator that started before the kickoff-only patch: it
+            # kicks off training, and the scoring and validation activities skip a pipeline that is not live.
+            pipelines.append(
+                (
+                    True,
+                    ActivePipeline(
+                        pipeline_id=str(pipeline.pk), team_id=pipeline.team_id, score_due=True, kickoff_only=True
+                    ),
+                )
+            )
+            continue
         last_scored = pipeline.last_scored_at.date() if pipeline.last_scored_at else None
-        score_due = last_scored is None or (today - last_scored).days >= pipeline.cadence_days
+        score_due = _score_due(pipeline, today)
         if inp.catch_up_date is not None and not (
             score_due
             and scheduled_run_can_retry(
@@ -851,6 +883,13 @@ def activity_mark_daily_sweep(inp: MarkDailySweepInput) -> None:
     cache.set(daily_sweep_key(inp.run_date), inp.state, timeout=int(ttl.total_seconds()))
 
 
+def _score_due(pipeline: AutoresearchPipeline, today: date) -> bool:
+    # By calendar day, because a run finishes some time after the 02:00 UTC tick and an
+    # elapsed-time comparison would skip the next day's tick.
+    last_scored = pipeline.last_scored_at.date() if pipeline.last_scored_at else None
+    return last_scored is None or (today - last_scored).days >= pipeline.cadence_days
+
+
 def _pause_orphaned_pipeline(pipeline: AutoresearchPipeline, *, reason: str) -> None:
     # Conditional on the status read above, so a concurrent archive or pause keeps its outcome.
     paused = (
@@ -866,11 +905,17 @@ def _pause_orphaned_pipeline(pipeline: AutoresearchPipeline, *, reason: str) -> 
 def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResult:
     """Start a scheduled agent training run, if the pipeline's research schedule says one is due.
 
+    The pipeline must be ``running``, or ``bootstrapping`` after its first champion rolled back
+    (``awaiting_first_champion()``).
+
     The run row and its task binding commit together under the pipeline row lock, as in the
     facade's ``start_training``, so a manual start cannot interleave. A launch failure raises,
     so the activity retry applies.
 
     A stale training run of the pipeline is closed first, outside the lock, so it does not block the start.
+
+    When the project has fewer free training runs than due pipelines, the runs go to the pipelines
+    that come first in ``kickoff_rank()``, whichever kickoff runs first.
     """
     fail_stale_training_runs(team_id=inp.team_id, pipeline_id=inp.pipeline_id)
     # The gates can call out to billing and flags, so they run before the row lock is taken.
@@ -878,11 +923,15 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
         loaded = AutoresearchPipeline.objects.select_related("created_by", "team__organization").get(pk=inp.pipeline_id)
     if loaded.created_by is not None and (gate := _tasks_gate(loaded)):
         return KickoffTrainingResult(kicked_off=False, reason="tasks_gated", detail=gate)
+    gated_creators = _gated_creators_of_other_pipelines(loaded)
+    limits = limits_for_team(inp.team_id)
 
     with team_scope(inp.team_id), transaction.atomic():
         pipeline = AutoresearchPipeline.objects.select_for_update().get(pk=inp.pipeline_id)
 
-        if pipeline.status != AutoresearchPipeline.Status.RUNNING:
+        if pipeline.status != AutoresearchPipeline.Status.RUNNING and not (
+            AutoresearchPipeline.objects.filter(pk=pipeline.pk).filter(awaiting_first_champion()).exists()
+        ):
             return KickoffTrainingResult(kicked_off=False, reason="not_eligible")
 
         if AutoresearchTrainingRun.objects.filter(
@@ -903,14 +952,8 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
             pipeline_created_at=pipeline.created_at,
             runs=schedule_runs_for([pipeline.pk], inp.team_id).get(pipeline.pk, []),
         )
-        kickoff_reason: AutoresearchTrainingRun.KickoffReason | None = None
-        skip_reason = "not_due"
-        if pipeline.research_interval_days is None:
-            skip_reason = "manual_only"
-        elif schedule.phase == "explore":
-            kickoff_reason = AutoresearchTrainingRun.KickoffReason.EXPLORE
-        elif schedule.is_due(now):
-            kickoff_reason = AutoresearchTrainingRun.KickoffReason.SCHEDULED
+        kickoff_reason = scheduled_kickoff_reason(schedule, now)
+        skip_reason = "manual_only" if pipeline.research_interval_days is None else "not_due"
 
         # A champion that cannot score stops all predictions, and only a training run can replace
         # it. So a pipeline with no research run due still gets a small rescue run.
@@ -936,7 +979,24 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
             )
             return KickoffTrainingResult(kicked_off=False, reason="no_creator", error=error)
 
+        # Checked last, so a pipeline with no run due does not wait on the team's advisory lock.
+        if cap := check_training_run_cap(inp.team_id, limits):
+            detail = f"The project has used {cap.used} of its daily limit of {cap.limit} training runs"
+            return KickoffTrainingResult(kicked_off=False, reason="team_daily_cap", detail=detail)
+
         rescue = kickoff_reason == AutoresearchTrainingRun.KickoffReason.RESCUE
+        if pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING:
+            priority = NO_CHAMPION_PRIORITY
+        else:
+            priority = RESCUE_PRIORITY if rescue else RESEARCH_PRIORITY
+        rank = kickoff_rank(priority=priority, next_research_at=schedule.next_research_at, pipeline_id=pipeline.pk)
+        # Still under the team's advisory lock, so two kickoffs of one team count the same pipelines.
+        if ahead := _pipelines_ranked_ahead(pipeline, rank=rank, gated_creators=gated_creators, now=now):
+            free = limits.max_training_runs_per_day - training_run_usage(inp.team_id, limits).used
+            if ahead >= free:
+                noun = "pipeline" if ahead == 1 else "pipelines"
+                detail = f"The project's remaining daily training runs are kept for {ahead} {noun} that come first"
+                return KickoffTrainingResult(kicked_off=False, reason="team_daily_cap", detail=detail)
         try:
             with transaction.atomic():
                 run_training(
@@ -945,8 +1005,9 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
                     user_id=pipeline.created_by_id,
                     rescue=rescue,
                     kickoff_reason=kickoff_reason,
+                    limits=limits,
                 )
-        except (ValueError, SandboxInferenceError, Action.DoesNotExist) as exc:
+        except (ValueError, SandboxInferenceError, ActionNotFound) as exc:
             # run_training refuses a departed creator or an unresolvable target before it writes
             # anything. A retry cannot fix either, so these report instead of raising.
             return KickoffTrainingResult(kicked_off=False, reason="not_launchable", error=str(exc))
@@ -954,6 +1015,98 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
         logger.info("autoresearch_kickoff_training_rescue", pipeline_id=inp.pipeline_id)
         return KickoffTrainingResult(kicked_off=True, reason="rescue_unscorable")
     return KickoffTrainingResult(kicked_off=True, reason=kickoff_reason.value)
+
+
+def _gated_creators_of_other_pipelines(pipeline: AutoresearchPipeline) -> set[int]:
+    """The creators of the team's other pipelines whose kickoff ``_tasks_gate()`` refuses now.
+
+    One gate per creator, because the gate reads only the creator and the team. Call before the row
+    lock, as for the pipeline's own gate. A gate that cannot be resolved counts as a refusal,
+    because that pipeline's own kickoff raises on it.
+    """
+    with team_scope(pipeline.team_id):
+        others = list(
+            AutoresearchPipeline.objects.filter(
+                status__in=[AutoresearchPipeline.Status.RUNNING, AutoresearchPipeline.Status.BOOTSTRAPPING],
+                created_by__isnull=False,
+            )
+            .exclude(created_by_id=pipeline.created_by_id)
+            .select_related("created_by", "team__organization")
+            .order_by("created_by_id")
+            .distinct("created_by_id")
+        )
+    gated: set[int] = set()
+    for other in others:
+        try:
+            refused = _tasks_gate(other) is not None
+        except Exception:
+            logger.warning("autoresearch_kickoff_gate_unresolved", pipeline_id=str(other.pk), exc_info=True)
+            refused = True
+        if refused:
+            gated.add(cast(int, other.created_by_id))
+    return gated
+
+
+def _pipelines_ranked_ahead(
+    pipeline: AutoresearchPipeline, *, rank: KickoffRank, gated_creators: set[int], now: datetime
+) -> int:
+    """The team's other pipelines that this sweep can still start a run for, and that come before ``rank``.
+
+    A pipeline counts only when its own kickoff would launch: it has a run due today, has not started
+    one today, and passes the gates and launch checks. So a pipeline that cannot launch holds no slot.
+    """
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    run_of_pipeline = AutoresearchTrainingRun.objects.filter(pipeline=OuterRef("pk"))
+    candidates = [
+        other
+        for other in AutoresearchPipeline.objects.exclude(pk=pipeline.pk)
+        .filter(Q(status=AutoresearchPipeline.Status.RUNNING) | awaiting_first_champion())
+        .filter(created_by__isnull=False)
+        .exclude(created_by_id__in=gated_creators)
+        .exclude(
+            Exists(
+                run_of_pipeline.filter(
+                    status__in=[AutoresearchTrainingRun.Status.PENDING, AutoresearchTrainingRun.Status.RUNNING]
+                )
+            )
+        )
+        .exclude(Exists(run_of_pipeline.filter(created_at__gte=today)))
+        .select_related("created_by", "team")
+        # The sweep kicks off a live pipeline on its scoring days only. One it scored today was due.
+        if other.status != AutoresearchPipeline.Status.RUNNING
+        or _score_due(other, today.date())
+        or (other.last_scored_at is not None and other.last_scored_at >= today)
+    ]
+    runs_by_pipeline = schedule_runs_for([other.pk for other in candidates], pipeline.team_id)
+    rescue_window_start = today - timedelta(days=UNSCORABLE_AFTER_FAILED_DAYS - 1)
+    ahead = 0
+    for other in candidates:
+        runs = runs_by_pipeline.get(other.pk, [])
+        schedule = research_schedule(
+            research_interval_days=other.research_interval_days, pipeline_created_at=other.created_at, runs=runs
+        )
+        if scheduled_kickoff_reason(schedule, now) is not None:
+            if other.status == AutoresearchPipeline.Status.BOOTSTRAPPING:
+                priority = NO_CHAMPION_PRIORITY
+            else:
+                priority = RESEARCH_PRIORITY
+        elif any(run.created_at >= rescue_window_start for run in runs):
+            continue
+        else:
+            priority = RESCUE_PRIORITY
+        other_rank = kickoff_rank(priority=priority, next_research_at=schedule.next_research_at, pipeline_id=other.pk)
+        if other_rank >= rank:
+            continue
+        if priority == RESCUE_PRIORITY:
+            champion = AutoresearchModel.objects.filter(pipeline=other, role=AutoresearchModel.Role.CHAMPION).first()
+            if find_unscorable_champion(champion) is None:
+                continue
+        try:
+            check_launchable(other)
+        except (ValueError, SandboxInferenceError, ActionNotFound):
+            continue
+        ahead += 1
+    return ahead
 
 
 @frozen
@@ -1018,6 +1171,8 @@ _BOUNDED_SWEEP_PATCH = "autoresearch-bounded-sweep-2026-10"
 _CLOSE_LOST_RUNS_PATCH = "autoresearch-close-lost-runs-2026-10"
 # Histories that started before this marker do not tell a catch-up that the daily sweep is running.
 _DAILY_SWEEP_MARKER_PATCH = "autoresearch-daily-sweep-marker-2026-10"
+# Histories that started before this marker also start scoring and validation for a kickoff-only pipeline.
+_KICKOFF_ONLY_PATCH = "autoresearch-kickoff-only-2026-10"
 
 
 @workflow.defn(name="autoresearch-coordinator")
@@ -1148,12 +1303,19 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
     ) -> _PipelineSweep:
         """On a cadence day score, then kick off training. Then validate. One step at a time, so a pipeline holds one slot.
 
-        A catch-up sweep only scores.
+        A catch-up sweep only scores. A kickoff-only pipeline only kicks off training.
         """
         pipeline_id = pipeline.pipeline_id
         inference_result: InferenceWorkflowResult | BaseException | None = None
         validation_result: ValidationWorkflowResult | BaseException | None = None
         kickoff_result: KickoffTrainingResult | BaseException | None = None
+        if workflow.patched(_KICKOFF_ONLY_PATCH) and pipeline.kickoff_only:
+            if not catch_up:
+                kickoff_result = await _settle(self._kickoff(pipeline))
+            return _PipelineSweep(
+                outcome=self._evaluate(pipeline_id, inference_result, validation_result, kickoff_result),
+                inference=None,
+            )
         if pipeline.score_due:
             inference_result = await _settle(
                 workflow.execute_child_workflow(

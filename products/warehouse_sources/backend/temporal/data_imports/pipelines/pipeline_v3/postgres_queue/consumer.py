@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     update_should_sync,
 )
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
@@ -173,6 +174,9 @@ DISABLE_SCHEMA_ERROR_PATTERNS: tuple[str, ...] = (
     # incoming values no longer fit the stored Delta column type
     # (SchemaColumnTypeChangedException) — only a reset and full re-sync can fix it
     "Source column type changed",
+    # the access rules changed after the migration linked a self-managed table, so the first sync
+    # must not replace it — only an admin can fix the rules
+    ADOPTION_ACCESS_ERROR,
 )
 
 # The schema or job row was deleted mid-sync — no retry can bring it back, and no more of that
@@ -215,6 +219,10 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     *DELETION_ERROR_PATTERNS,
     # a destination the customer configured refuses the connection, which only they can fix
     DESTINATION_CONFIGURATION_ERROR_MARKER,
+    # a batch aged out of its claim window and loaded out of order (see _refuse_incomplete_run) —
+    # self-healing by design, the next scheduled sync retries automatically, and
+    # INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL already tracks how often it fires
+    INCOMPLETE_RUN_ERROR,
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.

@@ -40,7 +40,8 @@ jobs:
                   # script is self-contained; it never needs to match the PR's base.
                   ref: ${{ github.event.repository.default_branch }}
                   persist-credentials: false
-                  sparse-checkout: .github/scripts
+                  sparse-checkout: .github/scripts/minimize-superseded-comments.mjs
+                  sparse-checkout-cone-mode: false
 
             - name: Resolve outdated bot threads
               env:

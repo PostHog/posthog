@@ -338,6 +338,10 @@
                                     ],
                                     "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`."
                                 },
+                                "showAnnotations": {
+                                    "description": "Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts whose X axis is a date or datetime column.",
+                                    "type": "boolean"
+                                },
                                 "showLegend": {
                                     "description": "Show the chart legend.",
                                     "type": "boolean"
@@ -366,8 +370,18 @@
                                             "type": "string"
                                         },
                                         "settings": {
-                                            "description": "Optional number formatting for this column.",
+                                            "description": "Optional display and number-formatting settings for this column.",
                                             "properties": {
+                                                "display": {
+                                                    "description": "Display settings for this column.",
+                                                    "properties": {
+                                                        "description": {
+                                                            "description": "Table column description shown in the header tooltip.",
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
                                                 "formatting": {
                                                     "description": "Number-formatting settings for the values in this column.",
                                                     "properties": {
@@ -530,8 +544,18 @@
                                                 "type": "string"
                                             },
                                             "settings": {
-                                                "description": "Optional number formatting for this column.",
+                                                "description": "Optional display and number-formatting settings for this column.",
                                                 "properties": {
+                                                    "display": {
+                                                        "description": "Display settings for this column.",
+                                                        "properties": {
+                                                            "description": {
+                                                                "description": "Table column description shown in the header tooltip.",
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
                                                     "formatting": {
                                                         "description": "Number-formatting settings for the values in this column.",
                                                         "properties": {

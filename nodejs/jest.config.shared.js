@@ -1,3 +1,6 @@
+// `Date.parse` reads a timezone-free string as local time. A test file cannot pin TZ, because Jest gives it a copy of `process.env`.
+process.env.TZ = 'UTC'
+
 module.exports = {
     transform: {
         '^.+\\.(t|j)s$': [
@@ -12,7 +15,8 @@ module.exports = {
     reporters: process.env.JEST_JUNIT_OUTPUT_DIR ? ['default', 'jest-junit'] : ['default'],
     clearMocks: true,
     coverageProvider: 'v8',
-    setupFiles: ['./jest.setup-env.ts'],
+    // Seal first, as production does, so that every suite also proves its dependencies run on sealed prototypes.
+    setupFiles: ['./src/common/utils/seal-intrinsics.ts', './jest.setup-env.ts'],
     // jest.quarantine.ts first so it wraps the describe/it/test globals before any test file declares tests.
     setupFilesAfterEnv: ['../frontend/jest.quarantine.ts', '../.github/scripts/jest-retries.cjs', './jest.setup.ts'],
     testTimeout: 60000,

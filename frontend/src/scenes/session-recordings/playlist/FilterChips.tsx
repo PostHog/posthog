@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useState } from 'react'
 
-import { IconClock, IconEye, IconPerson, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconClock, IconEye, IconPerson } from '@posthog/icons'
+import { Button, Chip, ChipClose } from '@posthog/quill'
 
 import { convertSecondsToDuration } from 'lib/components/DurationPicker/DurationPicker'
-import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 import { PropertyOperator, RecordingDurationFilter, RecordingUniversalFilters } from '~/types'
@@ -13,6 +12,7 @@ import { PropertyOperator, RecordingDurationFilter, RecordingUniversalFilters } 
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { filterLeaves, removeFilterLeaf } from './filterChipLeaves'
+import { QuillUniversalFilterChip } from './QuillUniversalFilterChip'
 import { defaultRecordingDurationFilter, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 const MAX_VISIBLE_CHIPS = 4
@@ -54,7 +54,7 @@ export function FilterChips({
 
     const chips: ReactNode[] = [
         ...leaves.map(({ path, filter }) => (
-            <UniversalFilterButton
+            <QuillUniversalFilterChip
                 key={path.join('.')}
                 filter={filter}
                 onClose={() => setFilters({ filter_group: removeFilterLeaf(filters.filter_group, path) })}
@@ -114,17 +114,15 @@ export function FilterChips({
     const visible = expanded || hiddenCount <= 0 ? chips : chips.slice(0, MAX_VISIBLE_CHIPS)
 
     return (
-        <div className="flex items-center gap-1 flex-wrap min-w-0" data-attr="list-filter-chips">
+        <div data-quill className="flex items-center gap-1 flex-wrap min-w-0" data-attr="list-filter-chips">
             {visible}
             {hiddenCount > 0 && (
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
+                <Button
                     onClick={() => setExpanded(!expanded)}
                     data-attr={expanded ? 'list-filter-chips-collapse' : 'list-filter-chips-expand'}
                 >
                     {expanded ? 'Show less' : `+${hiddenCount} more`}
-                </LemonButton>
+                </Button>
             )}
         </div>
     )
@@ -142,15 +140,10 @@ function FilterChip({
     children: ReactNode
 }): JSX.Element {
     return (
-        <div
-            className="UniversalFilterButton UniversalFilterButton--closeable inline-flex items-center ph-no-capture"
-            data-attr={dataAttr}
-        >
-            <div className="flex items-center flex-1 truncate gap-1">
-                <span className="shrink-0 text-secondary">{icon}</span>
-                <span className="truncate">{children}</span>
-            </div>
-            <LemonButton size="xsmall" icon={<IconX className="w-3 h-3" />} onClick={onClose} className="p-0.5" />
-        </div>
+        <Chip className="max-w-60 ph-no-capture" data-attr={dataAttr}>
+            <span className="shrink-0 text-muted-foreground">{icon}</span>
+            <span className="truncate">{children}</span>
+            <ChipClose onClick={onClose} aria-label="Remove filter" />
+        </Chip>
     )
 }

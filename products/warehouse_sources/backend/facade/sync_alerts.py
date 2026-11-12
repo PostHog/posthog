@@ -4,12 +4,16 @@ failure digest asks of warehouse alerts."""
 from posthog.models import Team
 
 from products.warehouse_sources.backend.sync_alerts import default_alert
+from products.warehouse_sources.backend.sync_alerts.default_alert import DEFAULT_FAILURE_ALERT_FLAG
 from products.warehouse_sources.backend.sync_alerts.destinations import (
     WAREHOUSE_ALERT_DESTINATION_TYPES,
+    WAREHOUSE_ALERTS_FLAG,
     WAREHOUSE_DESTINATION_EVENT_KINDS,
 )
 
 __all__ = [
+    "DEFAULT_FAILURE_ALERT_FLAG",
+    "WAREHOUSE_ALERTS_FLAG",
     "WAREHOUSE_ALERT_DESTINATION_TYPES",
     "WAREHOUSE_DESTINATION_EVENT_KINDS",
     "alerts_replace_failure_digest",

@@ -2,15 +2,18 @@ from collections.abc import Collection
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, IntegerField, OuterRef, Q, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
-from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.models.session_recording_playlist import (
+    SessionRecordingPlaylist,
+    SessionRecordingPlaylistViewed,
+)
 
-from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade.api import query_new_error_issues as query_new_error_issues
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -68,16 +71,8 @@ def query_org_members(organization: Organization) -> QuerySet:
     return (
         OrganizationMembership.objects.filter(organization_id=organization.id)
         .select_related("user")
-        .only("id", "user__distinct_id", "user__first_name", "user__email")
+        .only("id", "user__distinct_id", "user__first_name", "user__email", "user__uuid")
     ).order_by("id")
-
-
-def query_new_dashboards(period_start: datetime, period_end: datetime) -> QuerySet:
-    return (
-        Dashboard.objects.filter(created_at__gt=period_start, created_at__lte=period_end)
-        .exclude(name__contains="Generated Dashboard")
-        .values("team_id", "name", "id")
-    )
 
 
 def query_new_event_definitions(period_start: datetime, period_end: datetime) -> QuerySet:
@@ -111,6 +106,18 @@ def query_new_feature_flags(period_start: datetime, period_end: datetime) -> Que
 
 
 def query_saved_filters(period_start: datetime, period_end: datetime) -> QuerySet:
+    # A filtered Count over the reverse relation joins every view a playlist ever had before the
+    # period filter applies. This subquery reads only the period's rows through the
+    # (playlist, viewed_at) index.
+    views_in_period = (
+        SessionRecordingPlaylistViewed.objects.filter(
+            playlist_id=OuterRef("id"), viewed_at__gt=period_start, viewed_at__lte=period_end
+        )
+        .order_by()
+        .values("playlist_id")
+        .annotate(count=Count("id"))
+        .values("count")
+    )
     return (
         SessionRecordingPlaylist.objects.exclude(
             (Q(name__isnull=True) | Q(name="Unnamed") | Q(name=""))
@@ -126,13 +133,7 @@ def query_saved_filters(period_start: datetime, period_end: datetime) -> QuerySe
         .exclude(type="collection")
         .exclude(type__isnull=True)
         .annotate(
-            view_count=Count(
-                "sessionrecordingplaylistviewed",
-                filter=(
-                    Q(sessionrecordingplaylistviewed__viewed_at__gt=period_start)
-                    & Q(sessionrecordingplaylistviewed__viewed_at__lte=period_end)
-                ),
-            ),
+            view_count=Coalesce(Subquery(views_in_period, output_field=IntegerField()), 0),
         )
         .values("team_id", "name", "short_id", "view_count")
         .order_by("-view_count")

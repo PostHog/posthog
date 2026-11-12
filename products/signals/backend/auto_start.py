@@ -41,7 +41,10 @@ from products.signals.backend.default_owner import resolve_signals_enabler
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
 from products.signals.backend.github_optional import ResearchAccessPolicy
-from products.signals.backend.implementation_repositories import implementation_access_repositories
+from products.signals.backend.implementation_repositories import (
+    access_repositories_instruction,
+    implementation_access_repositories,
+)
 from products.signals.backend.issue_dependencies import resolve_issue_dependencies, unresolved_dependency_skip
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -51,7 +54,11 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_IMPLEMENTATION
-from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.quota import (
+    capture_signal_report_quota_paused,
+    self_driving_limit_name,
+    self_driving_quota_gate,
+)
 from products.signals.backend.report_assignments import release_claim
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_generation.research import (
@@ -69,6 +76,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_users_by_uuid,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_monitoring_provenance import monitoring_repository_allowed
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
@@ -88,6 +96,7 @@ from products.signals.backend.supersession import (
     targets_still_eligible,
     verify_target,
 )
+from products.signals.backend.task_profiles import IMPLEMENTATION
 from products.signals.backend.task_run_artefacts import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -101,6 +110,7 @@ from products.signals.backend.typed_report_links import (
     outgoing_links,
 )
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.profiles import SourceKind, TaskRunOptions, TaskSource
 from products.tasks.backend.facade.usage import task_run_usage_limited
 
 logger = structlog.get_logger(__name__)
@@ -324,17 +334,6 @@ def _head_branch_instruction(head_branch: str) -> str:
         "PR from it. This name was pre-generated for this run: PostHog uses it to link the opened PR "
         "back to the run for automated review, and a PR from any other branch name will not be "
         "recognized. Do NOT choose a different branch name."
-    )
-
-
-def _access_repositories_instruction(repository: str, access_repositories: list[str]) -> str:
-    if not access_repositories:
-        return ""
-    names = ", ".join(f"`{name}`" for name in access_repositories)
-    return (
-        f"\n\nYour GitHub credentials also cover {names}, which the project configured for implementation "
-        "tasks, for example to upload PR screenshots. They are not cloned. Use `gh` or clone one yourself "
-        f"when the task needs it. Open the PR on `{repository}` as usual."
     )
 
 
@@ -562,9 +561,9 @@ SKIP_REQUIRES_HUMAN_INPUT = "requires_human_input"
 SKIP_ALREADY_ADDRESSED = "already_addressed"
 SKIP_NO_PRIORITY = "no_priority"
 SKIP_AUTOSTART_DISABLED = "autostart_disabled"
-SKIP_QUOTA_EXHAUSTED = "quota_exhausted"
 SKIP_NO_RUNNER = "no_runner"
 SKIP_FREE_TRIAL = "free_trial"
+SKIP_REPOSITORY_NOT_NAMED = "repository_not_named"
 
 
 def _capture_autostart_skipped(
@@ -817,12 +816,22 @@ def _create_implementation_task_if_absent(
     description = (
         description
         + _head_branch_instruction(head_branch)
-        + _access_repositories_instruction(repository, access_repositories)
+        + access_repositories_instruction(repository, access_repositories)
     )
+
+    from products.signals.backend.facade.trial import task_trial_admission  # noqa: PLC0415 -- avoids Tasks import cycle
 
     exempt_reason: str | None = None
     task_id: str | None = None
-    with transaction.atomic():
+    with (
+        task_trial_admission(
+            team=Team.objects.get(id=team_id),
+            origin="signal_report",
+            report_id=report_id,
+            continue_admitted_pipeline=True,
+        ),
+        transaction.atomic(),
+    ):
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return False
@@ -928,19 +937,26 @@ def _create_implementation_task_if_absent(
             # relabel, so the Runs surface reads "<relationship>: <report>" for every pipeline run.
             title=f"Implementation: {title}",
             description=description,
-            origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+            profile=IMPLEMENTATION,
+            source=TaskSource(kind=SourceKind.SIGNAL_REPORT, id=report_id),
             user_id=user_id,
             repository=repository,
             branch=base_branch,
-            signal_report_id=report_id,
             implementation_spend_kind=implementation_spend_kind,
+            # Research increments run_count after admission; scouts create READY reports directly.
+            continue_admitted_pipeline=report.run_count > 0 or report.status == SignalReport.Status.READY,
             # Resolved by the caller outside this lock, like `agent_runtime` above, so the
             # create-time free-trial gate makes no flag request while the report row is locked.
             free_trial_enabled=free_trial_enabled,
-            # `full` scopes so the implementation agent can log its work on the report (notes,
-            # code references) via the task:write artefact tools, plus the scratchpad so what it
-            # learned about the codebase outlives the run.
-            posthog_mcp_scopes=IMPLEMENTATION_MCP_SCOPES,
+            options=TaskRunOptions(
+                adapter=agent_runtime.runtime_adapter,
+                model=agent_runtime.model,
+                reasoning_effort=agent_runtime.reasoning_effort,
+                # `full` scopes so the implementation agent can log its work on the report (notes,
+                # code references) via the task:write artefact tools, plus the scratchpad so what it
+                # learned about the codebase outlives the run.
+                mcp_scopes=IMPLEMENTATION_MCP_SCOPES,
+            ),
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
             ai_stage=AI_STAGE_IMPLEMENTATION,
             # The pre-generated branch the description instructs the agent to push to; stamped
@@ -948,11 +964,6 @@ def _create_implementation_task_if_absent(
             self_driving_head_branch=head_branch,
             stack_base_branch=stack_base_branch,
             github_access_repositories=access_repositories,
-            # Internal so the run stays out of the default task list; the report surfaces it by id.
-            internal=True,
-            runtime_adapter=agent_runtime.runtime_adapter,
-            model=agent_runtime.model,
-            reasoning_effort=agent_runtime.reasoning_effort,
             service_tier=agent_runtime.service_tier,
         )
         if created.latest_run is None:
@@ -1014,7 +1025,6 @@ def start_requested_implementation(
         return "already_started"
     if task_run_usage_limited(user, request.team_id):
         raise RequestedImplementationUnavailable("The requested user cannot start another task run")
-    tasks_facade.enforce_self_driving_pr_quota(team, report_id=request.report_id, stage="manual_rerun")
     if pending_replacement(request.team_id, request.report_id) is not None:
         raise RequestedImplementationUnavailable("A replacement is already in progress")
     actionability_row = (
@@ -1047,6 +1057,9 @@ def start_requested_implementation(
     repo_selection = RepoSelectionResult.model_validate_json(repo_row.content) if repo_row else None
     if repo_selection is None or repo_selection.repository is None or not report.title or not report.summary:
         raise RequestedImplementationUnavailable("The completed research has no implementation repository or summary")
+
+    if not monitoring_repository_allowed(request.team_id, request.report_id, repo_selection.repository):
+        raise RequestedImplementationUnavailable("The selected repository does not satisfy source privacy requirements")
 
     linked_tasks = {
         entry.task_id
@@ -1104,7 +1117,7 @@ def start_requested_implementation(
             repository=repo_selection.repository,
             base_branch=team_config.base_branch_for(repo_selection.repository) if team_config else None,
             steering=steering,
-            free_trial_enabled=self_driving_free_trial_enabled(team),
+            free_trial_enabled=self_driving_free_trial_enabled(team, admitted_report_id=request.report_id),
             requested_after_run_count=request.after_run_count,
             ch_user=ch_user,
         )
@@ -1116,8 +1129,15 @@ def start_requested_implementation(
     if not runs or not runs[0].is_terminal:
         raise RequestedImplementationUnavailable("The existing implementation task still has an active run")
     previous_run = runs[0]
-    free_trial_enabled = self_driving_free_trial_enabled(team)
-    with transaction.atomic():
+    free_trial_enabled = self_driving_free_trial_enabled(team, admitted_report_id=request.report_id)
+    from products.signals.backend.facade.trial import task_trial_admission  # noqa: PLC0415 -- avoids Tasks import cycle
+
+    with (
+        task_trial_admission(
+            team=team, origin="signal_report", report_id=request.report_id, continue_admitted_pipeline=True
+        ),
+        transaction.atomic(),
+    ):
         current = SignalReport.objects.select_for_update().get(id=request.report_id, team_id=request.team_id)
         if (
             current.status != SignalReport.Status.READY
@@ -1392,10 +1412,11 @@ async def maybe_autostart_implementation_task(
 
     ``repository_autostart_eligible`` is false when *repository* was inferred from the report's own
     text rather than chosen for a caller who asked to open a PR (see `RepoSelectionResult`). Such a
-    repo is a target for whoever clicks Create PR, so it may not reach the reviewer-less fallback —
-    that is the one path where nobody named the report's destination *or* its runner. A reviewer who
-    resolves and clears their autonomy threshold, or a user whose own reviewer edit triggered this,
-    is a person authorizing the run, so the inference stops mattering and this no longer applies.
+    repo is a target for whoever clicks Create PR, so no automatic path may start on it: neither a
+    suggested reviewer who clears their autonomy threshold nor the reviewer-less fallback. A suggested
+    reviewer authorizes the runner, not the destination, and a repository that the report text only
+    cites as evidence can be the wrong codebase. A user whose own reviewer edit triggered this is a
+    person authorizing the run on the report as it stands, so the inference stops mattering there.
 
     Both the agentic signals pipeline (``temporal/agentic/report.py``) and the
     custom agent activity (``temporal/custom_agent.py``) call this after persisting
@@ -1510,14 +1531,18 @@ async def maybe_autostart_implementation_task(
     )(team_id, repository, priority=EgressPriority.BATCH):
         return AutostartOutcome(status="blocked", reason="Connect or repair GitHub access to the selected repository")
 
+    if not await database_sync_to_async(monitoring_repository_allowed, thread_sensitive=False)(
+        team_id, report_id, repository
+    ):
+        return AutostartOutcome(
+            status="blocked", reason="The selected repository does not satisfy source privacy requirements"
+        )
+
     # Dependency lines in the report's GitHub issues become `depends_on` links first, so the link
     # gates below already see them. A dependency issue that no report holds yet holds the report too.
     unresolved_issues = await database_sync_to_async(resolve_issue_dependencies, thread_sensitive=False)(
         team_id=team_id, report_id=report_id, ch_user=ch_user
     )
-    # Between the team's master switch and the quota gate. A team that opted out of auto-start
-    # entirely gets no artefact and no gate reason, and a duplicate or a plan parent never counts
-    # as quota-held work, because the work was never this report's to do.
     link_skip = await database_sync_to_async(_evaluate_link_gates, thread_sensitive=False)(team_id, report_id)
     if link_skip is None and unresolved_issues:
         link_skip = unresolved_dependency_skip(unresolved_issues)
@@ -1532,25 +1557,19 @@ async def maybe_autostart_implementation_task(
         await database_sync_to_async(_record_link_gate_skip, thread_sensitive=False)(team_id, report_id, link_skip)
         return AutostartOutcome(status="blocked", reason=link_skip.detail)
 
-    # Quota gate: the implementation task is the step that leads to the billable PR, so a team
-    # whose org is over its self-driving credits quota starts none, on any path (pipeline, custom agent, scout, or
-    # a user's reviewer edit). The report stays ready; the next new-signal research cycle after
-    # the quota lifts re-evaluates auto-start.
-    team = await Team.objects.select_related("organization").aget(pk=team_id)
-    quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
-    if quota_gate.limited:
-        capture_signal_report_quota_paused(team, report_id=report_id, stage="autostart", enforced=quota_gate.enforced)
-    if quota_gate.enforced:
+    if triggering_user_id is None and not repository_autostart_eligible:
         logger.info(
             "self-driving auto-start skipped",
             report_id=report_id,
             team_id=team_id,
-            reason="org over self-driving credits quota",
+            reason="repository was inferred, not named by the report's author",
         )
         await database_sync_to_async(_capture_autostart_skipped, thread_sensitive=False)(
-            team_id=team_id, report_id=report_id, skip_reason=SKIP_QUOTA_EXHAUSTED
+            team_id=team_id, report_id=report_id, skip_reason=SKIP_REPOSITORY_NOT_NAMED
         )
-        return AutostartOutcome(status="blocked", reason="Self-driving quota is exhausted")
+        return AutostartOutcome(status="blocked", reason="No one named the repository for this report")
+
+    team = await Team.objects.select_related("organization").aget(pk=team_id)
 
     # A user-triggered auto-start runs as the triggering user; otherwise resolve a trusted
     # (commit-authorship) reviewer. Either way the task's user is never an attacker-named colleague.
@@ -1585,16 +1604,31 @@ async def maybe_autostart_implementation_task(
             live_owner_identities,
             confirmed_uuids,
         )
-        if (
-            task_user is None
-            and repository_autostart_eligible
-            and _report_meets_team_autostart_threshold(priority.priority, team_default_priority)
-        ):
+        if task_user is None and _report_meets_team_autostart_threshold(priority.priority, team_default_priority):
             # No suggested reviewer resolved to a connected-GitHub member, but the report meets the
             # team's default autostart priority, so run it under the member who enabled signals for
             # the team rather than dropping the PR.
             task_user = await database_sync_to_async(_resolve_autostart_fallback_user, thread_sensitive=False)(team_id)
             runner_source = "team_fallback"
+    if (
+        task_user is not None
+        and triggering_user_id is None
+        and not (team_config and team_config.autostart_enabled is True)
+    ):
+        from products.signals.backend.trial.reports import (
+            implementation_requires_trial_opt_in,  # noqa: PLC0415 -- avoids eager policy imports
+        )
+
+        if await database_sync_to_async(implementation_requires_trial_opt_in)(team_id, report_id):
+            opted_in = (
+                await SignalUserAutonomyConfig.objects.filter(user=task_user, autostart_priority__isnull=False)
+                .exclude(autostart_priority="")
+                .aexists()
+            )
+            if not opted_in:
+                return AutostartOutcome(
+                    status="blocked", reason="Trial implementation requires an explicit request or an existing opt-in"
+                )
     if task_user is None:
         logger.info(
             "self-driving auto-start skipped",
@@ -1611,7 +1645,9 @@ async def maybe_autostart_implementation_task(
     # any path. The report stays ready and gets its PR after the trial, on the next re-evaluation
     # or by hand. The gate sits after the runner resolution because a report with no runner opens
     # no pull request anyway, so counting it would overstate what the trial held back.
-    on_free_trial = await database_sync_to_async(self_driving_free_trial_enabled, thread_sensitive=False)(team)
+    on_free_trial = await database_sync_to_async(self_driving_free_trial_enabled, thread_sensitive=False)(
+        team, admitted_report_id=report_id
+    )
     if on_free_trial:
         capture_signal_report_free_trial_paused(team, report_id=report_id, stage="autostart")
         logger.info(
@@ -1743,6 +1779,7 @@ async def maybe_autostart_from_report_artefacts(
     *,
     team_id: int,
     report_id: str,
+    triggering_user_id: int | None = None,
     implementation_spend_kind: str = "reviewer_triggered_implementation",
     remaining_retries: int = 2,
     dispatch: ImplementationDispatch | None = None,
@@ -1761,7 +1798,31 @@ async def maybe_autostart_from_report_artefacts(
 
     A report that a background-enrolled scout authored never auto-starts. Nobody on the project
     asked for that scout, so its findings must not open pull requests on their own.
+
+    A report a member filed by hand (`user_authored`) never auto-starts either, on creation or on any
+    later reviewer edit, repository edit, or dispatcher retry. Its create endpoint needs only
+    `inbox:write`, while every other write that automatic start reads needs `task:write`. A person
+    who wants a run presses Implement, which carries its own authorization.
     """
+    # A fresh user edit admits new work. Persisted reviewer attribution is only the execution
+    # identity: reusing it as this gate would also block an already-admitted pipeline.
+    if triggering_user_id is not None:
+        team = await Team.objects.select_related("organization").aget(id=team_id)
+        gate = await database_sync_to_async(self_driving_quota_gate)(team)
+        if gate.limited:
+            await database_sync_to_async(capture_signal_report_quota_paused)(
+                team, report_id=report_id, stage="reviewer_edit", enforced=gate.enforced
+            )
+        if gate.enforced:
+            return AutostartOutcome(status="blocked", reason=f"Self-driving {self_driving_limit_name(team)} reached")
+    if await SignalReport.objects.filter(id=report_id, team_id=team_id, user_authored=True).aexists():
+        logger.info(
+            "signals auto-start re-eval skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="user-authored report",
+        )
+        return AutostartOutcome(status="blocked", reason="Reports filed by a person do not auto-start")
     if await database_sync_to_async(report_is_from_background_scout)(team_id, report_id):
         logger.info(
             "signals auto-start re-eval skipped",

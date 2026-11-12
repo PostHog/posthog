@@ -19,7 +19,9 @@ import {
 
 import api, { ApiConfig } from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -41,6 +43,7 @@ import {
     SchemaEditorAction,
     useSchemaEditorAccess,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import {
     IncrementalSyncBlockedMessageMap,
@@ -52,8 +55,14 @@ import {
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
-import { externalDataSourcesBulkUpdateSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
-import type { ExternalDataSchemaApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import {
+    externalDataSchemasPartialUpdate,
+    externalDataSourcesBulkUpdateSchemasPartialUpdate,
+} from 'products/warehouse_sources/frontend/generated/api'
+import type {
+    ExternalDataSchemaApi,
+    IncrementalFieldTypeEnumApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
@@ -61,7 +70,9 @@ import { replaceFileDisabledReason, replaceFileLogic, replaceFileTarget } from '
 import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
 import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
 import { columnAnnotationsLogic } from './columnAnnotationsLogic'
+import { confirmHistoryAccessRules, turnsHistoryOn } from './confirmHistoryAccessRules'
 import { DestinationsSection } from './DestinationsSection'
+import { masksDropHistory, stopsWritingHistory, writesHistoryTable } from './historyTable'
 import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
 // null means "all columns" on either side, so switching to null after a partial list flags
@@ -104,8 +115,16 @@ export function ConfigurationTab({
 }: ConfigurationTabProps): JSX.Element {
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
     const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters } = useValues(logic)
-    const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
-        useActions(logic)
+    const {
+        setIsProjectTime,
+        updateSchema,
+        reloadSchema,
+        resyncSchema,
+        cancelSchema,
+        deleteTable,
+        deleteHistoryTable,
+        refreshSchemas,
+    } = useActions(logic)
     const { openReplaceFile } = useActions(replaceFileLogic({ sourceId }))
     const fileUpload: FileUploadDetails | undefined = isFileUploadSource(source)
         ? {
@@ -168,6 +187,7 @@ export function ConfigurationTab({
                     resyncSchema={resyncSchema}
                     resyncingSchema={resyncingSchema}
                     deleteTable={deleteTable}
+                    deleteHistoryTable={deleteHistoryTable}
                 />
             )
     }
@@ -423,6 +443,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     const formRef = useRef<SyncMethodFormHandle>(null)
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
     const [saving, setSaving] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentProjectId } = useValues(teamLogic)
 
     const { disabledReason: accessDisabledReason } = useSchemaEditorAccess(schema)
 
@@ -451,36 +473,111 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
           }))
         : []
 
-    const persistSyncMethod = async (
+    const persistSyncMethod = (
         syncType: ExternalDataSourceSchema['sync_type'],
         incrementalField: string | null,
         incrementalFieldType: string | null,
         primaryKeyColumns: string[] | null,
         cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
         incrementalFieldLookbackSeconds?: number | null
-    ): Promise<void> => {
+    ): void => {
         const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
 
-        const applyUpdate = async (): Promise<void> => {
+        const applyUpdate = async ({
+            dropHistoryTable = false,
+            copyAccessRulesToHistory = false,
+        }: { dropHistoryTable?: boolean; copyAccessRulesToHistory?: boolean } = {}): Promise<void> => {
             setSaving(true)
             try {
-                await api.externalDataSchemas.update(schema.id, {
+                const saved = await externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentTeamId()), schema.id, {
                     should_sync: true,
                     sync_type: syncType,
                     incremental_field: noIncrementalField ? null : incrementalField,
-                    incremental_field_type: noIncrementalField ? null : incrementalFieldType,
+                    // The form picks it from the field types this API returned.
+                    incremental_field_type: noIncrementalField
+                        ? null
+                        : (incrementalFieldType as IncrementalFieldTypeEnumApi | null),
                     incremental_field_lookback_seconds:
                         syncType === 'incremental' ? (incrementalFieldLookbackSeconds ?? null) : null,
-                    primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
-                    ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
+                    primary_key_columns:
+                        syncType === 'incremental' || syncType === 'cdc' || syncType === 'xmin'
+                            ? (primaryKeyColumns ?? null)
+                            : null,
+                    ...((syncType === 'cdc' || syncType === 'incremental') && cdcTableMode
+                        ? { cdc_table_mode: cdcTableMode }
+                        : {}),
+                    ...(dropHistoryTable ? { drop_history_table: true } : {}),
+                    ...(copyAccessRulesToHistory ? { copy_access_rules_to_history: true } : {}),
                 })
-                lemonToast.success('Sync method saved')
+                if (dropHistoryTable && saved.registered_history_table_name) {
+                    lemonToast.warning(
+                        `Sync method saved, but ${saved.registered_history_table_name} was kept. A sync was still running or its files couldn't be deleted. Delete it from the danger zone later.`
+                    )
+                } else {
+                    lemonToast.success(
+                        dropHistoryTable ? 'Sync method saved and history table deleted' : 'Sync method saved'
+                    )
+                }
                 loadSchema()
             } catch (e: any) {
                 lemonToast.error(e?.message || "Can't save sync method at this time")
             } finally {
                 setSaving(false)
             }
+        }
+
+        // Asked after the xmin and self-managed confirmations, right before the save.
+        const askAboutHistoryThenApply = (): void => {
+            const table = schema.table
+            if (
+                table &&
+                currentProjectId &&
+                featureFlags[FEATURE_FLAGS.WAREHOUSE_HISTORY_ACCESS_RULES] &&
+                turnsHistoryOn(schema, syncType, cdcTableMode)
+            ) {
+                // Disables Save through the lookup and the dialog, so a second click can't send another update.
+                setSaving(true)
+                void confirmHistoryAccessRules(
+                    currentProjectId,
+                    table.id,
+                    (copy) => void applyUpdate({ copyAccessRulesToHistory: copy }),
+                    () => setSaving(false)
+                )
+                return
+            }
+            const historyTableName = schema.registered_history_table_name
+            if (!historyTableName || !stopsWritingHistory(schema, syncType, cdcTableMode)) {
+                void applyUpdate()
+                return
+            }
+            LemonDialog.open({
+                title: 'Delete the history table too?',
+                content: (
+                    <div className="text-sm text-secondary deprecated-space-y-2">
+                        <p>
+                            After this change, <strong>{historyTableName}</strong> stops recording new versions of each
+                            row.
+                        </p>
+                        <p>
+                            Delete it to remove the table, every past version in it, and the joins that use it. This
+                            can't be undone. Keep it to go on querying the versions recorded so far. You can delete it
+                            later from the danger zone.
+                        </p>
+                    </div>
+                ),
+                primaryButton: {
+                    children: 'Delete history table',
+                    status: 'danger',
+                    onClick: () => void applyUpdate({ dropHistoryTable: true }),
+                    'data-attr': 'schema-sync-method-delete-history-table',
+                },
+                secondaryButton: {
+                    children: 'Keep history table',
+                    type: 'secondary',
+                    onClick: () => void applyUpdate(),
+                    'data-attr': 'schema-sync-method-keep-history-table',
+                },
+            })
         }
 
         // Switching to or from xmin changes the table's physical schema (the `_ph_xmin` control
@@ -500,13 +597,18 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                         <p>The existing synced data is replaced. This can take a while for large tables.</p>
                     </div>
                 ),
-                primaryButton: { children: 'Resync now', onClick: () => void applyUpdate() },
+                primaryButton: { children: 'Resync now', onClick: askAboutHistoryThenApply },
                 secondaryButton: { children: 'Cancel', type: 'tertiary' },
             })
             return
         }
 
-        await applyUpdate()
+        if (!schema.should_sync && schema.pending_self_managed_table) {
+            confirmPendingSelfManagedSync(1, askAboutHistoryThenApply)
+            return
+        }
+
+        askAboutHistoryThenApply()
     }
 
     return (
@@ -543,6 +645,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                                 append_available: schemaIncrementalFields.append_available,
                                 cdc_available: schemaIncrementalFields.cdc_available,
                                 xmin_available: schemaIncrementalFields.xmin_available,
+                                incremental_history_available: schemaIncrementalFields.incremental_history_available,
                                 cdc_table_mode: schema.cdc_table_mode,
                                 incremental_fields: schemaIncrementalFields.incremental_fields,
                                 supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
@@ -754,14 +857,22 @@ function ColumnsAndRowFiltersSection({
     // Both editors run in `hideActions` mode and report edits up here, so one Save commits both.
     const [draftColumns, setDraftColumns] = useState<string[] | null>(schema.enabled_columns ?? null)
     const [draftRowFilters, setDraftRowFilters] = useState<RowFilter[] | null>(schema.row_filters ?? null)
+    const [draftMasked, setDraftMasked] = useState<string[]>(schema.masked_columns ?? [])
+    const [saving, setSaving] = useState(false)
 
     // Reset drafts on schema switch or when server values change (e.g. reload after save).
     // Keyed on content so unrelated re-renders don't wipe edits.
     useEffect(() => {
         setDraftColumns(schema.enabled_columns ?? null)
         setDraftRowFilters(schema.row_filters ?? null)
+        setDraftMasked(schema.masked_columns ?? [])
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [schema.id, JSON.stringify(schema.enabled_columns ?? null), JSON.stringify(schema.row_filters ?? null)])
+    }, [
+        schema.id,
+        JSON.stringify(schema.enabled_columns ?? null),
+        JSON.stringify(schema.row_filters ?? null),
+        JSON.stringify(schema.masked_columns ?? []),
+    ])
 
     const alwaysRetained = new Set<string>([
         ...(schema.primary_key_columns ?? []),
@@ -782,25 +893,58 @@ function ColumnsAndRowFiltersSection({
     const rowFilterErrors = validateRowFilters(draftRowFilters ?? [], { availableColumns: rowFilterColumns })
     const hasRowFilterErrors = Object.keys(rowFilterErrors).length > 0
 
+    const savedMasked = schema.masked_columns ?? []
+    const newlyMasked = draftMasked.filter((column) => !savedMasked.includes(column))
+    const unmasked = savedMasked.filter((column) => !draftMasked.includes(column))
+    const masksChanged = newlyMasked.length > 0 || unmasked.length > 0
+    const masksDeleteHistory = masksDropHistory(schema, newlyMasked)
+
     const isDirty =
         !sameColumns(draftColumns, schema.enabled_columns ?? null, available) ||
-        JSON.stringify(draftRowFilters ?? null) !== JSON.stringify(schema.row_filters ?? null)
+        JSON.stringify(draftRowFilters ?? null) !== JSON.stringify(schema.row_filters ?? null) ||
+        masksChanged
 
     const commit = (resyncAfter: boolean): void => {
-        const next = { ...schema, enabled_columns: draftColumns, row_filters: draftRowFilters }
-        if (resyncAfter) {
+        // A second save would validate against the old masks and request another rebuild.
+        if (saving) {
+            return
+        }
+        const next = {
+            ...schema,
+            enabled_columns: draftColumns,
+            row_filters: draftRowFilters,
+            masked_columns: draftMasked,
+        }
+        if (resyncAfter || masksChanged) {
             // Bypass the bulk-update debounce so resync reads the new config from the DB, not the
             // stale one a still-queued PATCH hasn't written yet.
-            void api.externalDataSchemas
-                .update(schema.id, { enabled_columns: draftColumns, row_filters: draftRowFilters })
+            // The backend starts the resync itself when it saves a mask change, and it can refuse one.
+            setSaving(true)
+            void externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentTeamId()), schema.id, {
+                enabled_columns: draftColumns,
+                row_filters: draftRowFilters,
+                // Unchanged masks stay out, so a column that left the source can't block the save.
+                ...(masksChanged ? { masked_columns: draftMasked } : {}),
+                ...(masksDeleteHistory ? { drop_history_table: true } : {}),
+            })
                 .then(() => {
                     updateSchema(next)
-                    resyncSchema(next)
-                    lemonToast.success('Saved — full resync queued')
+                    if (!masksChanged) {
+                        resyncSchema(next)
+                    }
+                    // The backend only stages the rebuild of a table that does not sync.
+                    lemonToast.success(
+                        !resyncAfter
+                            ? 'Saved'
+                            : masksChanged && !schema.should_sync
+                              ? 'Saved. The full resync starts when you turn syncing on.'
+                              : 'Saved — full resync queued'
+                    )
                 })
                 .catch((e: any) => {
                     lemonToast.error(e?.message || "Can't save at this time")
                 })
+                .finally(() => setSaving(false))
             return
         }
         updateSchema(next)
@@ -809,6 +953,62 @@ function ColumnsAndRowFiltersSection({
 
     const handleSave = (): void => {
         const syncType = schema.sync_type
+
+        // A mask change also cancels and restarts a running first sync, which has no last_synced_at yet.
+        const isRunning = schema.status === 'Running'
+        if (masksChanged && (!!schema.last_synced_at || isRunning || masksDeleteHistory)) {
+            LemonDialog.open({
+                title: 'Changing masked columns starts a full resync',
+                description: (
+                    <div className="flex flex-col gap-2">
+                        <span>
+                            The table is rebuilt from the source, because rows that are already synced can't be masked
+                            or unmasked in place. A masked column no longer matches the same values in tables where it
+                            isn't masked.
+                        </span>
+                        {isRunning && syncType !== 'cdc' && (
+                            <span>The sync currently running will be canceled when you save.</span>
+                        )}
+                        {masksDeleteHistory && (
+                            <span>
+                                {writesHistoryTable(schema.sync_type, schema.cdc_table_mode) ? (
+                                    <>
+                                        Masking also deletes everything in the history table{' '}
+                                        <code>{schema.registered_history_table_name}</code>, because its past versions
+                                        keep the unmasked values. Its history is lost and can't be restored. The table
+                                        and its access rules stay, and the rebuild fills it again with the column
+                                        masked.
+                                    </>
+                                ) : (
+                                    <>
+                                        Masking also deletes the history table{' '}
+                                        <code>{schema.registered_history_table_name}</code>, because its past versions
+                                        keep the unmasked values. Its history is lost and can't be restored.
+                                    </>
+                                )}
+                            </span>
+                        )}
+                        {newlyMasked.length > 0 && newlyMasked.length <= 6 && (
+                            <span className="text-xs text-muted">
+                                Masking: {newlyMasked.map((c) => `"${c}"`).join(', ')}
+                            </span>
+                        )}
+                        {unmasked.length > 0 && unmasked.length <= 6 && (
+                            <span className="text-xs text-muted">
+                                Unmasking: {unmasked.map((c) => `"${c}"`).join(', ')}
+                            </span>
+                        )}
+                    </div>
+                ),
+                primaryButton: {
+                    children: 'Save and resync',
+                    onClick: () => commit(true),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+            return
+        }
+
         const added = getAddedColumns(schema.enabled_columns ?? null, draftColumns, available)
         const requiresPrompt =
             !!schema.last_synced_at &&
@@ -844,7 +1044,7 @@ function ColumnsAndRowFiltersSection({
             <div>
                 <SectionHeader
                     title="Columns"
-                    description="Choose which columns from this table get synced. Primary keys and the active incremental field are always synced."
+                    description="Choose which columns from this table get synced, and mask sensitive ones to replace their values with a one-way hash. Primary keys and the active incremental field are always synced and can't be masked."
                 />
                 <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
                     {!hasAvailableColumns || columnSelectionNeedsRefresh ? (
@@ -869,9 +1069,18 @@ function ColumnsAndRowFiltersSection({
                         </div>
                     ) : (
                         <>
-                            <span className="text-sm text-secondary">{columnsSummary}</span>
+                            <span className="text-sm text-secondary">
+                                {columnsSummary}
+                                {draftMasked.length > 0 && `, ${draftMasked.length} masked`}
+                            </span>
                             <fieldset disabled={!!editorDisabledReason}>
-                                <ColumnSelectionPicker hideActions schema={schema} onChange={setDraftColumns} />
+                                <ColumnSelectionPicker
+                                    hideActions
+                                    enableMasking={source?.access_method !== 'direct'}
+                                    schema={schema}
+                                    onChange={setDraftColumns}
+                                    onMaskedChange={setDraftMasked}
+                                />
                             </fieldset>
                         </>
                     )}
@@ -914,6 +1123,7 @@ function ColumnsAndRowFiltersSection({
                     <LemonButton
                         type="primary"
                         onClick={handleSave}
+                        loading={saving}
                         disabledReason={
                             editorDisabledReason ??
                             (hasRowFilterErrors
@@ -1332,18 +1542,23 @@ function DangerZoneSection({
     resyncSchema,
     resyncingSchema,
     deleteTable,
+    deleteHistoryTable,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     resyncSchema: (schema: ExternalDataSourceSchema) => void
     resyncingSchema: boolean
     deleteTable: (schema: ExternalDataSourceSchema) => void
+    deleteHistoryTable: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const hasFullCdcResync = schema.sync_type === 'cdc'
     const hasDeleteAndResync = schema.incremental || schema.sync_type === 'webhook' || schema.sync_type === 'xmin'
     const canDeleteTable = !!schema.table
+    const retiredHistoryTableName = writesHistoryTable(schema.sync_type, schema.cdc_table_mode)
+        ? null
+        : schema.registered_history_table_name
 
-    if (!hasFullCdcResync && !hasDeleteAndResync && !canDeleteTable) {
+    if (!hasFullCdcResync && !hasDeleteAndResync && !canDeleteTable && !retiredHistoryTableName) {
         return (
             <div>
                 <SectionHeader title="Danger zone" />
@@ -1448,6 +1663,31 @@ function DangerZoneSection({
                                         disabledReason={disabledReason}
                                     >
                                         Delete table from PostHog
+                                    </LemonButton>
+                                </Tooltip>
+                            )}
+                            {retiredHistoryTableName && (
+                                <Tooltip title="Delete the history table this table no longer writes, with every past version of each row in it.">
+                                    <LemonButton
+                                        type="secondary"
+                                        status="danger"
+                                        data-attr="schema-delete-history-table"
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: `Delete ${retiredHistoryTableName}?`,
+                                                description:
+                                                    "This deletes the history table, every past version of each row in it, and the joins that use it. This can't be undone.",
+                                                primaryButton: {
+                                                    children: 'Delete history table',
+                                                    status: 'danger',
+                                                    onClick: () => deleteHistoryTable(schema),
+                                                },
+                                                secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                            })
+                                        }}
+                                        disabledReason={disabledReason}
+                                    >
+                                        Delete history table
                                     </LemonButton>
                                 </Tooltip>
                             )}

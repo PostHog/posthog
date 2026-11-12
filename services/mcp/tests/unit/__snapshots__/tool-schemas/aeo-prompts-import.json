@@ -18,6 +18,11 @@
                         ],
                         "description": "Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate."
                     },
+                    "origin": {
+                        "description": "Where the prompt text came from: api (written by a person) or suggestion (picked from aeo_prompts/suggest). Stored in the prompt's evidence so suggested prompts can be audited later.\n\n* `api` - Api\n* `suggestion` - Suggestion",
+                        "enum": ["api", "suggestion"],
+                        "type": "string"
+                    },
                     "prompt": {
                         "description": "The question to ask the answer engines, as a user would phrase it. Matching ignores case and whitespace, so a re-import updates the existing prompt.",
                         "maxLength": 10000,

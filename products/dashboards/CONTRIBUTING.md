@@ -40,7 +40,7 @@ Layer table, registry shapes, copy/move, analytics, and typing details: [`.agent
 **Critical rules:**
 
 - Product RBAC is registry-driven — see [permissions-and-sharing.md § Product RBAC](../../.agents/skills/manage-dashboard-widgets/references/permissions-and-sharing.md#product-rbac).
-- **Charts/trends on a dashboard → insight tiles**, not new widget types — [architecture.md § Charts](../../.agents/skills/manage-dashboard-widgets/references/architecture.md#charts--use-insight-tiles-not-widgets). The `metrics` widget is the documented exception.
+- **Charts/trends on a dashboard → insight tiles**, not new widget types — [architecture.md § Charts](../../.agents/skills/manage-dashboard-widgets/references/architecture.md#charts--use-insight-tiles-not-widgets).
 
 ## Frontend / backend parity
 
@@ -72,8 +72,8 @@ Full command list: [`.agents/skills/manage-dashboard-widgets/SKILL.md` § Verify
 Minimum when adding a type:
 
 ```bash
-hogli test products/dashboards/backend/api/test/test_run_widgets.py
-hogli test products/dashboards/backend/api/test/test_dashboard_widgets.py
+hogli test products/dashboards/backend/tests/api/test_run_widgets.py
+hogli test products/dashboards/backend/tests/api/test_dashboard_widgets.py
 hogli test products/dashboards/frontend/widgets/registry.test.tsx
 ```
 

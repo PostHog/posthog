@@ -15,6 +15,13 @@ export function hasSampleRatioMismatch(exposures: ExperimentExposureQueryRespons
 export const SAMPLE_RATIO_MATCH_DESCRIPTION =
     'No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.'
 
+/** When the server computed the exposure answer. The page's answer comes from the cache, but its type doesn't declare the cache fields. */
+export function exposureAnswerComputedAt(exposures: ExperimentExposureQueryResponse | null | undefined): string | null {
+    return exposures && 'last_refresh' in exposures && typeof exposures.last_refresh === 'string'
+        ? exposures.last_refresh
+        : null
+}
+
 /** The server's sample ratio finding in the exposure answer, or undefined when the server reports none. */
 export function serverSampleRatioFinding(
     exposures: ExperimentExposureQueryResponse | null | undefined
@@ -24,9 +31,14 @@ export function serverSampleRatioFinding(
 
 /** What the exposures card says about the sample ratio test. */
 export type SampleRatioLine = {
-    tone: 'warning' | 'success'
+    tone: 'warning' | 'info' | 'success'
     label: string
     tooltip: string
+}
+
+/** Whether the exposures card's line reports a mismatch, as a warning or as info. */
+export function reportsMismatch(line: SampleRatioLine | null): line is SampleRatioLine & { tone: 'warning' | 'info' } {
+    return line !== null && line.tone !== 'success'
 }
 
 /**
@@ -41,10 +53,17 @@ export function sampleRatioLine(
     if (exposures?.sample_ratio_mismatch == null) {
         return null
     }
+    // SRM doesn't apply when every release condition sets a variant override. The override finding explains it.
+    if (
+        followsServer &&
+        exposures.health_checks?.some(({ key, status }) => key === 'srm' && status === 'not_applicable')
+    ) {
+        return null
+    }
     const finding = followsServer ? serverSampleRatioFinding(exposures) : undefined
     if (finding) {
         return {
-            tone: 'warning',
+            tone: finding.severity === 'info' ? 'info' : 'warning',
             label:
                 finding.subcode === 'split_changed'
                     ? 'Sample ratio mismatch after a split change'

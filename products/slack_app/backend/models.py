@@ -1,3 +1,5 @@
+from datetime import time
+
 from django.db import models
 from django.db.models import Q
 
@@ -120,6 +122,8 @@ class SlackUserProfileCache(UUIDModel):
     is_admin = models.BooleanField(default=False, db_default=False)
     is_owner = models.BooleanField(default=False, db_default=False)
     is_bot = models.BooleanField(default=False, db_default=False)
+    # The IANA name from Slack, such as "Europe/Prague". Empty when Slack sent none.
+    tz = models.CharField(max_length=64, blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     # Null is treated as stale (rows predating this field).
@@ -151,8 +155,7 @@ class UntaggedFollowupMode(models.TextChoices):
 class ThreadJoinMode(models.TextChoices):
     """What PostHog does when someone else tags it in a thread a user started.
 
-    Read from the thread creator's settings row. An unset row resolves to ``ALLOW``, or to
-    ``ASK_PER_THREAD`` when the thread's run bills to the creator's own plan.
+    Read from the thread creator's settings row. An unset row resolves to ``ALLOW``.
     Under ``ASK_PER_THREAD`` the creator's first approval in a thread lets anyone join it.
     """
 
@@ -227,8 +230,7 @@ class SlackSettings(UUIDModel):
         choices=UntaggedFollowupMode.choices,
         help_text="What PostHog does with this user's top-level channel questions that do not tag the app.",
     )
-    # NULL means the user has never picked, which resolves to ``ALLOW`` (``ASK_PER_THREAD`` on
-    # a run that bills to the creator's own plan).
+    # NULL means the user has never picked, which resolves to ``ALLOW``.
     thread_join_mode = models.CharField(
         max_length=16,
         null=True,
@@ -257,6 +259,12 @@ class SlackSettings(UUIDModel):
         blank=True,
         help_text="Which Slack app features this user used, saw as a tip, or dismissed.",
     )
+    # Only read on a personal row. The shape is ``OnboardingState`` in ``services/slack_settings.py``.
+    onboarding = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="This user's onboarding thread in the PostHog DM, and whether they finished it.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -280,6 +288,51 @@ class SlackSettings(UUIDModel):
         who = self.slack_user_id or "(workspace default)"
         target = self.default_integration_id if self.default_integration_id else "(inherit)"
         return f"{self.slack_workspace_id} / {who} → integration {target}"
+
+
+class SlackDailyFocus(TeamScopedRootMixin, UUIDModel):
+    """One row per Slack user who set up the daily work focus. Turning it off keeps the row, so a later onboarding
+    does not turn it back on and the picked time stays.
+
+    The row is keyed by the Slack user, so a person gets one daily DM also when their workspace connects several
+    teams. ``team`` is the team of the installation the runs use."""
+
+    # db_constraint=False: a foreign key constraint to posthog_team locks that hot table when the table is created.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    slack_workspace_id = models.CharField(max_length=64)
+    slack_user_id = models.CharField(max_length=64)
+    # An id, not a relation, because integration rows are read through the integrations SDK. A run whose
+    # installation is gone ends without a DM.
+    integration_id = models.IntegerField(
+        help_text="The installation the daily work focus runs on, because one Slack workspace can connect several."
+    )
+    at = models.TimeField(
+        default=time(9, 0),
+        help_text="The local time of day the daily work focus runs, in the user's Slack timezone.",
+    )
+    # NULL while the daily work focus is off. The sweep runs every row whose time has come.
+    next_run_at = models.DateTimeField(null=True, blank=True)
+    # The next run reads the messages sent after it, and a changed time never adds a second run on its day.
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    # Set before a run's DM goes out. A retry of that run sends nothing when it is at or after last_run_at.
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["slack_workspace_id", "slack_user_id"],
+                name="uniq_slack_daily_focus_per_user",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["next_run_at"],
+                name="slack_daily_focus_due_idx",
+                condition=Q(next_run_at__isnull=False),
+            )
+        ]
 
 
 class SlackChannel(UUIDModel):
