@@ -11,6 +11,7 @@ import {
     extractActionId,
     extractDistinctId,
     extractPersonId,
+    parksOnWaitUntilCondition,
 } from './job-queue-postgres-v2'
 
 jest.mock('../cyclotron-v2', () => ({
@@ -144,6 +145,34 @@ describe('CyclotronJobQueuePostgresV2', () => {
         it.each(cases)('%s', (_desc, overrides, expected) => {
             const invocation = { ...baseInvocation, id: uuidv4(), ...overrides } as CyclotronJobInvocation
             expect(extractActionId(invocation)).toBe(expected)
+        })
+    })
+
+    describe('parksOnWaitUntilCondition', () => {
+        const hogFlow = {
+            actions: [
+                { id: 'wait_1', type: 'wait_until_condition' },
+                { id: 'delay_1', type: 'delay' },
+                { id: 'fetch_1', type: 'function' },
+            ],
+        }
+        it.each([
+            ['wait_1', true],
+            ['delay_1', false],
+            ['fetch_1', false],
+            ['missing_action', false],
+        ])('parked on %s -> %s', (actionId, expected) => {
+            const invocation = {
+                ...baseInvocation,
+                hogFlow,
+                state: { currentAction: { id: actionId } },
+            } as unknown as CyclotronJobInvocation
+            expect(parksOnWaitUntilCondition(invocation)).toBe(expected)
+        })
+
+        it('is false for an invocation without a flow', () => {
+            const invocation = { ...baseInvocation, state: { currentAction: { id: 'wait_1' } } } as any
+            expect(parksOnWaitUntilCondition(invocation)).toBe(false)
         })
     })
 

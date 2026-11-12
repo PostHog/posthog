@@ -428,7 +428,6 @@ export class CyclotronV2Janitor {
             parentRunId: row.parent_run_id,
             state: row.state,
             cancelRequestedAt: null,
-            pendingWake: null,
         })
         return { ...invocation, hogFlow: { id: invocation.functionId } } as CyclotronJobInvocationHogFlow
     }

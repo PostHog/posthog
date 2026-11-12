@@ -1442,33 +1442,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
-        it('wakes a run whose wait event fired while a worker still held the run', async () => {
-            await createWaitUntilWorkflow({
-                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
-                events: [eventNameFilter('wakeup_event')],
-                max_wait_duration: '5m',
-            })
-            let openGate!: () => void
-            const gate = new Promise<void>((resolve) => (openGate = resolve))
-            mockPersonRepo.fetchPersonsByDistinctIds.mockImplementation(async () => {
-                await gate
-                return []
-            })
-
-            await triggerWorkflow(createGlobals())
-            await waitForExpect(async () => {
-                expect((await queryCyclotronJobs()).map((j: any) => j.status)).toEqual(['running'])
-            }, 5000)
-
-            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
-            openGate()
-
-            await waitForExpect(() => {
-                expect(mockFetch).toHaveBeenCalledTimes(1)
-            }, 10000)
-            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
-        })
-
         it('wakes a parked job whose wait entry is action-based (events empty, actions + bytecode set)', async () => {
             await createWaitUntilWorkflow({
                 // Property condition never matches the trigger event, so the job parks.
@@ -1782,6 +1755,109 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 10000)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        describe('while a slow step in the same worker batch holds the run', () => {
+            const personRow = (properties: Record<string, any>): any => ({
+                id: '1',
+                uuid: 'uuid',
+                team_id: team.id,
+                properties,
+                properties_last_updated_at: {},
+                properties_last_operation: null,
+                created_at: DateTime.utc(),
+                version: 1,
+                is_identified: true,
+                is_user_id: null,
+                last_seen_at: null,
+                distinct_id: 'distinct_id',
+            })
+            const enterprisePersonMessage = (): any => ({
+                value: Buffer.from(
+                    JSON.stringify({
+                        id: 'uuid',
+                        team_id: team.id,
+                        properties: JSON.stringify({ email: 'test@posthog.com', plan: 'enterprise' }),
+                        is_deleted: 0,
+                        is_identified: 1,
+                        created_at: '2024-09-03 09:00:00.000',
+                        timestamp: '2024-09-03 09:00:00.000',
+                        version: 2,
+                    })
+                ),
+            })
+
+            // Triggers the flow under test next to a flow whose fetch blocks, so both runs share one
+            // worker batch and neither is written back until the gate opens.
+            const triggerAlongsideSlowRun = async (): Promise<() => void> => {
+                await createWorkflow({
+                    actions: {
+                        trigger: trigger(),
+                        function_slow: fetchAction('https://example.com/slow'),
+                        exit: exitAction(),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'function_slow', type: 'continue' },
+                        { from: 'function_slow', to: 'exit', type: 'continue' },
+                    ],
+                })
+                let openGate!: () => void
+                const gate = new Promise<void>((resolve) => (openGate = resolve))
+                const okResponse = mockFetch.getMockImplementation()!
+                mockFetch.mockImplementation(async (...args: Parameters<typeof okResponse>) => {
+                    if (args[0] === 'https://example.com/slow') {
+                        await gate
+                    }
+                    return okResponse(...args)
+                })
+                await triggerWorkflow(createGlobals())
+                await waitForExpect(() => {
+                    expect(mockFetch).toHaveBeenCalledWith('https://example.com/slow', expect.anything())
+                }, 5000)
+                expect((await queryCyclotronJobs()).map((j: any) => j.status)).toEqual(['running', 'running'])
+                return openGate
+            }
+
+            it('wakes a wait whose person property changed', async () => {
+                await createWaitUntilWorkflow({
+                    condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                    max_wait_duration: '5m',
+                })
+                let plan = 'free'
+                mockPersonRepo.fetchPersonsByDistinctIds.mockImplementation(() =>
+                    Promise.resolve([personRow({ email: 'test@posthog.com', plan })])
+                )
+                const openGate = await triggerAlongsideSlowRun()
+
+                plan = 'enterprise'
+                await matcher.processBatch(await matcher._parsePersonBatch([enterprisePersonMessage()]))
+                openGate()
+
+                await waitForExpect(() => {
+                    expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+                }, 10000)
+            })
+
+            it('keeps the wait parked when the person change does not satisfy it', async () => {
+                await createWaitUntilWorkflow({
+                    condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                    max_wait_duration: '5m',
+                })
+                mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([personRow({ email: 'test@posthog.com' })])
+                const openGate = await triggerAlongsideSlowRun()
+
+                const freeMessage = enterprisePersonMessage()
+                freeMessage.value = Buffer.from(freeMessage.value.toString().replace('enterprise', 'free'))
+                await matcher.processBatch(await matcher._parsePersonBatch([freeMessage]))
+                openGate()
+
+                await waitForExpect(async () => {
+                    const wait = (await queryCyclotronJobs()).find((j: any) => j.action_id === 'wait_condition')
+                    expect(wait?.status).toBe('available')
+                    expect(new Date(wait.scheduled).getTime()).toBeGreaterThan(Date.now() + 60_000)
+                }, 10000)
+                expect(mockFetch).not.toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+            })
         })
 
         // Wait conditions authored as HogQL expressions must be woken by the streams, not only by the

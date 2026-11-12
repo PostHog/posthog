@@ -6,7 +6,6 @@ import {
     loadHogFlowPerson,
     resolvesByRepointedPerson,
 } from '~/cdp/services/hogflows/hogflow-person'
-import { applyPendingWake } from '~/cdp/services/hogflows/pending-wake'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
@@ -126,7 +125,6 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 }
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
-                applyPendingWake(hogFlowInvocationState, item.pendingWake)
 
                 const personLookup = hogFlowPersonLookup(hogFlow, hogFlowInvocationState)
                 // One-shot: consume the flag on this wake-resolution only. Later steps fall back to normal

@@ -320,6 +320,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 distinctId: extractDistinctId(result.invocation),
                 personId: extractPersonId(result.invocation),
                 actionId: extractActionId(result.invocation),
+                wakeOnSignal: parksOnWaitUntilCondition(result.invocation),
                 queueName: result.invocation.queue,
                 priority: priorityPersistedOnlyAcrossEmailQueueTransitions(result.invocation, job.queueName),
             })
@@ -444,6 +445,7 @@ export function invocationToV2JobInit(invocation: CyclotronJobInvocation): Cyclo
 }
 
 type LookupColumnSource = {
+    hogFlow?: { actions?: { id: string; type: string }[] }
     person?: { id?: string }
     state?: {
         event?: { distinct_id?: string }
@@ -465,6 +467,13 @@ export function extractActionId(invocation: CyclotronJobInvocation): string | nu
     return (invocation as LookupColumnSource).state?.currentAction?.id || null
 }
 
+// Only a wait re-evaluates on an early wake. Any other step would cut a delay, a retry backoff or a hold short.
+export function parksOnWaitUntilCondition(invocation: CyclotronJobInvocation): boolean {
+    const actionId = extractActionId(invocation)
+    const action = (invocation as LookupColumnSource).hogFlow?.actions?.find((a) => a.id === actionId)
+    return action?.type === 'wait_until_condition'
+}
+
 type CyclotronV2JobData = Pick<
     CyclotronV2DequeuedJob,
     | 'id'
@@ -477,7 +486,6 @@ type CyclotronV2JobData = Pick<
     | 'parentRunId'
     | 'state'
     | 'cancelRequestedAt'
-    | 'pendingWake'
 >
 
 export function v2JobToInvocation(job: CyclotronV2JobData): CyclotronJobInvocation {
@@ -512,10 +520,6 @@ export function v2JobToInvocation(job: CyclotronV2JobData): CyclotronJobInvocati
 
     if (job.cancelRequestedAt) {
         invocation.cancelRequestedAt = job.cancelRequestedAt
-    }
-
-    if (job.pendingWake) {
-        invocation.pendingWake = job.pendingWake
     }
 
     return invocation
