@@ -10,15 +10,11 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
-from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
+from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT, pause_scanner_scouts
 from products.replay_vision.backend.scout_templates import ScoutTemplateKey, render_template_body
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
-from products.replay_vision.backend.variant_analysis import (
-    VARIANT_ANALYSIS_SCHEMA,
-    VARIANT_ANALYSIS_TAG,
-    pause_variant_analysis_scouts,
-)
+from products.replay_vision.backend.variant_analysis import VARIANT_ANALYSIS_SCHEMA, VARIANT_ANALYSIS_TAG
 from products.signals.backend.facade.source_scouts import refresh_source_scout
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.model_selection import scout_model_pin_catalog
@@ -81,7 +77,7 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         )
         assert retry.status_code == 200, retry.json()
 
-        assert pause_variant_analysis_scouts(scanner) == 1
+        assert pause_scanner_scouts(scanner, tag=VARIANT_ANALYSIS_TAG) == 1
         with team_scope(self.team.id):
             enabled = dict(
                 SignalScoutConfig.objects.filter(source_id=str(scanner.id)).values_list("skill_name", "enabled")
@@ -94,6 +90,25 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         )
         assert second.status_code == 400, second.json()
         assert second.json()["attr"] == "variant_analysis"
+
+    @parameterized.expand([("disable",), ("delete",)])
+    def test_a_scanner_that_stops_for_good_pauses_its_scouts_and_no_others(self, action: str) -> None:
+        other = self._create_scanner(name="other-scanner")
+        for scanner, name in ((self.scanner, "signals-scout-digest"), (other, "signals-scout-other-digest")):
+            created = self.client.post(self._scouts_url(str(scanner.id)), data=self._payload(name=name), format="json")
+            assert created.status_code == 201, created.json()
+        url = f"{self.scanners_url}{self.scanner.id}/"
+
+        if action == "disable":
+            response = self.client.patch(url, data={"enabled": False}, format="json")
+            assert response.status_code == 200, response.json()
+        else:
+            response = self.client.delete(url)
+            assert response.status_code == 204
+
+        with team_scope(self.team.id):
+            enabled = dict(SignalScoutConfig.objects.values_list("skill_name", "enabled"))
+        assert enabled == {"signals-scout-digest": False, "signals-scout-other-digest": True}
 
     def test_variant_analysis_needs_an_experiment_scanner(self) -> None:
         response = self.client.post(

@@ -217,7 +217,7 @@ class TestFindScannerCandidatesActivity:
 
         with (
             _patched_queries() as (fast_query, deep_query),
-            patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts,
+            patch(f"{_ACTIVITY}.pause_scanner_scouts") as pause_scouts,
         ):
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -253,7 +253,7 @@ class TestFindScannerCandidatesActivity:
 
         with (
             _patched_queries() as (fast_query, deep_query),
-            patch(f"{_ACTIVITY}.pause_variant_analysis_scouts", side_effect=RuntimeError("signals down")),
+            patch(f"{_ACTIVITY}.pause_scanner_scouts", side_effect=RuntimeError("signals down")),
         ):
             result = find_scanner_candidates_activity(inputs)
 
@@ -262,7 +262,7 @@ class TestFindScannerCandidatesActivity:
         scanner.refresh_from_db()
         assert scanner.enabled is True
 
-        with _patched_queries(), patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts:
+        with _patched_queries(), patch(f"{_ACTIVITY}.pause_scanner_scouts") as pause_scouts:
             find_scanner_candidates_activity(inputs)
 
         assert pause_scouts.called

@@ -186,6 +186,7 @@ from products.replay_vision.backend.scanning import (
     scan_existing_scanner,
     scan_outcome_counts,
 )
+from products.replay_vision.backend.scout_source import pause_scanner_scouts
 from products.replay_vision.backend.scout_writes import (
     check_scout_scanner_credit_limit,
     refuse_scout_scanner_delete,
@@ -1290,6 +1291,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 scanner = super().update(instance, validated_data)
             except IntegrityError as e:
                 self._reraise_unique_name_violation(e)
+            # In the transaction, so a failed pause also keeps the scanner on and the person can retry.
+            if was_enabled and not scanner.enabled:
+                pause_scanner_scouts(scanner)
         if limit_changed:
             # A changed limit starts a fresh notification cycle: reaching the new limit is news.
             # Targeted update because the model save deliberately never writes this sweep-owned column.
@@ -2488,7 +2492,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def perform_destroy(self, instance: ReplayScanner) -> None:
         # Snapshot lifecycle props before the row is deleted.
         properties = scanner_lifecycle_properties(instance)
-        super().perform_destroy(instance)
+        # The scouts outlive the scanner, so without the pause they keep running with nothing to read.
+        with transaction.atomic():
+            pause_scanner_scouts(instance)
+            super().perform_destroy(instance)
         report_user_action(
             cast(User, self.request.user),
             "replay_vision_scanner_deleted",
