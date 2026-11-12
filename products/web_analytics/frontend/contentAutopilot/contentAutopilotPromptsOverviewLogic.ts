@@ -23,6 +23,7 @@ import {
 import { type PromptVisibilityMetric, statsWindowDates } from './promptReport'
 import { PromptSetWindow, promptSetSourcesQuery, promptSetVisibilityQuery } from './promptReportQueries'
 import { PromptsOverviewKpis, promptsOverviewHasChecks, promptsOverviewKpis } from './promptsOverview'
+import { type TopicQuadrantGroup, topicQuadrants } from './topicQuadrant'
 import { type EngineVisibilityChart, engineVisibilityChart } from './visibilityChart'
 
 export const OVERVIEW_DAYS = 30
@@ -39,6 +40,7 @@ export interface contentAutopilotPromptsOverviewLogicValues {
     overviewLoading: boolean
     overviewWindow: PromptSetWindow | null
     sourcesQuery: DataTableNode | null
+    topicQuadrantGroups: TopicQuadrantGroup[] | null
     visibilityChart: EngineVisibilityChart | null
     visibilityQuery: DataVisualizationNode | null
 }
@@ -113,6 +115,7 @@ export interface contentAutopilotPromptsOverviewLogicActions {
 export interface contentAutopilotPromptsOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         overviewKpis: (overview: AEOPromptSetOverviewApi | null) => PromptsOverviewKpis | null
+        topicQuadrantGroups: (overview: AEOPromptSetOverviewApi | null) => TopicQuadrantGroup[] | null
         hasChecks: (overview: AEOPromptSetOverviewApi | null) => boolean
         overviewWindow: (overview: AEOPromptSetOverviewApi | null) => PromptSetWindow | null
         visibilityChart: (
@@ -196,6 +199,18 @@ export const contentAutopilotPromptsOverviewLogic = kea<contentAutopilotPromptsO
             (s) => [s.overview],
             (overview: AEOPromptSetOverviewApi | null): PromptsOverviewKpis | null =>
                 overview ? promptsOverviewKpis(overview) : null,
+        ],
+        topicQuadrantGroups: [
+            (s) => [s.overview],
+            (overview: AEOPromptSetOverviewApi | null): TopicQuadrantGroup[] | null =>
+                // With no mentions and no citations at all, every topic would sit "above average" at zero.
+                overview && (overview.current.mention_rate || overview.current.citation_rate)
+                    ? topicQuadrants(
+                          overview.topics,
+                          overview.current.mention_rate ?? 0,
+                          overview.current.citation_rate ?? 0
+                      )
+                    : null,
         ],
         hasChecks: [
             (s) => [s.overview],

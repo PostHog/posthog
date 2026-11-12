@@ -984,6 +984,8 @@ class SignalReportBulkStateOutcome(models.TextChoices):
 # resolves it directly, so the archive grants it nothing it could not do on its own — and a report
 # that failed in processing can only be reached through the archive, because a dismissal is the only
 # verdict the inbox offered it.
+_REOPENABLE_STATUSES = frozenset({SignalReport.Status.MONITORING, SignalReport.Status.CLOSED})
+
 _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
     {
         SignalReport.Status.READY,
@@ -1000,6 +1002,7 @@ class SignalReportState(models.TextChoices):
     POTENTIAL = "potential", "potential"
     RESOLVED = "resolved", "resolved"
     MONITORING = "monitoring", "monitoring"
+    READY = "ready", "ready"
 
 
 class SignalReportStateRequestSerializer(serializers.Serializer):
@@ -1007,7 +1010,7 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         choices=SignalReportState.choices,
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
-            "'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. "
+            "'potential' to snooze it or restore it from the archive, or 'resolved' when the report is finished. "
             "Resolving is allowed from ready, pending_input, failed, closed, or monitoring, "
             "or from a suppressed report that previously held one of those statuses or resolved. "
             "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
@@ -1015,7 +1018,10 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "Use 'monitoring' when implementation is complete and outcome verification is pending. "
             "Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. "
             "Without applicable checks the report resolves directly. Manual completion records caller "
-            "attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment."
+            "attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment. "
+            "Use 'ready' to reopen a report in monitoring or closed. It returns to ready with its research, pull requests, "
+            "and follow-up checks kept, and its Monitoring period ends. Completing implementation again starts a new period. "
+            "Reopening is refused for other statuses and for refunded reports."
         ),
     )
     dismissal_reason = serializers.ChoiceField(
@@ -3878,7 +3884,7 @@ class SignalReportViewSet(
         can't be injected.
 
         Body: {
-            "state": "suppressed" | "potential" | "resolved",
+            "state": "suppressed" | "potential" | "resolved" | "monitoring" | "ready",
             # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
             "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
             "dismissal_note": "free-form text",
@@ -4664,6 +4670,16 @@ class SignalReportViewSet(
                     "Manual verification requires an enabled Monitoring period.",
                 )
             is_refunded = SignalReportRefund.objects.filter(report_id=report.id).exists()
+
+            if target_status == SignalReport.Status.READY:
+                if report.effective_status not in _REOPENABLE_STATUSES:
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "Only a report in monitoring or closed can be reopened.",
+                    )
+                # Ready offers Create PR again, and a refunded report's next PR can never be billed.
+                if is_refunded:
+                    return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be reopened."
 
             # Refund guard: a refunded report can never be billed again (see billing.py), so putting
             # it back where the pipeline can pick it up again is repeatable free work. POTENTIAL is
