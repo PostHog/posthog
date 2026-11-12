@@ -13,7 +13,7 @@ import { ActivityScope } from '~/types'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
-import { evaluationReportLogic } from './evaluationReportLogic'
+import { draftFromReport, effectiveCooldownMinutes, evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_HOG_SOURCE, DEFAULT_JUDGE_PROMPT, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { takeBackfillStart } from './pendingBackfillStarts'
@@ -2523,23 +2523,38 @@ return result`,
         })
     })
 
+    describe('report cooldown', () => {
+        it.each([
+            { name: 'keeps a saved gap the hours field rounds, until someone edits it', hours: 2, expected: 90 },
+            { name: 'uses the edited hours once someone changes them', hours: 3, expected: 180 },
+        ])('$name', ({ hours, expected }) => {
+            const savedReport = { ...mockEvaluationReport, frequency: 'every_n' as const, cooldown_minutes: 90 }
+            const draft = { ...draftFromReport(savedReport), cooldownHours: hours }
+            expect(effectiveCooldownMinutes(savedReport, draft)).toBe(expected)
+        })
+    })
+
     describe('report destinations', () => {
         it.each([
-            { name: 'a new evaluation reports daily', evaluationId: 'new', frequency: 'scheduled' },
-            {
-                name: 'a saved evaluation without a report keeps the older baseline, so it shows no unsaved change',
-                evaluationId: 'saved-eval',
-                frequency: 'every_n',
-            },
-        ])('$name', ({ evaluationId, frequency }) => {
-            const reportLogic = evaluationReportLogic({ evaluationId })
-            reportLogic.mount()
-            try {
-                expect(reportLogic.values.configDraft).toMatchObject({ frequency, scheduleCadence: 'daily' })
-            } finally {
-                reportLogic.unmount()
+            { name: 'a new evaluation', evaluationId: 'new' },
+            { name: 'a saved evaluation without a report', evaluationId: 'saved-eval' },
+        ])(
+            '$name starts every 100 results, at most once a day, like the report the backend creates',
+            ({ evaluationId }) => {
+                const reportLogic = evaluationReportLogic({ evaluationId })
+                reportLogic.mount()
+                try {
+                    expect(reportLogic.values.configDraft).toMatchObject({
+                        frequency: 'every_n',
+                        triggerThreshold: 100,
+                        cooldownHours: 24,
+                    })
+                    expect(reportLogic.values.isConfigDirty).toBe(false)
+                } finally {
+                    reportLogic.unmount()
+                }
             }
-        })
+        )
 
         it('keeps an emptied destination open until it is removed, then clears it', () => {
             const reportLogic = evaluationReportLogic({ evaluationId: 'new' })
