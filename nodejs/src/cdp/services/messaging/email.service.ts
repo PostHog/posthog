@@ -51,6 +51,7 @@ import {
     unquoteMailbox,
 } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
@@ -464,6 +465,7 @@ export interface EmailServiceConfig {
     teamEmailTierDailyCaps?: number[]
     utmLinkScannerTeams?: string
     workflowRunLinkTagTeams?: string
+    templateTagsTeams?: string
     attachmentSendDeadlineMs?: number
 }
 
@@ -548,6 +550,7 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private workflowRunLinkTagTeams: ValueMatcher<number>
+    private templateTagsTeams: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -575,6 +578,7 @@ export class EmailService {
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
+        this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
     }
 
     private utmTaggingFor(
@@ -1084,7 +1088,12 @@ export class EmailService {
                     $workflow_invocation_id: invocation.id,
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...(messageId ? { $email_message_id: messageId } : {}),
-                    ...(isTransactionalEmailSend(invocation) ? { $email_transactional: true } : {}),
+                    ...(isTransactionalEmailSend(invocation)
+                        ? {
+                              $email_transactional: true,
+                              ...transactionalEmailIdentity(params.template ?? invocation.hogFunction?.metadata),
+                          }
+                        : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
                     ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
@@ -1504,7 +1513,14 @@ export class EmailService {
                     ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
                     : []),
                 ...(!isTest && isTransactionalEmailSend(result.invocation)
-                    ? [{ Name: SES_EMAIL_STATUS_TAG, Value: 'true' }]
+                    ? [
+                          { Name: SES_EMAIL_STATUS_TAG, Value: 'true' },
+                          ...(this.templateTagsTeams(result.invocation.teamId)
+                              ? transactionalEmailIdentityTags(
+                                    params.template ?? result.invocation.hogFunction?.metadata
+                                )
+                              : []),
+                      ]
                     : []),
             ],
             FeedbackForwardingEmailAddress: from.email,
