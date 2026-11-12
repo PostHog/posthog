@@ -823,7 +823,7 @@ Moesif,,,,,,moesif
 Mollie,api_key,,,,,mollie
 Monaco,,,,,,monaco
 Monday,api_token,,,,,monday
-Moneybird,,,,,,moneybird
+Moneybird,api_token administration_id,,,,,moneybird
 MongoDB,connection_string database_name,,,,,mongodb
 Mono,api_key,,,start_date,,mono
 MonteCarlo,api_key_id api_key_secret,,,,,monte-carlo
