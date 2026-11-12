@@ -2455,6 +2455,7 @@ export const ExperimentHealthFindingSeverityEnumApi = {
  * * `edit_release_conditions` - Edit Release Conditions
  * * `end_experiment` - End Experiment
  * * `freeze_exposure` - Freeze Exposure
+ * * `move_start_date` - Move Start Date
  */
 export type ExperimentHealthFindingActionKindEnumApi =
     (typeof ExperimentHealthFindingActionKindEnumApi)[keyof typeof ExperimentHealthFindingActionKindEnumApi]
@@ -2470,6 +2471,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
     EditReleaseConditions: 'edit_release_conditions',
     EndExperiment: 'end_experiment',
     FreezeExposure: 'freeze_exposure',
+    MoveStartDate: 'move_start_date',
 } as const
 
 /**
@@ -2914,6 +2916,11 @@ export interface ExperimentWriteApi {
     feature_flag_key: string
     /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
     feature_flag?: ExperimentFeatureFlagInputApi
+    /**
+     * The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.
+     * @nullable
+     */
+    feature_flag_rule_id?: string | null
     readonly holdout: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.
@@ -3067,6 +3074,11 @@ export interface ExperimentApi {
     /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
     feature_flag_key: string
     readonly feature_flag: MinimalFeatureFlagApi
+    /**
+     * The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.
+     * @nullable
+     */
+    feature_flag_rule_id?: string | null
     readonly holdout: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.
@@ -3216,6 +3228,11 @@ export interface PatchedExperimentWriteApi {
     feature_flag_key?: string
     /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
     feature_flag?: ExperimentFeatureFlagInputApi
+    /**
+     * The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.
+     * @nullable
+     */
+    feature_flag_rule_id?: string | null
     readonly holdout?: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.

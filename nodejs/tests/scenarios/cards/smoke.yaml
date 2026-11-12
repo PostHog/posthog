@@ -1,0 +1,14 @@
+id: smoke
+version: 1
+clock: real
+profile: synthetic
+seed: 1
+setup:
+    teams: 1
+drive:
+    for: 30s
+    traffic:
+        - name: event_email
+convergeWithin: 2m
+invariants:
+    - name: at_least_once

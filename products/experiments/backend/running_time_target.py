@@ -39,7 +39,7 @@ from products.experiments.backend.metric_calculation.config import (
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import ExperimentMetric, build_metric
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, experiment_variants
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.running_time_calculator import (
     comparison_detectable_difference,
@@ -245,7 +245,7 @@ def running_time_target(
     metric = _analyzed_metric(calculation_config.definition) if calculation_config is not None else None
     confidence_level = _confidence_level(calculation_config) if calculation_config is not None else 0.95
     sizing = (
-        _sizing(metric, response, parse_variants(experiment.feature_flag.variants), confidence_level)
+        _sizing(metric, response, parse_variants(experiment_variants(experiment)), confidence_level)
         if metric is not None and response is not None
         else None
     )
