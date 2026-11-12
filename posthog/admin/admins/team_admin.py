@@ -14,8 +14,8 @@ from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.console.recording_deletion_tools import recording_deletions_url
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import TeamEventsRetentionConfigInline
-from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
+from posthog.admin.organization_members import organization_members_table
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.events_retention_config import (
@@ -116,11 +116,11 @@ class TeamAdmin(admin.ModelAdmin):
         "email_sending_tier_state",
         "email_sending_tier_actions",
         "events_retention_display",
+        "organization_members",
     ]
 
     exclude = DEPRECATED_ATTRS
     inlines = [
-        OrganizationMemberForRelatedInline,
         TeamMarketingAnalyticsConfigInline,
         TeamEventsRetentionConfigInline,
     ]
@@ -145,6 +145,10 @@ class TeamAdmin(admin.ModelAdmin):
                     "flags_staff_tools_link",
                 ],
             },
+        ),
+        (
+            "Organization members",
+            {"fields": ["organization_members"]},
         ),
         (
             "General",
@@ -314,6 +318,12 @@ class TeamAdmin(admin.ModelAdmin):
                 team.project.name,
             )
         return "-"
+
+    @admin.display(description="Members")
+    def organization_members(self, team: Team):
+        if not team.pk:
+            return "-"
+        return organization_members_table(team.organization_id)
 
     @admin.display(description="Group type mappings")
     def group_type_mappings_display(self, team: Team):

@@ -9,6 +9,7 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from django.forms import ModelForm
 from django.test import RequestFactory
 
+from bs4 import BeautifulSoup
 from parameterized import parameterized
 
 from posthog.admin.admins.team_admin import TeamAdmin
@@ -231,3 +232,20 @@ class TestTeamInlineForm(BaseTest):
         form = self._inline_form({"test_account_filters": raw})
         form.is_valid()
         assert "test_account_filters" in form.errors
+
+
+class TestOrganizationMembersOnChangePage(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+    @parameterized.expand([("team", "team"), ("project", "project")])
+    def test_change_page_lists_organization_members(self, _name: str, model: str) -> None:
+        response = self.client.get(f"/admin/posthog/{model}/{self.team.pk}/change/")
+
+        assert response.status_code == 200
+        members = BeautifulSoup(response.content, "html.parser").select_one(".field-organization_members .readonly")
+        assert members is not None
+        assert self.user.email in members.get_text()
