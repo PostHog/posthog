@@ -46,6 +46,7 @@ class TestUserAdminTicketParam(BaseTest):
     @parameterized.expand(
         [
             ("partial match", ["only-match@example.community"], 1),
+            ("two accounts differ only by case", ["only-match@example.com", "Only-Match@example.com"], 2),
             ("no match", [], 0),
         ]
     )

@@ -149,8 +149,12 @@ class UserAdmin(DjangoUserAdmin):
         ticket = request.GET[SUPPORT_TICKET_PARAM]
         # Exact email only: the list search matches substrings, and a near miss has to stay on the list where staff
         # can see it.
-        user = EmailLookupHandler.get_user_by_email(request.GET.get("q", "").strip(), is_active=None)
-        if user is not None:
+        # Legacy accounts can differ only by letter case. Two matches stay on the list so staff pick the account.
+        matches = list(
+            EmailLookupHandler.users_matching_email(request.GET.get("q", "").strip(), User.objects.all())[:2]
+        )
+        if len(matches) == 1:
+            user = matches[0]
             console_url = reverse("admin_console_user", kwargs={"pk": user.pk})
             return HttpResponseRedirect(f"{console_url}?{urlencode({SUPPORT_TICKET_PARAM: ticket})}")
         # Django reads an unknown query parameter as a field lookup, and a `ticket` lookup on User fails.
