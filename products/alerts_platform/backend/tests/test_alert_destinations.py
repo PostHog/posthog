@@ -308,15 +308,24 @@ class TestSourceDestinations(BaseTest):
         assert copied == frozenset({*slack, *webhook})
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
 
-    def test_an_alert_the_platform_has_no_copy_of_gets_no_row(self) -> None:
-        assert (
-            record_source_destination(
-                team_id=self.team.id,
-                public_id=uuid4(),
-                data=SLACK,
-                event_kinds=FIRING,
-                hog_function_ids=(uuid4(),),
-                hog_function_event_ids=EVENT_IDS,
-            )
-            is None
+    @parameterized.expand(
+        [
+            ("no_platform_copy", PlatformAlertOwner.SOURCE, True),
+            ("platform_keeps_the_destinations", PlatformAlertOwner.PLATFORM, False),
+        ]
+    )
+    def test_no_row_is_written_beside_the_hog_functions(self, _name: str, owner: str, unknown_alert: bool) -> None:
+        self.configuration.destinations_owner = owner
+        self.configuration.save()
+
+        created = record_source_destination(
+            team_id=self.team.id,
+            public_id=uuid4() if unknown_alert else self.legacy_id,
+            data=SLACK,
+            event_kinds=FIRING,
+            hog_function_ids=(uuid4(),),
+            hog_function_event_ids=EVENT_IDS,
         )
+
+        assert created is None
+        assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
