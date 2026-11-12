@@ -127,8 +127,15 @@ pub async fn generate_embedding(
 
     let request_time = common_metrics::timing_guard(EMBEDDING_REQUEST_TIME, labels.render());
 
-    let response =
-        send_embedding_request(&context.client, &context.route, &text, model, labels).await?;
+    let response = send_embedding_request(
+        &context.client,
+        &context.route,
+        context.retry_budget,
+        &text,
+        model,
+        labels,
+    )
+    .await?;
 
     context.update_rate_limits(model, &response).await;
 
@@ -147,10 +154,12 @@ pub async fn generate_embedding(
 async fn send_embedding_request(
     client: &Client,
     route: &EmbeddingRoute,
+    budget: RetryBudget,
     text: &str,
     model: EmbeddingModel,
     labels: &RequestLabels,
 ) -> Result<Response> {
+    let started = tokio::time::Instant::now();
     let mut last_status = None;
     let mut last_error_body = None;
     let mut last_transport_error = None;
@@ -159,65 +168,62 @@ async fn send_embedding_request(
         let api_req = route.construct_request(text, model, labels, client);
 
         counter!(REQUESTS_SENT, labels.render()).increment(1);
-        let response = match client.execute(api_req).await {
-            Ok(response) => response,
+        let wait = match client.execute(api_req).await {
+            // Transport errors (timeouts, connection resets, etc.) are transient.
+            // Retry them with backoff like a 5xx rather than aborting the whole
+            // batch, which would panic and restart the worker.
             Err(e) => {
-                // Transport errors (timeouts, connection resets, etc.) are transient.
-                // Retry them with backoff like a 5xx rather than aborting the whole
-                // batch, which would panic and restart the worker.
-                if attempt < MAX_RETRY_ATTEMPTS - 1 {
-                    let sleep_ms = retry_backoff_ms(attempt);
-                    warn!(
-                        "Request to embedding provider failed ({}), retrying in {}ms (attempt {}/{})",
-                        e,
-                        sleep_ms,
-                        attempt + 1,
-                        MAX_RETRY_ATTEMPTS - 1
-                    );
-                    tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
-                }
+                warn!("Request to embedding provider failed ({e})");
                 last_status = None;
                 last_transport_error = Some(e);
-                continue;
+                Duration::from_millis(retry_backoff_ms(attempt))
+            }
+            Ok(response) => {
+                let status = response.status();
+                let response_labels = labels
+                    .clone()
+                    .and([("status_code", status.as_u16().to_string())]);
+                counter!(RESPONSES_RECEIVED, response_labels.render()).increment(1);
+
+                if status.is_success() {
+                    return Ok(response);
+                }
+
+                let retry_after = response
+                    .headers()
+                    .get(RETRY_AFTER)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| retry_after_delay(value, Utc::now()));
+                last_status = Some(status);
+                last_error_body = response.text().await.ok();
+
+                if !is_retryable(status) {
+                    break;
+                }
+                warn!("Got {status} from embedding provider");
+                retry_after.unwrap_or_else(|| Duration::from_millis(retry_backoff_ms(attempt)))
             }
         };
 
-        let status = response.status();
-        let response_labels = labels
-            .clone()
-            .and([("status_code", status.as_u16().to_string())]);
-        counter!(RESPONSES_RECEIVED, response_labels.render()).increment(1);
-
-        if status.is_success() {
-            return Ok(response);
-        }
-
-        let retry_after = response
-            .headers()
-            .get(RETRY_AFTER)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| retry_after_delay(value, Utc::now()));
-        last_status = Some(status);
-        last_error_body = response.text().await.ok();
-
-        if !is_retryable(status) {
-            break;
-        }
-
-        if attempt < MAX_RETRY_ATTEMPTS - 1 {
-            if status == StatusCode::TOO_MANY_REQUESTS {
+        if attempt + 1 < MAX_RETRY_ATTEMPTS {
+            if !budget.allows(started.elapsed(), wait) {
+                warn!(
+                    "Not retrying in {}ms, it would pass the {}ms retry deadline",
+                    wait.as_millis(),
+                    budget.deadline.as_millis()
+                );
+                break;
+            }
+            if last_status == Some(StatusCode::TOO_MANY_REQUESTS) {
                 counter!(RATE_LIMITED_RETRIES, labels.render()).increment(1);
             }
-            let sleep =
-                retry_after.unwrap_or_else(|| Duration::from_millis(retry_backoff_ms(attempt)));
             warn!(
-                "Got {} from embedding provider, retrying in {}ms (attempt {}/{})",
-                status,
-                sleep.as_millis(),
+                "Retrying in {}ms (attempt {}/{})",
+                wait.as_millis(),
                 attempt + 1,
                 MAX_RETRY_ATTEMPTS - 1
             );
-            tokio::time::sleep(sleep).await;
+            tokio::time::sleep(wait).await;
         }
     }
 
@@ -245,6 +251,18 @@ async fn send_embedding_request(
     }
 
     Err(anyhow::anyhow!("Failed to generate embeddings"))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RetryBudget {
+    pub request_timeout: Duration,
+    pub deadline: Duration,
+}
+
+impl RetryBudget {
+    fn allows(&self, elapsed: Duration, wait: Duration) -> bool {
+        elapsed + wait + self.request_timeout <= self.deadline
+    }
 }
 
 fn is_retryable(status: StatusCode) -> bool {
@@ -339,6 +357,7 @@ mod tests {
             (
                 vec![rate_limited, (StatusCode::OK, None)],
                 Ok(StatusCode::OK),
+                2,
                 Duration::from_secs(7)..=Duration::from_secs(7),
             ),
             (
@@ -347,21 +366,34 @@ mod tests {
                     (StatusCode::OK, None),
                 ],
                 Ok(StatusCode::OK),
+                2,
                 Duration::from_secs(1)..=Duration::from_secs(3),
             ),
             (
                 vec![rate_limited; MAX_RETRY_ATTEMPTS],
                 Err(()),
+                MAX_RETRY_ATTEMPTS,
                 Duration::from_secs(21)..=Duration::from_secs(21),
             ),
             (
                 vec![(StatusCode::BAD_REQUEST, Some("7"))],
                 Err(()),
+                1,
                 Duration::ZERO..=Duration::ZERO,
             ),
+            (
+                vec![(StatusCode::SERVICE_UNAVAILABLE, Some("10")); MAX_RETRY_ATTEMPTS],
+                Err(()),
+                3,
+                Duration::from_secs(20)..=Duration::from_secs(20),
+            ),
         ];
+        let budget = RetryBudget {
+            request_timeout: Duration::from_secs(10),
+            deadline: Duration::from_secs(35),
+        };
 
-        for (responses, expected, elapsed_range) in cases {
+        for (responses, expected, requests_sent, elapsed_range) in cases {
             let request_count = responses.len();
             let script: Script = Arc::new(Mutex::new(responses.into()));
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -384,6 +416,7 @@ mod tests {
             let outcome = send_embedding_request(
                 &client,
                 &route,
+                budget,
                 "hello",
                 EmbeddingModel::OpenAITextEmbeddingSmall,
                 &RequestLabels::default(),
@@ -394,10 +427,14 @@ mod tests {
             let elapsed = started.elapsed();
 
             assert_eq!(outcome, expected, "responses: {request_count}");
-            assert!(script.lock().unwrap().is_empty());
             assert!(
                 elapsed_range.contains(&elapsed),
                 "elapsed {elapsed:?} outside {elapsed_range:?}"
+            );
+            assert_eq!(
+                request_count - script.lock().unwrap().len(),
+                requests_sent,
+                "responses: {request_count}"
             );
         }
     }
