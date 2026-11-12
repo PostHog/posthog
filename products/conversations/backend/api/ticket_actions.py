@@ -218,7 +218,7 @@ _PARTIAL_MARKDOWN_TAIL = re.compile(r"!?\[[^\[\]]*(?:\](?:\([^)]*)?)?$")
 # to the customer as prose, often in an email that does not render markdown, so those backslashes
 # would show. Reverse the escaping. This is the inverse of the widget editor's escapeMarkdown, and
 # matches the same character set the outbound Slack formatter unescapes (posthog/comment/formatting.py).
-_MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
+_MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|=])")
 
 # Email padding characters. A non-joiner between letters stays, because Persian and Indic words need it.
 _INVISIBLE_PADDING = re.compile(r"[\u00ad\u034f\u200b\u2060\ufeff]")

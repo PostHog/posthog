@@ -66,8 +66,34 @@ describe('SupportEditor serialization and preview schema', () => {
         ],
         [
             'prose punctuation left unescaped, inline formatting characters escaped',
-            { type: 'doc', content: [paragraph('Thanks! See v1.2-rc (#81525): distinct_id _emph_ *c* [d] `e`')] },
-            'Thanks! See v1.2-rc (#81525): distinct_id \\_emph\\_ \\*c\\* \\[d\\] \\`e\\`',
+            {
+                type: 'doc',
+                content: [
+                    paragraph('Thanks! See v1.2-rc (#81525): distinct_id café_été __dunder__ end_ _emph_ *c* [d] `e`'),
+                ],
+            },
+            'Thanks! See v1.2-rc (#81525): distinct_id café_été \\_\\_dunder\\_\\_ end\\_ \\_emph\\_ \\*c\\* \\[d\\] \\`e\\`',
+        ],
+        [
+            'block markers escaped only at line start',
+            {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [
+                            { type: 'text', text: 'Thanks' },
+                            { type: 'hardBreak' },
+                            { type: 'text', text: '---' },
+                            { type: 'hardBreak' },
+                            { type: 'text', text: '- Eleftheria' },
+                            { type: 'hardBreak' },
+                            { type: 'text', text: '1. not a list, 2 - 1 = 1 and #81525' },
+                        ],
+                    },
+                ],
+            },
+            'Thanks  \n\\---  \n\\- Eleftheria  \n1\\. not a list, 2 - 1 = 1 and #81525',
         ],
     ])('serializeToMarkdown handles %s', (_name, doc, expected) => {
         expect(serializeToMarkdown(doc)).toBe(expected)

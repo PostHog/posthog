@@ -603,9 +603,34 @@ class TestRichContentBlockNodes(SimpleTestCase):
                 "prose_punctuation_unescaped_inline_formatting_escaped",
                 {
                     "type": "doc",
-                    "content": [_paragraph("Thanks! See v1.2-rc (#81525): distinct_id _emph_ *c* [d] `e`")],
+                    "content": [
+                        _paragraph(
+                            "Thanks! See v1.2-rc (#81525): distinct_id café_été __dunder__ end_ _emph_ *c* [d] `e`"
+                        )
+                    ],
                 },
-                "Thanks! See v1.2-rc (#81525): distinct_id \\_emph\\_ \\*c\\* \\[d\\] \\`e\\`",
+                "Thanks! See v1.2-rc (#81525): distinct_id café_été \\_\\_dunder\\_\\_ end\\_ \\_emph\\_ \\*c\\* \\[d\\] \\`e\\`",
+            ),
+            (
+                "block_markers_escaped_only_at_line_start",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {"type": "text", "text": "Thanks"},
+                                {"type": "hardBreak"},
+                                {"type": "text", "text": "---"},
+                                {"type": "hardBreak"},
+                                {"type": "text", "text": "- Eleftheria"},
+                                {"type": "hardBreak"},
+                                {"type": "text", "text": "1. not a list, 2 - 1 = 1 and #81525"},
+                            ],
+                        }
+                    ],
+                },
+                "Thanks  \n\\---  \n\\- Eleftheria  \n1\\. not a list, 2 - 1 = 1 and #81525",
             ),
             (
                 "bullet_list",

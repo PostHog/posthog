@@ -37,7 +37,11 @@ _RE_MD_ESCAPE = re.compile(r"([\\`*\[\]])")
 # An underscore with a letter or digit on both sides cannot open or close emphasis in CommonMark,
 # so identifiers like distinct_id stay readable as prose.
 _RE_MD_UNDERSCORE_ESCAPE = re.compile(r"(?<![^\W_])_|_(?![^\W_])")
-_RE_MD_ESCAPED_CHAR = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
+# At the start of a line these open a list, heading, setext underline or table row, so a line of
+# dashes or a "- Name" sign-off typed after a hard break would stop being prose.
+_RE_MD_LINE_START_BLOCK_CHAR = re.compile(r"^( {0,3})([-+#=|])")
+_RE_MD_LINE_START_ORDERED_MARKER = re.compile(r"^( {0,3}\d{1,9})([.)])")
+_RE_MD_ESCAPED_CHAR = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|=])")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
 _RE_MRKDWN_BLOCKQUOTE_UNESCAPE = re.compile(r"^&gt;", re.MULTILINE)
@@ -445,8 +449,12 @@ def _normalize_single_newlines_to_markdown(text: str) -> str:
     return _RE_SINGLE_NEWLINE.sub("  \n", text)
 
 
-def _escape_markdown(text: str) -> str:
-    return _RE_MD_UNDERSCORE_ESCAPE.sub(r"\\_", _RE_MD_ESCAPE.sub(r"\\\1", text))
+def _escape_markdown(text: str, *, at_line_start: bool = False) -> str:
+    text = _RE_MD_UNDERSCORE_ESCAPE.sub(r"\\_", _RE_MD_ESCAPE.sub(r"\\\1", text))
+    if at_line_start:
+        text = _RE_MD_LINE_START_BLOCK_CHAR.sub(r"\1\\\2", text)
+        text = _RE_MD_LINE_START_ORDERED_MARKER.sub(r"\1\\\2", text)
+    return text
 
 
 def _escape_alt_text(text: str) -> str:
@@ -635,13 +643,13 @@ def slack_blocks_to_rich_content(blocks: list[JSON] | None, user_names: dict[str
     return {"type": "doc", "content": doc_nodes or [{"type": "paragraph", "content": []}]}
 
 
-def _serialize_text_node_to_markdown(node: JSON) -> str:
+def _serialize_text_node_to_markdown(node: JSON, *, at_line_start: bool = False) -> str:
     text = node.get("text", "")
     marks = node.get("marks", [])
     has_code_mark = any(mark.get("type") == "code" for mark in marks)
 
     if not has_code_mark:
-        text = _escape_markdown(text)
+        text = _escape_markdown(text, at_line_start=at_line_start)
 
     link_mark = next((mark for mark in marks if mark.get("type") == "link"), None)
 
@@ -665,17 +673,24 @@ def _serialize_text_node_to_markdown(node: JSON) -> str:
 
 def _serialize_inline_nodes_to_markdown(nodes: list[JSON], include_images: bool = True) -> str:
     chunks: list[str] = []
+    at_line_start = True
     for node in nodes:
         node_type = node.get("type")
+        chunk = ""
         if node_type == "text":
-            chunks.append(_serialize_text_node_to_markdown(node))
+            chunk = _serialize_text_node_to_markdown(node, at_line_start=at_line_start)
         elif node_type == "hardBreak":
             chunks.append("  \n")
+            at_line_start = True
+            continue
         elif node_type == "image" and include_images:
             src = node.get("attrs", {}).get("src")
             if src:
                 alt = _escape_alt_text(node.get("attrs", {}).get("alt", "image"))
-                chunks.append(f"![{alt}]({src})")
+                chunk = f"![{alt}]({src})"
+        if chunk:
+            chunks.append(chunk)
+            at_line_start = False
     return "".join(chunks)
 
 

@@ -314,21 +314,36 @@ export const serializationOptions: { textSerializers?: Record<string, TextSerial
 }
 
 const INLINE_FORMATTING_CHAR = /([\\`*[\]])/g
-const WORD_CHAR = /[^\W_]/
+// An underscore with a letter or digit on both sides cannot open or close emphasis in CommonMark,
+// so identifiers like distinct_id stay readable as prose.
+const EMPHASIS_UNDERSCORE = /(?<![\p{L}\p{N}])_|_(?![\p{L}\p{N}])/gu
+// At the start of a line these open a list, heading, setext underline or table row, so a line of
+// dashes or a "- Name" sign-off typed after a hard break would stop being prose.
+const LINE_START_BLOCK_CHAR = /^( {0,3})([-+#=|])/
+const LINE_START_ORDERED_MARKER = /^( {0,3}\d{1,9})([.)])/
 
 /**
  * Escape only the characters that format mid-sentence: \ ` * _ [ ]. Punctuation such as
  * "!" or "." is inert in markdown, and the serialized text is quoted as prose in places that
  * never render markdown (ticket previews, workflow emails), where a backslash would show.
- * An underscore with a letter or digit on both sides cannot open or close emphasis in
- * CommonMark, so identifiers like distinct_id stay readable as prose too.
  */
-function escapeMarkdown(text: string): string {
-    return text
-        .replace(INLINE_FORMATTING_CHAR, '\\$1')
-        .replace(/_/g, (underscore, offset: number, whole: string) =>
-            WORD_CHAR.test(whole[offset - 1] ?? '') && WORD_CHAR.test(whole[offset + 1] ?? '') ? underscore : '\\_'
-        )
+function escapeMarkdown(text: string, atLineStart: boolean): string {
+    const escaped = text.replace(INLINE_FORMATTING_CHAR, '\\$1').replace(EMPHASIS_UNDERSCORE, '\\_')
+    if (!atLineStart) {
+        return escaped
+    }
+    return escaped.replace(LINE_START_BLOCK_CHAR, '$1\\$2').replace(LINE_START_ORDERED_MARKER, '$1\\$2')
+}
+
+function serializeInlineNodes(nodes: JSONContent[]): string {
+    let atLineStart = true
+    return nodes
+        .map((node) => {
+            const chunk = serializeNode(node, atLineStart)
+            atLineStart = node.type === 'hardBreak' || (atLineStart && !chunk)
+            return chunk
+        })
+        .join('')
 }
 
 /**
@@ -347,7 +362,7 @@ export function serializeToMarkdown(content: JSONContent): string {
     return serializeNode(content).trim()
 }
 
-function serializeNode(node: JSONContent): string {
+function serializeNode(node: JSONContent, atLineStart = false): string {
     if (!node) {
         return ''
     }
@@ -361,7 +376,7 @@ function serializeNode(node: JSONContent): string {
         // Don't escape text inside code marks (it's meant to be literal)
         // For other text, escape markdown special characters
         if (!hasCodeMark) {
-            text = escapeMarkdown(text)
+            text = escapeMarkdown(text, atLineStart)
         }
 
         // Find link mark if present (needs special handling)
@@ -404,10 +419,8 @@ function serializeNode(node: JSONContent): string {
         case 'doc':
             return (node.content || []).map(serializeNode).join('')
 
-        case 'paragraph': {
-            const content = (node.content || []).map(serializeNode).join('')
-            return content + '\n\n'
-        }
+        case 'paragraph':
+            return serializeInlineNodes(node.content || []) + '\n\n'
 
         case 'bulletList':
             return serializeListNode(node, false, '') + '\n\n'
@@ -441,7 +454,7 @@ function serializeNode(node: JSONContent): string {
         default:
             // For unknown nodes, try to serialize children
             if (node.content) {
-                return (node.content || []).map(serializeNode).join('')
+                return serializeInlineNodes(node.content)
             }
             return ''
     }

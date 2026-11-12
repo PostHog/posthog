@@ -24,7 +24,7 @@ const VARIABLE_PATTERN = /\{\{\s*([a-z0-9_.]+)\s*\}\}/gi
 // A stored body can carry serializeToMarkdown escapes on `{`, `}`, `.` and `_`, so a typed variable
 // can arrive as {{customer.first\_name}} or \{\{customer\.first\_name\}\} and would never match.
 const ESCAPED_MACRO_TOKEN = /\\?\{\\?\{\s*((?:[a-z0-9]|\\?[._])+)\s*\\?\}\\?\}/gi
-const MARKDOWN_ESCAPED_CHAR = /\\([\\`*_{}[\]()#+\-.!|])/g
+const MARKDOWN_ESCAPED_CHAR = /\\([\\`*_{}[\]()#+\-.!|=])/g
 // Private-use characters: markdown leaves them alone in text, and the body is cleared of them first.
 const VALUE_SLOT = /\uE000(\d+)\uE001/g
 // marked percent-encodes the slot when it sits in a link or image URL.
