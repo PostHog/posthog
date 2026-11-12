@@ -155,6 +155,10 @@ from products.dashboards.backend.customization import (
     without_default_settings,
 )
 from products.dashboards.backend.facade.api import CannotAddToDashboard, add_insight_to_dashboard, tile_ids_prefetch
+from products.dashboards.backend.facade.query_sharing import (
+    DashboardQuerySharingStream,
+    DashboardQuerySharingStreamEvent,
+)
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
@@ -183,10 +187,6 @@ from products.dashboards.backend.presentation.widget_openapi_serializers import 
     PatchedDashboardOpenApiSerializer,
     UpdateDashboardWidgetRequestOpenApi,
     WidgetCatalogResponseSerializer,
-)
-from products.dashboards.backend.query_sharing_stream import (
-    DashboardQuerySharingStream,
-    DashboardQuerySharingStreamEvent,
 )
 from products.dashboards.backend.run_insights_output import (
     bound_formatted_result,

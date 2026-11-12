@@ -2,7 +2,7 @@ from django.db.models import TextChoices
 
 from rest_framework import serializers
 
-from products.dashboards.backend.query_sharing_debug import DashboardSharingOutcome
+from products.dashboards.backend.facade.query_sharing import DashboardSharingOutcome
 
 
 class DashboardSharingRefreshType(TextChoices):
