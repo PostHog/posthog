@@ -100,4 +100,42 @@ describe('accountUsersTableLogic', () => {
         logic.unmount()
         request.mockRestore()
     })
+    it('enriches only new people on the next page and preserves existing memberships', async () => {
+        const firstPersonId = '00000000-0000-0000-0000-000000000001'
+        const secondPersonId = '00000000-0000-0000-0000-000000000002'
+        const first = { person_id: firstPersonId, accounts: [{ id: 'current-account', name: 'Current account' }] }
+        const second = { person_id: secondPersonId, accounts: [] }
+        const request = jest
+            .spyOn(generatedApi, 'accountsPersonsMembershipsCreate')
+            .mockResolvedValueOnce([first])
+            .mockResolvedValueOnce([second])
+        const logic = accountUsersTableLogic({ accountId: 'current-account' })
+        logic.mount()
+        const node = dataNodeLogic({
+            key: 'account-users-current-account-default',
+            query: logic.values.query.source,
+            doNotLoad: true,
+        })
+        node.mount()
+        const response: HogQLQueryResponse = {
+            results: [[firstPersonId]],
+            columns: [MEMBERSHIP_COLUMN],
+            types: [],
+            hasMore: true,
+        }
+        await expectLogic(logic, () => node.actions.loadDataSuccess(response)).toFinishAllListeners()
+        await expectLogic(logic, () =>
+            node.actions.loadNextDataSuccess({ ...response, results: [[firstPersonId], [secondPersonId]] })
+        ).toFinishAllListeners()
+        expect(request).toHaveBeenCalledTimes(2)
+        expect(request.mock.calls[1][2]).toEqual({ person_ids: [secondPersonId] })
+        expect(logic.values.memberships).toEqual({ [firstPersonId]: first, [secondPersonId]: second })
+        await expectLogic(logic, () =>
+            node.actions.loadNextDataSuccess({ ...response, results: [[firstPersonId], [secondPersonId]] })
+        ).toFinishAllListeners()
+        expect(request).toHaveBeenCalledTimes(2)
+        node.unmount()
+        logic.unmount()
+        request.mockRestore()
+    })
 })

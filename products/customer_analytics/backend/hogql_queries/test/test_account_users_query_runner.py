@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, flush_persons_and_events
@@ -752,15 +753,22 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         )
         assert response.status_code == 400, response.content
 
-    @parameterized.expand([(False,), (True,)])
-    def test_get_requests_obey_concurrency_limits(self, api_key: bool) -> None:
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_reads_obey_concurrency_limits(self, api_key: bool, memberships: bool) -> None:
+        read = (
+            partial(
+                self.client.post, self.endpoint + "memberships/", {"person_ids": [str(self.first.uuid)]}, format="json"
+            )
+            if memberships
+            else partial(self.client.get, self.endpoint)
+        )
         if api_key:
             token = generate_random_token_personal()
             PersonalAPIKey.objects.create(
                 label="account persons",
                 user=self.user,
                 secure_value=hash_key_value(token),
-                scopes=["account:read", "person:read"],
+                scopes=["query:read", "account:read", "person:read"],
             )
             self.client.logout()
             self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
@@ -775,13 +783,20 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             with limiter.run(
                 team_id=self.team.pk, org_id=self.organization.pk, is_api=api_key, task_id="occupied", limit=1
             ):
-                response = self.client.get(self.endpoint)
+                response = read()
             assert response.status_code == 429, response.content
             assert "Retry-After" in response
-            assert self.client.get(self.endpoint).status_code == 200
+            assert read().status_code == 200
 
-    @parameterized.expand([(False,), (True,)])
-    def test_api_get_reads_obey_the_read_budget(self, enforced: bool) -> None:
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_api_reads_obey_the_read_budget(self, enforced: bool, memberships: bool) -> None:
+        read = (
+            partial(
+                self.client.post, self.endpoint + "memberships/", {"person_ids": [str(self.first.uuid)]}, format="json"
+            )
+            if memberships
+            else partial(self.client.get, self.endpoint)
+        )
         spec = budget_spec_for(self.organization)
         refill_and_read(str(self.team.pk), spec)
         debit(str(self.team.pk), int(spec.capacity_bytes + spec.bytes_per_hour))
@@ -790,14 +805,14 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             label="account persons",
             user=self.user,
             secure_value=hash_key_value(token),
-            scopes=["account:read", "person:read"],
+            scopes=["query:read", "account:read", "person:read"],
         )
         with patch(
             "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
             side_effect=lambda flag, *args, **kwargs: flag == API_QUERIES_BUDGET_ENFORCEMENT_FLAG and enforced,
         ):
-            assert self.client.get(self.endpoint).status_code == 200
-            response = self.client.get(self.endpoint, headers={"Authorization": f"Bearer {token}"})
+            assert read().status_code == 200
+            response = read(headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == (429 if enforced else 200), response.content
         if enforced:
             assert "Retry-After" in response

@@ -3270,6 +3270,29 @@ export namespace Schemas {
       account_last_seen: string;
     }
 
+    export interface PersonAccount {
+      /** Accessible account ID. */
+      id: string;
+      /** Account display name. */
+      name: string;
+    }
+
+    export interface AccountPersonMemberships {
+      /** Current person ID from the requested account. */
+      person_id: string;
+      /** Accessible accounts this person belongs to. */
+      accounts: PersonAccount[];
+    }
+
+    export interface AccountPersonMembershipsRequest {
+      /**
+         * Loaded person IDs to enrich, up to 500.
+         * @minItems 1
+         * @maxItems 500
+         */
+      person_ids: string[];
+    }
+
     export interface PersonPropertyFilter {
       key: string;
       label?: string | null;
