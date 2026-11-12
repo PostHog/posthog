@@ -66,6 +66,11 @@ const incrementalFieldOptions = (
         ),
     }))
 
+// A model pick is a column that changes on update, so append, which wants a column that never
+// changes, defaults to the next candidate instead.
+const getDefaultAppendField = (schema: ExternalDataSourceSyncSchema, defaultField: string | null): string | null =>
+    schema.incremental_field ?? schema.incremental_fields.find((field) => !field.picked_by_model)?.field ?? defaultField
+
 const getIncrementalSyncSupported = (
     schema: ExternalDataSourceSyncSchema
 ): { disabled: true; disabledReason: string } | { disabled: false } => {
@@ -264,12 +269,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const keyResolvable = !keyRequired || !!(schema.primary_key_columns?.length || resolvedDetectedPks?.length)
 
     const defaultField = schema.incremental_field ?? schema.incremental_fields[0]?.field ?? null
-    // A model pick is a column that changes on update, so append, which wants a column that never
-    // changes, defaults to the next candidate instead.
-    const defaultAppendField =
-        schema.incremental_field ??
-        schema.incremental_fields.find((field) => !field.picked_by_model)?.field ??
-        defaultField
+    const defaultAppendField = getDefaultAppendField(schema, defaultField)
 
     const [radioValue, setRadioValue] = useState(() =>
         getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled, keyResolvable)
