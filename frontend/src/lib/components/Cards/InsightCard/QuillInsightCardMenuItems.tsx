@@ -21,7 +21,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { InsightColor } from '~/types'
 
 import type { InsightCardMenu } from './insightCardMenu'
-import { QuillDashboardInsightDisplayOptions } from './QuillDashboardInsightDisplayOptions'
+import { QuillDashboardInsightDisplayOptionsMenu } from './QuillDashboardInsightDisplayOptionsMenu'
 import { QuillDashboardWidgetPlacementMenus } from './QuillDashboardWidgetPlacementMenus'
 
 const SWATCH_CLASSES: Record<InsightColor, string> = {
@@ -70,7 +70,7 @@ export function QuillInsightCardMenuItems({ menu }: { menu: InsightCardMenu }): 
                 </DropdownMenuItem>
             )}
             {menu.displayOptions && (
-                <QuillDashboardInsightDisplayOptions
+                <QuillDashboardInsightDisplayOptionsMenu
                     visualizationItems={menu.displayOptions.visualizationItems}
                     tabs={menu.displayOptions.tabs}
                 />

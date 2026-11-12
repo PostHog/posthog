@@ -3,9 +3,9 @@ import { DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, Dropdow
 import { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
-import { DashboardInsightDisplayOptionsContent } from './DashboardInsightDisplayOptionsContent'
+import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 
-export function QuillDashboardInsightDisplayOptions({
+export function QuillDashboardInsightDisplayOptionsMenu({
     visualizationItems,
     tabs,
 }: {
@@ -22,7 +22,7 @@ export function QuillDashboardInsightDisplayOptions({
             <DropdownMenuSub>
                 <DropdownMenuSubTrigger>Display options</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
-                    <DashboardInsightDisplayOptionsContent visualizationItems={visualizationItems} tabs={tabs} />
+                    <DashboardInsightDisplayOptions visualizationItems={visualizationItems} tabs={tabs} />
                 </DropdownMenuSubContent>
             </DropdownMenuSub>
         </>
