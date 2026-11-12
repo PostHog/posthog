@@ -243,24 +243,27 @@ class EmailIntegration:
 
         mail_from_changed = mail_from_subdomain != self.integration.config.get("mail_from_subdomain", "feedback")
 
-        # The identity at the provider is shared by every organization that added the domain, so a claim that has
-        # not proven ownership must not change it for the others.
-        if mail_from_changed and not self.integration.config.get("verified") and self._other_organization_senders():
-            raise ValidationError(
-                "Another organization also added this domain. Verify the domain before you change its MAIL FROM subdomain."
-            )
-
-        if provider == "ses":
-            if mail_from_changed:
-                from products.workflows.backend.facade.api import (
-                    update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
-                )
-
-                update_ses_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
-        elif provider == "maildev" and settings.DEBUG:
-            pass
-        else:
+        if provider not in ("ses", "maildev") or (provider == "maildev" and not settings.DEBUG):
             raise ValueError(f"Invalid provider: must be 'ses'")
+
+        if mail_from_changed:
+            # The identity at the provider is shared by every organization that added the domain, so a claim that has
+            # not proven ownership must not change it for the others. Under the domain lock, a verification that
+            # releases this claim either finishes before the check or waits until the change is made.
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    lock_sender_domain(cursor, domain)
+                verified = row_writes.reread_row(self.integration).config.get("verified")
+                if not verified and self._other_organization_senders():
+                    raise ValidationError(
+                        "Another organization also added this domain. Verify the domain before you change its MAIL FROM subdomain."
+                    )
+                if provider == "ses":
+                    from products.workflows.backend.facade.api import (
+                        update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                    )
+
+                    update_ses_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
 
         changes: dict[str, str] = {
             "name": name,

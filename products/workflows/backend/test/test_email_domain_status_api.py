@@ -4,13 +4,14 @@ from itertools import product
 from unittest.mock import ANY, patch
 
 from django.core.cache import cache
+from django.db import OperationalError, connection
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import Integration
-from posthog.models.integration.email import EmailIntegration
+from posthog.models.integration.email import EmailIntegration, lock_sender_domain
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -518,6 +519,29 @@ class TestEmailDomainClaimedByAnotherOrganization(EmailDomainApiTestCase):
         assert self.verify(sender).json()["status"] == "pending"
         assert not self.is_verified(sender)
         assert Integration.objects.filter(id=self.other_sender.id).exists()
+
+    def test_a_mail_from_change_waits_for_a_verification_in_progress_on_the_domain(self) -> None:
+        held = f"held.{ROOT_DOMAIN}"
+        sender = Integration.objects.create(
+            team=self.other_team,
+            kind="email",
+            integration_id=f"hello@{held}",
+            config={"email": f"hello@{held}", "domain": held, "provider": "ses", "verified": False},
+        )
+        other = connection.get_new_connection(connection.get_connection_params())
+        try:
+            with other.cursor() as cursor:
+                lock_sender_domain(cursor, held)
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            with self.assertRaisesMessage(OperationalError, "lock timeout"):
+                EmailIntegration(sender).update_native_integration(
+                    {"mail_from_subdomain": "bounce"}, self.other_team.id
+                )
+            assert held not in self.world.ses.identities
+        finally:
+            other.rollback()
+            other.close()
 
     def test_an_unverified_claim_cannot_change_the_shared_mail_from_subdomain(self) -> None:
         self.create_sender(f"hello@{DOMAIN}")
