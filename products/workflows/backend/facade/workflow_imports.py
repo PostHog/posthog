@@ -14,11 +14,12 @@ from products.workflows.backend.services.customerio_import.translator import (
     segments_checked_through_cohorts,
     translate_campaign,
 )
-from products.workflows.backend.services.resend_import.drafts import import_resend_automation
+from products.workflows.backend.services.resend_import.drafts import import_resend_automation, reuse_import_access
 
 __all__ = [
     "STATIC_SEGMENT_TYPES",
     "import_resend_automation",
+    "reuse_import_access",
     "import_content",
     "import_for_workflow",
     "previous_import",

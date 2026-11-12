@@ -61,14 +61,14 @@ class TestResendAutomationTranslation(SimpleTestCase):
             "type": "send_email",
             "config": {"template": {"id": "t1", "variables": {"NAME": "Alice"}}},
         }
-        subject = 'Read variables.NAME: {{ variables.NAME | default: "variables.NAME" }}'
+        subject = 'Read variables.NAME: {{ variables.NAME | default: "variables.NAME" }} {{ variables.NAME-SUFFIX }}'
         translated = translate_automation(
             _automation([step], [{"from": "start", "to": "send"}]), {"t1": _email(subject)}
         )
 
         action = next(action for action in translated.workflow["actions"] if action["id"] == "send")
         assert action["config"]["inputs"]["email"]["value"]["subject"] == (
-            'Read variables.NAME: {{ "Alice" | default: "variables.NAME" }}'
+            'Read variables.NAME: {{ "Alice" | default: "variables.NAME" }} {{ variables.NAME-SUFFIX }}'
         )
 
     def test_custom_contact_properties_lose_the_properties_prefix(self) -> None:
@@ -229,6 +229,10 @@ class TestResendAutomationTranslation(SimpleTestCase):
         if can_opt_out:
             opt_out = actions[chain[-1]]
             assert opt_out["config"]["inputs"]["category_id"]["value"] == "$all"
+            assert opt_out["config"]["inputs"]["identifier"] == {
+                "value": "{person.properties.email}",
+                "templating": "hog",
+            }
             assert opt_out["on_error"] == "abort"
         else:
             assert any("edit access to all workflows" in note.message for note in translated.notes)
