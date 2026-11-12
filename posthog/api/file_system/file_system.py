@@ -1341,7 +1341,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # Lock in id order, so concurrent moves of the same item's entries queue instead of deadlocking.
                 other_entries = [
                     entry
-                    for entry in FileSystem.objects.select_for_update().filter(id__in=entry_ids).order_by("id")
+                    for entry in FileSystem.objects.select_for_update()
+                    .filter(team_id=instance.team_id, id__in=entry_ids)
+                    .order_by("id")
                     if entry.id != instance.id
                 ]
                 instance.path = new_path
