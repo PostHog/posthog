@@ -1,4 +1,5 @@
 from products.tasks.backend.facade.profiles import (
+    TRUSTED_DOMAINS,
     DrivePolicy,
     GithubAccess,
     GithubResolution,
@@ -9,6 +10,33 @@ from products.tasks.backend.facade.profiles import (
     Read,
     TaskProfile,
     register_task_profiles,
+)
+
+_UNTRUSTED_UPLOAD_DOMAINS = frozenset(
+    {
+        "gist.github.com",
+        "test.pypi.org",
+        "cloud.google.com",
+        "accounts.google.com",
+        "gcloud.google.com",
+        "*.googleapis.com",
+        "storage.googleapis.com",
+        "compute.googleapis.com",
+        "container.googleapis.com",
+        "azure.com",
+        "portal.azure.com",
+        "*.microsoftonline.com",
+        "visualstudio.com",
+        "dev.azure.com",
+        "statsig.com",
+        "www.statsig.com",
+        "api.statsig.com",
+        "*.sentry.io",
+    }
+)
+
+REVIEW_ALLOWED_DOMAINS: tuple[str, ...] = tuple(
+    domain for domain in TRUSTED_DOMAINS if domain not in _UNTRUSTED_UPLOAD_DOMAINS
 )
 
 # Least-privilege PostHog MCP scopes for every ReviewHog sandbox session. The sessions process
@@ -37,7 +65,7 @@ REVIEW = TaskProfile(
     warm=None,
     runtimes=("acp",),
     sandbox_templates=("default_base",),
-    network=NetworkPolicy(levels=(NetworkAccess.TRUSTED,)),
+    network=NetworkPolicy(levels=(NetworkAccess.CUSTOM,), allowed_domains=REVIEW_ALLOWED_DOMAINS),
     inherit_user_defaults=False,
     personal_mcp=False,
     mcp_agent=None,
