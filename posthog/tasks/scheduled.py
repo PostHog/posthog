@@ -96,9 +96,9 @@ from products.conversations.backend.tasks.slack import sweep_delivery_parts, swe
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
 from products.data_modeling.backend.facade.tasks import (
+    clamp_targets_to_plan_floor,
     cleanup_deleted_saved_query_nodes,
     cleanup_expired_test_saved_queries,
-    reconcile_plan_floor_drift,
 )
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -891,8 +891,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="23"),
-        reconcile_plan_floor_drift.s(),
-        name="reconcile plan floor drift",
+        clamp_targets_to_plan_floor.s(),
+        name="clamp data modeling targets to plan floor",
     )
 
     # Reopen snoozed conversation tickets whose snooze period has expired

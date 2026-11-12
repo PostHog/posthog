@@ -102,7 +102,6 @@ _LAZY = {
     "saved_query_target_bounds": "logic.node_frequency",
     "SavedQueryFrequencyBounds": "logic.node_frequency",
     "saved_query_pin_preview": "logic.node_frequency",
-    "schedule_floor_for_organization": "logic.refresh_floor",
     "scheduled_cadences_by_node": "logic.node_frequency",
     "saved_query_schedules": "logic.node_frequency",
     "can_describe_node": "logic.node_description",

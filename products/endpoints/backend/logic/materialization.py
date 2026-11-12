@@ -172,7 +172,7 @@ def build_materialization_info(version: EndpointVersion, endpoint_name: str | No
             "enabled": bool(version.saved_query.is_materialized),
             "ready": bool(
                 version.saved_query.table_id
-                and is_materialization_fresh(materialized_at, version.serving_window.seconds)
+                and is_materialization_fresh(materialized_at, version.data_freshness_seconds)
             ),
             "status": materialization_status or "Unknown",
             "can_materialize": True,

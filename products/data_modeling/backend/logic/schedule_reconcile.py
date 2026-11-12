@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import QuerySet
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -47,7 +48,6 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     ScheduleReconcilePlan,
     Tier,
     bucket_into_cadence_tiers,
-    is_tier_schedule_id,
     plan_schedule_reconciliation,
     tier_schedule_id,
 )
@@ -69,7 +69,6 @@ from products.data_modeling.backend.logic.node_frequency import (
     get_declared_pin,
     get_declared_target,
     nodes_declared_finer_than,
-    nodes_with_a_declared_target,
     persist_seed_targets,
     scheduled_cadences,
     seed_targets,
@@ -78,7 +77,11 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_target,
     stage_declared_target,
 )
-from products.data_modeling.backend.logic.refresh_floor import plan_limit, read_plan_refresh_floor
+from products.data_modeling.backend.logic.refresh_floor import (
+    MAX_PLAN_REFRESH_FLOOR,
+    organization_plan_refresh_floor,
+    read_plan_refresh_floor,
+)
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
 from products.data_modeling.backend.schedule import (
@@ -93,6 +96,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 PLAN_FLOOR_REFUSAL_EVENT = "data modeling refresh refused by plan floor"
+PLAN_FLOOR_CLAMP_EVENT = "data modeling refresh clamped to plan floor"
 
 
 def maybe_reconcile_dag(dag: DAG) -> None:
@@ -177,7 +181,6 @@ def _validate_saved_query_target(
             names=names,
             pinned=pinned,
             plan_floor=graph.plan_floor,
-            schedule_plan_floor=graph.schedule_plan_floor,
         )
     except PlanFloorRefusalError as error:
         _report_plan_floor_refusal(team_id, error, refused_by="plan_floor")
@@ -305,11 +308,9 @@ def carry_saved_query_frequency_target(
     The endpoint version being replaced keeps running, so each query edit could otherwise add one more
     schedule finer than the floor. `retained_saved_query_ids` are the endpoint's other materialized
     versions, and if one of them also runs finer than the floor this raises `PlanFloorRefusalError`.
-    That caps an endpoint at two such schedules: the version replaced and its replacement. With
-    `clamp_existing` on, the scheduler already runs every version at the floor, so no cap applies.
+    That caps an endpoint at two such schedules: the version replaced and its replacement.
     """
-    plan_floor = read_plan_refresh_floor(team_id)
-    floor = plan_floor.min_interval if plan_floor is not None and not plan_floor.clamp_existing else None
+    floor = read_plan_refresh_floor(team_id)
     if floor is not None and is_finer_than(target, floor):
         retained_nodes = Node.objects.filter(team_id=team_id, saved_query_id__in=retained_saved_query_ids)
         if any(
@@ -412,83 +413,77 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
     team = dag.team
     if graph is None:
         graph = build_frequency_graph(dag)
+    effective, _clamped = scheduled_cadences(graph)
+    desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
     _apply_reconciliation(
         dag_id=str(dag.id),
         team_id=team.pk,
         organization_id=str(team.organization_id),
         team_timezone=team.timezone,
-        desired_tiers=_desired_tiers(graph),
+        desired_tiers=desired_tiers,
     )
 
 
-def _desired_tiers(graph: FrequencyGraph) -> dict[Tier, set[str]]:
-    effective, _clamped = scheduled_cadences(graph)
-    return bucket_into_cadence_tiers(effective, graph.declared_anchors)
+def clamp_targets_to_plan_floor() -> int:
+    """Rewrite every saved cadence finer than its organization's plan floor to the floor, then reconcile its DAG.
 
+    Saving refuses a cadence finer than the floor, so only a cadence saved before the floor applied, or
+    before a plan downgrade, is finer than it. The rewrite is permanent: an upgrade or the flag turning
+    off leaves the floor in place, and the person picks a faster cadence again. A pin stays. Managed
+    views keep the cadence their provider declares.
 
-class OrganizationReconcileError(Exception):
-    """At least one of the organization's DAGs failed to reconcile."""
-
-
-def _runs_on_tier_schedules(existing_schedule_ids: set[str]) -> bool:
-    """Whether a reconcile may rewrite the DAG's schedules without converting it first.
-
-    A reconcile would create the first schedules of a DAG with none, and would delete a whole-DAG
-    legacy schedule before `convert_dag_to_tiers` seeds the targets that replace it.
+    Returns how many nodes it rewrote.
     """
-    return bool(existing_schedule_ids) and all(
-        is_tier_schedule_id(schedule_id) for schedule_id in existing_schedule_ids
-    )
-
-
-def reconcile_organization_dags(organization_id: str) -> None:
-    """Reconcile every DAG of the organization that runs on tier schedules, raising after all of them if any failed."""
-    failed = 0
-    for dag in DAG.objects.filter(team__organization_id=organization_id).select_related("team"):
-        try:
-            if _runs_on_tier_schedules(list_existing_schedule_ids(str(dag.id))):
-                reconcile_dag_schedules(dag)
-        except Exception as error:
-            logger.exception("Organization schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
-            capture_exception(error)
-            failed += 1
-    if failed:
-        raise OrganizationReconcileError(f"{failed} DAGs failed to reconcile for organization {organization_id}")
-
-
-def reconcile_plan_floor_drift() -> int:
-    """Reconcile the DAGs whose tier schedules no longer match their organization's plan floor.
-
-    A plan change, or a change to the refresh floor flag, moves the cadence a DAG should run at without
-    reconciling it. Only a DAG with a saved cadence finer than its organization's plan limit can move,
-    whether the flag holds it at the floor or releases it. Such a DAG is reconciled only when its
-    schedules differ from the tiers its graph asks for, which costs one listing per DAG.
-
-    Returns how many DAGs it reconciled.
-    """
-    reconciled = 0
-    organization_ids = nodes_with_a_declared_target().values_list("team__organization_id", flat=True).distinct()
-    for organization in Organization.objects.filter(id__in=organization_ids):
-        limit = plan_limit(organization)
-        if limit is None:
+    candidates = _user_set_targets_finer_than(MAX_PLAN_REFRESH_FLOOR)
+    clamped = 0
+    for organization in Organization.objects.filter(id__in=candidates.values("team__organization_id")):
+        floor = organization_plan_refresh_floor(organization)
+        if floor is None:
             continue
-        dag_ids = nodes_declared_finer_than(limit).filter(team__organization_id=organization.id).values("dag_id")
+        dag_ids = _user_set_targets_finer_than(floor).filter(team__organization_id=organization.id).values("dag_id")
         for dag in DAG.objects.filter(id__in=dag_ids).select_related("team"):
             try:
-                graph = build_frequency_graph(dag)
-                existing = list_existing_schedule_ids(str(dag.id))
-                if not _runs_on_tier_schedules(existing):
-                    continue
-                plan = plan_schedule_reconciliation(str(dag.id), _desired_tiers(graph), existing)
-                if plan.to_create or plan.to_delete:
-                    reconcile_dag_schedules(dag, graph=graph)
-                    reconciled += 1
-            except UnsupportedFrequencyTargetError:
-                logger.info("Plan floor drift skipped a DAG reconcile refuses", dag_id=str(dag.id), team_id=dag.team_id)
+                clamped += _clamp_dag_targets_to_plan_floor(dag, floor)
             except Exception as error:
-                logger.exception("Plan floor drift reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
+                logger.exception("Plan floor clamp failed", dag_id=str(dag.id), team_id=dag.team_id)
                 capture_exception(error)
-    return reconciled
+    return clamped
+
+
+def _user_set_targets_finer_than(interval: timedelta) -> QuerySet[Node]:
+    return (
+        nodes_declared_finer_than(interval)
+        .filter(saved_query__managed_viewset__isnull=True)
+        .exclude(saved_query__deleted=True)
+    )
+
+
+def _clamp_dag_targets_to_plan_floor(dag: DAG, floor: timedelta) -> int:
+    with transaction.atomic():
+        # The same lock order as apply_saved_query_frequency_target, so a concurrent save takes turns with the rewrite.
+        list(DAG.objects.select_for_update(no_key=True).filter(pk=dag.pk).values_list("pk", flat=True))
+        nodes = _user_set_targets_finer_than(floor).select_for_update(of=("self",)).filter(dag=dag).order_by("id")
+        rewritten: list[tuple[Node, timedelta]] = []
+        for node in nodes:
+            previous = get_declared_target(node)
+            if previous is None:
+                continue
+            stage_declared_target(node, floor)
+            rewritten.append((node, previous))
+        Node.objects.bulk_update([node for node, _ in rewritten], ["properties"])
+        if rewritten:
+            maybe_reconcile_dag(dag)
+    for node, previous in rewritten:
+        report_team_action(
+            dag.team,
+            PLAN_FLOOR_CLAMP_EVENT,
+            {
+                "saved_query_id": str(node.saved_query_id),
+                "previous_cadence": format_cadence(previous),
+                "plan_floor": format_cadence(floor),
+            },
+        )
+    return len(rewritten)
 
 
 def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:
@@ -664,7 +659,7 @@ async def _apply_reconciliation(
             schedule = _build_tier_schedule(dag_id, team_id, team_timezone, tier, node_ids)
             try:
                 await a_update_schedule(
-                    temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes
+                    temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes, keep_paused=True
                 )
             except RPCError as error:
                 if error.status != RPCStatusCode.NOT_FOUND:

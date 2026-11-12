@@ -15,7 +15,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team import Team
@@ -23,19 +22,9 @@ from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import ProductKey
 
-from products.data_modeling.backend.facade.api import (
-    declared_targets_by_saved_query,
-    get_declared_target,
-    schedule_floor_for_organization,
-)
+from products.data_modeling.backend.facade.api import declared_targets_by_saved_query, get_declared_target
 
 logger = logging.getLogger(__name__)
-
-
-@frozen
-class ServingWindow:
-    seconds: int
-    from_plan_floor: bool
 
 
 class _ReplacePlaceholdersWithDummies(CloningVisitor):
@@ -335,16 +324,6 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         declared = self.declared_target_seconds()
         return self.cache_ttl_seconds if declared is None else declared
 
-    @property
-    def serving_window(self) -> ServingWindow:
-        declared = self.declared_target_seconds()
-        if declared is None:
-            return ServingWindow(seconds=self.cache_ttl_seconds, from_plan_floor=False)
-        team = self.team or self.endpoint.team
-        floor = schedule_floor_for_organization(team.organization)
-        floor_seconds = 0 if floor is None else int(floor.total_seconds())
-        return ServingWindow(seconds=max(declared, floor_seconds), from_plan_floor=floor_seconds > declared)
-
     def disable_materialization(self, *, cache_ttl_seconds: int | None = None) -> None:
         """Disable materialization: revert and soft-delete the saved query, clear version fields."""
         if not self.saved_query:
@@ -527,12 +506,10 @@ class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
 
         Raises EndpointVersion.DoesNotExist if the requested version doesn't exist.
         """
-        # `serving_window` reads the organization on every materialized run.
-        versions = self.versions.select_related("team__organization")
         if version is not None:
-            return versions.get(version=version)
+            return self.versions.get(version=version)
 
-        latest = versions.first()  # Model ordering is -version
+        latest = self.versions.first()  # Model ordering is -version
         if latest is None:
             raise EndpointVersion.DoesNotExist("Endpoint has no versions")
         return latest

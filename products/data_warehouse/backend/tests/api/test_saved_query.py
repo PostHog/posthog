@@ -15,7 +15,6 @@ from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
-from posthoganalytics.types import FeatureFlagResult
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -1523,25 +1522,19 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(bounds["frequency_mode"], "tiered")
         self.assertTrue(bounds["options"])
 
-    def _six_hour_plan_floor(self, payload: dict | None) -> Any:
+    def _six_hour_plan_floor(self, flag_enabled: bool) -> Any:
         self.organization.available_product_features = [
             {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
         ]
         self.organization.save(update_fields=["available_product_features"])
-
-        def evaluate(key, distinct_id, **_kwargs):
-            enabled = payload is not None
-            return FeatureFlagResult(key=key, enabled=enabled, variant=None, payload=payload, reason=None)
-
         return patch(
-            "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
-            side_effect=evaluate,
+            "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=flag_enabled
         )
 
     @parameterized.expand(
         [
-            ("consumer_ceiling", timedelta(hours=6), None, "consumer"),
-            ("plan_floor", timedelta(days=30), {}, "plan"),
+            ("consumer_ceiling", timedelta(hours=6), False, "consumer"),
+            ("plan_floor", timedelta(days=30), True, "plan"),
         ]
     )
     def test_every_offered_cadence_is_accepted_and_every_withheld_one_is_refused(
@@ -1563,21 +1556,8 @@ class TestSavedQuery(APIBaseTest):
                     )
                 self.assertEqual(response.status_code, 200 if option["allowed"] else 400, (option, response.json()))
 
-    @parameterized.expand(
-        [
-            (
-                "clamped",
-                {"clamp_existing": True},
-                "6 hours",
-                {"cadence": "6hour", "reason": "plan"},
-            ),
-            ("kept_until_clamped", {}, "6 hours", {"cadence": "15min", "reason": None}),
-            ("not_floored", None, None, {"cadence": "15min", "reason": None}),
-        ]
-    )
-    def test_bounds_report_the_plan_floor_and_the_cadence_the_view_runs_at(
-        self, _name, plan_floor, expected_label, expected_effective
-    ):
+    @parameterized.expand([("floored", True, "6 hours"), ("not_floored", False, None)])
+    def test_bounds_report_the_plan_floor_and_keep_a_faster_saved_cadence(self, _name, plan_floor, expected_label):
         from products.data_modeling.backend.facade.api import set_declared_target
 
         saved_query = self._create_saved_query_for_frequency_tests()
@@ -1590,7 +1570,6 @@ class TestSavedQuery(APIBaseTest):
         bounds = response.json()["sync_frequency_bounds"]
         self.assertEqual(response.json()["sync_frequency"], "15min")
         self.assertEqual(bounds["plan_floor"], {"label": expected_label, "blocker": None} if expected_label else None)
-        self.assertEqual(bounds["effective"], expected_effective)
 
     def test_a_withheld_cadence_names_the_view_that_withholds_it(self):
         # A disabled option with no reason reads as a broken control. Every block carries the

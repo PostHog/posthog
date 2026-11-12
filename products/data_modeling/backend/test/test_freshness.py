@@ -166,19 +166,7 @@ class TestValidateFrequencyTarget(TestCase):
             ("below_plan_floor", "a", H1, [("src", "a")], {}, {"src": STREAMING}, False, frozenset(), H6),
             ("on_plan_floor_ok", "a", H6, [("src", "a")], {}, {"src": STREAMING}, True, frozenset(), H6),
             (
-                "enforced_plan_floor_above_a_faster_consumer_ok",
-                "a",
-                H6,
-                [("src", "a"), ("a", "ep")],
-                {"ep": M15},
-                {"src": STREAMING},
-                True,
-                frozenset(),
-                H6,
-                H6,
-            ),
-            (
-                "unenforced_plan_floor_keeps_a_faster_consumer_ceiling",
+                "plan_floor_keeps_a_faster_consumer_ceiling",
                 "a",
                 H6,
                 [("src", "a"), ("a", "ep")],
@@ -212,7 +200,6 @@ class TestValidateFrequencyTarget(TestCase):
         ok,
         pinned=frozenset(),
         plan_floor=None,
-        schedule_plan_floor=None,
     ):
         if ok:
             validate_declared_target(
@@ -223,7 +210,6 @@ class TestValidateFrequencyTarget(TestCase):
                 source_intervals=source_intervals,
                 pinned=pinned,
                 plan_floor=plan_floor,
-                schedule_plan_floor=schedule_plan_floor,
             )
         else:
             with self.assertRaises(UnsatisfiableFrequencyError):
@@ -235,7 +221,6 @@ class TestValidateFrequencyTarget(TestCase):
                     source_intervals=source_intervals,
                     pinned=pinned,
                     plan_floor=plan_floor,
-                    schedule_plan_floor=schedule_plan_floor,
                 )
 
     @parameterized.expand(
@@ -369,7 +354,6 @@ class TestComputeTargetBounds(TestCase):
             declared_targets=overrides.pop("declared_targets", self.TARGETS),
             source_intervals=overrides.pop("source_intervals", self.INTERVALS),
             plan_floor=overrides.pop("plan_floor", None),
-            schedule_plan_floor=overrides.pop("schedule_plan_floor", None),
         )
         return bounds, {option.value: option for option in bounds.options}
 
@@ -417,24 +401,7 @@ class TestComputeTargetBounds(TestCase):
                 None,
             ),
             (
-                "faster_consumer_moves_its_ceiling_up_to_the_enforced_plan_floor",
-                H6,
-                STREAMING,
-                {"ep": M15},
-                {
-                    M15: "plan",
-                    M30: "plan",
-                    H1: "plan",
-                    H12: "consumer",
-                    DAY: "consumer",
-                    timedelta(days=7): "consumer",
-                    DAY30: "consumer",
-                },
-                H6,
-                H6,
-            ),
-            (
-                "faster_consumer_keeps_its_ceiling_while_the_plan_floor_is_not_enforced",
+                "faster_consumer_keeps_its_ceiling",
                 H6,
                 STREAMING,
                 {"ep": M15},
@@ -452,14 +419,9 @@ class TestComputeTargetBounds(TestCase):
             ),
         ]
     )
-    def test_plan_floor(
-        self, _name, plan_floor, source_interval, targets, expected_blocked, expected_plan_floor, schedule_floor=None
-    ):
+    def test_plan_floor(self, _name, plan_floor, source_interval, targets, expected_blocked, expected_plan_floor):
         bounds, options = self._options(
-            declared_targets=targets,
-            source_intervals={"src": source_interval},
-            plan_floor=plan_floor,
-            schedule_plan_floor=schedule_floor,
+            declared_targets=targets, source_intervals={"src": source_interval}, plan_floor=plan_floor
         )
         self.assertEqual(
             {value: option.blocked_by for value, option in options.items() if not option.allowed}, expected_blocked
@@ -693,22 +655,6 @@ class TestClampToSourceFloor(TestCase):
             self.assertEqual(changes[0].demanded, effective["a"])
             self.assertEqual(changes[0].source_floor, source_intervals["src"])
             self.assertEqual(changes[0].clamped_to, expected_clamped_to)
-
-    @parameterized.expand(
-        [
-            ("plan_floor_coarsens", M15, STREAMING, H6, H6, "plan"),
-            ("slower_source_wins", M15, H12, H6, H12, "source"),
-            ("tied_floors_blame_the_source", M15, H6, H6, H6, "source"),
-            ("already_slower_than_the_plan_floor", DAY, STREAMING, H6, DAY, None),
-            ("no_plan_floor", M15, STREAMING, None, M15, None),
-        ]
-    )
-    def test_clamp_to_plan_floor(self, _name, demanded, source_interval, plan_floor, expected, expected_reason):
-        clamped, changes = clamp_to_source_floor(
-            {"a": demanded}, edges=[("src", "a")], source_intervals={"src": source_interval}, plan_floor=plan_floor
-        )
-        self.assertEqual(clamped, {"a": expected})
-        self.assertEqual([change.reason for change in changes], [expected_reason] if expected_reason else [])
 
     def test_a_child_of_only_pinned_parents_runs_no_faster_than_the_fastest_pin(self):
         clamped, _ = clamp_to_source_floor(

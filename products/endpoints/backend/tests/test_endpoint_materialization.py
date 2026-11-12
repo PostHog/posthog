@@ -13,7 +13,6 @@ from django.utils import timezone
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from posthoganalytics.types import FeatureFlagResult
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
@@ -398,16 +397,13 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(new_version.version, 2)
         self.assertEqual(new_version.data_freshness_seconds, 43200)
 
-    def _six_hour_plan_floor(self, payload=None):
+    def _six_hour_plan_floor(self):
         self.organization.available_product_features = [
             {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
         ]
         self.organization.save(update_fields=["available_product_features"])
         return mock.patch(
-            "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
-            return_value=FeatureFlagResult(
-                key="data-modeling-refresh-floor", enabled=True, variant=None, payload=payload, reason=None
-            ),
+            "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=True
         )
 
     @parameterized.expand(
@@ -519,29 +515,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         current = endpoint.get_version()
         self.assertEqual(current.version, 3)
         self.assertIsNotNone(current.saved_query_id)
-        self.assertEqual(current.data_freshness_seconds, 900)
-
-    def test_query_edit_keeps_its_cadence_on_every_version_while_running_schedules_are_clamped(self):
-        endpoint = create_endpoint_with_version(
-            name="clamped_repeat_edits",
-            team=self.team,
-            query=self.sample_hogql_query,
-            created_by=self.user,
-            data_freshness_seconds=900,
-        )
-        url = f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/"
-        self.assertEqual(self.client.patch(url, {"is_materialized": True}, format="json").status_code, 200)
-
-        with self._six_hour_plan_floor(payload={"clamp_existing": True}):
-            for columns in ("count()", "count(), 1"):
-                response = self.client.patch(
-                    url, {"query": {"kind": "HogQLQuery", "query": f"SELECT {columns} FROM events"}}, format="json"
-                )
-                self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-                self.assertNotIn("materialization_error", response.json())
-
-        current = endpoint.get_version()
-        self.assertEqual(current.version, 3)
         self.assertEqual(current.data_freshness_seconds, 900)
 
     @parameterized.expand([(True,), (False,)])
