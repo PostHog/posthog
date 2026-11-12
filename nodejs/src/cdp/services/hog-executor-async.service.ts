@@ -410,15 +410,44 @@ export class HogExecutorAsyncService {
         headers = Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, replaceTokens(value)]))
         params.url = replaceTokens(params.url)
 
+        const failSigning = (error: string): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
+            addLog('error', error)
+            result.error = new Error(error)
+            result.finished = true
+            return result
+        }
+
+        let signedHeaders = headers
+
+        // Secret headers are merged before signing so that the signatures cover them, and they are never written
+        // back to queueParameters, so every attempt resolves them again from the hog function.
+        if (params.secret_headers_input) {
+            const resolved = resolveSecretHeaders(params.secret_headers_input, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            signedHeaders = mergeSecretHeaders(signedHeaders, resolved.headers)
+        }
+
         // Bound event-forwarding loops: a fetch back into this project's own ingestion
         // endpoint re-enters the pipeline and can re-trigger this same function. The
         // ingest-URL check gates the team lookup so external fetches (the common case) pay
         // nothing, and the whole block fails open - the guard must never break a destination
-        // it was only meant to protect.
+        // it was only meant to protect. It runs after the secret headers are merged, because
+        // capture v1 takes the project token from an Authorization header that a destination
+        // may keep there, and before signing, because it rewrites the body the signatures cover.
         if (isPostHogIngestUrl(params.url)) {
             try {
                 const team = await this.deps.teamManager.getTeam(invocation.teamId)
-                if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, headers, team })) {
+                if (
+                    team &&
+                    isSelfReferentialIngestFetch({
+                        url: params.url,
+                        body: params.body,
+                        headers: signedHeaders,
+                        team,
+                    })
+                ) {
                     // Depth is counted per function id, so this destination is bounded only
                     // by how many times IT has re-fed itself - an event that merely passed
                     // through other functions can never trip the guard for it.
@@ -455,25 +484,6 @@ export class HogExecutorAsyncService {
         // regenerated here and never persisted back to queueParameters. Credential
         // resolution + missing-input handling live in `aws-sigv4.ts` — see
         // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
-        const failSigning = (error: string): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
-            addLog('error', error)
-            result.error = new Error(error)
-            result.finished = true
-            return result
-        }
-
-        let signedHeaders = headers
-
-        // Secret headers are merged before signing so that the signatures cover them, and they are never written
-        // back to queueParameters, so every attempt resolves them again from the hog function.
-        if (params.secret_headers_input) {
-            const resolved = resolveSecretHeaders(params.secret_headers_input, invocation.hogFunction)
-            if (!resolved.ok) {
-                return failSigning(resolved.error)
-            }
-            signedHeaders = mergeSecretHeaders(signedHeaders, resolved.headers)
-        }
-
         if (params.aws_sigv4) {
             const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
             if (!resolved.ok) {

@@ -2660,12 +2660,44 @@ describe('Hog Executor', () => {
             const ownTokenCaptureBody = (): string =>
                 JSON.stringify({ api_key: OWN_TOKEN, event: 'replicated', distinct_id: 'u1', properties: {} })
 
-            // The two ways a destination can post back into its own project. Capture v1 takes the
-            // token from the Authorization header, and the event properties sit inside `batch`.
+            const v1SelfPostBody = (): string =>
+                JSON.stringify({
+                    created_at: '2026-01-01T00:00:00Z',
+                    batch: [
+                        {
+                            event: 'replicated',
+                            uuid: '0190f3a2-0000-7000-8000-000000000001',
+                            distinct_id: 'u1',
+                            timestamp: '2026-01-01T00:00:00Z',
+                            properties: {},
+                        },
+                    ],
+                })
+
+            // The ways a destination can post back into its own project. Capture v1 takes the
+            // token from the Authorization header, which a webhook may keep in its encrypted
+            // secret headers, and the event properties sit inside `batch`.
             const SELF_POSTS = {
                 legacy: {
                     request: () => ({ url: INGEST_URL, method: 'POST', body: ownTokenCaptureBody() }),
+                    seed: (_invocation: CyclotronJobInvocationHogFunction): void => {},
                     sentProperties: (body: any) => body.properties,
+                },
+                v1_secret_header: {
+                    request: () => ({
+                        url: 'https://us.i.posthog.com/i/v1/analytics/events',
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        secret_headers_input: 'secret_headers',
+                        body: v1SelfPostBody(),
+                    }),
+                    seed: (invocation: CyclotronJobInvocationHogFunction): void => {
+                        invocation.hogFunction.encrypted_inputs = {
+                            ...(invocation.hogFunction.encrypted_inputs ?? {}),
+                            secret_headers: { value: { Authorization: `Bearer ${OWN_TOKEN}` } },
+                        } as any
+                    },
+                    sentProperties: (body: any) => body.batch[0].properties,
                 },
                 v1: {
                     request: () => ({
@@ -2685,6 +2717,7 @@ describe('Hog Executor', () => {
                             ],
                         }),
                     }),
+                    seed: (_invocation: CyclotronJobInvocationHogFunction): void => {},
                     sentProperties: (body: any) => body.batch[0].properties,
                 },
             } as const
@@ -2746,9 +2779,16 @@ describe('Hog Executor', () => {
                 { case: 'mid-chain under the cap', depth: 2, stampedTo: 3, post: 'legacy' },
                 { case: 'the last hop under the cap', depth: 9, stampedTo: 10, post: 'legacy' },
                 { case: 'a capture v1 self-post mid-chain', depth: 2, stampedTo: 3, post: 'v1' },
+                {
+                    case: 'a capture v1 self-post with the token in a secret header',
+                    depth: 2,
+                    stampedTo: 3,
+                    post: 'v1_secret_header',
+                },
             ] as const)('enforce: allows + stamps the next hop ($case)', async ({ depth, stampedTo, post }) => {
                 mockOwnTeam()
                 const invocation = await createFetchInvocation(SELF_POSTS[post].request())
+                SELF_POSTS[post].seed(invocation)
                 setSelfLoopDepth(invocation, depth)
                 const sent = captureIngestFetch()
                 const blockedBefore = await readActionCount('enforce', 'blocked')
@@ -2789,24 +2829,28 @@ describe('Hog Executor', () => {
                 expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore)
             })
 
-            it.each(['legacy', 'v1'] as const)('enforce: breaks a %s chain once it reaches the cap', async (post) => {
-                mockOwnTeam()
-                const invocation = await createFetchInvocation(SELF_POSTS[post].request())
-                setSelfLoopDepth(invocation, 10)
-                mockRequest.mockClear()
-                const blockedBefore = await readActionCount('enforce', 'blocked')
+            it.each(['legacy', 'v1', 'v1_secret_header'] as const)(
+                'enforce: breaks a %s chain once it reaches the cap',
+                async (post) => {
+                    mockOwnTeam()
+                    const invocation = await createFetchInvocation(SELF_POSTS[post].request())
+                    SELF_POSTS[post].seed(invocation)
+                    setSelfLoopDepth(invocation, 10)
+                    mockRequest.mockClear()
+                    const blockedBefore = await readActionCount('enforce', 'blocked')
 
-                const result = await executor.executeFetch(invocation)
+                    const result = await executor.executeFetch(invocation)
 
-                // Blocked: error set, finished, no fetch attempted, metric moved.
-                expect(result.error).toBeInstanceOf(Error)
-                expect(result.finished).toBe(true)
-                expect(mockRequest).not.toHaveBeenCalled()
-                expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore + 1)
-                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
-                    expect.arrayContaining([expect.stringContaining('event-forwarding loop has already repeated')])
-                )
-            })
+                    // Blocked: error set, finished, no fetch attempted, metric moved.
+                    expect(result.error).toBeInstanceOf(Error)
+                    expect(result.finished).toBe(true)
+                    expect(mockRequest).not.toHaveBeenCalled()
+                    expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore + 1)
+                    expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
+                        expect.arrayContaining([expect.stringContaining('event-forwarding loop has already repeated')])
+                    )
+                }
+            )
 
             it('enforce: leaves a normal external fetch untouched', async () => {
                 mockOwnTeam()
