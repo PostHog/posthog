@@ -397,6 +397,16 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert self.client.post(f"{self.url}upload/", {"provider": "fivetran"}).status_code == 201
         assert self.client.post(f"{self.url}upload/", {"provider": "fivetran"}).status_code == 429
 
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("posthog.rate_limit.WarehouseMigrationCostEstimateThrottle.rate", new="1/hour")
+    @patch(f"{_SERVICE}.row_price_tiers", return_value=None)
+    def test_session_callers_cannot_request_unlimited_cost_estimates(self, *_mocks: MagicMock) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        url = f"{self.url}{self._migration().id}/cost_estimate/"
+        assert self.client.post(url, {}, format="json").status_code == 200
+        assert self.client.post(url, {}, format="json").status_code == 429
+
     @parameterized.expand([("never_started", False, "failed"), ("started_but_unacknowledged", True, "crawling")])
     def test_a_crawl_that_cannot_start_fails_so_it_can_be_refreshed(
         self, _name: str, crawl_started: bool, expected_status: str
