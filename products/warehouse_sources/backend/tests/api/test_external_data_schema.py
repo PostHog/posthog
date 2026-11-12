@@ -737,8 +737,8 @@ class TestExternalDataSchema(APIBaseTest):
                 ["created_at", "fecha_actualizacion"],
                 1,
             ),
-            ("unsure_answer", {}, ["created_at", "created_at"], 1, "c9"),
-            ("wizard_already_asked", {}, ["fecha_actualizacion", "fecha_actualizacion"], 1, "c1", True),
+            ("unsure_answer", {}, ["created_at", "created_at"], 1, "c1", 0.3),
+            ("wizard_already_asked", {}, ["fecha_actualizacion", "fecha_actualizacion"], 1, "c1", 0.9, True),
         ]
     )
     def test_incremental_fields_stores_the_model_pick_for_later_opens(
@@ -748,6 +748,7 @@ class TestExternalDataSchema(APIBaseTest):
         expected_first_field_per_open,
         expected_model_calls,
         choice="c1",
+        confidence=0.9,
         wizard_asked_first=False,
     ):
         self.organization.is_ai_data_processing_approved = True
@@ -767,7 +768,7 @@ class TestExternalDataSchema(APIBaseTest):
         with (
             mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
             mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
-            fake_decision_model(choice=choice) as model_calls,
+            fake_decision_model(choice=choice, confidence=confidence) as model_calls,
             mock.patch(
                 "products.warehouse_sources.backend.logic.incremental_field_model.cache",
                 LocMemCache(f"incremental-field-{_name}", {}),
@@ -786,6 +787,25 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert first_fields == expected_first_field_per_open
         assert len(model_calls) == expected_model_calls
+
+    def test_incremental_fields_queues_nothing_when_the_wizard_answer_agrees_with_the_rules(self):
+        schema = self._orders_schema_without_cursor()
+        recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
+            mock.patch(f"{recommender}.cache", LocMemCache("incremental-field-agrees", {})),
+            mock.patch(
+                "products.warehouse_sources.backend.tasks.tasks.compute_incremental_field_suggestion.apply_async"
+            ) as dispatch,
+            fake_decision_model(choice="c0"),
+        ):
+            discovered = open_orders_schema()
+            recommend_for_candidates([(discovered.name, discovered.incremental_fields)], team=self.team)
+            first_field = self._open_sync_form(schema)
+
+        assert first_field == "created_at"
+        assert dispatch.call_count == 0
 
     def _orders_schema_without_cursor(self) -> ExternalDataSchema:
         self.organization.is_ai_data_processing_approved = True

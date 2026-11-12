@@ -71,13 +71,13 @@ def open_orders_schema(name: str = "orders") -> SourceSchema:
 
 
 @contextmanager
-def fake_decision_model(choice: str = "c1") -> Iterator[list[Mapping[str, Question]]]:
+def fake_decision_model(choice: str = "c1", confidence: float = 0.9) -> Iterator[list[Mapping[str, Question]]]:
     """Turn the model gates on and answer every question with `choice`. Yields the questions asked."""
     calls: list[Mapping[str, Question]] = []
 
     async def adecide(_self: Any, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
         calls.append(questions)
-        answer = ChoiceAnswer(choice=choice, confidence=0.9, probabilities={choice: 0.9})
+        answer = ChoiceAnswer(choice=choice, confidence=confidence, probabilities={choice: confidence})
         return SystemOneResult(model="jeeves-0.1", answers=dict.fromkeys(questions, answer), input_tokens=1)
 
     gateway = GatewaySystemOneClient(

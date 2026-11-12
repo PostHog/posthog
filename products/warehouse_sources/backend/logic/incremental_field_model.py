@@ -57,8 +57,10 @@ logger = structlog.get_logger(__name__)
 FEATURE_FLAG = "warehouse-incremental-field-model"
 AI_PRODUCT = "warehouse_sources"
 MODEL = DEFAULT_DECISION_MODEL
-# The sync settings form waits for the answer, so _ask_all gives every request together this long.
+# The wizard's recommendations request waits for the answer, so _ask_all gives every request together this long.
 TIMEOUT_SECONDS = 3.0
+# The stored-pick task has no one waiting, so a slow gateway answer still gets stored instead of asked again.
+TASK_TIMEOUT_SECONDS = 20.0
 MIN_CONFIDENCE = 0.6
 MAX_REQUESTS = 4
 # The open tables one call asks about, so a caller sending more gets no answer for the rest.
@@ -88,17 +90,19 @@ _INSTRUCTIONS = (
 PROMPT_VERSION = hashlib.sha256(_INSTRUCTIONS.encode()).hexdigest()[:12]
 
 
-def recommend_incremental_fields(schemas: Sequence[SourceSchema], *, team: "Team") -> None:
+def recommend_incremental_fields(
+    schemas: Sequence[SourceSchema], *, team: "Team", timeout: float | None = None
+) -> None:
     """Move the model's confident pick to the front of each open table's `incremental_fields`."""
     try:
-        _recommend(schemas, team)
+        _recommend(schemas, team, timeout)
     except Exception as error:
         # The rule-based order is a complete answer, so a failure here must not fail the endpoint.
         capture_exception(error, {"team_id": team.pk})
 
 
 def recommend_for_candidates(
-    tables: Sequence[tuple[str, list[IncrementalField]]], *, team: "Team"
+    tables: Sequence[tuple[str, list[IncrementalField]]], *, team: "Team", timeout: float | None = None
 ) -> dict[str, list[IncrementalField]]:
     """The reordered candidates of each table where the model made a pick, keyed by table name.
 
@@ -115,7 +119,7 @@ def recommend_for_candidates(
         )
         for name, fields in tables
     ]
-    recommend_incremental_fields(schemas, team=team)
+    recommend_incremental_fields(schemas, team=team, timeout=timeout)
     return {
         schema.name: schema.incremental_fields
         for schema in schemas
@@ -189,7 +193,7 @@ def store_incremental_field_suggestion(
     team: "Team", schema_id: str, table: str, fields: list[IncrementalField]
 ) -> None:
     """Ask the model for one table and store a confident pick on the schema."""
-    picks = recommend_for_candidates([(table, fields)], team=team)
+    picks = recommend_for_candidates([(table, fields)], team=team, timeout=TASK_TIMEOUT_SECONDS)
     if table not in picks:
         return
     asked = SourceSchema(name=table, supports_incremental=True, supports_append=True, incremental_fields=fields)
@@ -215,7 +219,8 @@ def _without_model_pick(field: IncrementalField) -> IncrementalField:
     return cleaned
 
 
-def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
+def _recommend(schemas: Sequence[SourceSchema], team: "Team", timeout: float | None) -> None:
+    timeout = TIMEOUT_SECONDS if timeout is None else timeout
     pending = [schema for schema in schemas if _is_open(schema)]
     if not pending or not _model_allowed(team):
         return
@@ -233,12 +238,12 @@ def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
             model=MODEL,
             ai_product=AI_PRODUCT,
             distinct_id=team_distinct_id(team.pk),
-            timeout=TIMEOUT_SECONDS,
+            timeout=timeout,
             privacy_mode=True,
         )
         # No TypeSafe fallback is passed, so the client is always the gateway one.
         assert isinstance(client, GatewaySystemOneClient)
-        answers = async_to_sync(_ask_all)(client, [[(i, pending[i]) for i in batch] for batch in batches])
+        answers = async_to_sync(_ask_all)(client, [[(i, pending[i]) for i in batch] for batch in batches], timeout)
         picks.update({index: field_name for index, field_name in answers.items() if field_name})
         _cache_set_many({keys[index]: field_name for index, field_name in answers.items()})
 
@@ -312,10 +317,12 @@ def _table_state(schema: SourceSchema) -> dict[str, JsonValue]:
     }
 
 
-async def _ask_all(client: GatewaySystemOneClient, batches: list[list[tuple[int, SourceSchema]]]) -> dict[int, str]:
+async def _ask_all(
+    client: GatewaySystemOneClient, batches: list[list[tuple[int, SourceSchema]]], timeout: float
+) -> dict[int, str]:
     """Run every batch under one deadline. A request still open at the deadline is cancelled."""
     tasks = [asyncio.create_task(_ask(client, batch)) for batch in batches]
-    done, late = await asyncio.wait(tasks, timeout=TIMEOUT_SECONDS)
+    done, late = await asyncio.wait(tasks, timeout=timeout)
     for task in late:
         task.cancel()
     if late:
