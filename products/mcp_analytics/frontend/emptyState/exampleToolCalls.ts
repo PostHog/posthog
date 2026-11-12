@@ -1,4 +1,4 @@
-import type { BrandMarkName } from '../brandMarks'
+import type { BrandMarkName } from 'lib/components/BrandMark/brandMarks'
 
 export type ExampleHarness = 'claude' | 'cursor' | 'openai'
 

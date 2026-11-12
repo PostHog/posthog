@@ -23,6 +23,18 @@ describe('analyticsPinnedLogic', () => {
                     ],
                 },
             },
+            post: {
+                '/api/projects/:team_id/file_system_shortcut/': async ({ request }) => {
+                    const body = (await request.json()) as { type: string; ref: string; path: string }
+                    requests.push(`create ${body.type}:${body.ref}`)
+                    return [201, { id: 'sc-new', ...body }]
+                },
+                '/api/projects/:team_id/file_system_shortcut/reorder/': async ({ request }) => {
+                    const { ordered_ids } = (await request.json()) as { ordered_ids: string[] }
+                    requests.push(`reorder ${ordered_ids.join(',')}`)
+                    return [200, []]
+                },
+            },
             delete: {
                 '/api/projects/:team_id/file_system_shortcut/:id/': ({ params }) => {
                     requests.push(`delete ${params.id}`)
@@ -49,5 +61,40 @@ describe('analyticsPinnedLogic', () => {
         ).toDispatchActions(projectTreeDataLogic, ['deleteShortcutSuccess'])
         expect(requests).toEqual(['delete sc-insight'])
         expect(logic.values.pinnedAnalytics.map((pinned) => pinned.key)).toEqual(['folder:Growth', 'dashboard:7'])
+        expect(logic.values.recentlyPinnedKey).toBeNull()
+    })
+
+    it('marks a new pin for the sidebar to slide in, under the key its sidebar row carries', async () => {
+        const logic = analyticsPinnedLogic()
+        logic.mount()
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+
+        await expectLogic(logic, () =>
+            logic.actions.togglePinned({ type: 'notebook', ref: 'nb1', name: 'Launch notes', href: '/notebooks/nb1' })
+        ).toDispatchActions(projectTreeDataLogic, ['addShortcutItemSuccess'])
+        expect(requests).toEqual(['create notebook:nb1'])
+        const added = logic.values.pinnedAnalytics.at(-1)
+        expect(added?.key).toBe('notebook:nb1')
+        expect(logic.values.recentlyPinnedKey).toBe(added?.key)
+
+        logic.actions.clearRecentlyPinned()
+        expect(logic.values.recentlyPinnedKey).toBeNull()
+    })
+
+    it('moves a pin among the other pins and leaves the shortcuts that are not analytics in place', async () => {
+        const logic = analyticsPinnedLogic()
+        logic.mount()
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+
+        await expectLogic(logic, () => logic.actions.movePinned('sc-dashboard', 'sc-growth')).toDispatchActions(
+            projectTreeDataLogic,
+            ['reorderShortcutsSuccess']
+        )
+        expect(requests).toEqual(['reorder sc-product,sc-home,sc-dashboard,sc-growth,sc-insight'])
+        expect(logic.values.pinnedAnalytics.map((pinned) => pinned.key)).toEqual([
+            'dashboard:7',
+            'folder:Growth',
+            'insight:abc123',
+        ])
     })
 })

@@ -98,7 +98,6 @@ dashboards.Dashboard posthog.Team.primary_dashboard reverse-accessor(primary_das
 dashboards.Dashboard product_analytics.Insight.dashboard reverse-accessor(items) 1
 dashboards.Dashboard products.dashboards.backend.facade.api.InsightTilePlacement.__init__ facade-accepts(dashboards) 1
 dashboards.Dashboard products.dashboards.backend.facade.api.tile_for_render facade-accepts(dashboard) 1
-dashboards.Dashboard products.product_analytics.backend.facade.models.generate_insight_filters_hash facade-accepts(dashboard) 1
 dashboards.DashboardTile products.dashboards.backend.facade.api.tile_for_insight_on_dashboard facade-returns 1
 dashboards.DashboardTile products.dashboards.backend.facade.api.tile_for_render facade-returns 1
 data_catalog.Metric products.data_catalog.backend.facade.api.approve_metric facade-accepts(metric) 1
@@ -277,9 +276,6 @@ event_definitions.EventDefinition posthog.ObjectMediaPreview.event_definition re
 event_definitions.PropertyDefinition access_control.PropertyAccessControl.property_definition reverse-accessor(property_access_controls) 1
 event_definitions.PropertyDefinition ee.EnterprisePropertyDefinition.propertydefinition_ptr reverse-accessor(enterprisepropertydefinition) 1
 event_definitions.PropertyDefinition posthog.MaterializedColumnSlot.property_definition reverse-accessor(materialized_column_slots) 1
-experiments:backend/hogql_queries/ posthog.session_recordings.queries.test.listing_recordings.test_session_recordings_list_by_experiment_exposure drives(ExposureQueryBuilder) 1
-experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunner) 2
-experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunnerBaseTest) 1
 exports.ExportedAsset posthog.ObjectMediaPreview.exported_asset reverse-accessor(object_previews) 1
 exports.ExportedAsset products.exports.backend.facade.api.create_export_asset_async facade-returns 1
 exports.ExportedAsset products.exports.backend.facade.api.get_export_asset facade-returns 1
@@ -530,7 +526,6 @@ product_analytics.Insight posthog.api.search in-collection 1
 product_analytics.Insight posthog.api.sharing instance-many(filter) 1
 product_analytics.Insight posthog.api.sharing instance-single 1
 product_analytics.Insight posthog.api.sharing_publish_gate isinstance 1
-product_analytics.Insight posthog.caching.calculate_results isinstance 1
 product_analytics.Insight posthog.caching.warming instance-single 1
 product_analytics.Insight posthog.helpers.dashboard_templates write(create) 2
 product_analytics.Insight posthog.management.commands.backfill_insights_query_metadata instance-many(filter) 1

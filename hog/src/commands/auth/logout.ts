@@ -1,5 +1,6 @@
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
+import { plural } from '@/core/text'
 import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
 import { chooseLogin } from '@/posthog/login/choose'
 import { clearPendingLogins } from '@/posthog/login/flow'
@@ -27,8 +28,8 @@ export default defineCommand({
     description: 'Log out of PostHog and remove the login hog stored on this machine',
     writes: true,
     notes: [
-        'hog removes the login commands in this folder use, the same one `hog auth status` shows. Logins to other projects stay.',
-        'hog revokes the login on this machine in PostHog. Your hog logins on other machines keep working.',
+        'Removes the login that commands in this folder use, which is the one `hog auth status` shows. Logins to other projects stay.',
+        "hog also revokes this machine's login in PostHog. Logins on other machines keep working.",
         'A personal API key you pasted stays valid until you delete it in PostHog under Settings > Personal API keys.',
     ].join('\n'),
     options: {
@@ -77,45 +78,56 @@ export default defineCommand({
 
     human({ result, out }) {
         const loggedOut = result.logins ?? (result.host && result.status === 'logged_out' ? [result] : [])
+        const label = ({ host, projectId }: { host: string | null; projectId: string | null }): string =>
+            `${projectId ? `project ${projectId} on ` : ''}${escapeControls(host ?? '')}`
+        // With several logins, each warning names the login it is about.
+        const about = (login: (typeof loggedOut)[number]): string => (loggedOut.length > 1 ? `${label(login)}: ` : '')
+
+        const warnings: string[] = []
+        const notes: string[] = []
+        for (const login of loggedOut) {
+            if (login.revoked === false) {
+                warnings.push(
+                    `${about(login)}hog couldn't reach PostHog to revoke the login, so it still works. Revoke it in PostHog under Settings > Connected applications.`
+                )
+            }
+            if (login.keychainLeftover) {
+                warnings.push(
+                    `${about(login)}hog couldn't remove an older copy of the key from the keychain: ${login.keychainLeftover} Delete the hog item for ${escapeControls(login.host ?? '')} from the keychain.`
+                )
+            }
+            if (login.revokeUrl) {
+                notes.push(
+                    out.style(
+                        `${about(login)}The key keeps working until you delete it at ${escapeControls(login.revokeUrl)}`,
+                        'dim'
+                    )
+                )
+            }
+        }
+        if (result.stillSet.length > 0) {
+            warnings.push(`Still logged in through ${result.stillSet.join(' and ')}. Unset it to log out fully.`)
+        }
+
         if (loggedOut.length === 0) {
             const which =
                 result.host && result.projectId
                     ? ` for project ${result.projectId} on ${escapeControls(result.host)}`
                     : ''
-            out.line(`hog had no stored login${which} to remove.`)
+            out.report({ status: 'unchanged', result: `There's no stored login${which} to remove`, warnings })
+            return
         }
 
-        for (const { host, projectId, revoked, revokeUrl, keychainLeftover } of loggedOut) {
-            const project = projectId ? `project ${projectId} on ` : ''
-            out.line(`${out.style('Logged out', 'green', 'bold')} of ${project}${escapeControls(host ?? '')}.`)
-
-            if (revoked === false) {
-                out.line(
-                    out.style(
-                        "hog couldn't reach PostHog to revoke the login, so it keeps working in PostHog. Revoke it under Settings > Connected applications.",
-                        'yellow'
-                    )
-                )
-            }
-
-            if (keychainLeftover) {
-                out.line(
-                    out.style(
-                        `hog couldn't remove an older copy of the key from the keychain: ${keychainLeftover} Remove the hog item for ${escapeControls(host ?? '')} from the keychain yourself.`,
-                        'yellow'
-                    )
-                )
-            }
-
-            if (revokeUrl) {
-                out.line(out.style(`The key still works until you delete it at ${revokeUrl}`, 'dim'))
-            }
-        }
-
-        if (result.stillSet.length > 0) {
-            out.line(
-                `${out.style('Still logged in', 'yellow', 'bold')} through ${result.stillSet.join(' and ')}. Unset it to log out fully.`
-            )
-        }
+        const [only] = loggedOut
+        out.report({
+            status: warnings.length > 0 ? 'partial' : 'done',
+            result:
+                only && loggedOut.length === 1
+                    ? `Logged out of ${label(only)}`
+                    : `Logged out of ${plural(loggedOut.length, 'login')}`,
+            effects: loggedOut.length > 1 ? loggedOut.map(label) : [],
+            warnings,
+            notes,
+        })
     },
 })

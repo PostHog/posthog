@@ -1273,7 +1273,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         automatedUpdate: !!message.item_context?.automated_update_key,
                         version: message.version,
                         emailDeliveryStatus: message.item_context?.email_delivery_status,
-                        fromZendesk: message.item_context?.from_zendesk === true,
+                        fromExternalImport:
+                            message.item_context?.from_zendesk === true || message.item_context?.from_intercom === true,
+                        fromGithub: message.item_context?.from_github === true,
                         hasFullEmailContent: message.item_context?.has_full_email_content === true,
                         citations: Array.isArray(message.item_context?.citations)
                             ? message.item_context.citations.filter(

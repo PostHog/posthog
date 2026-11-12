@@ -1399,6 +1399,11 @@ export interface TaskDetailDTOApi {
      * @nullable
      */
     last_client_at?: string | null
+    /**
+     * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+     * @nullable
+     */
+    repository_integration?: number | null
 }
 
 /**
@@ -1481,6 +1486,11 @@ export interface TaskBasicApi {
      * @nullable
      */
     last_client_at?: string | null
+    /**
+     * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+     * @nullable
+     */
+    repository_integration?: number | null
     /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
     readonly description_preview: string
 }
@@ -1731,7 +1741,7 @@ export interface TaskCreateApi {
      * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
-     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+     * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
      * @maxLength 255
      * @nullable
      */
@@ -1747,6 +1757,11 @@ export interface TaskCreateApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.
+     * @nullable
+     */
+    repository_integration?: number | null
     /**
      * User-scoped GitHub integration to use for user-authored cloud runs.
      * @nullable
@@ -1949,6 +1964,11 @@ export interface TaskCreateResponseDTOApi {
      * @nullable
      */
     last_client_at?: string | null
+    /**
+     * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+     * @nullable
+     */
+    repository_integration?: number | null
     /** Error returned when the task was created but its first run could not start. */
     run_error?: string
 }
@@ -1996,7 +2016,7 @@ export interface TaskWriteApi {
      * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
-     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+     * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
      * @maxLength 255
      * @nullable
      */
@@ -2012,6 +2032,11 @@ export interface TaskWriteApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.
+     * @nullable
+     */
+    repository_integration?: number | null
     /**
      * User-scoped GitHub integration to use for user-authored cloud runs.
      * @nullable
@@ -2136,7 +2161,7 @@ export interface PatchedTaskWriteApi {
      * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
-     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+     * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
      * @maxLength 255
      * @nullable
      */
@@ -2152,6 +2177,11 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.
+     * @nullable
+     */
+    repository_integration?: number | null
     /**
      * User-scoped GitHub integration to use for user-authored cloud runs.
      * @nullable
@@ -2956,6 +2986,11 @@ export interface TaskRunResponseApi {
      * @nullable
      */
     last_client_at?: string | null
+    /**
+     * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+     * @nullable
+     */
+    repository_integration?: number | null
     /** Error returned when the run could not start. */
     run_error?: string
     /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
@@ -5402,7 +5437,7 @@ export type SandboxCustomImagesListParams = {
      */
     offset?: number
     /**
-     * Return 403 unless tasks from this origin product can run on custom images. Leave it out to only check that custom images are enabled.
+     * The list is empty when tasks from this origin product cannot run on custom images. Leave it out to list every image you can see.
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit

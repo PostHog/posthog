@@ -32,6 +32,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.integrations import IntegrationManager
+from posthog.integrations.lifecycle import sdk_runs_hooks
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -343,15 +344,17 @@ class ChannelMembership(TeamScopedRootMixin):
 def clear_channel_repositories_on_github_integration_delete(
     sender: type[Integration], instance: Integration, **kwargs: Any
 ) -> None:
-    if instance.kind != Integration.IntegrationKind.GITHUB:
+    # The SDK calls the integration hook itself. This receiver is for the deletes that do not use the SDK.
+    if instance.kind != Integration.IntegrationKind.GITHUB or sdk_runs_hooks():
         return
+    clear_channel_repositories_of_github_integration(instance.team_id, instance.id)
 
+
+def clear_channel_repositories_of_github_integration(team_id: int, integration_id: int) -> None:
     affected = list(
-        Channel.objects.for_team(instance.team_id)
-        .filter(github_integration_id=instance.id)
-        .values_list("id", "repositories")
+        Channel.objects.for_team(team_id).filter(github_integration_id=integration_id).values_list("id", "repositories")
     )
-    Channel.objects.for_team(instance.team_id).filter(github_integration_id=instance.id).update(
+    Channel.objects.for_team(team_id).filter(github_integration_id=integration_id).update(
         github_integration=None,
         repositories=[],
     )
@@ -362,13 +365,13 @@ def clear_channel_repositories_on_github_integration_delete(
     from products.tasks.backend.repository_config_analytics import capture_repository_config_changed
 
     capture_repository_config_changed(
-        team=instance.team,
+        team=Team.objects.get(id=team_id),
         user_id=None,
         subject="space",
         trigger="github_integration_disconnected",
         previous_repositories=[repo for _, repositories in affected for repo in (repositories or [])],
         repositories=[],
-        previous_integration_id=instance.id,
+        previous_integration_id=integration_id,
         integration_id=None,
         affected_space_count=len(affected),
     )
@@ -424,6 +427,25 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
         PI = "pi", "Pi"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        IDLE = "idle", "Idle"
+        DONE = "done", "Done"
+
+    class StatusReason(models.TextChoices):
+        TURN_CLOSED = "turn_closed", "Turn closed"
+        USER_STOPPED = "user_stopped", "User stopped"
+        PROVISION_FAILED = "provision_failed", "Provision failed"
+        UNEXPECTED_FAILURE = "unexpected_failure", "Unexpected failure"
+        TIMED_OUT = "timed_out", "Timed out"
+        BUDGET_SPENT = "budget_spent", "Budget spent"
+        CREDIT_SPENT = "credit_spent", "Credit spent"
+        ACCESS_CHANGED = "access_changed", "Access changed"
+        FINISHED = "finished", "Finished"
+        CLOSED = "closed", "Closed"
+        CANCELLED = "cancelled", "Cancelled"
 
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
@@ -575,6 +597,14 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         help_text="User-scoped GitHub integration used for user-authored task runs",
         related_name="+",
     )
+    # GitHub tasks keep `github_integration`. A task in any other provider's repository stores its
+    # connection id here, so the provider comes from the integration kind. A plain id rather than a
+    # foreign key, so a run reads an id of a deleted connection as unusable.
+    repository_integration_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Source-control integration for a repository outside GitHub, such as a GitLab project",
+    )
 
     repository = models.CharField(
         max_length=255, null=True, blank=True
@@ -609,6 +639,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     source_kind = models.CharField(max_length=32, null=True, blank=True)
     source_id = models.CharField(max_length=64, null=True, blank=True)
     idempotency_key = models.CharField(max_length=128, null=True, blank=True)
+
+    status = models.CharField(max_length=16, choices=Status, default=Status.IDLE, null=True, blank=True)
+    status_reason = models.CharField(max_length=32, choices=StatusReason, null=True, blank=True)
+    status_detail = models.TextField(null=True, blank=True)
+    status_changed_by = models.CharField(max_length=64, null=True, blank=True)
+    head_branch = models.CharField(max_length=255, null=True, blank=True)
+    pr_urls = ArrayField(models.CharField(max_length=512), default=list, db_default=[], blank=True)
 
     # DEPRECATED - do not use
     signal_report = models.ForeignKey(
@@ -700,6 +737,17 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 condition=models.Q(source_kind__isnull=False),
                 name="posthog_task_source_idx",
             ),
+            models.Index(
+                fields=["status"],
+                condition=models.Q(status__in=["queued", "running"]),
+                name="posthog_task_live_status_idx",
+            ),
+            models.Index(
+                fields=["head_branch"],
+                condition=models.Q(head_branch__isnull=False),
+                name="posthog_task_head_branch_idx",
+            ),
+            GinIndex(fields=["pr_urls"], name="posthog_task_pr_urls_idx"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -722,7 +770,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         if self.repository:
             parts = self.repository.split("/")
-            if len(parts) != 2 or not parts[0] or not parts[1]:
+            # GitLab projects can sit in nested groups, such as group/subgroup/project.
+            max_parts = None if self.repository_integration_id is not None else 2
+            if len(parts) < 2 or (max_parts is not None and len(parts) > max_parts) or not all(parts):
                 raise ValidationError({"repository": "Format for repository is organization/repo"})
 
             self.repository = self.repository.lower()
@@ -1276,6 +1326,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         "model": state.get("model"),
                         "runtime_adapter": state.get("runtime_adapter"),
                         "reasoning_effort": state.get("reasoning_effort"),
+                        # Read after commit, so a Slack thread mapping saved in the same transaction is visible.
+                        "slack_session_id": task_run._slack_session_id(),
                     },
                 )
 
@@ -1400,6 +1452,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     error_message="This scheduled run was canceled because the task was deleted.",
                     updated_at=deleted_at,
                 )
+                from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
+
+                sync_task_statuses_on_commit([self.id])
             self.deleted = True
             self.deleted_at = deleted_at
             self.save(update_fields=["deleted", "deleted_at", "updated_at"])
@@ -1653,6 +1708,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             source_kind=source.kind.value if source is not None else None,
             source_id=source.id if source is not None else None,
             idempotency_key=origin_key,
+            head_branch=wizard_head_branch or self_driving_head_branch or None,
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
@@ -3472,8 +3528,13 @@ class TaskRun(models.Model):
             return None
         from products.slack_app.backend.analytics import slack_session_id  # noqa: PLC0415
 
-        thread = self.task.slack_thread_mappings.values_list("slack_workspace_id", "channel", "thread_ts").first()
-        return slack_session_id(*thread) if thread else None
+        try:
+            thread = self.task.slack_thread_mappings.values_list("slack_workspace_id", "channel", "thread_ts").first()
+            return slack_session_id(*thread) if thread else None
+        except Exception:
+            # task_run_created reads this in a commit callback, where a raise would fail the caller after the run exists.
+            logger.warning("task_run.slack_session_id_lookup_failed", run_id=str(self.id), exc_info=True)
+            return None
 
     def capture_event(
         self,
@@ -3839,6 +3900,25 @@ class TaskRun(models.Model):
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
+
+
+class TaskStatusChange(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(
+        Task, on_delete=models.CASCADE, related_name="status_changes", db_constraint=False, db_index=False
+    )
+    run_id = models.UUIDField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Task.Status)
+    reason = models.CharField(max_length=32, choices=Task.StatusReason, null=True, blank=True)
+    detail = models.TextField(null=True, blank=True)
+    changed_by = models.CharField(max_length=64)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_status_change"
+        indexes = [
+            models.Index(fields=["task", "-created_at"], name="task_status_change_task_idx"),
+        ]
 
 
 class TaskRunGatewayRequest(TeamScopedRootMixin, UUIDModel):

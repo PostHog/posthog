@@ -63,6 +63,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.workflows.backend.facade.blast_radius import INCOMPLETE_AUDIENCE_CONDITION
 from products.workflows.backend.facade.enums import HogFlowOriginProduct
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import update_workflow
@@ -71,7 +72,6 @@ from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job imp
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.presentation.views.hog_flow import (
-    INCOMPLETE_AUDIENCE_CONDITION,
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
@@ -5507,6 +5507,54 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("starts_resolving", {"dedupe_key": "email", "max_audience_size": 500}, 200, "resolving"),
+            ("bad_dedupe_key", {"dedupe_key": "phone", "max_audience_size": 500}, 400, None),
+            ("missing_cap", {"dedupe_key": None}, 400, None),
+        ]
+    )
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_batch_job_audience_snapshot_validates_and_starts_the_resolution(
+        self, _name, body, expected_status, expected_snapshot_status
+    ):
+        hog_flow = HogFlow.objects.create(
+            team=self.team, name="Batch", trigger={"type": "batch", "filters": {"properties": []}}, actions=[]
+        )
+        with patch(
+            "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+        ):
+            job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow)
+
+        with (
+            patch("products.workflows.backend.tasks.batch_jobs.resolve_batch_job_audience_snapshot.delay") as mock_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{job.id}/audience_snapshot",
+                body,
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_snapshot_status:
+            assert response.json() == {"status": expected_snapshot_status, "audience_size": None, "error": None}
+            mock_task.assert_called_once_with(self.team.pk, str(job.id), "email", 500)
+        else:
+            mock_task.assert_not_called()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_batch_job_audience_page_rejects_a_cursor_that_is_not_a_uuid(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{uuid4()}/audience_page",
+            {"cursor": "person-1"},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 400, response.json()
+
+    @parameterized.expand(
+        [
             (
                 "flag",
                 [{"key": "my-other-flag", "type": "flag", "value": "true"}],
@@ -6049,7 +6097,13 @@ class TestHogFlowAPI(APIBaseTest):
         assert update.status_code == 200, update.json()
         assert HogFlow.objects.get(pk=flow_id).exit_condition == expected
 
-    def test_draft_content_save_that_races_an_activation_is_rejected(self):
+    @parameterized.expand(
+        [
+            ("activation", {"status": HogFlow.State.ACTIVE}),
+            ("disable_from_active", {"disabled_from_active": True}),
+        ]
+    )
+    def test_draft_content_save_that_races_a_protection_change_is_rejected(self, _name, concurrent_change):
         event_trigger = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -6066,14 +6120,14 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         flow_id = response.json()["id"]
 
-        def update_after_concurrent_activation(**kwargs):
-            HogFlow.objects.filter(pk=flow_id).update(status=HogFlow.State.ACTIVE)
+        def update_after_concurrent_change(**kwargs):
+            HogFlow.objects.filter(pk=flow_id).update(**concurrent_change)
             return update_workflow(**kwargs)
 
         # A Slack trigger with no channel passes draft validation but must never run live.
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.update_workflow",
-            side_effect=update_after_concurrent_activation,
+            side_effect=update_after_concurrent_change,
         ):
             update = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
@@ -6082,9 +6136,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert update.status_code == 409, update.json()
         assert update.json()["code"] == "stale_update"
-        flow = HogFlow.objects.get(pk=flow_id)
-        assert flow.status == HogFlow.State.ACTIVE
-        assert flow.actions[0]["config"]["type"] == "event"
+        assert HogFlow.objects.get(pk=flow_id).actions[0]["config"]["type"] == "event"
 
     @override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=5000, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set())
     @patch(
@@ -7807,6 +7859,35 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert patch_res.status_code == 200, patch_res.json()
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
+
+    def test_reenable_disabled_flow_does_not_publish_staged_secret(self):
+        flow_id = self._create(api_key="LIVE-SECRET")
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+        for target_status in ("active", "draft"):
+            response = self.client.patch(url, {"status": target_status}, HTTP_X_POSTHOG_CLIENT="mcp")
+            assert response.status_code == 200, response.json()
+
+        stage = self.client.patch(
+            f"{url}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"api_key": {"value": "DRAFT-SECRET"}}}},
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert stage.status_code == 200, stage.json()
+
+        enable = self.client.patch(url, {"status": "active"}, HTTP_X_POSTHOG_CLIENT="mcp")
+        assert enable.status_code == 200, enable.json()
+
+        flow = HogFlow.objects.get(id=flow_id)
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "LIVE-SECRET"
+        assert flow.draft_encrypted_inputs["action_1"]["api_key"]["value"] == "DRAFT-SECRET"
 
     def test_publish_promotes_draft_secret_to_live_without_wiping(self):
         flow_id = self._create()

@@ -2,8 +2,11 @@ use anyhow::Result;
 use reqwest::blocking::Response;
 use tracing::error;
 
+use crate::api::client::describe_api_failure;
+
 pub mod auth;
 pub mod broken_pipe;
+pub mod ci;
 pub mod dotenv;
 pub mod files;
 pub mod git;
@@ -14,24 +17,25 @@ pub mod xcode;
 
 pub fn raise_for_err(response: Response) -> Result<Response> {
     if !response.status().is_success() {
-        error!("Request failed: {:?}", response);
-        if let Ok(text) = response.text() {
-            error!("Response text: {}", text);
-        }
-        anyhow::bail!("Request failed")
+        anyhow::bail!(describe_failed_response(response))
     }
     Ok(response)
 }
 
+pub fn describe_failed_response(response: Response) -> String {
+    let status = response.status().as_u16();
+    let url = response.url().clone();
+    let body = response.text().unwrap_or_default();
+
+    describe_api_failure(status, &url, &body)
+}
+
 pub fn raise_for_presigned_err(response: Response) -> Result<Response> {
     if !response.status().is_success() {
-        let mut url = response.url().clone();
-        url.set_query(None);
         error!(
-            "Request failed: status={} url={} headers={:?}",
+            "Request failed: status={} url={}",
             response.status(),
-            url,
-            response.headers()
+            redact_url(response.url())
         );
         if let Some(summary) = response.text().ok().as_deref().and_then(s3_error_summary) {
             error!("S3 error: {}", summary);
@@ -41,9 +45,18 @@ pub fn raise_for_presigned_err(response: Response) -> Result<Response> {
     Ok(response)
 }
 
+pub fn redact_url(url: &reqwest::Url) -> reqwest::Url {
+    let mut redacted = url.clone();
+    let _ = redacted.set_username("");
+    let _ = redacted.set_password(None);
+    redacted.set_query(None);
+    redacted.set_fragment(None);
+    redacted
+}
+
 pub fn redact_request_error(mut err: reqwest::Error) -> reqwest::Error {
     if let Some(url) = err.url_mut() {
-        url.set_query(None);
+        *url = redact_url(url);
     }
     err
 }

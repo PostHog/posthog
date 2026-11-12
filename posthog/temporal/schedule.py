@@ -52,10 +52,6 @@ from posthog.temporal.alerts.schedule import (
 )
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.experiments.schedule import (
-    create_experiment_regular_metrics_schedules,
-    create_experiment_saved_metrics_schedules,
-)
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
@@ -101,6 +97,8 @@ from products.customer_analytics.backend.facade.temporal import (
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
     create_membership_coordinator_schedule,
+    create_membership_deletion_schedule,
+    create_membership_discovery_schedule,
     create_ownership_claims_coordinator_schedule,
 )
 from products.data_catalog.backend.facade.temporal import create_data_catalog_weekly_digest_schedule
@@ -119,9 +117,11 @@ from products.error_tracking.backend.facade.temporal import (
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
 )
-from products.experiments.backend.temporal.schedule import (
+from products.experiments.backend.facade.temporal import (
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_regular_metrics_schedules,
+    create_experiment_saved_metrics_schedules,
     create_experiment_scheduled_recalculation_schedules,
 )
 from products.growth.backend.temporal.signup_enrichment.schedule import (
@@ -131,7 +131,10 @@ from products.growth.backend.temporal.signup_enrichment.schedule import (
 from products.knowledge_writer.backend.facade.temporal import create_knowledge_writer_merge_reconcile_schedule
 from products.logs.backend.facade.temporal import disable_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
-from products.metrics.backend.facade.temporal import create_suggested_dashboards_discovery_schedule
+from products.metrics.backend.facade.temporal import (
+    create_metrics_recording_rules_schedule,
+    create_suggested_dashboards_discovery_schedule,
+)
 from products.product_analytics.backend.facade.temporal import UpgradeQueriesWorkflowInputs
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
@@ -1010,6 +1013,8 @@ schedules = [
     create_channel_summary_coordinator_schedule,
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
+    create_membership_discovery_schedule,
+    create_membership_deletion_schedule,
     create_ownership_claims_coordinator_schedule,
     create_membership_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
@@ -1028,6 +1033,7 @@ schedules = [
     create_warehouse_suggestions_schedule,
     create_sync_access_rules_schedule,
     create_suggested_dashboards_discovery_schedule,
+    create_metrics_recording_rules_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in
