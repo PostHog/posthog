@@ -1964,6 +1964,23 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 ),
         })
         .describe('The logs query to execute.'),
+    trigger: zod
+        .enum([
+            'initial_load',
+            'filter_change',
+            'filters_restored',
+            'sort_change',
+            'column_change',
+            'scope_change',
+            'refresh',
+        ])
+        .describe(
+            '\* `initial_load` - initial_load\n\* `filter_change` - filter_change\n\* `filters_restored` - filters_restored\n\* `sort_change` - sort_change\n\* `column_change` - column_change\n\* `scope_change` - scope_change\n\* `refresh` - refresh'
+        )
+        .optional()
+        .describe(
+            'What caused the PostHog app to run this query. Used for usage analytics only, with no effect on results. API clients omit it.\n\n\* `initial_load` - initial_load\n\* `filter_change` - filter_change\n\* `filters_restored` - filters_restored\n\* `sort_change` - sort_change\n\* `column_change` - column_change\n\* `scope_change` - scope_change\n\* `refresh` - refresh'
+        ),
 })
 
 /**

@@ -328,6 +328,16 @@ class OrderBy(models.TextChoices):
     EARLIEST = "earliest", "earliest"
 
 
+class LogsQueryTrigger(models.TextChoices):
+    INITIAL_LOAD = "initial_load", "initial_load"
+    FILTER_CHANGE = "filter_change", "filter_change"
+    FILTERS_RESTORED = "filters_restored", "filters_restored"
+    SORT_CHANGE = "sort_change", "sort_change"
+    COLUMN_CHANGE = "column_change", "column_change"
+    SCOPE_CHANGE = "scope_change", "scope_change"
+    REFRESH = "refresh", "refresh"
+
+
 # Scope fields ride on every logs body that reaches the query runner, so they are built here
 # rather than redeclared per serializer — the help text is what drf-spectacular ships into the
 # generated TypeScript and the MCP tool schemas, and six copies drift.
@@ -421,6 +431,14 @@ class _LogsBodyLimitSerializer(serializers.Serializer):
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
     query = _LogsQueryBodySerializer(help_text="The logs query to execute.")
+    trigger = serializers.ChoiceField(
+        choices=LogsQueryTrigger.choices,
+        required=False,
+        help_text=(
+            "What caused the PostHog app to run this query. Used for usage analytics only, with no effect "
+            "on results. API clients omit it."
+        ),
+    )
 
 
 class _LogsSparklineBodySerializer(serializers.Serializer):
@@ -1628,6 +1646,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if query_data is None:
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
         self._require_dict_query(query_data)
+        trigger = request.data.get("trigger")
 
         live_logs_checkpoint = query_data.get("liveLogsCheckpoint", None)
         after_cursor = query_data.get("after", None)
@@ -1741,6 +1760,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "is_paginated": bool(after_cursor),
                 # Session and person scopes come from embeds that load on page open, not from a search.
                 "scope": "session" if query.sessionId else "person" if query.personId else "none",
+                # Never rejected: a bad analytics label must not fail the query it describes.
+                "trigger": trigger if trigger in LogsQueryTrigger.values else "unknown",
             }
             if results:
                 # This endpoint serves the app, API keys, MCP and other integrations, so the property covers all of them.

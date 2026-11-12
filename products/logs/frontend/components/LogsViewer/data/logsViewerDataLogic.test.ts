@@ -506,6 +506,29 @@ describe('logsViewerDataLogic', () => {
             scopedFilters.unmount()
         })
 
+        it.each([
+            ['a manual refresh', 'refresh', () => logic.actions.refreshQuery()],
+            ['a filter edit', 'filter_change', () => filtersLogic.actions.setSearchTerm('error message')],
+            ['a restored filter set', 'filters_restored', () => filtersLogic.actions.setFilters({}, false)],
+            ['a scope change', 'scope_change', () => filtersLogic.actions.setSessionId('sess-1')],
+        ])('%s tells the backend the query trigger is %s', async (_name, trigger, act) => {
+            const sentTriggers: unknown[] = []
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/logs/query/': async ({ request }) => {
+                        sentTriggers.push(((await request.json()) as Record<string, unknown>).trigger)
+                        return [200, { results: [], maxExportableLogs: 5000 }]
+                    },
+                    '/api/environments/:team_id/logs/sparkline/': () => [200, []],
+                },
+            })
+
+            act()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(sentTriggers).toEqual([trigger])
+        })
+
         it('setOrderBy triggers runQuery', async () => {
             const configLogic = logsViewerConfigLogic({ id: 'test-tab' })
             configLogic.mount()

@@ -45,6 +45,7 @@ import { logsQueryCreate, logsSparklineCreate } from 'products/logs/frontend/gen
 import type {
     _LogsFilterGroupApi,
     _LogsQueryBodyApi,
+    LogsQueryTriggerEnumApi,
     _LogsSparklineBodyApi,
 } from 'products/logs/frontend/generated/api.schemas'
 import { retryOnFastFailure } from 'products/logs/frontend/retryOnFastFailure'
@@ -266,7 +267,7 @@ export interface logsViewerDataLogicActions {
         }
     }
     expireLiveTail: () => boolean
-    fetchLogs: () => any
+    fetchLogs: (trigger?: LogsQueryTriggerEnumApi) => any
     fetchLogsFailure: (
         error: string,
         errorObject?: any
@@ -330,7 +331,11 @@ export interface logsViewerDataLogicActions {
     refreshQuery: () => {
         value: true
     }
-    runQuery: (debounce?: integer) => {
+    runQuery: (
+        trigger?: LogsQueryTriggerEnumApi,
+        debounce?: integer
+    ) => {
+        trigger: LogsQueryTriggerEnumApi | undefined
         debounce: number | undefined
     }
     setCustomColumnAliases: (customColumnAliases: Record<string, string> | null) => {
@@ -508,7 +513,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             filterType,
             extraProps,
         }),
-        runQuery: (debounce?: integer) => ({ debounce }),
+        runQuery: (trigger?: LogsQueryTriggerEnumApi, debounce?: integer) => ({ trigger, debounce }),
         refreshQuery: true,
         fetchNextLogsPage: (limit?: number) => ({ limit }),
         truncateLogs: (limit: number) => ({ limit }),
@@ -670,7 +675,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             {
                 clearLogs: () => [],
                 truncateLogs: ({ limit }) => values.logs.slice(0, limit),
-                fetchLogs: async () => {
+                fetchLogs: async (trigger?: LogsQueryTriggerEnumApi) => {
                     const logsController = new AbortController()
                     const signal = logsController.signal
                     actions.cancelInProgressLogs(logsController)
@@ -692,7 +697,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         customColumns: sentCustomColumns,
                     }
                     const response = await retryOnFastFailure(
-                        () => logsQueryCreate(String(values.currentTeamId), { query }, { signal }),
+                        () => logsQueryCreate(String(values.currentTeamId), { query, trigger }, { signal }),
                         { signal }
                     )
                     actions.setLogsAbortController(null)
@@ -1005,7 +1010,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             if (!values.hasRunQuery && !values.logsLoading) {
                 return
             }
-            actions.runQuery()
+            actions.runQuery('scope_change')
         },
     })),
 
@@ -1018,7 +1023,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     intent_context: ProductIntentContext.LOGS_SET_FILTERS,
                 })
             }
-            actions.runQuery()
+            actions.runQuery('filter_change')
         },
         setSearchTerm: ({ searchTerm }) => {
             actions.handleQueryChange('search', { search_term_length: searchTerm?.length ?? 0 })
@@ -1030,28 +1035,28 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             if (pushToHistory) {
                 actions.handleQueryChange('bulk')
             } else {
-                actions.runQuery()
+                actions.runQuery('filters_restored')
             }
         },
         setOrderBy: ({ orderBy, source }) => {
             posthog.capture('logs setting changed', { setting: 'order_by', value: orderBy, source })
-            actions.runQuery()
+            actions.runQuery('sort_change')
         },
         // Structural column changes refetch only when the lowered wire value differs from what
         // the last query sent — resizing or reordering columns never re-runs the query.
         setColumns: () => {
             if (JSON.stringify(values.customColumns ?? null) !== cache.lastSentCustomColumns) {
-                actions.runQuery()
+                actions.runQuery('column_change')
             }
         },
         addColumn: () => {
             if (JSON.stringify(values.customColumns ?? null) !== cache.lastSentCustomColumns) {
-                actions.runQuery()
+                actions.runQuery('column_change')
             }
         },
         removeColumn: () => {
             if (JSON.stringify(values.customColumns ?? null) !== cache.lastSentCustomColumns) {
-                actions.runQuery()
+                actions.runQuery('column_change')
             }
         },
         fetchLogsFailure: ({ error, errorObject }) => {
@@ -1111,17 +1116,17 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 actions.expireLiveTail()
             }
         },
-        runQuery: async ({ debounce }, breakpoint) => {
+        runQuery: async ({ trigger, debounce }, breakpoint) => {
             if (debounce) {
                 await breakpoint(debounce)
             }
             actions.clearLogs()
-            actions.fetchLogs()
+            actions.fetchLogs(trigger)
             actions.fetchSparkline()
             actions.cancelInProgressLiveTail(null)
         },
         refreshQuery: () => {
-            actions.runQuery()
+            actions.runQuery('refresh')
             actions.bumpFacetRefresh()
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
@@ -1303,7 +1308,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
 
     afterMount(({ values, actions, props }) => {
         if (props.autoLoad && values.parsedLogs.length === 0) {
-            actions.runQuery()
+            actions.runQuery('initial_load')
         }
     }),
 ])

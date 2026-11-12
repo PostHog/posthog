@@ -1664,12 +1664,13 @@ class TestFilterAnalyticsProps(SimpleTestCase):
 class TestLogsQueryExecutedEvent(APIBaseTest):
     @parameterized.expand(
         [
-            ("plain", {"filterGroup": {"type": "AND", "values": []}}, "none"),
-            ("session_scoped", {"sessionId": "some-session"}, "session"),
-            ("person_scoped", {"personId": "some-person"}, "person"),
+            ("plain", {"filterGroup": {"type": "AND", "values": []}}, "none", None, "unknown"),
+            ("session_scoped", {"sessionId": "some-session"}, "session", None, "unknown"),
+            ("person_scoped", {"personId": "some-person"}, "person", "initial_load", "initial_load"),
+            ("unrecognised_trigger", {}, "none", "made_up", "unknown"),
         ]
     )
-    def test_event_reports_query_scope(self, _name, query_extra, scope):
+    def test_event_reports_query_scope_and_trigger(self, _name, query_extra, scope, sent_trigger, trigger):
         now = dt.datetime.now(dt.UTC)
         empty = CachedLogsQueryResponse(
             cache_key="key",
@@ -1686,13 +1687,16 @@ class TestLogsQueryExecutedEvent(APIBaseTest):
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/logs/query",
-                {"query": {"dateRange": {"date_from": "-10m"}, **query_extra}},
+                {
+                    "query": {"dateRange": {"date_from": "-10m"}, **query_extra},
+                    **({"trigger": sent_trigger} if sent_trigger else {}),
+                },
                 format="json",
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         event, properties = mock_report.call_args[0][1:3]
         self.assertEqual(event, "logs query executed")
         self.assertEqual(
-            {"scope": properties["scope"], "has_filter_group": properties["has_filter_group"]},
-            {"scope": scope, "has_filter_group": False},
+            {k: properties[k] for k in ("scope", "trigger", "has_filter_group")},
+            {"scope": scope, "trigger": trigger, "has_filter_group": False},
         )
