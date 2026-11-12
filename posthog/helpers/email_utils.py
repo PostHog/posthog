@@ -584,6 +584,9 @@ def check_esp_suppression(email: str) -> ESPSuppressionResult:
             from_cache=False,
             reason=ESPSuppressionReason.EMPTY_EMAIL,
         )
+    if not settings.CUSTOMER_IO_API_KEY:
+        # Without the key every lookup fails, and a failed lookup counts as suppressed, which would stop login codes.
+        return ESPSuppressionResult(is_suppressed=False, from_cache=False)
 
     cache_key = _get_esp_suppression_cache_key(email)
     cached_result = cache.get(cache_key)

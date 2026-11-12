@@ -59,11 +59,8 @@ def is_http_email_service_available() -> bool:
     """Whether this instance can send templated email through the Workflows transactional email API."""
     if not settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY:
         return False
-    if not settings.POSTHOG_HOST.startswith("https://") and not settings.DEBUG:
-        # The request carries the secret key and the email's contents, such as a password reset link.
-        logger.warning("email_workflows_insecure_host")
-        return False
-    return True
+    # The request carries the secret key and the email's contents, such as a password reset link.
+    return settings.POSTHOG_HOST.startswith("https://") or settings.DEBUG
 
 
 def is_smtp_email_service_available() -> bool:

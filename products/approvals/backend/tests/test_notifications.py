@@ -73,7 +73,7 @@ class TestApprovalNotifications(BaseTest):
         )
 
 
-class TestCustomerIOTemplateIDs(TestApprovalNotifications):
+class TestWorkflowsTemplateIDs(TestApprovalNotifications):
     def test_all_approval_templates_have_customer_io_ids(self):
         expected_templates = [
             "approval_requested",

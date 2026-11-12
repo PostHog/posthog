@@ -124,6 +124,16 @@ class TestEmail(BaseTest):
                 EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
             self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
 
+        with (
+            override_instance_config("EMAIL_HOST", None),
+            self.settings(
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="http://us.posthog.com", DEBUG=False
+            ),
+        ):
+            # The Workflows request carries the secret key and links such as password resets, so plain http is refused.
+            with self.assertRaises(ImproperlyConfigured):
+                EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
+
     def test_cant_send_same_campaign_twice(self) -> None:
         with override_instance_config("EMAIL_HOST", "localhost"):
             sent_at = timezone.now()
