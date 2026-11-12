@@ -41,9 +41,8 @@ class ExperimentVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from products.experiments.backend.models.experiment import Experiment
-
-        return Experiment
+        # The experiments product registers its model from its AppConfig.ready().
+        return registered_model("Experiment")
 
     @classmethod
     def get_dynamic_edges(cls, resource: Any) -> list[ResourceTransferEdge]:
