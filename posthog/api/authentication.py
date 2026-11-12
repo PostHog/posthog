@@ -82,6 +82,7 @@ from posthog.helpers.two_factor_session import (
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
+from posthog.login_challenge import precheck_turnstile_fields, record_login_turnstile_decision
 from posthog.models import IdentityProviderConfig, OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # imported for its signal receivers too
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -317,6 +318,24 @@ def is_email_verified_for_login(user: User) -> bool:
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
+    turnstile_token = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        write_only=True,
+        trim_whitespace=False,
+        help_text="Cloudflare Turnstile token from the login widget, when the browser got one.",
+    )
+    turnstile_client_status = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        write_only=True,
+        help_text=(
+            "What the login widget reported at submit: token, pending, error, expired, unsupported, "
+            "script_failed or not_rendered. Any other value is recorded as unknown."
+        ),
+    )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
@@ -391,6 +410,15 @@ class LoginSerializer(serializers.Serializer):
             getattr(request, "user", None)
             and request.user.is_authenticated
             and request.user.email.lower() == validated_data["email"].lower()
+        )
+
+        record_login_turnstile_decision(
+            axes_request,
+            email=validated_data["email"],
+            existing_user=existing_user,
+            is_reauth=was_authenticated_before_login_attempt,
+            token=validated_data.get("turnstile_token", ""),
+            client_status=validated_data.get("turnstile_client_status", ""),
         )
 
         # Initialize axes handler via proxy so request metadata is populated consistently
@@ -535,6 +563,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
             "oidc_available": oidc_available,
             "webauthn_credentials": webauthn_credentials,
             **self._available_local_methods(email, saml_available=saml_available, oidc_available=oidc_available),
+            **precheck_turnstile_fields(self.context["request"]._request, user),
         }
 
     @staticmethod
