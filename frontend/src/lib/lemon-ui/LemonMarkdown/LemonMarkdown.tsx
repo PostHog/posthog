@@ -99,10 +99,7 @@ export interface LemonMarkdownProps {
      * from the source, which has to out-guess the inline, reference, autolink and image-fallback forms.
      */
     disableLinks?: boolean
-    /**
-     * Whether raw HTML shows as the text that was typed, instead of being dropped. Use for text a person
-     * wrote, where `<example>` is words and not markup.
-     */
+    /** Whether raw HTML shows as the text that was typed instead of being dropped. For text a person wrote. */
     literalHtml?: boolean
     className?: string
     wrapCode?: boolean

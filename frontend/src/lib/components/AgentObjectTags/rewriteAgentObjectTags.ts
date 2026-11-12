@@ -90,9 +90,8 @@ function inlineCodeSpans(line: string, offset: number): Span[] {
         return []
     }
     const runs = Array.from(line.matchAll(RE_BACKTICK_RUN))
-    // For each run, the index of the next run of the same length, or -1. One pass from the right keeps
-    // the scan linear, because a search from the start of the line for each opener is quadratic on
-    // many backtick pairs.
+    // The next run of the same length for each run, found in one pass from the right, because a search
+    // from the start of the line for each opener is quadratic on many backtick pairs.
     const nextSameLength = runs.map(() => -1)
     const lastSeenAt = new Map<number, number>()
     for (let i = runs.length - 1; i >= 0; i--) {
@@ -116,11 +115,8 @@ function inlineCodeSpans(line: string, offset: number): Span[] {
     return spans
 }
 
-/**
- * A backtick fence cannot carry a backtick in its info string, so such a line opens no fence.
- * This is not a lookahead in RE_FENCE_LINE, because the regex would then scan the rest of the
- * line again for each shorter run.
- */
+// A backtick fence cannot carry a backtick in its info string. This is not a lookahead in
+// RE_FENCE_LINE, because the regex would then rescan the line for each shorter run.
 function opensFence(line: string, fence: RegExpExecArray): boolean {
     return fence[1][0] !== '`' || !line.includes('`', fence[0].length)
 }
@@ -479,10 +475,8 @@ function heldSuffixStart(text: string, spans: Span[], searchFrom: number): numbe
  *
  * `projectBase` is the app path every object link hangs off, e.g. `/project/2`.
  * Text with no tags passes through unchanged, so the transform is safe to run
- * on every render, including on text it already rewrote.
- *
- * A trailing tag that may still be streaming in is held back from the output.
- * Pass `streaming: false` for text that is complete, so that text is kept whole.
+ * on every render, including on text it already rewrote. A trailing tag that may
+ * still be streaming in is held back; pass `streaming: false` for complete text.
  */
 export function rewriteAgentObjectTags(
     text: string,

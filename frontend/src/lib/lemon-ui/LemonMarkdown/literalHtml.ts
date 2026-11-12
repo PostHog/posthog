@@ -20,10 +20,9 @@ function convertHtmlNodes(parent: MarkdownNode): void {
 }
 
 /**
- * Remark plugin that changes each raw HTML node into a text node, so text such as `<example>`
- * shows as typed. Without it, the renderer drops raw HTML (`skipHtml`) and the text is lost.
- * The markdown parser decides what is raw HTML, so code, autolinks and escapes keep their usual
- * meaning, and React escapes the text when it renders it.
+ * Remark plugin that changes each raw HTML node into a text node, so text such as `<example>` shows
+ * as typed instead of being dropped by `skipHtml`. The parser decides what is raw HTML, so code,
+ * autolinks and escapes keep their meaning, and React escapes the text when it renders it.
  */
 export function remarkLiteralHtml(): (tree: MarkdownNode) => void {
     return convertHtmlNodes
