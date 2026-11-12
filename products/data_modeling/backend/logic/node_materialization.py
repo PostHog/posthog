@@ -37,12 +37,14 @@ from products.data_modeling.backend.facade.contracts import (
     MaterializationForbiddenError,
     MaterializationRanRecentlyError,
     MaterializationRunDirection,
+    MissingDagNodeError,
+    SavedQueryNotFoundError,
+    SavedQueryNotOnV2ScheduleError,
 )
 from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, humanize_cadence
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
 from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
-from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
 from products.data_modeling.backend.models import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -401,15 +403,6 @@ def is_saved_query_on_v2_schedule(saved_query: DataWarehouseSavedQuery) -> bool:
     team can be schedule-migrated without being flagged.
     """
     return saved_query.id in get_v2_saved_query_ids([saved_query.id])
-
-
-class SavedQueryNotFoundError(Exception):
-    """Raised by ``run_saved_query_materialization`` when the saved query no longer resolves."""
-
-
-class SavedQueryNotOnV2ScheduleError(Exception):
-    """Raised by ``run_saved_query_materialization`` when the saved query still runs on the older
-    per-query schedule, whose frozen workflow lacks what the caller needs from a materialization."""
 
 
 def run_saved_query_materialization(team_id: int, saved_query_id: UUID | str) -> None:

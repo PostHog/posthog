@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.logic.traces.summary import ReadySummary, SummaryItem
+from products.ai_observability.backend.logic.traces.summary import FailedSummary, ReadySummary, SummaryItem
 from products.ai_observability.backend.logic.traces.summary_store import summary_key, write_summary
 
 from .trace_fixtures import GENERATION, T0, encode_segment
@@ -34,6 +34,18 @@ class TestTraceSummaryViews(APIBaseTest):
 
     def _store_ready(self) -> None:
         write_summary(summary_key(self.team, self.user, "trace-1"), READY_SUMMARY)
+
+    def test_get_returns_a_failure_with_its_message_and_whether_to_retry(self) -> None:
+        write_summary(summary_key(self.team, self.user, "trace-1"), FailedSummary(reason="too_large", failed_at=T0))
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == 200
+        assert response.json()["failure"] == {
+            "reason": "too_large",
+            "message": "This trace is too large to summarize.",
+            "retryable": False,
+        }
 
     @parameterized.expand(
         [

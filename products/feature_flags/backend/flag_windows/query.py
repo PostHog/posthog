@@ -61,8 +61,7 @@ from posthog.dataclasses import frozen
 from posthog.errors import InternalCHQueryError
 from posthog.models import Team
 
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
 from products.feature_flags.backend.person_sampling import SPILL_GROUP_BY_AFTER_BYTES
 from products.feature_flags.backend.user_blast_radius import (
     replace_proxy_properties,
@@ -287,11 +286,11 @@ class _FlagCalls:
 
     @classmethod
     def of(cls, team: Team) -> "_FlagCalls":
-        # Ingestion writes no flag calls to events for some teams of an organization on FLAG_EVALUATIONS_ONLY. The
-        # flag_evaluations swap can't move this scan, because there `person_id` applies person merges. So the scan
-        # reads `flag_evaluations` by name. In the other modes events holds every flag call, and flag_evaluations
-        # only those of the teams that ingestion writes there.
-        if get_flag_evaluations_read_mode(team.organization_id) != FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
+        # Ingestion writes no flag calls to events for some teams of an organization on FLAG_EVALUATIONS_ONLY, and the
+        # native JSON events table holds none. The flag_evaluations swap can't move this scan, because there
+        # `person_id` applies person merges. So the scan reads `flag_evaluations` by name. Otherwise events holds every
+        # flag call, and flag_evaluations only those of the teams that ingestion writes there.
+        if not flag_calls_only_in_flag_evaluations(team):
             return cls(
                 table=("events",),
                 only_calls=parse_expr("event = '$feature_flag_called'"),
