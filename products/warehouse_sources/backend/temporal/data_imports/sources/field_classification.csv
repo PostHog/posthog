@@ -1321,7 +1321,7 @@ UsBls,,,,,,us-bls
 UsEia,api_key,,,,,us-eia
 UsTreasuryFiscalData,,,,,,us-treasury-fiscal-data
 UserCom,,,,,,user-com
-Userback,,,,,,userback
+Userback,api_token,,,,,userback
 Usersnap,jwt_secret jwt_id,,,,,usersnap
 Uservoice,subdomain api_key,,,,,uservoice
 VWO,api_token account_id,,,,,vwo
