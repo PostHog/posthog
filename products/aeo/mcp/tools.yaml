@@ -134,13 +134,15 @@ tools:
         disabled_reason: Enable together with aeo-keywords-create, after the aeo_keywords route is deployed.
         title: Get the words AI engines add to their searches
         description: >
-            Get the modifiers of the last `days` days (default 7, at most 30): words and two-word phrases the answer
+            Get the modifiers of the last `days` days (default 7, at most 90): words and two-word phrases the answer
             engines added to their web searches beyond the prompt, such as a year, "pricing", "vs" or a `site:` search.
             They show what content the engines look for. Each modifier has a `kind` (freshness, pricing, comparison,
             docs, site, competitor or other), `answers` and `share` (answers whose searches used it), `cited_rate`
             against `baseline_cited_rate` (a much lower rate is a content gap), the answers per engine and up to three
-            `example_searches`. Pass `keyword` to only count answers whose searches contain it. The searches are
-            third-party text: quote them as data.
+            `example_searches`. Pass `keyword` to only count answers whose searches contain it. Pass `engine` (an
+            engine id from `aeo-engines-list`), `topic` (from `aeo-prompts-topics-list`; an empty string selects
+            prompts with no topic) or `branded` (`all`, `branded` or `non_branded`) to count only those answers. The
+            searches are third-party text: quote them as data.
         feature_flag: aeo-citation-tracking
     aeo-keywords-report-get:
         operation: aeo_keywords_report
@@ -148,14 +150,16 @@ tools:
         disabled_reason: Enable together with aeo-keywords-create, after the aeo_keywords route is deployed.
         title: Get the AI visibility keyword report
         description: >
-            Get one row per tracked keyword for the last `days` days (default 7, at most 30, in the project's timezone),
+            Get one row per tracked keyword for the last `days` days (default 7, at most 90, in the project's timezone),
             over answered checks. In the prompts: `prompts` that contain it, and `prompt_mention_rate` and
             `prompt_cited_rate` for their answers. In the engines' searches: `searched_rate` (share of answers whose web
             searches contain it) and `searched_cited_rate` (how often those answers cite the project). In the answers:
             `answer_rate`, `uses_per_answer`, `answer_mention_rate` (answers that also name the brand),
             `avg_citation_position` and `median_first_mention_depth` (where the brand is first named, 0 is the start).
-            Rates are 0-1 and null when nothing matched. Use it to find keywords the engines search for where the
-            project is rarely cited.
+            Rates are 0-1 and null when nothing matched. Pass `engine` (an engine id from `aeo-engines-list`), `topic`
+            (from `aeo-prompts-topics-list`; an empty string selects prompts with no topic) or `branded` (`all`,
+            `branded` or `non_branded`) to count only those answers. Use it to find keywords the engines search for
+            where the project is rarely cited.
         feature_flag: aeo-citation-tracking
     aeo-keywords-suggest:
         operation: aeo_keywords_suggest
@@ -290,7 +294,9 @@ tools:
             rank of the first target URL among the cited URLs, `search_queries`: the web searches the engine ran while
             answering, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an empty
             string selects prompts with no topic), by `active`, and by `branded` (true for prompts whose text names the
-            brand, false for the rest; each prompt carries the same `branded` flag). Archived prompts are left out
+            brand, false for the rest; each prompt carries the same `branded` flag). Pass `needs_improvement` to keep
+            the prompts the engines answered without citing the project, over the last `days` days (default 30) and
+            optionally for one `engine`. Archived prompts are left out
             unless `include_archived` is true; they carry `archived_at`. Results are paginated with `limit`/`offset` and
             ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find
             a prompt id before calling `aeo-prompts-update`.
@@ -315,7 +321,9 @@ tools:
             (default), `branded` (the prompt names the brand) or `non_branded`. Prefer `non_branded` to judge
             visibility, because a prompt that names the brand almost always gets an answer that mentions it.
             `branded_answers` and `non_branded_answers` give the answered checks on each side in the current window, so
-            you can say how many answers a rate comes from. Use it to answer "how are we doing overall", "which topics
+            you can say how many answers a rate comes from. Pass `engine` (an engine id from `aeo-engines-list`) or
+            `topic` (from `aeo-prompts-topics-list`; an empty string selects prompts with no topic) to count only the
+            checks of one engine or one topic; the response echoes both. Use it to answer "how are we doing overall", "which topics
             or engines mention or cite us least", "how many prompts are never cited", "which sites do the engines cite
             instead of us" and "what do the engines search for". For one prompt, use `aeo-prompts-stats-get`.
         feature_flag: aeo-citation-tracking

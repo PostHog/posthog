@@ -205,6 +205,8 @@ const aeoPromptsList = (): ToolBase<
             query: {
                 active: params.active,
                 branded: params.branded,
+                days: params.days,
+                engine: params.engine,
                 include_archived: params.include_archived,
                 limit: params.limit,
                 needs_improvement: params.needs_improvement,
@@ -246,6 +248,8 @@ const aeoPromptsOverviewGet = (): ToolBase<
             query: {
                 branded: params.branded,
                 days: params.days,
+                engine: params.engine,
+                topic: params.topic,
             },
         })
         return result

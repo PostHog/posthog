@@ -852,6 +852,16 @@ export namespace Schemas {
        * * `branded` - Branded
        * * `non_branded` - Non-branded */
       branded: BrandedSegmentEnum;
+      /**
+         * The answer engine every count covers, as requested. Null when every engine counts.
+         * @nullable
+         */
+      engine: string | null;
+      /**
+         * The prompt topic every count covers, as requested. Empty for prompts with no topic, null when every topic counts.
+         * @nullable
+         */
+      topic: string | null;
       /** Answered checks in the current window whose prompt named the brand, whatever 'branded' selects. The sample size behind the branded numbers. */
       branded_answers: number;
       /** Answered checks in the current window whose prompt did not name the brand, whatever 'branded' selects. The sample size behind the non-branded numbers. */
@@ -945,6 +955,16 @@ export namespace Schemas {
        * * `branded` - Branded
        * * `non_branded` - Non-branded */
       branded: BrandedSegmentEnum;
+      /**
+         * The answer engine every count covers, as requested. Null when every engine counts.
+         * @nullable
+         */
+      engine: string | null;
+      /**
+         * The prompt topic every count covers, as requested. Empty for prompts with no topic, null when every topic counts.
+         * @nullable
+         */
+      topic: string | null;
       /** Answered checks in the current window: the denominator of every share. */
       answers: number;
       /** Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains. */
@@ -129633,27 +129653,87 @@ export namespace Schemas {
 
     export type AeoKeywordsModifiersParams = {
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * Which answers to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoKeywordsModifiersBranded;
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 90.
      * @minimum 1
-     * @maximum 30
+     * @maximum 90
      */
     days?: number;
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
     /**
      * Only count answers whose web searches contain this phrase, case ignored. Usually one of the project's keywords.
      * @minLength 1
      * @maxLength 100
      */
     keyword?: string;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
     };
+
+    export type AeoKeywordsModifiersBranded = typeof AeoKeywordsModifiersBranded[keyof typeof AeoKeywordsModifiersBranded];
+
+
+    export const AeoKeywordsModifiersBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
 
     export type AeoKeywordsReportParams = {
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 7, at most 30.
+     * Which answers to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoKeywordsReportBranded;
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 7, at most 90.
      * @minimum 1
-     * @maximum 30
+     * @maximum 90
      */
     days?: number;
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
     };
+
+    export type AeoKeywordsReportBranded = typeof AeoKeywordsReportBranded[keyof typeof AeoKeywordsReportBranded];
+
+
+    export const AeoKeywordsReportBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
 
     export type AeoPromptsListParams = {
     /**
@@ -129667,6 +129747,18 @@ export namespace Schemas {
      */
     branded?: boolean | null;
     /**
+     * The window needs_improvement reads, in days ending now. Default 30, at most 90. Ignored unless needs_improvement is true.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    /**
+     * With needs_improvement, only read the answers of this engine, for example 'claude-web-search'. Ignored unless needs_improvement is true.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
+    /**
      * Also list archived prompts. Archived prompts are left out by default.
      */
     include_archived?: boolean;
@@ -129676,7 +129768,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Only list prompts that the engines answered in the last 30 days without citing a target domain. Prompts with no answered check in that window are left out.
+     * Only list prompts that the engines answered in the last 'days' days without citing a target domain. Prompts with no answered check in that window are left out.
      */
     needs_improvement?: boolean;
     /**
@@ -129737,6 +129829,18 @@ export namespace Schemas {
      * @maximum 90
      */
     days?: number;
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
     };
 
     export type AeoPromptsOverviewBranded = typeof AeoPromptsOverviewBranded[keyof typeof AeoPromptsOverviewBranded];
@@ -129764,6 +129868,18 @@ export namespace Schemas {
      * @maximum 90
      */
     days?: number;
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
     };
 
     export type AeoPromptsRankingsBranded = typeof AeoPromptsRankingsBranded[keyof typeof AeoPromptsRankingsBranded];
