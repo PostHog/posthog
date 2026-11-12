@@ -14,7 +14,7 @@ import structlog
 from celery import shared_task
 
 from posthog.comment.formatting import rich_content_to_html, rich_content_to_markdown
-from posthog.helpers.email_formatting import render_ai_email_html
+from posthog.helpers.email_formatting import render_markdown_email_html
 from posthog.models.comment import Comment as CommentModel
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -189,8 +189,8 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     else:
         txt_body = comment.content or ""
         # Content-only replies come from the API, MCP, and AI agents, so the text may be model-written.
-        # Render the markdown, but drop links to origins outside the allowlist.
-        html_body = render_ai_email_html(txt_body)
+        # The renderer drops links to origins outside the allowlist and leaves code untouched.
+        html_body = render_markdown_email_html(txt_body)
 
     subject = ticket.email_subject or "Your support request"
     is_reply = latest_mapping is not None

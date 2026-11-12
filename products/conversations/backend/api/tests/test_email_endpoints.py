@@ -2087,7 +2087,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         self._run_reply(
             ticket,
-            content="See [the docs](https://posthog.com/docs).\nThen [verify](https://attacker.example/phish)\n\nNew paragraph",
+            content="See [the docs](https://posthog.com/docs).\nThen [verify](https://attacker.example/phish)\n\nNew paragraph\n\n```\ncurl https://example.com/api\n```",
         )
 
         message = message_from_bytes(mock_send_mime.call_args.args[1])
@@ -2099,6 +2099,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert "attacker.example" not in html
         assert "<br" in html
         assert html.count("<p>") == 2
+        assert "<code>curl https://example.com/api\r\n</code>" in html
 
     @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_delivers_to_team_member_ticket(self, mock_send_mime: MagicMock):

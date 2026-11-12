@@ -45,10 +45,10 @@ def _drop_disallowed_href(tag: str, attribute: str, value: str) -> str | None:
     return value
 
 
-def render_ai_email_html(markdown: str) -> SafeString:
-    rendered = _MARKDOWN_RENDERER.render(strip_external_links_markdown(markdown))
-    # The markdown pre-pass parses without the table extension, so table cells can expose a link it never saw.
-    # Check every rendered href too. Raw HTML is disabled and nh3 removes unsafe tags and attributes.
+def render_markdown_email_html(markdown: str) -> SafeString:
+    """Links survive only when their target passes the link allowlist."""
+    rendered = _MARKDOWN_RENDERER.render(markdown)
+    # Raw HTML is disabled and nh3 removes unsafe tags and attributes before email rendering.
     # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe
     return mark_safe(
         nh3.clean(
@@ -58,3 +58,8 @@ def render_ai_email_html(markdown: str) -> SafeString:
             attribute_filter=_drop_disallowed_href,
         )
     )
+
+
+def render_ai_email_html(markdown: str) -> SafeString:
+    """Also defangs bare URLs in model output, at the cost of backticks around URLs inside code."""
+    return render_markdown_email_html(strip_external_links_markdown(markdown))
