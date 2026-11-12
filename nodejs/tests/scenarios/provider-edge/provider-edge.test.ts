@@ -315,6 +315,23 @@ describe('provider edge', () => {
         }
     })
 
+    it('does not observe a held fault from a send after its observation window', async () => {
+        const start = Date.now()
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
+        try {
+            const held = edge.hold(ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }))
+            const observed = held.observed()
+            clock.mockReturnValue(start + 10_001)
+
+            expect({ send: await send(ALICE), observed: await observed }).toEqual({
+                send: 'MessageRejected',
+                observed: false,
+            })
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
     const rejectFor = (recipient: string): CardFault => ({
         name: 'ses.reject',
         params: { type: 'rejected' },
