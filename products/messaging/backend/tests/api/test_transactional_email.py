@@ -118,7 +118,12 @@ class FakeCdpApi:
         client_post.side_effect = partial(requests.Session.post, internal_requests)
         with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
             http.add_callback(responses.POST, re.compile(r".*/hog_flows/[^/]+/transactional_email/send$"), self._send)
+            http.add_callback(responses.POST, re.compile(r".*/hog_flows/[^/]+/transactional_email$"), self._run)
             yield self
+
+    def _run(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
+        self.received.append(json.loads(request.body or "{}"))
+        return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self.received)}"})
 
     def _send(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
         payload = json.loads(request.body or "{}")
@@ -945,29 +950,39 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("the_template_route", "template", set()),
-            ("template_id_while_scheduled_sends_are_off", "send_email", {EMAIL_SCHEDULED_SENDS_FLAG}),
-            ("nested_template_id_while_scheduled_sends_are_off", "send_email_nested", {EMAIL_SCHEDULED_SENDS_FLAG}),
-            ("template_key_while_scheduled_sends_are_off", "code", {EMAIL_SCHEDULED_SENDS_FLAG}),
+            (f"{name}_{case}", route, flags_off, scheduled_at)
+            for name, route, flags_off in (
+                ("the_template_route", "template", set()),
+                ("template_id_while_scheduled_sends_are_off", "send_email", {EMAIL_SCHEDULED_SENDS_FLAG}),
+                ("nested_template_id_while_scheduled_sends_are_off", "send_email_nested", {EMAIL_SCHEDULED_SENDS_FLAG}),
+                ("template_key_while_scheduled_sends_are_off", "code", {EMAIL_SCHEDULED_SENDS_FLAG}),
+            )
+            for case, scheduled_at in (("a_time", "2026-11-20T09:00:00Z"), ("null", None))
         ]
     )
-    def test_refuses_scheduled_at_where_it_cannot_schedule(self, mock_post, flag, _capture, _name, route, flags_off):
+    def test_refuses_scheduled_at_where_it_cannot_schedule_unless_null(
+        self, mock_post, flag, _capture, _name, route, flags_off, scheduled_at
+    ):
         flag.side_effect = lambda key, *_args, **_kwargs: key not in flags_off
         psak = self._psak_client(["hog_flow:write"])
-        scheduled_at = {"scheduled_at": "2026-11-20T09:00:00Z"}
 
-        if route == "code":
-            response = psak.post(self.send_email_url, self._code_send(**scheduled_at), format="json")
+        with FakeCdpApi().serving(mock_post) as cdp:
+            if route == "code":
+                response = psak.post(self.send_email_url, self._code_send(scheduled_at=scheduled_at), format="json")
+            else:
+                response = self._send(psak, route, {**self.body, "scheduled_at": scheduled_at})
+
+        if scheduled_at is None:
+            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+            assert [payload["to"] for payload in cdp.received] == ["user@example.com"]
         else:
-            response = self._send(psak, route, {**self.body, **scheduled_at})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert {key: response.json()[key] for key in ("type", "code", "attr")} == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "attr": "scheduled_at",
-        }
-        mock_post.assert_not_called()
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert {key: response.json()[key] for key in ("type", "code", "attr")} == {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "attr": "scheduled_at",
+            }
+            assert cdp.received == []
 
     @parameterized.expand(
         [

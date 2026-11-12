@@ -155,9 +155,8 @@ database "posthog" {
     partition_by = "toYYYYMMDD(created_at)"
     ttl          = "toDate(created_at) + toIntervalDay(61)"
     settings = {
-      index_granularity                = "1024"
-      materialize_ttl_recalculate_only = "1"
-      ttl_only_drop_parts              = "1"
+      index_granularity   = "1024"
+      ttl_only_drop_parts = "1"
     }
     column "team_id" {
       type = "Int64"

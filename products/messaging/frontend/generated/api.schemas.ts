@@ -221,8 +221,11 @@ export interface SendEmailApi {
      * @nullable
      */
     attachments?: EmailAttachmentApi[] | null
-    /** When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. PostHog holds the email until then, at most 30 days after the request. A time that already passed sends it now. Leave it out to send now. */
-    scheduled_at?: string
+    /**
+     * When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. PostHog holds the email until then, at most 30 days after the request. A time that already passed sends it now. Leave it out or send null to send now.
+     * @nullable
+     */
+    scheduled_at?: string | null
     /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
     capture_engagement?: boolean
     /**

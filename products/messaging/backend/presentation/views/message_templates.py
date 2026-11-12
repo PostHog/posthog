@@ -503,8 +503,7 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     )
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        # This send ignores fields it doesn't know. An email it was asked to hold must not go out at once.
-        if isinstance(self.initial_data, Mapping) and "scheduled_at" in self.initial_data:
+        if "scheduled_at" in _sent_fields(self.initial_data):
             raise serializers.ValidationError(
                 {
                     "scheduled_at": "This route doesn't schedule emails, so PostHog didn't send the email. Send it "
@@ -618,9 +617,10 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     )
     scheduled_at = ScheduledAtField(
         required=False,
+        allow_null=True,
         help_text="When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or "
         "`2026-11-20T10:00:00+01:00`. PostHog holds the email until then, at most 30 days after the request. A time "
-        "that already passed sends it now. Leave it out to send now.",
+        "that already passed sends it now. Leave it out or send null to send now.",
     )
     capture_engagement = OmittableBooleanField(
         required=False,
@@ -662,7 +662,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         data = super().validate(data)
-        sent = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
+        sent = _sent_fields(self.initial_data)
         if ("template_id" in data) == ("template_key" in data):
             raise serializers.ValidationError({"template_id": "Send either `template_id` or `template_key`."})
         if "template_id" in data:
@@ -689,6 +689,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if not (data.get("html") or data.get("text")):
             raise serializers.ValidationError({"html": "A send with `template_key` needs `html`, `text` or both."})
         return data
+
+
+def _sent_fields(initial_data: Any) -> set[str]:
+    if not isinstance(initial_data, Mapping):
+        return set()
+    return {field for field in initial_data if not (field == "scheduled_at" and initial_data[field] is None)}
 
 
 def _within_body_limit(value: str, body: str) -> str:
@@ -1410,7 +1416,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         return self._queue_transactional_email(request, template)
 
     def _require_scheduled_sends_when_scheduled(self, request: Any) -> None:
-        if "scheduled_at" in request.validated_data:
+        if request.validated_data.get("scheduled_at") is not None:
             require_scheduled_sends(self.team)
 
     def _send_code_email(self, request: Any) -> Response:
@@ -1466,7 +1472,7 @@ LEAD_TIME_BUCKETS = (
 def _lead_time(request: Any) -> dict[str, Any]:
     if not hasattr(request, "validated_data"):
         # The time didn't parse, so how far ahead it was asked for is unknown.
-        asked = isinstance(request.data, Mapping) and "scheduled_at" in request.data
+        asked = "scheduled_at" in _sent_fields(request.data)
         return (
             {"scheduled": None, "lead_time_bucket": None} if asked else {"scheduled": False, "lead_time_bucket": "now"}
         )
