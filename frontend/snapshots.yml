@@ -4699,7 +4699,7 @@ snapshots:
     layout-products-and-files--products-closed--dark:
         hash: v1.k794b7964.4bb831efecef2806c3cfc3cf6b1248002d403ca1863dacffb5553a32455839c9.sRJ0-GMwLE9_6Y-oQRGMb4_pQWohYmwsyXDeLmT_LGM
     layout-products-and-files--products-closed--light:
-        hash: v1.k794b7964.8e7e35bf989eb00ef70d532d090928324bbf7ac2a59e8246fd4efc8222bf7eb2.zm3Gq7MkquDxMSoG9NpxglIiij_rv4oL1yP254c4VJc
+        hash: v1.k794b7964.fc78df70f82ed47e5d8e40f2ce561cd51ed6c5ebbdcbb5b4632f44d220fe285a.L3HJZcQ03LuJzvAEuIKoYsNQrf4yvmrGVbTtltewgZo
     layout-products-and-files--products-overlay--dark:
         hash: v1.k794b7964.556d6459fb330a4f15d0e3c44bda870dfd3f514934a05acb2b607a3745eb4c2a.k_Fqz0XptyNGDb2xRgZEdErLZXJbJAxoBroTDB-mdOU
     layout-products-and-files--products-overlay--light:
@@ -15195,7 +15195,7 @@ snapshots:
     scenes-app-people-person--person-not-found--light:
         hash: v1.k794b7964.a3a657862b2bd2cb2f1e0a795c2089816cd3a3add75d63f3c1d17c3dfaf99e58.7nKFbvFDTWKtPh8oT1khOtMFENiy8AKBKvg2bhR1z8k
     scenes-app-people-persons--persons--dark:
-        hash: v1.k794b7964.fa66b0ecafcd379dfd72d0bb58ffb9ffb11085f84f7c9cdf52a84c7d578279ce.ywoRf6Rqr_OZ2dfom4c_II-IgcTMYmok0TREQCyWgx4
+        hash: v1.k794b7964.997e3853d25463c5a1af202b0eed1e1de54a1b93069f193d11eed59982f029db.8ivH8AofvJhQRp1Huefjiz7VEjlWZXc1Q_76WGv8REU
     scenes-app-people-persons--persons--light:
         hash: v1.k794b7964.ecfba1cb400c2981e38910fafbbec02f293940d5b3d088c4f94bdefe2027ba14.HFwqD_cFa-TYp7NjwAU1xkZZao3Iiv7fOnB7lSLS8Mc
     scenes-app-people-persons--persons-empty--dark:
