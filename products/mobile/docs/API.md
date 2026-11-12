@@ -138,3 +138,106 @@ needs `session_recording:write`, so opening a session on the phone does not mark
 A 403 that names a missing scope goes to `reportScopeError(error, 'replay')`, and the screen shows `ViewsReauthState`.
 The timeline's queries spend the `replay` budget family (`runQuery({ budgetFamily: 'replay' })`, the same buckets as
 `query`), not the Views `query` family, so Views refreshes and a session screen never block each other.
+
+## Experiments
+
+### Experiments list and reads
+
+`src/api/experiments.ts` is the whole API surface of the Experiments screens. It imports the generated shapes from
+`products/experiments/frontend/generated/api.schemas.ts` (`ExperimentBasicApi` for list rows, `ExperimentApi` for the
+detail and every lifecycle answer, `RunningTimeTargetApi`, `ExperimentHealthApi`, `ExperimentFlagCleanupTargetApi`) and
+types by hand only what the generator leaves `unknown`: each metric's `result` (`ExperimentQueryResponse` in
+`posthog/schema.py`) and the `ExperimentExposureQuery` response. `ExperimentsSource` holds every call;
+`liveExperimentsSource` sends them and `demoExperimentsSource` (`src/demo/experiments.ts`) answers them from the demo
+store with the same signatures. The viewset is `EnterpriseExperimentsViewSet` in
+`products/experiments/backend/presentation/views.py`; the list filter is `filter_experiments_queryset` in
+`products/experiments/backend/experiment_service.py`.
+
+| Scope              | Why                                                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `experiment:read`  | The list, one experiment, stored results, a run's progress, the running time target, health and the cleanup target.     |
+| `experiment:write` | `metrics_recalculation/` (pull to refresh on a running experiment) and every lifecycle action. It also covers the read. |
+| `query:read`       | Already granted: the `ExperimentExposureQuery` behind the exposures card and the watching card.                         |
+
+`EXPERIMENTS_SCOPES` in `src/api/scopeErrors.ts` holds the two experiment scopes, and `useFeatureAccess('experiments')`
+reads them. Until a person widens the OAuth application's ceiling, the server drops them and the list shows the
+"isn't available yet" state. `feature_flag:write`, `integration:read`, `activity_log:read` and `project:write` are never
+requested.
+
+The list filter's `status=` accepts `draft`, `running`, `paused`, `exposure_frozen`, `stopped`, `complete` (an alias of
+`stopped`) and `all` (no filter); any other value is ignored, not refused. `running`, `paused` and `exposure_frozen` are
+mutually exclusive, so the Running segment reads all three.
+
+| Call            | Endpoint                                                                                       | Scope              | Payload the app sends or reads                                                                                                                                                                                                                                                                                                         |
+| --------------- | ---------------------------------------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Running segment | `GET experiments/?status=running\|paused\|exposure_frozen&order=-start_date&limit=20&offset=n` | `experiment:read`  | One request per status at the same offset, merged without repeats. `hasMore` while any of them has `next`. Rows are `ExperimentBasicApi`: `name`, `feature_flag_key`, `feature_flag.filters.multivariate.variants`, `start_date`, `end_date`, `status`, `conclusion`, `created_by`, `running_time_calculation.recommended_sample_size` |
+| Done segment    | `GET experiments/?status=stopped&order=-end_date&limit=20&offset=n`                            | `experiment:read`  | The shipped variant is the one at 100% of the flag's split                                                                                                                                                                                                                                                                             |
+| Drafts segment  | `GET experiments/?status=draft&order=-created_at&limit=20&offset=n`                            | `experiment:read`  |                                                                                                                                                                                                                                                                                                                                        |
+| Search          | The segment's request with `search=<text>`                                                     | `experiment:read`  | Only when the loaded pages do not hold the whole segment; the server matches the name or the flag key, case-insensitive. Otherwise the app filters the loaded rows                                                                                                                                                                     |
+| One experiment  | `GET experiments/{id}/`                                                                        | `experiment:read`  | `ExperimentSerializer`: `metrics`, `primary_metrics_ordered_uuids`, `saved_metrics[].effective_query`, `stats_config.method`, `feature_flag`, `description`                                                                                                                                                                            |
+| Stored results  | `GET experiments/{id}/metrics_recalculation/latest/`                                           | `experiment:read`  | The newest finished run or the daily timeseries placeholder (`result_source`), with `query_to`, `completed_at`, `results[] { metric_uuid, status, result }` and `active_run`. A 404 means no results yet and reads as `null`                                                                                                           |
+| One run         | `GET experiments/{id}/metrics_recalculation/{run}/`                                            | `experiment:read`  | `status`, `completed_metrics` of `total_metrics`, `results`                                                                                                                                                                                                                                                                            |
+| Recalculate     | `POST experiments/{id}/metrics_recalculation/` `{ trigger: 'manual' }`                         | `experiment:write` | 201 starts a run, 200 returns the active one (`is_existing`). A 429 inside five minutes of the last finished run carries `Retry-After`, which `startRecalculation` returns as `retryAfterMs`                                                                                                                                           |
+| Running target  | `GET experiments/{id}/running_time_target/`                                                    | `experiment:read`  | `recommended_sample_size`, `current_sample_size`, `outlook`                                                                                                                                                                                                                                                                            |
+| Health          | `GET experiments/{id}/health/`                                                                 | `experiment:read`  | `findings[] { code, severity, title, detail }`                                                                                                                                                                                                                                                                                         |
+| Exposures       | `POST query/` with `ExperimentExposureQuery`                                                   | `query:read`       | The web's `experimentLogic` body: `experiment_id`, `experiment_name`, `exposure_criteria`, `feature_flag`, `start_date`, `end_date`, `holdout`. Reads `total_exposures`, `timeseries`, `sample_ratio_mismatch`                                                                                                                         |
+
+Each list row reads its headline lazily, only while it is on screen: the detail (for the primary metric) and the
+stored results, through a queue with at most two reads in flight. Both land in the cache entries the experiment screen
+reads. The list never posts `metrics_recalculation/`; pull to refresh re-reads the first page and the visible rows'
+stored results. Every `experiments/` path spends the `experiments` family in `src/api/budget.ts` (120 a minute and
+1,200 an hour, 25% of the published 480/min and 4,800/h); writes count too, because the family follows the path.
+The exposure query spends the `query` family.
+
+### Experiment actions
+
+The finish, launch, pause, resume, archive and edit conclusion sheets in `src/features/experiments/` call these through
+the `ExperimentsSource` of `src/api/experiments.ts`. Request bodies follow the web's `experimentLogic` and the
+serializers in `products/experiments/backend/presentation/serializers.py`; scopes follow `views.py`
+(`required_scopes`, and `dangerously_get_required_scopes` for `end`, `ship_variant` and `archive`).
+
+| Call            | Endpoint                                    | Scope                                                        | Payload the app sends or reads                                                                                                                                                                                                                                                                |
+| --------------- | ------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Launch          | `POST experiments/{id}/launch/`             | `experiment:write`                                           | No body. Answers the experiment. 400 when it is not a draft or the flag has fewer than two variants. The flag turns on through the approval gate, so a policy answers the same 409 and the experiment stays a draft                                                                           |
+| Ship            | `POST experiments/{id}/ship_variant/`       | `experiment:write`, plus `task:write` with `open_cleanup_pr` | `{ variant_key, release_to_everyone, conclusion, conclusion_comment, open_cleanup_pr, repository? }`. A 409 `{ code: 'approval_required' \| 'change_request_pending', change_request_id, change_request }` (`ApprovalHandlingMixin`) means an approval policy holds the flag: nothing changed |
+| End             | `POST experiments/{id}/end/`                | `experiment:write`, plus `task:write` with `open_cleanup_pr` | `{ conclusion, conclusion_comment, open_cleanup_pr, repository? }`. The flag does not change                                                                                                                                                                                                  |
+| Cleanup target  | `GET experiments/{id}/flag_cleanup_target/` | `experiment:read`                                            | `{ repository, source: 'explicit' \| 'team_default' \| 'single_repo' \| 'ambiguous' \| 'no_integration', candidates }`. Read when the finish sheet opens, as the web reads it when its modal opens                                                                                            |
+| Pause, resume   | `POST experiments/{id}/pause/`, `resume/`   | `experiment:write`                                           | No body. The flag flip goes through the approval gate, so these can answer the same 409                                                                                                                                                                                                       |
+| Archive         | `POST experiments/{id}/archive/` `{}`       | `experiment:write`                                           | 400 unless the experiment has ended                                                                                                                                                                                                                                                           |
+| Edit conclusion | `PATCH experiments/{id}/`                   | `experiment:write`                                           | `{ conclusion, conclusion_comment }`, without `version`, so the server skips its concurrent-edit check                                                                                                                                                                                        |
+
+The app never sends `set_repository_as_team_default` (it needs `project:write` and project admin) or
+`disable_feature_flag: true` on archive (it needs `feature_flag:write`). `repository` goes only with an `ambiguous`
+target, the one case where the server would skip the cleanup PR instead of picking a repository.
+A 403 that names a missing `experiment:*` scope goes to `reportScopeError(error, 'experiments')`; a missing
+`task:write` on a cleanup PR stays an error in the sheet.
+
+### Experiment screen
+
+`src/features/experiments/ExperimentScreen.tsx` reads the calls in the reads table above through `useExperiment`,
+`useLatestResults` (`hooks.ts`) and `useRunningTimeTarget`, `useHealth`, `useExposures` and `useRecalculation`
+(`detailHooks.ts`). It needs no scope beyond the list's.
+
+| Moment                 | Calls                                                                                                                       | Cadence                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Open                   | One experiment, stored results; plus the target and health on a live experiment, and the exposure query once it has started | Cached for a minute (the target and health for five)                                           |
+| Pull on a live one     | `POST metrics_recalculation/` `{ trigger: 'manual' }`, then `GET metrics_recalculation/{run}/`                              | Every 5 s while the screen is focused and the app is active, for up to 2 min ("Still working") |
+| Pull inside the window | The POST answers 429; the pull re-reads the stored results and counts down `Retry-After`                                    | Once                                                                                           |
+| Pull on any other      | Re-reads only: complete, draft, and `exceeds_recalculation_age_limit`                                                       | Once                                                                                           |
+| Someone else's run     | `active_run` on the stored results: the screen polls it like its own                                                        | As above                                                                                       |
+| Just launched (2 h)    | Stored results and the exposure query                                                                                       | Every 60 s while focused; never a recalculation                                                |
+
+The exposure query carries `as_of: query_to` of the stored results, as the web's `loadExposures` does, so the exposure
+counts end where the metric counts end. While watching, and before an experiment has stored results, it reads up to now.
+
+The numbers follow the web's `MetricsView/shared/utils.ts`: the change is the midpoint of the interval, and a
+`decrease` goal turns the chance to win into `1 − chance_to_win`, because the server always returns the chance that the
+variant is above control. A Bayesian result is significant when that chance passes `stats_config.bayesian.ci_level`
+either way (`is_decisive` in `products/experiments/stats/bayesian/tests.py`), so the About sheet explains it by the
+chance to win, not by the interval. A Frequentist one is significant when the confidence interval at
+`1 − frequentist.alpha` leaves out 0. The sample ratio warning shows when `sample_ratio_mismatch.p_value` is under
+0.001, the web's `exposureHealth.ts` threshold, unless the `srm` health check is `not_applicable`;
+`sample_ratio_mismatch.expected` holds expected counts, which the screen turns into shares.
+
+Chat opens `/chat` with `objectType: 'experiment'`, the type the web's experiment page attaches
+(`SummarizeExperimentButton.tsx`), and the experiment id as the key.

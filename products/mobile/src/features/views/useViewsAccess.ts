@@ -5,7 +5,13 @@ import { type AuthMethod, addSessionEndTask, useAuthStore } from '@/auth/authSto
 import { getSessionTokens, type SessionTokens } from '@/auth/tokens'
 import { useDataMode } from '@/demo/demoMode'
 
-const NONE_REPORTED: Record<ScopedFeature, string | null> = { views: null, errors: null, replay: null, inbox: null }
+const NONE_REPORTED: Record<ScopedFeature, string | null> = {
+    views: null,
+    errors: null,
+    replay: null,
+    inbox: null,
+    experiments: null,
+}
 
 interface ScopeErrorState {
     /** Per feature, the scope one of its requests was refused for in this session. */
