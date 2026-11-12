@@ -28887,6 +28887,18 @@ export namespace Schemas {
       history_limit_days: number | null;
     }
 
+    /**
+     * * `append` - Append
+     * * `replace` - Replace
+     */
+    export type CohortPopulationModeEnum = typeof CohortPopulationModeEnum[keyof typeof CohortPopulationModeEnum];
+
+
+    export const CohortPopulationModeEnum = {
+      Append: 'append',
+      Replace: 'replace',
+    } as const;
+
     export interface Cohort {
       readonly id: number;
       /**
@@ -28899,7 +28911,7 @@ export namespace Schemas {
       groups?: unknown;
       deleted?: boolean;
       filters?: CohortFilters | null;
-      /** Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds every newly matched person to the cohort. Existing members are kept, including people the query no longer matches, so membership only grows. Can't be combined with filters. */
+      /** Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds newly matched persons to the cohort by default (append). Pass population_mode='replace' to remove members the query no longer matches instead. If the query matches no persons, the replace is refused and existing members are kept. Can't be combined with filters. */
       query?: unknown;
       /** @nullable */
       readonly version: number | null;
@@ -28950,6 +28962,11 @@ export namespace Schemas {
          * @maxItems 1000
          */
       _create_static_person_ids?: string[];
+      /** How to populate the static cohort from the query. 'append' adds newly matched persons to existing members. 'replace' also removes members the query no longer matches. If the query matches no persons, the replace is refused and existing members are kept. Only accepted together with query on an existing static cohort.
+       *
+       * * `append` - Append
+       * * `replace` - Replace */
+      population_mode?: CohortPopulationModeEnum;
     }
 
     export interface CohortCalculationHistory {
@@ -29011,6 +29028,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly main_query: string | null;
+      /** How this static calculation ran: append added matches to existing members, and replace also pruned non-matches. Null for dynamic cohorts or runs that recorded no mode.
+       *
+       * * `append` - Append
+       * * `replace` - Replace */
+      readonly mode: CohortPopulationModeEnum | null;
     }
 
     export interface CohortCalculationHistoryResponse {
@@ -87144,7 +87166,7 @@ export namespace Schemas {
       groups?: unknown;
       deleted?: boolean;
       filters?: CohortFilters | null;
-      /** Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds every newly matched person to the cohort. Existing members are kept, including people the query no longer matches, so membership only grows. Can't be combined with filters. */
+      /** Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds newly matched persons to the cohort by default (append). Pass population_mode='replace' to remove members the query no longer matches instead. If the query matches no persons, the replace is refused and existing members are kept. Can't be combined with filters. */
       query?: unknown;
       /** @nullable */
       readonly version?: number | null;
@@ -87195,6 +87217,11 @@ export namespace Schemas {
          * @maxItems 1000
          */
       _create_static_person_ids?: string[];
+      /** How to populate the static cohort from the query. 'append' adds newly matched persons to existing members. 'replace' also removes members the query no longer matches. If the query matches no persons, the replace is refused and existing members are kept. Only accepted together with query on an existing static cohort.
+       *
+       * * `append` - Append
+       * * `replace` - Replace */
+      population_mode?: CohortPopulationModeEnum;
     }
 
     export interface PatchedColumnConfiguration {

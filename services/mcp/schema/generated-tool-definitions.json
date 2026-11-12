@@ -3552,6 +3552,22 @@
             "readOnlyHint": false
         }
     },
+    "cohorts-replace-static-members": {
+        "description": "Replace all members of an existing STATIC cohort with persons matching a query (HogQLQuery or ActorsQuery). The server runs the query, adds newly matched persons, and removes members the query no longer matches. An empty result is refused: if the query matches no persons, the replace is stopped, existing members are kept, and errors_calculating is set. The query must expose the person id under one of: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that returned successfully. Returns a 400 while the cohort's 'is_calculating' is true.",
+        "category": "Cohorts",
+        "feature": "cohorts",
+        "summary": "Replace static cohort members from query",
+        "title": "Replace static cohort members from query",
+        "required_scopes": ["cohort:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/cohorts/{id}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "static-cohort-replace-on-recalc"
+    },
     "cohorts-retrieve": {
         "description": "Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count of matching users, and calculation status.",
         "category": "Cohorts",

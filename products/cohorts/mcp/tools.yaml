@@ -155,12 +155,11 @@ tools:
             To add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it —
             the server runs the query and inserts every newly matched person, with no row limit. Existing members are
             kept, including people the query no longer matches. The query must expose the person id under one of these
-            column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the
-            'events' or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a
-            HogQLQuery through 'execute-sql' and an
-            ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that
-            returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything
-            beyond a handful (~20) of people.
+            column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events'
+            or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a
+            HogQLQuery through 'execute-sql' and an ActorsQuery through its matching 'query-*-actors' tool (e.g.
+            'query-trends-actors') — and only save one that returned successfully. Prefer this over
+            'cohorts-add-persons-to-static-cohort-partial-update' for anything beyond a handful (~20) of people.
 
 
             An update that sets 'query' returns a 400 while the cohort's 'is_calculating' is true. That includes the
@@ -194,17 +193,14 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         title: Replace static cohort members from query
-        description: >-
-            Replace all members of an existing STATIC cohort with persons matching a query (HogQLQuery or ActorsQuery).
-            The server runs the query, adds newly matched persons, and removes members the query no longer matches.
-            An empty result is refused: if the query matches no persons, the replace is stopped, existing members
-            are kept, and errors_calculating is set.
-            The query must expose the person id under one of: 'person_id', 'actor_id', 'id', or 'distinct_id'
-            (selecting from the 'events' or 'persons' tables resolves the actor automatically).
-            Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery
-            through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that
-            returned successfully.
-            Returns a 400 while the cohort's 'is_calculating' is true.
+        description: "Replace all members of an existing STATIC cohort with persons matching a query (HogQLQuery or
+            ActorsQuery). The server runs the query, adds newly matched persons, and removes members the query no longer
+            matches. An empty result is refused: if the query matches no persons, the replace is stopped, existing
+            members are kept, and errors_calculating is set. The query must expose the person id under one of:
+            'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves
+            the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and
+            an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one
+            that returned successfully. Returns a 400 while the cohort's 'is_calculating' is true."
         exclude_params:
             - population_mode
             - groups
@@ -220,11 +216,11 @@ tools:
             - experiment_set
         inject_body:
             population_mode: replace
-        feature_flag: static-cohort-replace-on-recalc
         param_overrides:
             id:
                 cast: string-int
         ui_app: cohort
+        feature_flag: static-cohort-replace-on-recalc
     cohorts-retrieve:
         operation: cohorts_retrieve
         enabled: true
