@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 from contextlib import contextmanager
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -69,7 +70,7 @@ def _mock_adapter(*, lag_bytes=0, retention_cap_mb=None, slot_survives_drop=Fals
     return adapter
 
 
-_SCHEDULE_LOOKUP = {
+_SCHEDULE_LOOKUP: dict[str, dict[str, Any]] = {
     "present": {"return_value": True},
     "missing": {"return_value": False},
     "error": {"side_effect": TimeoutError()},
