@@ -26,6 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDestination,
     StoredAlertDestination,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
 
 # The destination types that open and close incidents rather than post messages.
@@ -327,8 +328,15 @@ def record_source_destination(
     hog_function_event_ids: Collection[str],
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
-    destination outlives them. None when the platform has no alert under `public_id`."""
-    configuration_id = _configurations_by_public_id(team_id, public_id).values_list("id", flat=True).first()
+    destination outlives them. None when the platform has no alert under `public_id`, or when it keeps
+    the alert's destinations itself: delivery then sends every row and emits to every HogFunction, so a
+    row beside these HogFunctions would send each message twice."""
+    configuration_id = (
+        _configurations_by_public_id(team_id, public_id)
+        .filter(destinations_owner=PlatformAlertOwner.SOURCE)
+        .values_list("id", flat=True)
+        .first()
+    )
     if configuration_id is None:
         return None
     (created,) = create_alert_destinations(
@@ -358,10 +366,13 @@ def list_source_destinations(
         .order_by("created_at", "id")
         if not _names_subscribers(row)
     ]
+    row_by_hog_function_id = {
+        hog_function_id: row for row in reversed(rows) for hog_function_id in row.legacy_hog_function_ids
+    }
     matched: set[UUID] = set()
     listed: list[SourceDestination] = []
     for group in groups:
-        row = next((row for row in rows if set(row.legacy_hog_function_ids) & set(group.hog_function_ids)), None)
+        row = next((row_by_hog_function_id[i] for i in group.hog_function_ids if i in row_by_hog_function_id), None)
         if row is not None:
             matched.add(row.id)
         listed.append(
