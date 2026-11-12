@@ -8656,6 +8656,38 @@
             "readOnlyHint": false
         }
     },
+    "inbox-source-filter-catalogs-list": {
+        "description": "List the inbox sources whose records this project can filter, each with the fields a filter expression can use, their types and meanings, and example expressions. A filter is a boolean expression over these fields, saved in a source config's `config.hogql_filter` with `inbox-source-configs-partial-update` and `config_set`. Records that fail it never reach AI processing. An empty list means no source takes a filter yet.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List inbox source filter catalogs",
+        "title": "List inbox source filter catalogs",
+        "required_scopes": ["inbox:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/source_configs/filter_catalogs/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "signals-source-filters"
+    },
+    "inbox-source-filter-preview": {
+        "description": "Check a filter expression before you save it, and see what it does to the source's records from the last 7 days: how many pass, how many it excludes, and the newest records of each with their field values. Use the fields from `inbox-source-filter-catalogs-list`. `status` explains an empty result, for example an invalid expression or a source that has not synced. Records that pass can still be skipped later by guidance or deduplication. Saves nothing.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Preview an inbox source filter",
+        "title": "Preview an inbox source filter",
+        "required_scopes": ["inbox:read", "query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/source_configs/filter_preview/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "signals-source-filters"
+    },
     "inbox-steering-instructions-get": {
         "description": "Read the current project's research, implementation, and scout instructions. Returns only the three instruction fields from the project's Self-driving config singleton, with empty strings for unset roles. Read shared project instructions separately with tasks-config-list. A role's instructions supplement the shared project instructions; scouts also retain their individual briefs.",
         "category": "Signals",
