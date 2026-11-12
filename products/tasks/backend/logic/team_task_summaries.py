@@ -9,8 +9,9 @@ Postgres instead of loading whole state blobs.
 import datetime
 from collections.abc import Collection
 
-from django.db.models import BooleanField, Case, Value, When
+from django.db.models import BooleanField, Case, F, OuterRef, Subquery, Value, When
 from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Coalesce
 
 from posthog.dataclasses import frozen
 
@@ -22,6 +23,8 @@ from products.tasks.backend.visibility import task_visibility_q
 class TeamTaskSummary:
     task_id: str
     created_at: datetime.datetime
+    # When a run of the task last changed, such as a new summary. The creation time for a task with no run.
+    active_at: datetime.datetime
     created_by_id: int | None
     run_status: str | None
     # None when the latest run wrote no summary, or when its summary is not readable without a viewer.
@@ -37,10 +40,14 @@ def list_team_task_summaries(
     team_id: int,
     task_ids: Collection[str],
     origin_products: Collection[str],
-    created_after: datetime.datetime,
+    active_after: datetime.datetime,
     limit: int,
 ) -> list[TeamTaskSummary]:
-    """The newest `limit` of these tasks that every member of the team may read, created after `created_after`.
+    """The `limit` most recently active of these tasks that every member of the team may read.
+
+    A task counts when it was created or one of its runs changed at or after `active_after`. A
+    conversation that started earlier still counts once a run writes its outcome, because writing a
+    run summary also moves the run's `updated_at`.
 
     A run that carries `analytics_query_context` keeps its summary private, because reading it needs
     the viewer's own access to the queries behind it. A workflow task's summary is readable by its
@@ -49,17 +56,21 @@ def list_team_task_summaries(
     """
     if not task_ids or not origin_products or limit <= 0:
         return []
+    last_run_change = (
+        TaskRun.objects.filter(team_id=team_id, task_id=OuterRef("pk")).order_by("-updated_at").values("updated_at")[:1]
+    )
     tasks = list(
         Task.objects.filter(
             team_id=team_id,
             id__in=list(task_ids),
             origin_product__in=list(origin_products),
-            created_at__gte=created_after,
             deleted=False,
         )
         .filter(task_visibility_q(None, team_id))
-        .order_by("-created_at", "id")
-        .values("id", "created_at", "created_by_id", "origin_product", "channel_id")[:limit]
+        .annotate(active_at=Coalesce(Subquery(last_run_change), F("created_at")))
+        .filter(active_at__gte=active_after)
+        .order_by("-active_at", "id")
+        .values("id", "created_at", "active_at", "created_by_id", "origin_product", "channel_id")[:limit]
     )
     if not tasks:
         return []
@@ -93,6 +104,7 @@ def list_team_task_summaries(
             TeamTaskSummary(
                 task_id=str(task["id"]),
                 created_at=task["created_at"],
+                active_at=task["active_at"],
                 created_by_id=task["created_by_id"],
                 run_status=run["status"] if run is not None else None,
                 summary=summary,

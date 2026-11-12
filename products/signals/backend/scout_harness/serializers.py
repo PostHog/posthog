@@ -4985,9 +4985,9 @@ class ScoutReportDiscussionsQuerySerializer(serializers.Serializer):
     since = serializers.DateTimeField(
         required=False,
         help_text=(
-            "Only discussions started at or after this time. Defaults to "
-            f"{DEFAULT_DISCUSSIONS_SINCE.days} days ago. Pass the `completed_at` of your newest completed run to "
-            "read only what is new since then."
+            "Only discussions started or updated at or after this time, so a discussion that began earlier "
+            f"but concluded since is included. Defaults to {DEFAULT_DISCUSSIONS_SINCE.days} days ago. Pass the "
+            "`completed_at` of your newest completed run to read only what changed since then."
         ),
     )
     limit = serializers.IntegerField(
@@ -5010,6 +5010,9 @@ class ScoutReportDiscussionSerializer(serializers.Serializer):
     )
     task_id = serializers.CharField(help_text="The discussion task.")
     created_at = serializers.DateTimeField(help_text="When the discussion started.")
+    active_at = serializers.DateTimeField(
+        help_text="When the discussion last changed, for example when a run wrote its summary. Rows sort by it, newest first."
+    )
     status = serializers.CharField(
         allow_null=True,
         help_text="Status of the discussion's latest run, for example `in_progress` or `completed`. Null before it runs.",

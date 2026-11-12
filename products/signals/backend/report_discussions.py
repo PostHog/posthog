@@ -67,6 +67,7 @@ class ReportDiscussion:
     involvement: ReportInvolvement
     task_id: str
     created_at: datetime
+    active_at: datetime
     status: str | None
     task_summary: str | None
 
@@ -79,7 +80,10 @@ def list_report_discussions(
     since: datetime | None = None,
     limit: int = DEFAULT_DISCUSSIONS_LIMIT,
 ) -> list[ReportDiscussion]:
-    """Discussion tasks on the reports `skill_name` emitted or edited, newest first.
+    """Discussion tasks on the reports `skill_name` emitted or edited, most recently active first.
+
+    `since` keeps the discussions started or concluded at or after it, so an outcome written after
+    a scout run still reaches the next run when the conversation began before it.
 
     `team` must be the canonical team the scout runs on. `report_id` narrows to one report, and
     returns nothing when the scout never touched it.
@@ -87,7 +91,7 @@ def list_report_discussions(
     limit = max(0, min(limit, MAX_DISCUSSIONS_LIMIT))
     if limit == 0:
         return []
-    created_after = since if since is not None else timezone.now() - DEFAULT_DISCUSSIONS_SINCE
+    active_after = since if since is not None else timezone.now() - DEFAULT_DISCUSSIONS_SINCE
 
     involvement = _touched_reports(team_id=team.id, skill_name=skill_name, report_id=report_id)
     if not involvement:
@@ -109,7 +113,7 @@ def list_report_discussions(
         team_id=team.id,
         task_ids=list(report_by_task),
         origin_products=[TaskOriginProduct.SIGNAL_REPORT],
-        created_after=created_after,
+        active_after=active_after,
         limit=limit,
     )
     steering_creators = _creators_who_may_steer(team, (task.created_by_id for task in tasks if task.summary))
@@ -125,6 +129,7 @@ def list_report_discussions(
                 involvement=involvement[discussion_report_id],
                 task_id=task.task_id,
                 created_at=task.created_at,
+                active_at=task.active_at,
                 status=task.run_status,
                 task_summary=summary[:_MAX_SUMMARY_CHARS] if summary else None,
             )

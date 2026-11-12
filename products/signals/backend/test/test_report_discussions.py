@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -110,6 +114,18 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
 
         assert row["task_id"] == str(task.id)
         assert row["task_summary"] == expected
+
+    def test_since_keeps_a_discussion_that_concluded_after_it(self) -> None:
+        three_days_ago = timezone.now() - timedelta(days=3)
+        concluded = self._discussion(self.authored, state={"task_summary": "Concluded later."})
+        stale = self._discussion(self.authored, state={"task_summary": "Concluded long ago."})
+        Task.objects.filter(id__in=[concluded.id, stale.id]).update(created_at=three_days_ago)
+        TaskRun.objects.filter(task=stale).update(created_at=three_days_ago, updated_at=three_days_ago)
+        _authenticate_as_scout(self, sandbox_task_id=self.scout_run.task_run.task_id)
+
+        response = self.client.get(self.url, {"since": (timezone.now() - timedelta(days=1)).isoformat()})
+
+        assert [row["task_id"] for row in response.json()] == [str(concluded.id)]
 
     def test_child_environment_discussion_is_not_returned(self) -> None:
         env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")

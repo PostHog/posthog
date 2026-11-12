@@ -3452,7 +3452,7 @@ export const SignalsScoutReportDiscussionsListQueryParams = () => zod.object({
         .datetime({ offset: true })
         .optional()
         .describe(
-            'Only discussions started at or after this time. Defaults to 14 days ago. Pass the `completed_at` of your newest completed run to read only what is new since then.'
+            'Only discussions started or updated at or after this time, so a discussion that began earlier but concluded since is included. Defaults to 14 days ago. Pass the `completed_at` of your newest completed run to read only what changed since then.'
         ),
 })
 

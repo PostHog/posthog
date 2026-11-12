@@ -9915,6 +9915,8 @@ export interface ScoutReportDiscussionApi {
     task_id: string
     /** When the discussion started. */
     created_at: string
+    /** When the discussion last changed, for example when a run wrote its summary. Rows sort by it, newest first. */
+    active_at: string
     /**
      * Status of the discussion's latest run, for example `in_progress` or `completed`. Null before it runs.
      * @nullable
@@ -12497,7 +12499,7 @@ export type SignalsScoutReportDiscussionsListParams = {
      */
     report_id?: string
     /**
-     * Only discussions started at or after this time. Defaults to 14 days ago. Pass the `completed_at` of your newest completed run to read only what is new since then.
+     * Only discussions started or updated at or after this time, so a discussion that began earlier but concluded since is included. Defaults to 14 days ago. Pass the `completed_at` of your newest completed run to read only what changed since then.
      */
     since?: string
 }
