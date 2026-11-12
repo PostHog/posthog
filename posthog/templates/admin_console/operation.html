@@ -26,10 +26,13 @@
                 {% if target.subtitle %}<span class="text-muted-foreground">{{ target.subtitle }}</span>{% endif %}
             </div>
         </div>
-        <form method="post" class="flex flex-col" data-autofocus>
+        <form method="post"
+              class="flex flex-col"
+              {% if form.is_multipart %}enctype="multipart/form-data"{% endif %}
+              data-autofocus>
             {% csrf_token %}
             <input type="hidden" name="form_nonce" value="{{ form_nonce }}" />
-            <div class="quill-card__content flex flex-col gap-4"
+            <div class="quill-card__content flex flex-col gap-4 pb-4"
                  data-slot="card-content">
                 {% if operation.description %}<p class="m-0">{{ operation.description }}</p>{% endif %}
                 {% if operation.undo_hint %}<p class="m-0 text-muted-foreground">{{ operation.undo_hint }}</p>{% endif %}
@@ -49,6 +52,7 @@
             <div class="quill-card__footer flex flex-wrap gap-2"
                  data-slot="card-footer">
                 <button type="submit"
+                        {% if operation.pending_label and not has_preview %}data-pending-label="{{ operation.pending_label }}"{% endif %}
                         class="quill-button {% if operation.danger %}quill-button--variant-destructive{% else %}quill-button--variant-primary{% endif %} quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
                     {% if has_preview %}
                         Review what changes

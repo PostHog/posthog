@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { HogError } from '@/core/errors'
+import { wrapFailure } from '@/core/errors'
 
 import { contentHash } from './container'
 import type { GitInfo } from './git'
@@ -63,7 +63,7 @@ async function lookup(client: SymbolSetClient, hashId: string): Promise<Release 
         if (error instanceof ApiFailure && error.status === 404) {
             return undefined
         }
-        throw new HogError('release_lookup_failed', `hog couldn't look up the release: ${(error as Error).message}`)
+        throw wrapFailure('release_lookup_failed', "hog couldn't look up the release", error)
     }
 }
 
@@ -102,6 +102,6 @@ export async function fetchOrCreateRelease(
                 return { ...raced, id: raced.id.toLowerCase() }
             }
         }
-        throw new HogError('release_create_failed', `hog couldn't create the release: ${(error as Error).message}`)
+        throw wrapFailure('release_create_failed', "hog couldn't create the release", error)
     }
 }

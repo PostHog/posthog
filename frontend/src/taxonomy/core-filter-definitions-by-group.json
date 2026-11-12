@@ -1299,6 +1299,11 @@
             "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
             "label": "Feature flag bootstrapped response"
         },
+        "$feature_flag_config_version": {
+            "description": "The config format version of the feature flag that was called. Only sent for flags that use config version 2.",
+            "examples": ["2"],
+            "label": "Feature flag config version"
+        },
         "$feature_flag_error": {
             "description": "The error encountered while evaluating the feature flag, if any.",
             "label": "Feature flag error",
@@ -1338,6 +1343,11 @@
             "examples": ["Matched condition set 1"],
             "label": "Feature flag evaluation reason"
         },
+        "$feature_flag_reason_code": {
+            "description": "The machine-readable reason for the feature flag result. Sent in place of the feature flag evaluation reason for flags that use config version 2.",
+            "examples": ["experiment_split", "targeting_match", "rollout_miss", "holdout"],
+            "label": "Feature flag reason code"
+        },
         "$feature_flag_request_id": {
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
@@ -1347,6 +1357,21 @@
             "description": "What the call to feature flag responded with.",
             "examples": ["true", "false"],
             "label": "Feature flag response"
+        },
+        "$feature_flag_rule_id": {
+            "description": "The unique identifier of the feature flag rule that produced the result. Only sent for flags that use config version 2.",
+            "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
+            "label": "Feature flag rule ID"
+        },
+        "$feature_flag_rule_type": {
+            "description": "The type of the feature flag rule that produced the result. Only sent for flags that use config version 2.",
+            "examples": ["experiment", "percentage_rollout", "targeted_release"],
+            "label": "Feature flag rule type"
+        },
+        "$feature_flag_variant_key": {
+            "description": "The key of the experiment variant that the user was assigned to. Only sent for flags that use config version 2, when an experiment rule assigned a variant.",
+            "examples": ["control", "test"],
+            "label": "Feature flag variant key"
         },
         "$feature_flag_version": {
             "description": "The version of the feature flag that was called.",
@@ -3020,6 +3045,11 @@
         "li_fat_id": {
             "description": "LinkedIn First-Party Ad Tracking ID",
             "label": "li_fat_id"
+        },
+        "locally_evaluated": {
+            "description": "Whether the server SDK evaluated the feature flag locally, without a request to PostHog.",
+            "examples": ["true", "false"],
+            "label": "Locally evaluated"
         },
         "mc_cid": {
             "description": "Mailchimp Campaign ID",
@@ -5273,6 +5303,11 @@
             "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
             "label": "Feature flag bootstrapped response"
         },
+        "$feature_flag_config_version": {
+            "description": "The config format version of the feature flag that was called. Only sent for flags that use config version 2.",
+            "examples": ["2"],
+            "label": "Feature flag config version"
+        },
         "$feature_flag_error": {
             "description": "The error encountered while evaluating the feature flag, if any.",
             "label": "Feature flag error",
@@ -5312,6 +5347,11 @@
             "examples": ["Matched condition set 1"],
             "label": "Feature flag evaluation reason"
         },
+        "$feature_flag_reason_code": {
+            "description": "The machine-readable reason for the feature flag result. Sent in place of the feature flag evaluation reason for flags that use config version 2.",
+            "examples": ["experiment_split", "targeting_match", "rollout_miss", "holdout"],
+            "label": "Feature flag reason code"
+        },
         "$feature_flag_request_id": {
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
@@ -5321,6 +5361,21 @@
             "description": "What the call to feature flag responded with.",
             "examples": ["true", "false"],
             "label": "Feature flag response"
+        },
+        "$feature_flag_rule_id": {
+            "description": "The unique identifier of the feature flag rule that produced the result. Only sent for flags that use config version 2.",
+            "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
+            "label": "Feature flag rule ID"
+        },
+        "$feature_flag_rule_type": {
+            "description": "The type of the feature flag rule that produced the result. Only sent for flags that use config version 2.",
+            "examples": ["experiment", "percentage_rollout", "targeted_release"],
+            "label": "Feature flag rule type"
+        },
+        "$feature_flag_variant_key": {
+            "description": "The key of the experiment variant that the user was assigned to. Only sent for flags that use config version 2, when an experiment rule assigned a variant.",
+            "examples": ["control", "test"],
+            "label": "Feature flag variant key"
         },
         "$feature_flag_version": {
             "description": "The version of the feature flag that was called.",
@@ -7315,6 +7370,11 @@
         "li_fat_id": {
             "description": "LinkedIn First-Party Ad Tracking ID Data from the last time this user was seen.",
             "label": "Latest li_fat_id"
+        },
+        "locally_evaluated": {
+            "description": "Whether the server SDK evaluated the feature flag locally, without a request to PostHog.",
+            "examples": ["true", "false"],
+            "label": "Locally evaluated"
         },
         "mc_cid": {
             "description": "Mailchimp Campaign ID Data from the last time this user was seen.",

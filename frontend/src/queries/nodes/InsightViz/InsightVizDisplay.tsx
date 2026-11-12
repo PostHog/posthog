@@ -3,11 +3,15 @@ import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { Heading } from '@posthog/quill'
 
 import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
+import { QuillExportButton } from 'lib/components/ExportButton/QuillExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ExplainEmptyInsightContext } from 'lib/insights/explainEmptyInsightContext'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -132,6 +136,13 @@ function DashboardInsightRefreshHintOrLoading({
     return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
 }
 
+function exportItems(exportContext: ExportButtonItem['export_context']): ExportButtonItem[] {
+    return [
+        { export_format: ExporterFormat.CSV, export_context: exportContext },
+        { export_format: ExporterFormat.XLSX, export_context: exportContext },
+    ]
+}
+
 function isNonEmptyResult(rows: unknown): boolean {
     return Array.isArray(rows) ? rows.length > 0 : rows != null
 }
@@ -247,6 +258,8 @@ export function InsightVizDisplay({
         useValues(funnelDataLogic(insightProps))
 
     const explainChartEnabled = useFeatureFlag('EXPLAIN_CHART')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = todayRailNav && !embedded
 
     const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
@@ -522,26 +535,22 @@ export function InsightVizDisplay({
         if (hasDetailedResultsTable && !disableTable) {
             return (
                 <>
-                    {exportContext && (
-                        <div className="flex items-center justify-between my-4 mx-0">
-                            <h2 className="font-semibold text-lg m-0">Detailed results</h2>
-                            <Tooltip title="Export this table" placement="left">
-                                <ExportButton
-                                    type="secondary"
-                                    items={[
-                                        {
-                                            export_format: ExporterFormat.CSV,
-                                            export_context: exportContext,
-                                        },
-                                        {
-                                            export_format: ExporterFormat.XLSX,
-                                            export_context: exportContext,
-                                        },
-                                    ]}
-                                />
-                            </Tooltip>
-                        </div>
-                    )}
+                    {exportContext &&
+                        (quillSurface ? (
+                            <div className="flex items-center justify-between gap-2 my-4">
+                                <Heading size="base" render={<h2 className="m-0" />}>
+                                    Detailed results
+                                </Heading>
+                                <QuillExportButton tooltip="Export this table" items={exportItems(exportContext)} />
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-between my-4 mx-0">
+                                <h2 className="font-semibold text-lg m-0">Detailed results</h2>
+                                <Tooltip title="Export this table" placement="left">
+                                    <ExportButton type="secondary" items={exportItems(exportContext)} />
+                                </Tooltip>
+                            </div>
+                        ))}
 
                     <InsightsTable
                         // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
@@ -625,60 +634,66 @@ export function InsightVizDisplay({
                     />
                 )}
                 {showingResults && (
-                    <>
-                        {!embedded &&
-                            ((isFunnels && hasFunnelResults) ||
-                                isPaths ||
-                                (showComputationMetadata && !BlockingEmptyState)) && (
-                                <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
-                                    <div className="flex items-center gap-2">
-                                        {showComputationMetadata && (
-                                            <InsightResultMetadata
-                                                disableLastComputation={disableLastComputation}
-                                                disableLastComputationRefresh={disableLastComputationRefresh}
-                                            />
-                                        )}
-                                    </div>
+                    <QuillSurfaceContext.Provider value={quillSurface}>
+                        <ExplainEmptyInsightContext.Provider value={!embedded}>
+                            {!embedded &&
+                                ((isFunnels && hasFunnelResults) ||
+                                    isPaths ||
+                                    (showComputationMetadata && !BlockingEmptyState)) && (
+                                    <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
+                                        <div className="flex items-center gap-2">
+                                            {showComputationMetadata && (
+                                                <InsightResultMetadata
+                                                    disableLastComputation={disableLastComputation}
+                                                    disableLastComputationRefresh={disableLastComputationRefresh}
+                                                />
+                                            )}
+                                        </div>
 
-                                    <div className="flex items-center gap-2">
-                                        {isPaths && <PathCanvasLabel />}
-                                        {isFunnels && <FunnelCanvasLabel />}
-                                        {showsExplainChart && (
-                                            <Suspense fallback={null}>
-                                                <ExplainChartButton insightProps={insightProps} />
-                                            </Suspense>
-                                        )}
-                                        {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
+                                        <div className="flex items-center gap-2">
+                                            {isPaths && <PathCanvasLabel />}
+                                            {isFunnels && <FunnelCanvasLabel />}
+                                            {showsExplainChart && (
+                                                <Suspense fallback={null}>
+                                                    <ExplainChartButton insightProps={insightProps} />
+                                                </Suspense>
+                                            )}
+                                            {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                )}
 
-                        {!embedded && flagCallsRetentionGap && (
-                            <FlagCallsRetentionNotice
-                                gap={flagCallsRetentionGap}
-                                retentionStartDate={flagCallsRetentionStartDate}
-                            />
-                        )}
-                        <div
-                            className={clsx(
-                                'InsightVizDisplay__content',
-                                showSideLegend && 'InsightVizDisplay__content--with-legend'
+                            {!embedded && flagCallsRetentionGap && (
+                                <FlagCallsRetentionNotice
+                                    gap={flagCallsRetentionGap}
+                                    retentionStartDate={flagCallsRetentionStartDate}
+                                />
                             )}
-                        >
-                            {BlockingEmptyState ? (
-                                BlockingEmptyState
-                            ) : showSideLegend ? (
-                                <>
-                                    <div className="InsightVizDisplay__content__left">{chart}</div>
-                                    <div className="InsightVizDisplay__content__right empty:hidden">
-                                        {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
-                                    </div>
-                                </>
-                            ) : (
-                                chart
-                            )}
-                        </div>
-                    </>
+                            <div
+                                className={clsx(
+                                    'InsightVizDisplay__content',
+                                    showSideLegend && 'InsightVizDisplay__content--with-legend'
+                                )}
+                            >
+                                {BlockingEmptyState ? (
+                                    BlockingEmptyState
+                                ) : showSideLegend ? (
+                                    <>
+                                        <div className="InsightVizDisplay__content__left">{chart}</div>
+                                        <div className="InsightVizDisplay__content__right empty:hidden">
+                                            {display === ChartDisplayType.BoxPlot ? (
+                                                <BoxPlotLegend />
+                                            ) : (
+                                                <InsightLegend />
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    chart
+                                )}
+                            </div>
+                        </ExplainEmptyInsightContext.Provider>
+                    </QuillSurfaceContext.Provider>
                 )}
             </div>
             <ResultCustomizationsModal />
@@ -687,8 +702,10 @@ export function InsightVizDisplay({
                     <ExplainChartAgentBridge insightProps={insightProps} />
                 </Suspense>
             )}
-            {renderAIAnalysisSection()}
-            {renderTable()}
+            <QuillSurfaceContext.Provider value={quillSurface}>
+                {renderAIAnalysisSection()}
+                {renderTable()}
+            </QuillSurfaceContext.Provider>
         </>
     )
 }

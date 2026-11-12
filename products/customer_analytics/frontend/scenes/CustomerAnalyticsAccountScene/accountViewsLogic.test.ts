@@ -353,19 +353,21 @@ describe('accountViewsLogic tracking', () => {
         await expectLogic(logic, () => logic.actions.loadViews()).toFinishAllListeners()
         const changed = { properties: [...secondConfig.properties].reverse() }
         logic.actions.openTileEditor(view.id, 'first', 'Properties', {
-            propertiesConfig: firstConfig,
+            kind: 'properties',
+            config: firstConfig,
             accountId: 'account-one',
         })
-        logic.actions.setTileEditorPropertiesConfig(changed)
+        logic.actions.setTileEditorConfig(changed)
         mockUpdate.mockRejectedValueOnce(new ApiError('Save failed', 500))
         await expectLogic(logic, () => {
             logic.actions.saveTileEditor()
             logic.actions.saveTileEditor()
         }).toFinishAllListeners()
         expect(mockUpdate).toHaveBeenCalledTimes(1)
-        expect(logic.values.tileEditor?.propertiesConfig).toEqual(changed)
+        expect(logic.values.tileEditor?.config).toEqual(changed)
         await expectLogic(logic, () => logic.actions.saveTileEditor()).toFinishAllListeners()
         expect(logic.values.tileEditor).toBeNull()
+        expect(capture).toHaveBeenCalledWith(AccountsEvents.PropertiesWidgetConfigured, { property_count: 2 })
         expect(parseAccountViewContent(logic.values.views[0].content).map(({ config }) => config)).toEqual([
             changed,
             secondConfig,
