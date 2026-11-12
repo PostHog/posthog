@@ -335,9 +335,13 @@ def _mounts_for_agent_run(
         # dropped here too instead of being mounted into the sandbox.
         installation = installation_for_agent_access(access)
         if installation is None or not installation.is_enabled or not _is_oauth_ready(installation):
-            dropped_by_server.setdefault(
-                access.gateway_server_id, _agent_unmounted(access.gateway_server, access.scope, "needs_reconnect")
-            )
+            owns_grant = credential_owner_id is not None and access.user_id == credential_owner_id
+            if owns_grant or access.gateway_server_id not in dropped_by_server:
+                dropped_by_server[access.gateway_server_id] = _agent_unmounted(
+                    access.gateway_server,
+                    access.scope,
+                    "needs_reconnect" if owns_grant else "teammate_needs_reconnect",
+                )
             continue
         healthy_by_server[access.gateway_server_id].append((access, installation))
 
@@ -485,6 +489,7 @@ def get_installations_for_sandbox(
 
 def _member_unmounted_reason(
     installation: MCPServerInstallation,
+    user_id: int | None,
     revoked_gateway_server_ids: set[uuid.UUID],
     allowed_gateway_server_ids: set[str] | None,
     allowed_installation_ids: set[str] | None,
@@ -503,7 +508,7 @@ def _member_unmounted_reason(
     elif gateway_server_id is not None and gateway_server_id in revoked_gateway_server_ids:
         health_failure = "revoked"
     elif not _is_oauth_ready(installation):
-        health_failure = "needs_reconnect"
+        health_failure = "needs_reconnect" if installation.user_id == user_id else "teammate_needs_reconnect"
     # Healthy unselected installations stay in play until the personal-copy dedup has run.
     if (
         health_failure is not None
@@ -645,7 +650,7 @@ def resolve_installations_for_sandbox(
             )
             for candidate in candidates:
                 reason = _member_unmounted_reason(
-                    candidate, revoked_gateway_server_ids, allowed_servers, allowed_installations
+                    candidate, user_id, revoked_gateway_server_ids, allowed_servers, allowed_installations
                 )
                 if reason is None:
                     installations.append(candidate)

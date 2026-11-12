@@ -346,6 +346,7 @@ class TestGetInstallationsForSandbox(BaseTest):
     @parameterized.expand(
         [
             ("needs_reconnect", None, "needs_reconnect"),
+            ("teammate_needs_reconnect", None, "teammate_needs_reconnect"),
             ("server_disabled", None, "server_disabled"),
             ("revoked", None, "revoked"),
             ("replaced_by_personal", None, "replaced_by_personal"),
@@ -365,12 +366,15 @@ class TestGetInstallationsForSandbox(BaseTest):
         )
         left_out = self._create_installation(
             scope="shared",
+            user=User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+            if reason == "teammate_needs_reconnect"
+            else self.user,
             display_name="Linear",
             url=server.url,
             gateway_server=server,
             auth_type="oauth",
             sensitive_configuration={"access_token": "tok", "needs_reauth": True}
-            if reason == "needs_reconnect"
+            if reason in ("needs_reconnect", "teammate_needs_reconnect")
             else {"access_token": "tok"},
         )
         if reason == "revoked":
@@ -712,6 +716,8 @@ class TestGetInstallationsForSandbox(BaseTest):
     @parameterized.expand(
         [
             ("token_needs_reconnect", "needs_reconnect"),
+            ("teammates_token_needs_reconnect", "teammate_needs_reconnect"),
+            ("both_tokens_need_reconnect", "needs_reconnect"),
             ("connection_turned_off", "needs_reconnect"),
             ("server_turned_off_for_team", "server_disabled"),
             ("no_grant", "not_shared"),
@@ -726,19 +732,37 @@ class TestGetInstallationsForSandbox(BaseTest):
         server = self._create_gateway_server(
             name="Linear", url="https://mcp.linear.app/mcp", is_team_enabled=case != "server_turned_off_for_team"
         )
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        needs_reauth = {"access_token": "tok", "needs_reauth": True}
+        if case == "both_tokens_need_reconnect":
+            teammates_broken = self._create_installation(
+                user=teammate,
+                gateway_server=server,
+                url=server.url,
+                auth_type="oauth",
+                sensitive_configuration=needs_reauth,
+            )
+            self._grant(account, server, user=teammate, installation=teammates_broken, scope="team")
+        grantor = teammate if case == "teammates_token_needs_reconnect" else self.user
         installation = self._create_installation(
+            user=grantor,
             gateway_server=server,
             url=server.url,
             auth_type="oauth",
             is_enabled=case != "connection_turned_off",
-            sensitive_configuration={"access_token": "tok", "needs_reauth": True}
-            if case in ("token_needs_reconnect", "teammate_share_still_works")
+            sensitive_configuration=needs_reauth
+            if case
+            in (
+                "token_needs_reconnect",
+                "teammates_token_needs_reconnect",
+                "both_tokens_need_reconnect",
+                "teammate_share_still_works",
+            )
             else {"access_token": "tok"},
         )
         if case != "no_grant":
-            self._grant(account, server, user=self.user, installation=installation, scope="team")
+            self._grant(account, server, user=grantor, installation=installation, scope="team")
         if case == "teammate_share_still_works":
-            teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
             working = self._create_installation(user=teammate, gateway_server=server, url=server.url)
             self._grant(account, server, user=teammate, installation=working, scope="team")
 
@@ -746,6 +770,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             self.team.id,
             task_origin="workflow",
             task_agent_key="workflow",
+            credential_owner_id=self.user.id,
             allowed_gateway_server_ids=[str(server.id)],
         )
 

@@ -526,6 +526,10 @@ class TestUnmountedMcpInstallationsNotice(SimpleTestCase):
                 "1 MCP Store connection was not added to this run: Linear (reconnect it in the MCP Store).",
             ),
             (
+                "teammate_needs_reconnect",
+                "1 MCP Store connection was not added to this run: Linear (the teammate who shared it needs to reconnect it).",
+            ),
+            (
                 "not_shared",
                 "1 MCP Store connection was not added to this run: Linear (share it with this agent in the MCP Store).",
             ),

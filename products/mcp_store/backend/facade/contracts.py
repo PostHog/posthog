@@ -73,6 +73,7 @@ class UnconnectedTeamTool:
 
 UnmountedInstallationReason = Literal[
     "needs_reconnect",
+    "teammate_needs_reconnect",
     "server_disabled",
     "revoked",
     "not_selected",
