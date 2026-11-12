@@ -4,6 +4,7 @@ from typing import Any
 
 from django.db import models
 
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.types import ResourcePayload, ResourceTransferEdge
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 from posthog.models.resource_transfer.visitors.common import (
@@ -23,9 +24,8 @@ class ExperimentHoldoutVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from products.experiments.backend.models.experiment import ExperimentHoldout
-
-        return ExperimentHoldout
+        # The experiments product registers its model from its AppConfig.ready().
+        return registered_model("ExperimentHoldout")
 
     @classmethod
     def get_dynamic_edges(cls, resource: Any) -> list[ResourceTransferEdge]:
