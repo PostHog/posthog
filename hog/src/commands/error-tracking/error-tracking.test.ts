@@ -402,6 +402,31 @@ describe('hog error-tracking upload', () => {
     })
 
     test.each([
+        ['nothing is skipped', false, '• Uploaded 0 symbol sets, 1 already present'],
+        ['a native file has no debug info', true, '! Uploaded 0 symbol sets, 1 already present, 1 skipped'],
+    ])('upload marks the result partial only when a file is unusable: %s', async (_name, withNative, summary) => {
+        const folder = project({ 'mapping.txt': SMALL_MAPPING })
+        mkdirSync(join(folder, 'bin'))
+        if (withNative) {
+            writeFileSync(join(folder, 'bin/native'), readFileSync(join(NATIVE, 'linux/checkout-no-debug')))
+        }
+
+        const result = await runHog(['et', 'upload', 'bin', 'mapping.txt', '--map-id', 'map-1'], {
+            env: { ...TEST_CREDENTIALS, NO_COLOR: '1' },
+            stdoutIsTTY: true,
+            cwd: folder,
+            useDisk: true,
+            respond: (url) =>
+                url.endsWith('/bulk_check_upload')
+                    ? { status: 200, body: { chunk_ids_to_upload: [] } }
+                    : { status: 404, body: { detail: 'Not found.' } },
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout.split('\n')[0]).toBe(summary)
+    })
+
+    test.each([
         ['skips a dSYM member that matches an ignore glob', ['Shop.app.dSYM/Contents/Resources/DWARF/**'], false],
         ['follows a dSYM member that is a symlink, as posthog-cli does', [], true],
     ])('upload %s', async (_name, ignore, linkOutside) => {
@@ -506,6 +531,48 @@ describe('hog error-tracking upload', () => {
         expect(result.error()).toMatchObject({ code, hint: expect.any(String) })
     })
 
+    test.each([
+        ['a proxy error page', 502, '<html>Bad gateway for BODY_SECRET</html>', '.'],
+        [
+            'a PostHog error',
+            400,
+            JSON.stringify({
+                type: 'validation_error',
+                code: 'invalid',
+                detail: 'Release is locked.',
+                extra: 'BODY_SECRET',
+            }),
+            ': Release is locked.',
+        ],
+    ])('a refused upload start shows only the path and the detail of %s', async (_name, status, body, ending) => {
+        const folder = project({
+            'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: 'build', mapId: 'map-1' }] } }),
+            'build/mapping.txt': SMALL_MAPPING,
+        })
+
+        const result = await runHog(['et', 'upload'], {
+            env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+            respond: (url) => {
+                if (url.endsWith('/bulk_check_upload')) {
+                    return { status: 200, body: { chunk_ids_to_upload: ['map-1'] } }
+                }
+                if (url.endsWith('/bulk_start_upload')) {
+                    return { status, body }
+                }
+                return { status: 404, body: { detail: 'Not found.' } }
+            },
+        })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.error()).toMatchObject({
+            code: 'upload_failed',
+            message: `PostHog didn't start the upload: PostHog answered ${status} for /api/projects/7/error_tracking/symbol_sets/bulk_start_upload${ending}`,
+        })
+        expect(result.stderr + result.stdout).not.toContain('BODY_SECRET')
+    })
+
     function dsymWithBadChecksum(): Buffer {
         const zip = new ZipWriter()
         zip.add('dwarf', Buffer.from('not really dwarf, but bytes all the same'))
@@ -581,6 +648,66 @@ describe('hog error-tracking upload', () => {
         expect(result.exitCode).toBe(1)
         expect(result.error()).toMatchObject({ code, hint: expect.any(String) })
     })
+
+    test.each([
+        [
+            'a presigned PUT',
+            {
+                presigned_put_url:
+                    'https://storage.example.com/symbolsets/chunk?X-Amz-Credential=ASIAEXAMPLEKEYID%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Security-Token=SESSIONTOKEN&X-Amz-Signature=SIGNATURE',
+            },
+            '<Error><Code>SignatureDoesNotMatch</Code><Message>The request signature we calculated does not match the signature you provided.</Message><AWSAccessKeyId>ASIAEXAMPLEKEYID</AWSAccessKeyId><CanonicalRequest>PUT\n/symbolsets/chunk\nX-Amz-Security-Token=SESSIONTOKEN&amp;X-Amz-Signature=SIGNATURE</CanonicalRequest><RequestId>REQ123</RequestId></Error>',
+            'Code=SignatureDoesNotMatch RequestId=REQ123',
+        ],
+        [
+            'a presigned POST policy',
+            {
+                presigned_url: {
+                    url: 'https://storage.example.com/symbolsets/chunk',
+                    fields: { key: 'symbolsets/chunk', 'x-amz-security-token': 'SESSIONTOKEN' },
+                },
+            },
+            '<Error><Code>AccessDenied</Code><Message>Invalid according to Policy: Policy Condition failed: [eq, $x-amz-security-token, SESSIONTOKEN]</Message><RequestId>REQ123</RequestId></Error>',
+            'Code=AccessDenied RequestId=REQ123',
+        ],
+    ])(
+        'an object storage error on %s keeps the presigned credentials out of the error',
+        async (_name, target, storageError, summary) => {
+            const folder = project({
+                'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: 'build', mapId: 'map-1' }] } }),
+                'build/mapping.txt': SMALL_MAPPING,
+            })
+
+            const result = await runHog(['et', 'upload'], {
+                env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
+                cwd: folder,
+                useDisk: true,
+                respond: (url) => {
+                    if (url.startsWith('https://storage.example.com/')) {
+                        return { status: 403, body: storageError }
+                    }
+                    if (url.endsWith('/bulk_check_upload')) {
+                        return { status: 200, body: { chunk_ids_to_upload: ['map-1'] } }
+                    }
+                    if (url.endsWith('/bulk_start_upload')) {
+                        return { status: 200, body: { id_map: { 'map-1': { ...target, symbol_set_id: 'set-1' } } } }
+                    }
+                    return { status: 404, body: { detail: 'Not found.' } }
+                },
+            })
+
+            expect(result.exitCode).toBe(1)
+            expect(result.error()).toMatchObject({
+                code: 'upload_failed',
+                message: expect.stringContaining(
+                    `Object storage answered 403 for https://storage.example.com/symbolsets/chunk (${summary}).`
+                ),
+            })
+            for (const secret of ['ASIAEXAMPLEKEYID', 'SESSIONTOKEN', 'SIGNATURE']) {
+                expect(result.stderr + result.stdout).not.toContain(secret)
+            }
+        }
+    )
 
     test.each([
         ['...dSYM', 'linux', 'symbol_set'],

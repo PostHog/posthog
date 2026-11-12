@@ -174,7 +174,7 @@ def _has_active_owner(integration: IntegrationRecord) -> bool:
 def _get_fresh_access_token(integration: IntegrationRecord) -> str:
     oauth = OauthIntegration(integration)
     if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
-        oauth.refresh_access_token()
+        integration = oauth.refresh_access_token()
     if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
         raise GmailSyncError(f"Token refresh failed for integration {integration.id}")
     token = integration.access_token

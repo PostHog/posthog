@@ -6,8 +6,8 @@ import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { EngineeringAnalyticsWorkflowHealthRunScope } from '../generated/api.schemas'
 
-// One window shared by every time-scoped CI-analytics surface, so a window picked on one page carries
-// to the others. 7 days: long enough to read a week of spend, short enough that health reads as recent.
+// Every time-scoped page shares this window, so a window picked on one page carries to the others.
+// Seven days is long enough to read a week of spend and short enough that health reads as recent.
 export const SHARED_DEFAULT_DATE_FROM = '-7d'
 
 /** Derived from the generated enum, so a backend rename breaks the typecheck here instead of sending a
@@ -20,7 +20,6 @@ export interface RunScopeParams {
     run_scope?: RunScope
 }
 
-/** The scope picker's options, in display order. */
 export const RUN_SCOPE_OPTIONS: { value: RunScope; label: string; tooltip: string }[] = [
     {
         value: EngineeringAnalyticsWorkflowHealthRunScope.All,
@@ -166,7 +165,7 @@ export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersL
     }),
 
     actionToUrl(({ values }) => ({
-        // Replace, not push — nudging a scope shouldn't stack back-history. Defaults are omitted.
+        // Replace and not push, so a scope change adds no back-history. Defaults are omitted.
         setDateRange: () => {
             const { pathname, searchParams, hashParams } = router.values.currentLocation
             const next = { ...searchParams }

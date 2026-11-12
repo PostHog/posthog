@@ -6,7 +6,12 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingSeverity
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
+    ExperimentHealthFindingActionKind,
+    ExperimentHealthFindingSeverity,
+)
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
 from products.experiments.backend.health.condition_set_traffic import grades_by_pinned_share
 from products.experiments.backend.health.context import (
@@ -53,6 +58,9 @@ NOT_IOS: dict[str, Any] = {
 }
 
 CHANGED_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
+
+EDIT = ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS
+END = ExperimentHealthFindingActionKind.END_EXPERIMENT
 
 
 def _property_is(key: str, value: str, *, group_type_index: int | None = None) -> dict[str, Any]:
@@ -357,6 +365,47 @@ class TestForcedVariantReleaseCondition(TestCase):
 
     @parameterized.expand(
         [
+            ("one_variant_for_everyone", _context([{**EVERYONE, "variant": "control"}]), (END, EDIT)),
+            ("draft_one_variant_for_everyone", _context([{**EVERYONE, "variant": "control"}], status=DRAFT), (EDIT,)),
+            (
+                "a_variant_for_each_segment",
+                _context([{**IOS, "variant": "test"}, {**NOT_IOS, "variant": "control"}]),
+                (EDIT,),
+            ),
+            (
+                "only_a_list_gets_a_variant",
+                _context([{**STAFF, "variant": "test"}, {**EVERYONE, "rollout_percentage": 0}]),
+                (EDIT, END),
+            ),
+            (
+                "draft_only_a_list_gets_a_variant",
+                _context([{**STAFF, "variant": "test"}, {**IOS, "variant": "test"}], status=DRAFT),
+                (EDIT,),
+            ),
+            ("some_users_pinned", _context([{**STAFF, "variant": "test"}, EVERYONE]), (EDIT,)),
+            (
+                "variants_mapped_from_a_property",
+                _context(
+                    [
+                        {**_property_is("arm", "control"), "variant": "control"},
+                        {**_property_is("arm", "test"), "variant": "test"},
+                    ]
+                ),
+                (EDIT,),
+            ),
+        ]
+    )
+    def test_offers_to_end_the_experiment_when_the_detail_does(
+        self, _name: str, ctx: HealthContext, expected: tuple[ExperimentHealthFindingActionKind, ...]
+    ) -> None:
+        finding = forced_variant_release_condition(ctx)
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        self.assertEqual(finding.actions, expected)
+        self.assertEqual("end the experiment" in finding.detail, END in finding.actions)
+
+    @parameterized.expand(
+        [
             ("not_measured", _context([{**STAFF, "variant": "test"}, EVERYONE]), "not_measured", False),
             (
                 "too_few_people",
@@ -435,7 +484,7 @@ class TestForcedVariantReleaseCondition(TestCase):
             finding.detail.endswith(
                 "Then move the experiment's start date to after the removal."
                 if set_after_launch
-                else "Then reset the experiment, or move its start date to after the removal."
+                else f"Then reset the experiment, or move its start date to after the removal. {RESET_EFFECT}"
             )
         )
 
@@ -451,7 +500,8 @@ class TestForcedVariantReleaseCondition(TestCase):
                 '"test" makes a difference. If these are test users, add a release condition without a variant '
                 "override for the users you want to test, or end the experiment. If they are the users you want to "
                 "test, remove the override so they are assigned at random. Then reset the experiment, or move its "
-                "start date to after the removal.",
+                "start date to after the removal."
+                f" {RESET_EFFECT}",
             ),
             (
                 "lists_for_both_variants",
@@ -464,7 +514,8 @@ class TestForcedVariantReleaseCondition(TestCase):
                 "variant. If these are test users, add a release condition without a variant override for the users "
                 "you want to test, or end the experiment. If they are the users you want to test, remove the "
                 "overrides so they are assigned at random. Then reset the experiment, or move its start date to after "
-                "the removal.",
+                "the removal."
+                f" {RESET_EFFECT}",
             ),
             (
                 "segment_and_its_complement",
@@ -475,7 +526,8 @@ class TestForcedVariantReleaseCondition(TestCase):
                 "different group of users, so a difference in the results can come from who those users are and not "
                 "from the variant. To assign users at random, remove the overrides. Users who already saw a variant "
                 "can then switch to another one. Then reset the experiment, or move its start date to after the "
-                "removal.",
+                "removal."
+                f" {RESET_EFFECT}",
             ),
         ]
     )

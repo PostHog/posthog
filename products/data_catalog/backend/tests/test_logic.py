@@ -53,8 +53,8 @@ class TestMetricUpsert(BaseTest):
 
     @parameterized.expand(
         [
-            ("source_omitted", {}, (CreatedSource.AI_GENERATED, "claude", 0.8, "counts events")),
-            ("user_takes_over", {"created_source": CreatedSource.USER}, (CreatedSource.USER, "", None, "")),
+            ("source_omitted", {}, (CreatedSource.AI_GENERATED, "claude", "counts events")),
+            ("user_takes_over", {"created_source": CreatedSource.USER}, (CreatedSource.USER, "", "")),
         ]
     )
     def test_refine_keeps_omitted_fields_except_ai_provenance_when_a_user_takes_over(
@@ -64,7 +64,6 @@ class TestMetricUpsert(BaseTest):
             "mrr",
             created_source=CreatedSource.AI_GENERATED,
             ai_model="claude",
-            confidence=0.8,
             reasoning="counts events",
             definition={"kind": "HogQLQuery", "query": "select count() from events"},
         )
@@ -73,7 +72,7 @@ class TestMetricUpsert(BaseTest):
         assert refined.definition is not None
         assert refined.definition["kind"] == "HogQLQuery"
         assert refined.referenced_table_names == ["events"]
-        assert (refined.created_source, refined.ai_model, refined.confidence, refined.reasoning) == expected_provenance
+        assert (refined.created_source, refined.ai_model, refined.reasoning) == expected_provenance
 
     def test_upsert_after_delete_creates_fresh_metric(self) -> None:
         metric = self._upsert("mrr", definition=_HOGQL_A)
