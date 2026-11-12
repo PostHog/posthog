@@ -464,12 +464,13 @@ tools:
             and saves 20 keywords. Each check is a paid call to every enabled engine, and one run makes about
             `prompt_target` checks per engine, so ask the user before setting `run_first_check`. With it true, the
             prompts are saved active and a first run is queued; each engine then keeps checking them on its schedule.
-            With it false, new prompts are saved paused and nothing runs or costs anything until they are turned on. To
-            turn them on and run once later, send only `only_first_run: true` and `activate_paused_prompts: true`. Steps
-            the project already covers are skipped. Unlike `aeo-prompts-suggest` and `aeo-keywords-suggest`, this saves
-            what PostHog suggests, so confirm the domain with the user first. Returns a pending job right away; poll
-            `aeo-setup-get` with the `id` until `status` is `completed` or `failed`, which takes a few minutes. Then
-            show the user the prompts and keywords it added. A 409 means a setup job is already running: poll its
-            `job_id` instead.
+            With it false, new prompts are saved paused and no run is queued, so they cost nothing until someone turns
+            them on; prompts the project already has active keep running on their schedule, with the engines chosen
+            here. To turn the paused ones on and run once later, send only `only_first_run: true` and
+            `activate_paused_prompts: true`. Steps the project already covers are skipped. Unlike `aeo-prompts-suggest`
+            and `aeo-keywords-suggest`, this saves what PostHog suggests, so confirm the domain with the user first.
+            Returns a pending job right away; poll `aeo-setup-get` with the `id` until `status` is `completed` or
+            `failed`, which takes a few minutes. Then show the user the prompts and keywords it added. A 409 means a
+            setup job is already running: poll its `job_id` instead.
         requires_ai_consent: true
         feature_flag: aeo-citation-tracking

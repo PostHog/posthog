@@ -244,13 +244,19 @@ def create_job(team_id: int) -> SetupJob:
         steps=tuple(SetupStepState(step=step, status=SetupStepStatus.PENDING) for step in STEPS),
     )
     cache = caches[SUGGESTION_CACHE_ALIAS]
-    if not cache.add(_running_key(team_id), job.id, timeout=SETUP_JOB_STALE_SECONDS):
+    key = _running_key(team_id)
+    # The record goes in before the key, so a request that reads the key mid-claim finds a pending job
+    # rather than an empty slot it would take over.
+    _save_job(team_id, job, started_at=time.time())
+    if not cache.add(key, job.id, timeout=SETUP_JOB_STALE_SECONDS):
         running = running_job_id(team_id)
         if running is not None:
             raise SetupAlreadyRunningError(running)
-        # The key pointed at a job that already finished, so this job takes it over.
-        cache.set(_running_key(team_id), job.id, timeout=SETUP_JOB_STALE_SECONDS)
-    _save_job(team_id, job, started_at=time.time())
+        # The key pointed at a job that already finished, so this job takes it over. Dropping the key and
+        # adding it again, rather than overwriting it, leaves one winner when two requests take over at once.
+        cache.delete(key)
+        if not cache.add(key, job.id, timeout=SETUP_JOB_STALE_SECONDS):
+            raise SetupAlreadyRunningError(running_job_id(team_id) or job.id)
     return job
 
 

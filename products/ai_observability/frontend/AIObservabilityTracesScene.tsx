@@ -8,10 +8,12 @@ import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemo
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -21,6 +23,7 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import { metricChartTableProps } from './components/metricChartTableProps'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { normalizeMessages } from './messageNormalization'
 import { toFullPageListParams } from './redesign/trace/traceBackLink'
@@ -33,6 +36,7 @@ import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLo
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import {
+    extractText,
     formatAiErrorForDisplay,
     formatLLMCost,
     formatLLMLatency,
@@ -59,6 +63,10 @@ export function AIObservabilityTraces(): JSX.Element {
     const appliedSearchTerm = isTracesQuery(tracesQuery.source) ? tracesQuery.source.searchTerm : undefined
 
     const drawerContext = useTracesDrawerContext(TRACE_DRAWER_LIST_ID, TRACES_DATA_NODE_KEY)
+    const redesign = useFeatureFlag('AI_OBSERVABILITY_TRACES_USERS_REDESIGN')
+    const chartTable = redesign
+        ? metricChartTableProps(TRACES_DATA_NODE_KEY, { searchApplied: !!appliedSearchTerm })
+        : { query: {}, context: { customActions: <TracesOptionsMenu key="traces-options-menu" /> } }
     const context: QueryContext<DataTableNode> = {
         ...drawerContext,
         ...(appliedSearchTerm
@@ -67,7 +75,7 @@ export function AIObservabilityTraces(): JSX.Element {
                   emptyStateDetail: 'Try a different search term, date range, or filters.',
               }
             : {}),
-        customActions: <TracesOptionsMenu key="traces-options-menu" />,
+        ...chartTable.context,
     }
 
     return (
@@ -77,6 +85,7 @@ export function AIObservabilityTraces(): JSX.Element {
                 query={{
                     ...tracesQuery,
                     showSavedFilters: true,
+                    ...chartTable.query,
                 }}
                 setQuery={(query) => {
                     if (!isTracesQuery(query.source)) {
@@ -260,7 +269,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 render: TimestampColumn,
             },
             traceName: {
-                title: 'Trace Name',
+                title: 'Trace name',
                 render: TraceNameColumn,
             },
             review: aiObservabilityColumnRenderers.review,
@@ -285,7 +294,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             },
             usage: {
                 renderTitle: () => (
-                    <Tooltip title="Total token usage (input + output) for this trace">Token Usage</Tooltip>
+                    <Tooltip title="Total token usage (input + output) for this trace">Token usage</Tooltip>
                 ),
                 render: UsageColumn,
             },
@@ -430,10 +439,29 @@ CostColumn.displayName = 'CostColumn'
 
 const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
-    if (typeof row.errorCount === 'number' && row.errorCount > 0) {
+    const redesign = useFeatureFlag('AI_OBSERVABILITY_TRACES_USERS_REDESIGN')
+    if (typeof row.errorCount !== 'number' || row.errorCount <= 0) {
+        return <>–</>
+    }
+    if (!redesign) {
         return <LemonTag type="danger">{row.errorCount}</LemonTag>
     }
-    return <>–</>
+    // The row only carries top-level events, so an error on a nested span has no message here.
+    const errorEvent = traceEvents(row).find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
+    if (!errorEvent) {
+        return <LemonTag type="danger">{pluralize(row.errorCount, 'error')}</LemonTag>
+    }
+    const error = formatAiErrorForDisplay(errorEvent.properties?.$ai_error)
+    return (
+        <div className="flex items-center gap-1">
+            <Tooltip title={error}>
+                <LemonTag type="danger" className="font-mono max-w-60 truncate">
+                    {error}
+                </LemonTag>
+            </Tooltip>
+            {row.errorCount > 1 && <span className="text-secondary text-xs">{`+${row.errorCount - 1}`}</span>}
+        </div>
+    )
 }
 ErrorsColumn.displayName = 'ErrorsColumn'
 
@@ -465,15 +493,18 @@ const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     if (!inputMessage) {
         return <>–</>
     }
-    return <LLMMessageDisplay message={inputMessage} isOutput={false} minimal />
+    return <MessagePreview message={inputMessage} isOutput={false} />
 }
 InputMessageColumn.displayName = 'InputMessageColumn'
 
 const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const messages = useTraceMessagesForRow(row)
+    const redesign = useFeatureFlag('AI_OBSERVABILITY_TRACES_USERS_REDESIGN')
 
-    const errorEventFound = traceEvents(row).find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
+    // The redesign shows errors in their own column only.
+    const errorEventFound =
+        !redesign && traceEvents(row).find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
     if (errorEventFound) {
         return (
             <LemonTag type="danger" className="font-mono max-w-50 truncate">
@@ -493,11 +524,22 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     if (!lastOutput) {
         return <>–</>
     }
-    return <LLMMessageDisplay message={lastOutput} isOutput={true} minimal />
+    return <MessagePreview message={lastOutput} isOutput={true} />
 }
 OutputMessageColumn.displayName = 'OutputMessageColumn'
 
 type NormalizedMessage = ReturnType<typeof normalizeMessages>['messages'][number]
+
+function MessagePreview({ message, isOutput }: { message: NormalizedMessage; isOutput: boolean }): JSX.Element {
+    const redesign = useFeatureFlag('AI_OBSERVABILITY_TRACES_USERS_REDESIGN')
+    if (!redesign) {
+        return <LLMMessageDisplay message={message} isOutput={isOutput} minimal />
+    }
+    const { tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }
+    // Tool-only messages have no text, so show the call payload instead of a blank cell.
+    const text = extractText(message) || JSON.stringify(tool_calls ?? message.content)
+    return <span className="block max-w-80 truncate">{text}</span>
+}
 
 function hasDisplayableContent(message: NormalizedMessage): boolean {
     const { content, tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }

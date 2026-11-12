@@ -58,8 +58,16 @@ def field_values(flow: HogFlow) -> dict[str, object]:
     return {field.attname: getattr(flow, field.attname) for field in flow._meta.concrete_fields}
 
 
-def create_workflow(*, team_id: int, user_id: Optional[int], validated_data: dict) -> WorkflowWriteResult:
+def create_workflow(
+    *,
+    team_id: int,
+    user_id: Optional[int],
+    validated_data: dict,
+    before_write: Optional[Callable[[], None]] = None,
+) -> WorkflowWriteResult:
     with transaction.atomic():
+        if before_write is not None:
+            before_write()
         data = dict(validated_data)
         tags = data.pop("tags", None)
         if data.get("status") == HogFlow.State.ACTIVE:
@@ -391,6 +399,7 @@ def update_workflow(
     validated_status: str,
     keeps_live_sensitivity: bool = True,
     requested_exit_condition: Optional[str] = None,
+    before_write: Optional[Callable[[], None]] = None,
 ) -> WorkflowWriteResult:
     # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
     # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -435,6 +444,8 @@ def update_workflow(
                 guard_timestamp = before_update.draft_updated_at
         if base_stamp and guard_timestamp and guard_timestamp > base_stamp:
             raise WorkflowStale()
+        if before_write is not None:
+            before_write()
 
         if route_to_draft:
             _write_draft(instance, before_update, validated_data)

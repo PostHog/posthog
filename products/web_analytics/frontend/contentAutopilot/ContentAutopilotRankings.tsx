@@ -18,6 +18,7 @@ import type {
     AEORankedPageApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { pageReportPath } from '../pageReports/pageReportsUtils'
 import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
@@ -312,6 +313,23 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     render: (_, page) => (
                                         <span className="tabular-nums">{percentage(page.share_of_answers, 1)}</span>
                                     ),
+                                },
+                                {
+                                    key: 'page_report',
+                                    // Only your own pages have traffic in web analytics to report on.
+                                    render: (_, page) =>
+                                        page.is_target ? (
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                className="whitespace-nowrap"
+                                                to={pageReportPath(page.url)}
+                                                tooltip="See this page's traffic, including visits from AI assistants"
+                                                data-attr="content-autopilot-rankings-page-report"
+                                            >
+                                                Page report
+                                            </LemonButton>
+                                        ) : null,
                                 },
                             ]}
                         />

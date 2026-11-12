@@ -59,6 +59,8 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         with (
             patch("products.aeo.backend.suggestions.resolve_ai_gateway_config", return_value=gateway),
             patch("products.aeo.backend.keyword_suggestions.resolve_ai_gateway_config", return_value=gateway),
+            # Without a gateway no engine is available, and the first run would find nothing to run.
+            patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=gateway),
             patch("products.aeo.backend.llm.requests.Session.post", post),
             patch("products.aeo.backend.tasks.tasks.citation_tracking_enabled", return_value=first_run_available),
             patch(
@@ -294,14 +296,18 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         assert auto_setup.load_job(self.team.id, job.id).error == auto_setup.STALE_JOB_ERROR
 
     def test_a_second_setup_while_one_runs_returns_the_running_job(self) -> None:
+        engines_before = list_engine_settings(self.team.id)
+
         with patch("products.aeo.backend.facade.api.set_up_aeo_task.apply_async") as queued:
             first = self.client.post(self.url, {"domain": "example.com"}, format="json")
-            second = self.client.post(self.url, {"domain": "example.com"}, format="json")
+            second = self.client.post(self.url, {"domain": "example.com", "engines": ["exa-answer"]}, format="json")
 
         assert first.status_code == status.HTTP_202_ACCEPTED
         assert second.status_code == status.HTTP_409_CONFLICT
         assert second.json()["job_id"] == first.json()["id"]
         assert queued.call_count == 1
+        # The refused request must not leave the running job, or the runs after it, on engines nobody accepted.
+        assert list_engine_settings(self.team.id) == engines_before
 
     @parameterized.expand(
         [
