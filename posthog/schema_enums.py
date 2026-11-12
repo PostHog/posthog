@@ -148,7 +148,6 @@ class AgentMode(StrEnum):
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
-    USER_INTERVIEW = "user_interview"
     CUSTOMER_ANALYTICS = "customer_analytics"
 
 
