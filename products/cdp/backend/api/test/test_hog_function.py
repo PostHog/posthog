@@ -1481,6 +1481,17 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"refused": 1},
             ),
             (
+                "secret_made_public_with_its_value",
+                "patch",
+                {
+                    "inputs_schema": [SENDER_SCHEMA[0], {**SENDER_SCHEMA[1], "secret": False}],
+                    "inputs": {"url": {"value": SENDER_URL}, "token": {"value": "I AM SECRET"}},
+                },
+                True,
+                status.HTTP_200_OK,
+                {"reentered": 1},
+            ),
+            (
                 "code_change_with_the_flag_off",
                 "patch",
                 {"hog": MOVED_SENDER_HOG},
@@ -1520,10 +1531,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert res.status_code == expected_status, res.json()
         assert counted == expected_counts
-        stored = HogFunction.objects.get(id=function_id).encrypted_inputs["token"]
         if expected_status == status.HTTP_400_BAD_REQUEST:
             assert (res.json()["attr"], res.json()["code"]) == ("inputs__token", "secret_reentry_required")
-            assert stored["value"] == "I AM SECRET"
+            assert HogFunction.objects.get(id=function_id).encrypted_inputs["token"]["value"] == "I AM SECRET"
 
     @parameterized.expand(
         [
@@ -1593,7 +1603,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_test_invocation_runs_a_dictionary_input_in_the_order_a_saved_function_keeps(self) -> None:
         schema = [{"key": "headers", "type": "dictionary", "label": "Headers"}]
-        sent_headers = {"aa": "1", "b": "2"}
+        sent_headers = {"bb": "1", "aa": "2", "c": "3"}
         res = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={**SECRET_SENDER, "inputs_schema": schema, "inputs": {"headers": {"value": sent_headers}}},

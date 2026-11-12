@@ -367,11 +367,16 @@ def _in_jsonb_key_order(value: Any) -> Any:
     """Postgres `jsonb` stores object keys shortest first, then bytewise. A test run is not stored, so ordering it the
     same way runs it as the saved function would run, which the secret re-entry comparison assumes."""
     if isinstance(value, dict):
-        ordered = sorted(value.items(), key=lambda item: (len(str(item[0]).encode()), str(item[0]).encode()))
+        ordered = sorted(value.items(), key=lambda item: _jsonb_key_rank(str(item[0])))
         return {key: _in_jsonb_key_order(entry) for key, entry in ordered}
     if isinstance(value, list):
         return [_in_jsonb_key_order(entry) for entry in value]
     return value
+
+
+def _jsonb_key_rank(key: str) -> tuple[int, bytes]:
+    encoded = key.encode("utf-8", "surrogatepass")
+    return len(encoded), encoded
 
 
 def _draft_guarded_content(content: dict, secrets: dict) -> tuple:
@@ -716,14 +721,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # Override some default values from the instance that should always be set
         data["type"] = data.get("type", instance.type if instance else "destination")
         data["template_id"] = instance.template_id if instance else data.get("template_id")
-        stored_schema = instance.inputs_schema if instance else []
+        # A draft edit is validated against the inputs the draft holds, so a secret the draft no longer declares is
+        # not recovered from the live function into the draft's plaintext inputs.
         staged_draft = (instance.draft or {}) if instance and self.context.get("stages_draft") else {}
-        if "inputs_schema" in staged_draft:
-            # A draft edit is validated against the schema the draft holds, so a secret the draft no longer
-            # declares is not recovered from the live function into the draft's plaintext inputs.
-            stored_schema = staged_draft["inputs_schema"]
-        data["inputs_schema"] = data.get("inputs_schema", stored_schema)
-        data["inputs"] = data.get("inputs", instance.inputs if instance else {})
+        data["inputs_schema"] = data.get(
+            "inputs_schema", staged_draft.get("inputs_schema", instance.inputs_schema if instance else [])
+        )
+        data["inputs"] = data.get("inputs", staged_draft.get("inputs", instance.inputs if instance else {}))
 
         # Always ensure filters is initialized as an empty object if it's null
         data["filters"] = data.get("filters", instance.filters if instance else {}) or {}
@@ -1021,11 +1025,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
         entered = entered_secret_input_keys(self.requested_inputs)
         requested = self.requested_inputs if isinstance(self.requested_inputs, dict) else {}
-        # A key made public passes only with a new value, because a draft can hold the stored one in plaintext.
+        # A draft can hold a stored secret in plaintext, so at publish and in a draft test run a key made public
+        # passes only with a new value.
+        checks_draft = "live_encrypted_inputs" in self.context or bool(self.context.get("use_draft"))
         supplied = {
             key
             for key in supplied_input_keys(self.requested_inputs)
-            if key in declared or key not in secrets or requested[key].get("value") != secrets[key].get("value")
+            if not checks_draft
+            or key in declared
+            or key not in secrets
+            or requested[key].get("value") != secrets[key].get("value")
         }
         staged = self._staged_secrets(instance, live_secrets)
         # A typed secret is an input change too, because the code can send one secret to an address another
@@ -1695,7 +1704,11 @@ class HogFunctionViewSet(
         # The worker lays the function's stored secrets over the tested inputs. Sending the secrets that
         # passed validation in their place means a test sends an entered secret, never the stored one.
         configuration["encrypted_inputs"] = _tested_secret_inputs(configuration)
-        serializer.validated_data["configuration"] = _in_jsonb_key_order(configuration)
+        serializer.validated_data["configuration"] = {
+            **_in_jsonb_key_order(configuration),
+            # Secrets are stored as encrypted JSON text, which keeps the order they were written in.
+            "encrypted_inputs": configuration["encrypted_inputs"],
+        }
         res = create_hog_invocation_test(
             team_id=self.team_id,
             hog_function_id=str(hog_function.id) if hog_function else "new",

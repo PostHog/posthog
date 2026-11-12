@@ -498,6 +498,24 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
         assert (function.hog, function.encrypted_inputs["token"]["value"]) == (SENDER_HOG, "live")
 
+    def test_draft_edit_that_sends_only_code_keeps_a_required_input_the_draft_added(self):
+        function_id = self._create()
+        schema = [
+            *BASE_FUNCTION["inputs_schema"],
+            {"key": "channel", "type": "string", "label": "Channel", "required": True},
+        ]
+        self._stage(
+            function_id,
+            {"inputs_schema": schema, "inputs": {**BASE_FUNCTION["inputs"], "channel": {"value": "#alerts"}}},
+        )
+
+        response = self._agent_patch(function_id, {"hog": EDITED_HOG})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        draft = HogFunction.objects.get(id=function_id).draft
+        assert draft is not None
+        assert draft["inputs"]["channel"]["value"] == "#alerts"
+
     def test_restored_revision_publishes_once_a_draft_edit_enters_the_secret(self):
         function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
 
