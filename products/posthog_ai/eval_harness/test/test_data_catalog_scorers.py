@@ -41,6 +41,7 @@ from products.data_catalog.evals.scorers_analysis import (
     SurfacesAllFindingsWhenListed,
     VerifiedBeforeExplaining,
 )
+from products.posthog_ai.eval_harness.acp_log import parse_log
 from products.posthog_ai.eval_harness.scorers.contract import Score
 
 CATALOG_QUERY = "SELECT name, status, is_drifted FROM system.information_schema.metrics"
@@ -990,3 +991,64 @@ def test_analysis_scorers_skip_cases_that_do_not_request_them() -> None:
     for judge in (SurfacesAllFindingsWhenListed(), AnalysisDiligence()):
         prepared = judge._prepare(output, {})
         assert isinstance(prepared, Score) and prepared.score is None
+
+
+def _answer_log(steps: list[tuple[str, str]]) -> str:
+    updates: list[dict[str, Any]] = []
+    for index, (kind, value) in enumerate(steps, start=1):
+        if kind == "text":
+            updates.append({"sessionUpdate": "agent_message", "content": {"type": "text", "text": value}})
+            continue
+        call = {"toolCallId": f"call-{index}", "_meta": {"claudeCode": {"toolName": value}}}
+        updates.append(call | {"sessionUpdate": "tool_call", "status": "pending", "rawInput": {"query": _WAU_QUERY}})
+        updates.append(call | {"sessionUpdate": "tool_call_update", "status": "completed", "rawOutput": "ok"})
+    return "\n".join(_session_update(sequence, update) for sequence, update in enumerate(updates, start=1))
+
+
+@parameterized.expand(
+    [
+        (
+            "note_after_show_actions",
+            [
+                ("tool", "execute-sql"),
+                ("text", "Signups spiked from the campaign."),
+                ("tool", "mcp__posthog-code-tools__show_actions"),
+                ("text", "The buttons above start each task."),
+            ],
+            ["Signups spiked from the campaign.", "The buttons above start each task."],
+            [],
+        ),
+        (
+            "narration_before_last_query",
+            [
+                ("text", "Checking signups next."),
+                ("tool", "execute-sql"),
+                ("text", "Signups spiked from the campaign."),
+            ],
+            ["Signups spiked from the campaign."],
+            ["Checking signups next."],
+        ),
+    ]
+)
+def test_analysis_judges_read_the_answer_after_the_last_data_call(
+    _name: str, steps: list[tuple[str, str]], kept: list[str], dropped: list[str]
+) -> None:
+    raw_log = _answer_log(steps)
+    messages = parse_log(raw_log, initial_prompt="Give me a health check.").messages
+    output = {
+        "raw_log": raw_log,
+        "messages": messages,
+        "last_message": steps[-1][1],
+        "prompt": "Give me a health check.",
+    }
+    expected = {
+        "surfaces_all_findings": ["finding one", "finding two"],
+        "analysis_diligence": {"expected_behavior": "Name the campaign."},
+    }
+
+    for judge, field in ((SurfacesAllFindingsWhenListed(), "last_message"), (AnalysisDiligence(), "final_message")):
+        prepared = judge._prepare(output, expected)
+        assert isinstance(prepared, dict)
+        answer = prepared["output"][field]
+        assert all(text in answer for text in kept)
+        assert not any(text in answer for text in dropped)

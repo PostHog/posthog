@@ -32,6 +32,7 @@ _FIRST_SEEN_PATTERN = re.compile(
 _ANNOTATION_PATTERN = re.compile(r"\bannotations?\b", re.IGNORECASE)
 _ANNOTATION_READ_TOOLS = frozenset({"annotations-list", "annotation-retrieve"})
 _CHANGE_FEED_TOOL = "change-feed-list"
+_PRESENTATION_TOOLS = frozenset({"show_actions", "task_summary_update"})
 
 
 def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
@@ -39,6 +40,38 @@ def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
     if not raw_log:
         return None
     return LogParser.cached(raw_log, initial_prompt=(output or {}).get("prompt", "") or "")
+
+
+def _final_answer(output: dict[str, Any] | None) -> str:
+    """The agent's text after its last tool call that is not a presentation tool.
+
+    In the app, the agent can write its answer, call ``show_actions``, and then add a one-line note
+    about the buttons. The note is the last message, but the answer is the text before it.
+    """
+    fallback = (output or {}).get("last_message")
+    fallback = fallback if isinstance(fallback, str) else ""
+    messages = (output or {}).get("messages")
+    if not isinstance(messages, list):
+        return fallback
+    texts: list[str] = []
+    for message in reversed(messages):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        blocks = [block for block in content if isinstance(block, dict)] if isinstance(content, list) else []
+        work = [
+            index
+            for index, block in enumerate(blocks)
+            if block.get("type") == "tool_use"
+            and str(block.get("name") or "").rsplit("__", 1)[-1] not in _PRESENTATION_TOOLS
+        ]
+        after_work = blocks[work[-1] + 1 :] if work else blocks
+        text = "\n".join(block["text"] for block in after_work if block.get("type") == "text" and block.get("text"))
+        if text:
+            texts.append(text)
+        if work:
+            break
+    return "\n\n".join(reversed(texts)) or fallback
 
 
 def _spec(expected: dict | None, name: str) -> dict[str, Any] | None:
@@ -236,8 +269,8 @@ class _ChainJudge(JudgedScorer):
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
         if not isinstance(spec.get(self.expected_field), str):
             return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
-        final_message = (output or {}).get("last_message")
-        if not isinstance(final_message, str) or not final_message.strip():
+        final_message = _final_answer(output)
+        if not final_message.strip():
             return Score(name=self._name(), score=0.0, metadata={"reason": "No final assistant message"})
         return {
             "output": {
@@ -366,4 +399,6 @@ class SurfacesAllFindingsWhenListed(SurfacesAllFindings):
     def _prepare(self, output: Any, expected: Any) -> dict[str, Any] | Score:
         if not isinstance(expected, dict) or self._name() not in expected:
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        if isinstance(output, dict):
+            output = output | {"last_message": _final_answer(output)}
         return super()._prepare(output, expected)
