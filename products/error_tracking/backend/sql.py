@@ -373,10 +373,8 @@ FROM {database}.{kafka_table}
 
 
 #
-# error_tracking_issue_tags: The answers to issue tag questions. Each write adds a row. A merge keeps only the row
-# with the highest version for each (team_id, key, issue_id). A read before the merge sees every row. Thus a reader
-# must take the row with the highest version to get the current answer. A bare argMax(value, version) skips the rows
-# where value is null. Thus it returns an older answer when the newest answer is null.
+# error_tracking_issue_tags: The answers to issue tag questions. Each write adds a row. The row with the highest
+# version for a (team_id, key, issue_id) is the current answer, and a merge drops the older rows.
 # The answers have their own table because cymbal writes complete rows to error_tracking_fingerprint_issue_state,
 # and each cymbal write would reset a tags column there. Django is the only writer of this table.
 #
