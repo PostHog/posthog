@@ -2,6 +2,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -29,9 +30,11 @@ from products.alerts.backend.facade.api import (
     enabled_alert_insight_ids,
     first_subscriber_id,
     get_alert_team_id,
+    insight_ids_with_alerts,
     insight_ids_with_enabled_alerts,
     insight_short_ids_watched_by,
     list_enabled_alerts,
+    list_firing_alerts_created_by,
     snooze_alert_from_slack,
 )
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
@@ -1035,6 +1038,9 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             ("enabled_list", "enabled_alerts_list", True, True),
             ("enabled_list_skips_a_switched_off_alert", "enabled_alerts_list", False, False),
             ("watched_insights", "insights_the_creator_watches", True, True),
+            # The cleanup of generated insights keeps an insight any alert points at, on or off.
+            ("insights_with_alerts", "insights_with_alerts", True, True),
+            ("insights_with_alerts_include_a_switched_off_alert", "insights_with_alerts", False, True),
         ]
     )
     def test_the_facade_readers_see_an_alert_insight_keeps_no_row_for(
@@ -1062,9 +1068,46 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             "insights_the_creator_watches": lambda: (
                 insight_short_ids_watched_by(team_id=self.team.id, user_id=self.user.id, limit=10) == [insight.short_id]
             ),
+            "insights_with_alerts": lambda: insight_ids_with_alerts([insight.id]) == {insight.id},
         }
 
         assert reads[reader]() is expected
+
+    @parameterized.expand(
+        [
+            ("firing", "firing", True),
+            ("not_firing", "not_firing", False),
+            ("snoozed", "snoozed", False),
+            ("failing_its_checks", "errored_check", False),
+            ("switched_off", "switched_off", False),
+        ]
+    )
+    def test_todays_firing_alerts_list_an_alert_insight_keeps_no_row_for_while_it_fires(
+        self, _name: str, situation: str, listed: bool
+    ) -> None:
+        self._forget_the_insight_row()
+        with team_scope(self.team.id):
+            assign_native_creator(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.INSIGHT.value],
+                configuration_id=self.copy_id,
+                created_by_id=self.user.id,
+            )
+            if situation != "not_firing":
+                platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=self.now)
+            if situation == "errored_check":
+                platform_testing.set_check_status(self.copy_id, "errored")
+            if situation == "switched_off":
+                platform_testing.set_enabled(self.copy_id, False)
+        if situation == "snoozed":
+            snoozed = self.client.patch(
+                f"{self.url}/{self.copy_id}/", {"snoozed_until": (self.now + timedelta(hours=1)).isoformat()}
+            )
+            assert snoozed.status_code == status.HTTP_200_OK, snoozed.json()
+
+        firing = list_firing_alerts_created_by(self.team, self.user, include_metrics_insights=True, limit=10)
+
+        assert [alert.id for alert in firing] == ([self.copy_id] if listed else [])
 
     def test_taking_ownership_of_an_ai_alert_insight_keeps_no_row_for_reads_it_under_the_lock(self) -> None:
         insight = self.alert.insight
@@ -1157,7 +1200,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         assert self.client.post(f"{alert_url}/test-delivery/").status_code == status.HTTP_409_CONFLICT
 
-    def _destination(self) -> HogFunction:
+    def _destination(self, alert_id: UUID | None = None) -> HogFunction:
         return HogFunction.objects.create(
             team=self.team,
             type="internal_destination",
@@ -1166,13 +1209,18 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             enabled=True,
             filters={
                 "events": [{"id": "$insight_alert_firing", "type": "events"}],
-                "properties": [{"key": "alert_id", "value": str(self.alert.id), "operator": "exact", "type": "event"}],
+                "properties": [
+                    {"key": "alert_id", "value": str(alert_id or self.alert.id), "operator": "exact", "type": "event"}
+                ],
             },
         )
 
-    @parameterized.expand([("alert_api",), ("insight_delete",)])
+    @parameterized.expand([("alert_api",), ("insight_delete",), ("alert_api_with_no_insight_row",)])
     def test_deleting_a_moved_alert_deletes_its_copy_and_destinations(self, route: str) -> None:
-        destination = self._destination()
+        native = route == "alert_api_with_no_insight_row"
+        if native:
+            self._forget_the_insight_row()
+        destination = self._destination(self.copy_id if native else None)
 
         async def run_cleanup_inline(inputs: NativeCleanupInputs) -> None:
             for configuration_id in native_alert_ids(inputs):
@@ -1182,8 +1230,8 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             patch("products.alerts.backend.platform_native_cleanup._start", side_effect=run_cleanup_inline),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            if route == "alert_api":
-                response = self.client.delete(f"{self.url}/{self.alert.id}/")
+            if route != "insight_delete":
+                response = self.client.delete(f"{self.url}/{self.copy_id if native else self.alert.id}/")
             else:
                 response = self.client.patch(
                     f"/api/projects/{self.team.id}/insights/{self.alert.insight_id}", {"deleted": True}

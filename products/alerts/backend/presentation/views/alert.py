@@ -130,6 +130,7 @@ from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailab
 from products.alerts.backend.facade.platform import (
     close_moved_alert_firings,
     delete_alert_destinations_and_copy,
+    delete_native_insight_alert,
     enable_native_insight_alert,
     follow_insight_alert,
     hand_over_new_alert,
@@ -2125,6 +2126,17 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             and (not created_by or (creator_id is not None and match.created_by_id == creator_id))
         ]
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except Http404:
+            alert = self._native_alert()
+            if alert is None:
+                raise
+        self.check_object_permissions(request, alert)
+        delete_native_insight_alert(team_id=alert.team_id, alert_id=alert.id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def perform_destroy(self, instance: AlertConfiguration) -> None:
         # Before the delete, while the destinations a firing's resolve goes to still exist.
