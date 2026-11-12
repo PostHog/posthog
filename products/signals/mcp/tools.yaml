@@ -945,7 +945,6 @@ tools:
     inbox-source-filter-catalogs-list:
         operation: signals_source_configs_filter_catalogs_retrieve
         enabled: true
-        feature_flag: signals-source-filters
         annotations:
             readOnly: true
             destructive: false
@@ -953,14 +952,14 @@ tools:
         title: List inbox source filter catalogs
         description: >
             List the inbox sources whose records this project can filter, each with the fields a filter expression can
-            use, their types and meanings, and example expressions. A filter is a boolean expression over these
-            fields, saved in a source config's `config.hogql_filter` with `inbox-source-configs-partial-update` and
-            `config_set`. Records that fail it never reach AI processing. An empty list means no source takes a
-            filter yet.
+            use, their types and meanings, and example expressions. A filter is a boolean expression over these fields,
+            saved in a source config's `config.hogql_filter` with `inbox-source-configs-partial-update` and
+            `config_set`. Records that fail it never reach AI processing. An empty list means no source takes a filter
+            yet.
+        feature_flag: signals-source-filters
     inbox-source-filter-preview:
         operation: signals_source_configs_filter_preview_create
         enabled: true
-        feature_flag: signals-source-filters
         annotations:
             readOnly: true
             destructive: false
@@ -972,6 +971,7 @@ tools:
             fields from `inbox-source-filter-catalogs-list`. `status` explains an empty result, for example an invalid
             expression or a source that has not synced. Records that pass can still be skipped later by guidance or
             deduplication. Saves nothing.
+        feature_flag: signals-source-filters
     inbox-steering-instructions-get:
         operation: signals_config_list
         enabled: true
