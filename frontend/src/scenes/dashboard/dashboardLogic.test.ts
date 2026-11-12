@@ -1267,6 +1267,7 @@ describe('dashboardLogic', () => {
                     ])
 
                     const leftShortIds = leftTiles.map((tile) => tile.insight.short_id)
+                    const totalBeforeSwitch = logic.values.refreshMetrics.total
                     if (returnBeforeAbortsSettle) {
                         logic.actions.selectTileGroupTab('group-target')
                         refreshInsight.mockImplementation((_teamId, insight) => Promise.resolve(insight))
@@ -1317,6 +1318,8 @@ describe('dashboardLogic', () => {
                         expect(logic.values.refreshStatus[shortId]).toMatchObject({ refreshed: true })
                     }
                     expect(logic.values.waitingTileRefresh).toBeNull()
+                    // Only the opened target tab's tile joins the batch. The left tiles are cancelled and reloaded, so they must not be counted a second time.
+                    expect(logic.values.refreshMetrics.total).toEqual(totalBeforeSwitch + 1)
 
                     // A hidden browser tab pauses disposables and reruns them on return, so a finished one must not stay.
                     await expectLogic(logic).delay(20).toFinishAllListeners()
@@ -1454,6 +1457,15 @@ describe('dashboardLogic', () => {
 
                 expect(logic.values.refreshMetrics).toEqual({ completed: 1, total: 2 })
                 await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+            })
+
+            it('keeps "X out of Y" fixed when a tile load times out', async () => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                refreshInsight.mockRejectedValue({ status: 504 })
+                await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
+
+                expect(logic.values.refreshMetrics.total).toEqual(1)
             })
 
             it('keeps a group waiting when the viewer cancels its load, and loads it on the next open', async () => {
