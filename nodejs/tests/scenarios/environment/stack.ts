@@ -8,6 +8,7 @@ import { promisify } from 'util'
 
 import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
 import { internalFetch } from '~/common/utils/request'
+import { PluginsServerConfig } from '~/types'
 
 import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, SES_RATE_LIMITER_VALKEY } from './roles'
 
@@ -192,8 +193,20 @@ export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string
 
 export const cyclotronUrlOf = (spec: RoleSpec): string => spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl
 
-export const postgresUrlOf = (spec: RoleSpec): string =>
-    overrideWithEnv({ ...getDefaultConfig(), DATABASE_URL: STACK.postgresUrl }, spec.env).DATABASE_URL
+const settingsOf = (spec: RoleSpec): PluginsServerConfig =>
+    overrideWithEnv({ ...getDefaultConfig(), DATABASE_URL: STACK.postgresUrl }, spec.env)
+
+export const postgresUrlOf = (spec: RoleSpec): string => settingsOf(spec).DATABASE_URL
+
+const POSTGRES_URL_SETTINGS = [
+    'DATABASE_URL',
+    'DATABASE_READONLY_URL',
+    'PLUGIN_STORAGE_DATABASE_URL',
+    'PERSONS_DATABASE_URL',
+    'PERSONS_READONLY_DATABASE_URL',
+    'BEHAVIORAL_COHORTS_DATABASE_URL',
+    'CYCLOTRON_NODE_DATABASE_URL',
+] as const satisfies (keyof PluginsServerConfig)[]
 
 const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]']
 const POSTGRES_URL = /^postgres(ql)?:\/\//
@@ -204,7 +217,13 @@ function serverOf(url: string): string {
 }
 
 export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[] {
-    const urls = [postgresUrl, ...Object.values(spec.env).filter((url): url is string => POSTGRES_URL.test(url ?? ''))]
+    const settings = settingsOf(spec)
+    const urls = [
+        postgresUrl,
+        ...POSTGRES_URL_SETTINGS.map((key) => settings[key]).filter((url): url is string =>
+            POSTGRES_URL.test(url ?? '')
+        ),
+    ]
     return urls.filter((url, i) => urls.findIndex((other) => serverOf(other) === serverOf(url)) === i)
 }
 
