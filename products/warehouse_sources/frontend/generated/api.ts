@@ -1296,7 +1296,8 @@ export const getExternalDataSourcesConnectLinkRetrieveUrl = (
  * The link opens a minimal connect page rendering the source's full connection form — OAuth options
  * included — with no table selection and no source creation. The user authenticates in their browser,
  * secrets never pass through the agent, and the agent finishes setup afterwards by passing the stored
- * credential id to data-warehouse-source-setup.
+ * credential id to data-warehouse-source-setup. To reconnect an existing source, the agent passes the
+ * id in the payload of a source update instead.
  */
 export const externalDataSourcesConnectLinkRetrieve = async (
     projectId: string,
