@@ -42,8 +42,8 @@ export interface analyticsPinnedLogicValues {
     shortcutDataLoading: boolean // projectTreeDataLogic
     hasAnalyticsItems: boolean | null
     hasAnalyticsItemsLoading: boolean
-    pinnedAnalytics: PinnedAnalytics[]
     pinHintVisible: boolean
+    pinnedAnalytics: PinnedAnalytics[]
     pinnedCollectionPaths: Set<string>
     pinnedShortcutIds: Map<string, string>
 }
@@ -91,7 +91,7 @@ export interface analyticsPinnedLogicActions {
     hidePinHint: () => {
         value: true
     }
-    loadHasAnalyticsItems: () => void
+    loadHasAnalyticsItems: (_: void) => void
     loadHasAnalyticsItemsFailure: (
         error: string,
         errorObject?: any
@@ -100,11 +100,11 @@ export interface analyticsPinnedLogicActions {
         errorObject?: any
     }
     loadHasAnalyticsItemsSuccess: (
-        hasAnalyticsItems: boolean | null,
-        payload?: any
+        hasAnalyticsItems: boolean,
+        payload?: void
     ) => {
-        hasAnalyticsItems: boolean | null
-        payload?: any
+        hasAnalyticsItems: boolean
+        payload?: void
     }
     movePinned: (
         shortcutId: string,
