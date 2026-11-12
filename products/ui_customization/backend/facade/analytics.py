@@ -20,6 +20,7 @@ class AnalyticsPage(LabeledStrEnum):
     ANALYTICS_ALL = "analytics_all", "View all"
     ANALYTICS_MINE = "analytics_mine", "My work"
     COLLECTIONS = "collections", "Collections"
+    DASHBOARDS = "dashboards", "Dashboards"
     ALERTS = "alerts", "Alerts"
     SUBSCRIPTIONS = "subscriptions", "Subscriptions"
     PRODUCT_ANALYTICS = "product_analytics", "Product analytics"

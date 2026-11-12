@@ -1120,6 +1120,8 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `helpscout` - Help Scout
  * * `decagon` - Decagon
  * * `vitally` - Vitally
+ * * `intercom_tickets` - Intercom tickets
+ * * `pylon` - Pylon
  * * `usersnap` - Usersnap
  * * `typeform` - Typeform
  * * `qualtrics` - Qualtrics
@@ -1134,6 +1136,9 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `azure_application_insights` - Azure Application Insights
  * * `appsignal` - AppSignal
  * * `cursor` - Cursor
+ * * `github_dependabot` - GitHub Dependabot
+ * * `github_code_scanning` - GitHub code scanning
+ * * `github_secret_scanning` - GitHub secret scanning
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1237,6 +1242,8 @@ export const SignalSourceProductEnumApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -1251,6 +1258,9 @@ export const SignalSourceProductEnumApi = {
     AzureApplicationInsights: 'azure_application_insights',
     Appsignal: 'appsignal',
     Cursor: 'cursor',
+    GithubDependabot: 'github_dependabot',
+    GithubCodeScanning: 'github_code_scanning',
+    GithubSecretScanning: 'github_secret_scanning',
 } as const
 
 /**
@@ -1405,6 +1415,8 @@ export interface InboxOnboardingSourceApi {
      * * `helpscout` - Help Scout
      * * `decagon` - Decagon
      * * `vitally` - Vitally
+     * * `intercom_tickets` - Intercom tickets
+     * * `pylon` - Pylon
      * * `usersnap` - Usersnap
      * * `typeform` - Typeform
      * * `qualtrics` - Qualtrics
@@ -1418,7 +1430,10 @@ export interface InboxOnboardingSourceApi {
      * * `google_play_console` - Google Play Console
      * * `azure_application_insights` - Azure Application Insights
      * * `appsignal` - AppSignal
-     * * `cursor` - Cursor */
+     * * `cursor` - Cursor
+     * * `github_dependabot` - GitHub Dependabot
+     * * `github_code_scanning` - GitHub code scanning
+     * * `github_secret_scanning` - GitHub secret scanning */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -1613,6 +1628,35 @@ export interface PauseResponseApi {
     /** The timestamp the pipeline is paused until. */
     paused_until: string
 }
+
+/**
+ * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+ * @nullable
+ */
+export type PaginatedSignalReportListListApiPersonalRankingStatus = {
+    /** real: the model personalized 2 or more reports, so the ranking can reorder the list. one_report: it personalized a single report. not_personalized: the build finished without personalizing. empty: the build had no reports to rank. fallback: the build kept the default order, see fallback_reason. none: no ranking is stored. */
+    state: 'real' | 'one_report' | 'not_personalized' | 'empty' | 'fallback' | 'none'
+    /**
+     * Reports in the stored ranking. Null when state is none.
+     * @nullable
+     */
+    size: number | null
+    /**
+     * Minutes since the ranking was built. Null when state is none.
+     * @nullable
+     */
+    age_minutes: number | null
+    /**
+     * Minutes since a build or the scheduled check last confirmed the ranking's inputs. Null when state is none.
+     * @nullable
+     */
+    checked_age_minutes: number | null
+    /**
+     * Why the build kept the default order, when state is fallback. Else null.
+     * @nullable
+     */
+    fallback_reason: string | null
+} | null | null
 
 export interface ReviewerStateApi {
     /**
@@ -2766,6 +2810,11 @@ export interface PaginatedSignalReportListListApi {
      * @nullable
      */
     ranking_id?: string | null
+    /**
+     * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+     * @nullable
+     */
+    personal_ranking_status?: PaginatedSignalReportListListApiPersonalRankingStatus
     /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. Only a search with a full page can cap the count. */
     count_is_capped?: boolean
     /**
@@ -4272,6 +4321,8 @@ export interface SignalReportLeaveReviewersApi {
  * * `helpscout` - helpscout
  * * `decagon` - decagon
  * * `vitally` - vitally
+ * * `intercom_tickets` - intercom_tickets
+ * * `pylon` - pylon
  * * `usersnap` - usersnap
  * * `typeform` - typeform
  * * `qualtrics` - qualtrics
@@ -4286,6 +4337,9 @@ export interface SignalReportLeaveReviewersApi {
  * * `azure_application_insights` - azure_application_insights
  * * `appsignal` - appsignal
  * * `cursor` - cursor
+ * * `github_dependabot` - github_dependabot
+ * * `github_code_scanning` - github_code_scanning
+ * * `github_secret_scanning` - github_secret_scanning
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4389,6 +4443,8 @@ export const SignalSourceProductApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -4403,6 +4459,9 @@ export const SignalSourceProductApi = {
     AzureApplicationInsights: 'azure_application_insights',
     Appsignal: 'appsignal',
     Cursor: 'cursor',
+    GithubDependabot: 'github_dependabot',
+    GithubCodeScanning: 'github_code_scanning',
+    GithubSecretScanning: 'github_secret_scanning',
 } as const
 
 /**
@@ -5228,6 +5287,22 @@ export interface VitallyConversationSignalExtraApi {
     created_at: string | null
 }
 
+export interface IntercomTicketsTicketSignalExtraApi {
+    ticket_id: string | null
+    category: string | null
+    ticket_state_category: string | null
+    ticket_type_name: string | null
+    created_at: string | null
+}
+
+export interface PylonTicketSignalExtraApi {
+    number: string | null
+    state: string | null
+    type: string | null
+    link: string | null
+    created_at: string | null
+}
+
 export interface PagerdutyIncidentSignalExtraApi {
     status: string | null
     urgency: string | null
@@ -5562,6 +5637,47 @@ export interface MicrosoftDefenderCloudAppsScannerFindingSignalExtraApi {
     timestamp: string | null
 }
 
+export interface GithubDependabotScannerFindingSignalExtraApi {
+    number: string | null
+    state: string | null
+    severity: string | null
+    ghsa_id: string | null
+    cve_id: string | null
+    package_ecosystem: string | null
+    package_name: string | null
+    vulnerable_version_range: string | null
+    first_patched_version: string | null
+    manifest_path: string | null
+    dependency_scope: string | null
+    html_url: string | null
+    created_at: string | null
+    repository: string | null
+}
+
+export interface GithubCodeScanningScannerFindingSignalExtraApi {
+    number: string | null
+    state: string | null
+    rule_id: string | null
+    rule_severity: string | null
+    security_severity_level: string | null
+    tool_name: string | null
+    location_path: string | null
+    location_start_line: string | null
+    html_url: string | null
+    created_at: string | null
+    repository: string | null
+}
+
+export interface GithubSecretScanningScannerFindingSignalExtraApi {
+    number: string | null
+    state: string | null
+    secret_type: string | null
+    validity: string | null
+    html_url: string | null
+    created_at: string | null
+    repository: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -5636,6 +5752,8 @@ export type SignalExtraApi =
     | HelpscoutConversationSignalExtraApi
     | DecagonConversationSignalExtraApi
     | VitallyConversationSignalExtraApi
+    | IntercomTicketsTicketSignalExtraApi
+    | PylonTicketSignalExtraApi
     | PagerdutyIncidentSignalExtraApi
     | OpsgenieAlertSignalExtraApi
     | IncidentIoIncidentSignalExtraApi
@@ -5679,6 +5797,9 @@ export type SignalExtraApi =
     | AwsGuarddutyScannerFindingSignalExtraApi
     | AwsInspectorScannerFindingSignalExtraApi
     | MicrosoftDefenderCloudAppsScannerFindingSignalExtraApi
+    | GithubDependabotScannerFindingSignalExtraApi
+    | GithubCodeScanningScannerFindingSignalExtraApi
+    | GithubSecretScanningScannerFindingSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -5824,6 +5945,8 @@ export interface SignalNodeApi {
      * * `helpscout` - helpscout
      * * `decagon` - decagon
      * * `vitally` - vitally
+     * * `intercom_tickets` - intercom_tickets
+     * * `pylon` - pylon
      * * `usersnap` - usersnap
      * * `typeform` - typeform
      * * `qualtrics` - qualtrics
@@ -5837,7 +5960,10 @@ export interface SignalNodeApi {
      * * `google_play_console` - google_play_console
      * * `azure_application_insights` - azure_application_insights
      * * `appsignal` - appsignal
-     * * `cursor` - cursor */
+     * * `cursor` - cursor
+     * * `github_dependabot` - github_dependabot
+     * * `github_code_scanning` - github_code_scanning
+     * * `github_secret_scanning` - github_secret_scanning */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *

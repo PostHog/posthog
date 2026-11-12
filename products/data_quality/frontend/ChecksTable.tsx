@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonMenu, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonMenu,
+    LemonSwitch,
+    LemonTable,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -19,7 +28,8 @@ interface ChecksTableProps extends DataQualityChecksLogicProps {
 
 export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProps): JSX.Element {
     const logic = dataQualityChecksLogic(props)
-    const { sortedChecks, checksLoading, pendingCheckActions, checkRunsByCheckId } = useValues(logic)
+    const { sortedChecks, checksLoading, pendingCheckActions, checkRunsByCheckId, isSuiteRunning, activeSuiteCheckId } =
+        useValues(logic)
     const { deleteCheck, toggleCheckEnabled, runCheck, loadCheckRuns, openFailingRows } = useActions(logic)
     const { openEditor } = useActions(dataQualityCheckEditorLogic)
 
@@ -35,6 +45,9 @@ export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProp
             secondaryButton: { children: 'Cancel' },
         })
     }
+
+    const isRunning = (check: DataQualityCheckApi): boolean =>
+        !!pendingCheckActions.running[check.id] || (isSuiteRunning && activeSuiteCheckId === check.id)
 
     return (
         <LemonTable
@@ -106,7 +119,14 @@ export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProp
                 {
                     title: 'Last status',
                     key: 'last_status',
-                    render: (_, check) => <CheckStatusCell check={check} />,
+                    render: (_, check) =>
+                        isRunning(check) ? (
+                            <LemonTag type="highlight" icon={<Spinner textColored />}>
+                                Running
+                            </LemonTag>
+                        ) : (
+                            <CheckStatusCell check={check} />
+                        ),
                 },
                 {
                     title: 'Last run',
@@ -123,15 +143,14 @@ export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProp
                                 {
                                     label: 'Run now',
                                     onClick: () => runCheck(check.id),
-                                    disabledReason: pendingCheckActions.running[check.id]
-                                        ? 'This check is already starting'
-                                        : undefined,
+                                    disabledReason: isRunning(check) ? 'This check is already running' : undefined,
                                 },
                                 { label: 'Edit', onClick: () => openEditor(check, props, columns, outputSchema) },
                                 {
                                     label: 'Open failing rows in SQL editor',
                                     tooltip: "The query behind this check's latest run",
                                     onClick: () => openFailingRows(check.id),
+                                    disabledReason: check.last_run_at ? undefined : 'Run this check first',
                                 },
                                 {
                                     label: 'Delete',

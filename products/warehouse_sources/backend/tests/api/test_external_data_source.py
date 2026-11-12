@@ -161,6 +161,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.source import TrinoSource
+from products.warehouse_sources.backend.tests.api.utils import fake_decision_model, open_orders_schema
 
 _PH_HISTORY_NAMING_FLAG = (
     "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
@@ -684,9 +685,13 @@ class TestExternalDataSource(APIBaseTest):
             source, "Customers", status=ExternalDataSchema.Status.FAILED, latest_error=error, should_sync=True
         )
 
-        listed = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()["results"][0]
-        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/").json()
-        schemas = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/").json()["results"]
+        base = f"/api/environments/{self.team.pk}"
+        listed = self.client.get(f"{base}/external_data_sources/").json()["results"][0]
+        detail = self.client.get(f"{base}/external_data_sources/{source.pk}/").json()
+        schemas = self.client.get(f"{base}/external_data_schemas/").json()["results"]
+        compact_listed = self.client.get(f"{base}/external_data_sources/?compact=true").json()["results"][0]
+        compact_detail = self.client.get(f"{base}/external_data_sources/{source.pk}/?compact=true").json()
+        compact_schemas = self.client.get(f"{base}/external_data_schemas/?compact=true").json()["results"]
 
         errors = [
             listed["latest_error"],
@@ -694,6 +699,11 @@ class TestExternalDataSource(APIBaseTest):
             detail["latest_error"],
             detail["schemas"][0]["latest_error"],
             schemas[0]["latest_error"],
+            compact_listed["latest_error"],
+            compact_listed["schemas"][0]["latest_error"],
+            compact_detail["latest_error"],
+            compact_detail["schemas"][0]["latest_error"],
+            compact_schemas[0]["latest_error"],
         ]
         for masked in errors:
             self.assertIn("***", masked)
@@ -722,6 +732,126 @@ class TestExternalDataSource(APIBaseTest):
             self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
         self.assertEqual(len(many_source_queries.captured_queries), len(one_source_queries.captured_queries))
+
+    @parameterized.expand(
+        [
+            ("list_default", "list", "", "full", True),
+            ("list_compact", "list", "?compact=true", "compact", True),
+            ("list_compact_no_schemas", "list", "?compact=true&include_schemas=false", "compact", False),
+            ("list_full_no_schemas", "list", "?include_schemas=false", "full", False),
+            ("retrieve_default", "retrieve", "", "full", True),
+            ("retrieve_compact", "retrieve", "?compact=true", "compact", True),
+            ("retrieve_compact_no_schemas", "retrieve", "?compact=true&include_schemas=false", "compact", False),
+            ("retrieve_full_no_schemas", "retrieve", "?include_schemas=false", "full", False),
+        ]
+    )
+    def test_read_response_shape(
+        self, _name: str, action: str, query: str, expected_shape: str, expect_schemas: bool
+    ) -> None:
+        source = self._make_source("shape")
+        self._make_schema_with_table(
+            source, "Customers", status=ExternalDataSchema.Status.FAILED, latest_error="boom", should_sync=True
+        )
+        self._make_schema_with_table(source, "Invoices", status=ExternalDataSchema.Status.COMPLETED)
+
+        base = f"/api/environments/{self.team.pk}/external_data_sources/"
+        response = self.client.get(f"{base}{query}" if action == "list" else f"{base}{source.pk}/{query}")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        data = response.json()["results"][0] if action == "list" else response.json()
+
+        compact_fields = {
+            "id",
+            "created_at",
+            "source_type",
+            "prefix",
+            "description",
+            "access_method",
+            "status",
+            "latest_error",
+            "last_run_at",
+        }
+        if expected_shape == "compact":
+            assert set(data) == compact_fields | ({"schemas"} if expect_schemas else set())
+        else:
+            # The default stays the full form the frontend reads, connection settings included.
+            assert {"job_inputs", "revenue_analytics_config", "webhook_not_registered", "user_access_level"} <= set(
+                data
+            )
+            assert ("schemas" in data) is expect_schemas
+        assert data["status"] == ExternalDataSchema.Status.FAILED
+        assert data["latest_error"] == "boom"
+
+        if not expect_schemas:
+            return
+        rows = {row["name"]: row for row in data["schemas"]}
+        assert set(rows) == {"Customers", "Invoices"}
+        if expected_shape == "compact":
+            assert rows["Customers"] == {
+                "id": str(rows["Customers"]["id"]),
+                "name": "Customers",
+                "should_sync": True,
+                "status": ExternalDataSchema.Status.FAILED,
+                "last_synced_at": None,
+                "latest_error": "boom",
+            }
+        else:
+            assert "table" in rows["Customers"]
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_compact_truncates_long_errors(self, action: str) -> None:
+        source = self._make_source("long")
+        self._make_schema_with_table(
+            source, "Customers", status=ExternalDataSchema.Status.FAILED, latest_error="x" * 5000, should_sync=True
+        )
+
+        base = f"/api/environments/{self.team.pk}/external_data_sources/"
+        url = f"{base}?compact=true" if action == "list" else f"{base}{source.pk}/?compact=true"
+        response = self.client.get(url)
+        data = response.json()["results"][0] if action == "list" else response.json()
+
+        for error in (data["latest_error"], data["schemas"][0]["latest_error"]):
+            assert error.startswith("x" * 500)
+            assert error.endswith("[truncated, 5000 characters]")
+            assert len(error) < 600
+
+    @parameterized.expand(
+        [
+            ("list_bad_compact", "list", "?compact=nope"),
+            ("list_bad_include_schemas", "list", "?include_schemas=maybe"),
+            ("retrieve_bad_compact", "retrieve", "?compact=nope"),
+            ("retrieve_bad_include_schemas", "retrieve", "?include_schemas=maybe"),
+        ]
+    )
+    def test_read_rejects_invalid_shape_params(self, _name: str, action: str, query: str) -> None:
+        source = self._make_source("bad")
+        base = f"/api/environments/{self.team.pk}/external_data_sources/"
+
+        response = self.client.get(f"{base}{query}" if action == "list" else f"{base}{source.pk}/{query}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_compact_query_count_does_not_scale(self, action: str) -> None:
+        first = self._make_source("one")
+        self._make_schema_with_table(first, "A", status=ExternalDataSchema.Status.FAILED, latest_error="err")
+
+        base = f"/api/environments/{self.team.pk}/external_data_sources/"
+        url = f"{base}?compact=true" if action == "list" else f"{base}{first.pk}/?compact=true"
+        self.client.get(url)  # warm
+
+        with CaptureQueriesContext(connection) as before:
+            assert self.client.get(url).status_code == 200
+
+        for index in range(4):
+            extra = self._make_source(f"many-{index}") if action == "list" else first
+            self._make_schema_with_table(
+                extra, f"S{index}", status=ExternalDataSchema.Status.FAILED, latest_error=f"err {index}"
+            )
+
+        with CaptureQueriesContext(connection) as after:
+            assert self.client.get(url).status_code == 200
+
+        assert len(after.captured_queries) == len(before.captured_queries)
 
     def _make_credentialed_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
         credential = DataWarehouseCredential.objects.create(
@@ -1765,6 +1895,50 @@ class TestExternalDataSource(APIBaseTest):
         schema_two.refresh_from_db()
         assert schema_one.should_sync is False
         assert schema_two.should_sync is False
+
+    @parameterized.expand(
+        [
+            ("canonical", "24hour", 200, timedelta(hours=24)),
+            ("daily", "daily", 200, timedelta(hours=24)),
+            ("hourly", "hourly", 200, timedelta(hours=1)),
+            ("weekly", "weekly", 200, timedelta(days=7)),
+            ("sixty_minutes", "60min", 200, timedelta(hours=1)),
+            ("one_h", "1h", 200, timedelta(hours=1)),
+            ("never", "never", 400, timedelta(hours=6)),
+            ("unknown", "fortnightly", 400, timedelta(hours=6)),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_sync_frequency_synonyms(
+        self, _name, sync_frequency, expected_status, expected_interval, _mock_workflow_exists
+    ):
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(hours=6),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+            data={"schemas": [{"id": str(schema.id), "sync_frequency": sync_frequency}]},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.content
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == expected_interval
+        if sync_frequency == "never":
+            assert "should_sync" in str(response.json())
+        elif expected_status == 400:
+            assert "5min" in str(response.json())
+            assert "30day" in str(response.json())
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -6250,6 +6424,71 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(validate.call_args.args[2], "direct")
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_database_schema_returns_rule_order_and_recommendations_add_the_model_pick(self, mock_get_source):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        source = PostgresSource()
+        mock_get_source.return_value = source
+        discovered = open_orders_schema("public.orders")
+
+        with (
+            patch.object(source, "validate_credentials_for_access_method", return_value=(True, None)),
+            patch.object(source, "get_schemas", return_value=[discovered]),
+            fake_decision_model() as model_calls,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Postgres",
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                },
+            )
+            listed = response.json()[0]
+            recommended = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/incremental_field_recommendations/",
+                data={"tables": [{"table": listed["table"], "incremental_fields": listed["incremental_fields"]}]},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(listed["incremental_field"], "created_at")
+        self.assertEqual(recommended.status_code, status.HTTP_200_OK, recommended.json())
+        self.assertEqual(
+            [(t["table"], t["incremental_fields"][0]["field"]) for t in recommended.json()["tables"]],
+            [("public.orders", "fecha_actualizacion")],
+        )
+        self.assertEqual(len(model_calls), 1)
+
+    @parameterized.expand(
+        [
+            ("unusable_answer", True, "c9", {}),
+            ("forged_pick_without_consent", False, "c1", {"picked_by_model": True}),
+        ]
+    )
+    def test_incremental_field_recommendations_return_only_model_picks(self, name, ai_approved, choice, forged):
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+        # A table name per case keeps the per-team answer cache from answering for another case.
+        table = f"public.{name}"
+        candidates = open_orders_schema(table).incremental_fields
+        sent = [{**candidates[0], **forged}, *candidates[1:]]
+
+        with fake_decision_model(choice=choice):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/incremental_field_recommendations/",
+                data={"tables": [{"table": table, "incremental_fields": sent}]},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["tables"], [])
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_database_schema_postgres_requires_ssl_while_setting_the_source_up(self, mock_get_source):
         source = PostgresSource()
         mock_get_source.return_value = source
@@ -7012,6 +7251,10 @@ class TestExternalDataSource(APIBaseTest):
             ("malformed_after", "?after=yesterday"),
             ("malformed_before", "?before=not-a-date"),
             ("malformed_both", "?after=yesterday&before=not-a-date"),
+            ("limit_zero", "?limit=0"),
+            ("limit_above_max", "?limit=101"),
+            ("limit_negative", "?limit=-5"),
+            ("limit_not_a_number", "?limit=ten"),
         ]
     )
     def test_source_jobs_rejects_malformed_timestamp(self, _name, query_string):
@@ -7029,6 +7272,37 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs{query_string}",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("default", "", 50),
+            ("limit_one", "?limit=1", 1),
+            ("limit_below_total", "?limit=3", 3),
+            ("limit_max", "?limit=100", 55),
+            ("empty_limit", "?limit=", 50),
+        ]
+    )
+    def test_source_jobs_limit(self, _name: str, query_string: str, expected_count: int) -> None:
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+        ExternalDataJob.objects.bulk_create(
+            [
+                ExternalDataJob(
+                    team=self.team,
+                    pipeline=source,
+                    schema=schema,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+                for _ in range(55)
+            ]
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs{query_string}",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert len(response.json()) == expected_count
 
     @parameterized.expand(
         [
@@ -11759,6 +12033,74 @@ class TestEnableCDC(APIBaseTest):
         assert response.status_code == 400
         assert "cdc_management_mode" in response.json()["message"]
 
+    @parameterized.expand(
+        [
+            ("json", "json", False),
+            ("multipart", "multipart", "false"),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources",
+        return_value=None,
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.base.sync_cdc_extraction_schedule"
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_cdc_slot_cleanup_schedule"
+    )
+    def test_enable_cdc_passes_scalar_settings_for_any_request_format(
+        self, _name: str, request_format: str, auto_drop_value, _ensure, _sync, mock_setup_cdc_resources, mock_check
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={
+                "cdc_management_mode": "self_managed",
+                "cdc_publication_name": "my_pub",
+                "cdc_auto_drop_slot": auto_drop_value,
+                "cdc_lag_warning_threshold_mb": 100,
+            },
+            format=request_format,
+        )
+
+        assert response.status_code == 200, response.content
+        payload = mock_setup_cdc_resources.call_args.args[2]
+        assert payload["cdc_management_mode"] == "self_managed"
+        assert payload["cdc_publication_name"] == "my_pub"
+        assert payload["cdc_auto_drop_slot"] is False
+        assert payload["cdc_lag_warning_threshold_mb"] == 100
+        assert mock_check.call_args.kwargs["setup"]["cdc_publication_name"] == "my_pub"
+
+    @parameterized.expand(
+        [
+            ("non_numeric_warning", {"cdc_lag_warning_threshold_mb": "20mb"}, "cdc_lag_warning_threshold_mb"),
+            ("zero_critical", {"cdc_lag_critical_threshold_mb": 0}, "cdc_lag_critical_threshold_mb"),
+            (
+                "warning_not_below_critical",
+                {"cdc_lag_warning_threshold_mb": 5000, "cdc_lag_critical_threshold_mb": 1000},
+                "Warning threshold",
+            ),
+            ("warning_not_below_default_critical", {"cdc_lag_warning_threshold_mb": 99999}, "Warning threshold"),
+        ]
+    )
+    def test_enable_cdc_rejects_invalid_tuning(self, _name: str, tuning: dict, expected_message: str) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog", **tuning},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert expected_message in response.json()["message"]
+        source.refresh_from_db()
+        assert "cdc_enabled" not in (source.job_inputs or {})
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=["wal_level must be 'logical'", "Missing REPLICATION privilege"],
@@ -15738,6 +16080,32 @@ class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas/",
             {"schemas": [{"id": str(schema.id), "should_sync": False}]},
+            format="json",
+            headers={"authorization": f"Bearer {self._make_api_key([scope])}"},
+        )
+
+        if should_have_access:
+            assert response.status_code != status.HTTP_403_FORBIDDEN, response.content
+        else:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    @parameterized.expand(
+        [
+            (f"{action}_{scope_name}", action, scope, should_have_access)
+            for action in ("enable_cdc", "disable_cdc", "repair_cdc", "resume_cdc", "update_cdc_settings")
+            for scope_name, scope, should_have_access in (
+                ("write", "external_data_source:write", True),
+                ("read", "external_data_source:read", False),
+            )
+        ]
+    )
+    def test_cdc_actions_are_write_actions(self, _name: str, action: str, scope: str, should_have_access: bool) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        self.client.force_authenticate(None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/{action}/",
+            {"cdc_management_mode": "invalid"},
             format="json",
             headers={"authorization": f"Bearer {self._make_api_key([scope])}"},
         )

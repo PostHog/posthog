@@ -90,6 +90,7 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         estimated_at: null,
         user_access_level: 'editor',
         sweep_throttle_factor: 1,
+        sweep_interval_minutes: 5,
         dashboard_id: null,
         dashboard_suggested: false,
         ...overrides,
@@ -1416,14 +1417,19 @@ export const MonitorOverview: StoryObj = {
 // Expensive filters stretch the sweep to its hourly ceiling, so the status strip reports it as throttled.
 export const ScannerStatusThrottled: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
-    decorators: [overviewDecorator({ ...summarizerScanner, sweep_throttle_factor: 12 }, summarizerStats)],
+    decorators: [
+        overviewDecorator(
+            { ...summarizerScanner, sweep_throttle_factor: 12, sweep_interval_minutes: 60 },
+            summarizerStats
+        ),
+    ],
 }
 
 export const ScannerCreatorLostAccess: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [
         overviewDecorator(
-            { ...summarizerScanner, enabled: false, unrunnable_reason: 'creator_lost_access' },
+            { ...summarizerScanner, enabled: false, disabled_reason: 'creator_lost_access' },
             summarizerStats
         ),
     ],
@@ -2460,6 +2466,22 @@ export const ScannerOverviewFreeCreditsUsed: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [
         overviewDecorator({ ...freeOnlyLimitReachedScanner, id: summarizerScanner.id }, summarizerStats),
+        mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota } }),
+    ],
+}
+
+export const ScannerOverviewTurnedOffByFreeCredits: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [
+        overviewDecorator(
+            {
+                ...freeOnlyLimitReachedScanner,
+                id: summarizerScanner.id,
+                enabled: false,
+                disabled_reason: 'free_credits_used',
+            },
+            summarizerStats
+        ),
         mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota } }),
     ],
 }

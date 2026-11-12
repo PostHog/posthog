@@ -63,7 +63,7 @@ export interface SetupContext {
     agentsMd?: WrittenFile[]
     events?: EventsContext
     products?: (Product & { chosen: boolean })[]
-    // PostHog skills that could help in later sessions, at the products step.
+    // PostHog skills that could help in later sessions, at the products step. Agents get the names only.
     skills?: SkillInfo[]
     mcp?: McpContext
     warnings: string[]

@@ -369,7 +369,6 @@ export const IncrementalFieldTypeEnumApi = {
 } as const
 
 /**
- * * `never` - never
  * * `5min` - 5min
  * * `15min` - 15min
  * * `30min` - 30min
@@ -384,7 +383,6 @@ export type SettableSyncFrequencyEnumApi =
     (typeof SettableSyncFrequencyEnumApi)[keyof typeof SettableSyncFrequencyEnumApi]
 
 export const SettableSyncFrequencyEnumApi = {
-    Never: 'never',
     '5min': '5min',
     '15min': '15min',
     '30min': '30min',
@@ -565,9 +563,8 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync. The fastest sync frequency is 5 minutes.
+    /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      *
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -810,9 +807,8 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync. The fastest sync frequency is 5 minutes.
+    /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      *
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -990,7 +986,9 @@ export const EngineEnumApi = {
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
+    /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
     enabled?: boolean
+    /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
     include_invoiceless_charges?: boolean
 }
 
@@ -1362,7 +1360,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      */
     incremental_field_type?: string | null
     /**
-     * Human-readable sync frequency value.
+     * How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      * @nullable
      */
     sync_frequency?: string | null
@@ -1419,12 +1417,12 @@ export interface ExternalDataSourceBulkUpdateSchemasApi {
 }
 
 /**
- * * `posthog` - posthog
- * * `self_managed` - self_managed
+ * * `posthog` - PostHog
+ * * `self_managed` - Self managed
  */
-export type ManagementModeEnumApi = (typeof ManagementModeEnumApi)[keyof typeof ManagementModeEnumApi]
+export type CdcManagementModeEnumApi = (typeof CdcManagementModeEnumApi)[keyof typeof CdcManagementModeEnumApi]
 
-export const ManagementModeEnumApi = {
+export const CdcManagementModeEnumApi = {
     Posthog: 'posthog',
     SelfManaged: 'self_managed',
 } as const
@@ -1434,9 +1432,9 @@ export interface CdcStatusApi {
     enabled: boolean
     /** Who owns the slot and publication: PostHog or the customer.
      *
-     * * `posthog` - posthog
-     * * `self_managed` - self_managed */
-    management_mode?: ManagementModeEnumApi
+     * * `posthog` - PostHog
+     * * `self_managed` - Self managed */
+    management_mode?: CdcManagementModeEnumApi
     /** Replication slot PostHog consumes from. Empty when unset. */
     slot_name?: string
     /** Publication PostHog reads changes from. Empty when unset. */
@@ -1497,6 +1495,37 @@ export interface SourceDestinationsApi {
     destination_ids: string[]
 }
 
+export interface CdcDisableResponseApi {
+    /** Whether CDC is now disabled on the source. */
+    success: boolean
+    /** True when CDC was already off, so nothing changed. */
+    already_disabled?: boolean
+}
+
+export interface CdcEnableRequestApi {
+    /** Who owns the replication slot and publication. 'posthog' (default) lets PostHog create and drop them, which needs a database user that can manage replication. 'self_managed' expects the customer to have created the publication already; PostHog only creates the slot.
+     *
+     * * `posthog` - PostHog
+     * * `self_managed` - Self managed */
+    cdc_management_mode?: CdcManagementModeEnumApi
+    /** Name of the replication slot to use. Defaults to a name derived from the source id. */
+    cdc_slot_name?: string
+    /** Name of the publication to read changes from. Defaults to a name derived from the source id, or 'posthog_pub' in self_managed mode. */
+    cdc_publication_name?: string
+    /** Whether PostHog drops the replication slot automatically when lag is critical, to protect the source database disk. Only applies in 'posthog' management mode. Defaults to true. */
+    cdc_auto_drop_slot?: boolean
+    /**
+     * Replication lag in MB above which a warning shows. Must be lower than the critical threshold.
+     * @minimum 1
+     */
+    cdc_lag_warning_threshold_mb?: number
+    /**
+     * Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.
+     * @minimum 1
+     */
+    cdc_lag_critical_threshold_mb?: number
+}
+
 export interface CdcEnableResponseApi {
     /** Whether CDC was enabled on the source. */
     success: boolean
@@ -1555,6 +1584,40 @@ export interface ExternalDataJobSerializersApi {
     readonly billable: boolean | null
     /** Destinations this run delivered to, snapshotted when it started. Empty on runs that predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read from the source once, not once per destination. */
     readonly destination_ids: readonly string[]
+}
+
+export interface CdcResumeResponseApi {
+    /** Whether the extraction schedule was unpaused. */
+    success: boolean
+}
+
+export interface PatchedExternalDataSourceRevenueAnalyticsConfigApi {
+    /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
+    enabled?: boolean
+    /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
+    include_invoiceless_charges?: boolean
+}
+
+export interface CdcUpdateSettingsRequestApi {
+    /** Whether PostHog drops the replication slot automatically when lag is critical. Only applies in 'posthog' management mode. */
+    cdc_auto_drop_slot?: boolean
+    /**
+     * Replication lag in MB above which a warning shows. Must be lower than the critical threshold.
+     * @minimum 1
+     */
+    cdc_lag_warning_threshold_mb?: number
+    /**
+     * Replication lag in MB above which the lag is critical. Must be higher than the warning threshold.
+     * @minimum 1
+     */
+    cdc_lag_critical_threshold_mb?: number
+}
+
+export interface CdcUpdateSettingsResponseApi {
+    /** Whether the request was accepted. */
+    success: boolean
+    /** True when the request held no setting to change, so nothing was written. */
+    unchanged?: boolean
 }
 
 /**
@@ -1949,6 +2012,69 @@ export interface DraftCustomManifestResponseApi {
 export interface ExternalDataSourceExistsApi {
     /** Whether the project has any accessible external data sources. */
     exists: boolean
+}
+
+export interface IncrementalFieldCandidateApi {
+    /**
+     * Name of the field as shown in the UI.
+     * @maxLength 4096
+     */
+    label: string
+    /**
+     * Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.
+     * @maxLength 4096
+     */
+    field: string
+    /**
+     * Type of the field as shown in the UI, such as timestamp.
+     * @maxLength 32
+     */
+    type: string
+    /**
+     * Type of the field in the source, such as timestamp.
+     * @maxLength 32
+     */
+    field_type: string
+    /** Whether the field allows null values. */
+    nullable?: boolean
+    /** Whether the field leads an index or sort key on the source table. */
+    is_indexed?: boolean
+    /** Whether this is the field the source recommends as the incremental cursor. */
+    recommended?: boolean
+    /** Whether the decision model, not the name rules, picked this field. Ignored on input. */
+    picked_by_model?: boolean
+    /**
+     * Trade-offs of picking this field.
+     * @maxItems 16
+     * @items.maxLength 1000
+     */
+    notes?: string[]
+}
+
+export interface IncrementalFieldTableApi {
+    /**
+     * Name of the table, as returned by database_schema.
+     * @maxLength 4096
+     */
+    table: string
+    /**
+     * The leading candidate incremental fields of the table, as returned by database_schema. The decision model reads at most this many.
+     * @maxItems 16
+     */
+    incremental_fields: IncrementalFieldCandidateApi[]
+}
+
+export interface IncrementalFieldRecommendationsRequestApi {
+    /**
+     * Tables from database_schema to get a recommended incremental field for.
+     * @maxItems 128
+     */
+    tables: IncrementalFieldTableApi[]
+}
+
+export interface IncrementalFieldRecommendationsResponseApi {
+    /** Only the tables where the decision model picked a field, with that field first and recommended. */
+    tables: IncrementalFieldTableApi[]
 }
 
 /**
@@ -2945,6 +3071,10 @@ export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
 
 export type ExternalDataSchemasListParams = {
     /**
+     * Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.
+     */
+    compact?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -3021,6 +3151,14 @@ export type ExternalDataSchemasResyncCreate400 = {
 
 export type ExternalDataSourcesListParams = {
     /**
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     */
+    compact?: boolean
+    /**
+     * Include the `schemas` (tables) of each source. Set to false to get source-level fields only.
+     */
+    include_schemas?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -3034,6 +3172,17 @@ export type ExternalDataSourcesListParams = {
     search?: string
 }
 
+export type ExternalDataSourcesRetrieveParams = {
+    /**
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     */
+    compact?: boolean
+    /**
+     * Include the `schemas` (tables) of each source. Set to false to get source-level fields only.
+     */
+    include_schemas?: boolean
+}
+
 export type ExternalDataSourcesJobsListParams = {
     /**
      * ISO timestamp — only return jobs created after this date.
@@ -3043,6 +3192,10 @@ export type ExternalDataSourcesJobsListParams = {
      * ISO timestamp — only return jobs created before this date.
      */
     before?: string
+    /**
+     * Maximum number of jobs to return, from 1 to 100 (default 50). Jobs are newest first. To get the next page, pass the `created_at` of the last job as `before`.
+     */
+    limit?: number
     /**
      * Filter jobs by table schema names.
      */
@@ -3056,10 +3209,6 @@ export type ExternalDataSourcesJobsListParams = {
 export type ExternalDataSourcesRepairCdcCreate200 = {
     success?: boolean
     schemas_reset?: number
-}
-
-export type ExternalDataSourcesResumeCdcCreate200 = {
-    success?: boolean
 }
 
 export type ExternalDataSourcesConnectLinkRetrieveParams = {

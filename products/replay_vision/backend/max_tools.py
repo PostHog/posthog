@@ -1325,7 +1325,7 @@ matching a filter.
   saves nothing and schedules nothing. Never create a scanner just to answer one question and delete it.
 
 # Cost
-An enabled scanner sweeps every 5 minutes and spends credits on each matching recording, so it can drain
+An enabled scanner sweeps as often as every 5 minutes and spends credits on each matching recording, so it can drain
 a monthly budget on its own. Creating one enabled asks the user to confirm, with the projected monthly
 spend. Create it disabled (`enabled: false`) to set it up without spending anything yet.
 
@@ -1456,7 +1456,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         scope = "every new recording that matches its filter" if filtered else "every new recording"
         return (
             f"**Create and enable** scanner '{name}'. It scans {scope} from now on, "
-            f"sweeping every 5 minutes.{sampled} Each recording costs {spend} "
+            f"sweeping as often as every 5 minutes.{sampled} Each recording costs {spend} "
             "Create it disabled instead if you want to size it first."
         )
 
@@ -1591,7 +1591,7 @@ change which recordings it picks up, or change how much of the matching traffic 
   not the prompt: a recording the prompt tells the scanner to skip is still scanned and still costs credits.
 
 # Cost
-Enabling a scanner starts a sweep that runs every 5 minutes and spends credits on each matching
+Enabling a scanner starts a sweep that runs as often as every 5 minutes and spends credits on each matching
 recording, so enabling asks the user to confirm and shows the projected monthly spend. Raising the
 sampling rate or changing the filter on a scanner that is already running does the same, because either
 can widen what gets scanned.
@@ -1687,7 +1687,7 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             else _monthly_spend_sentence(self._team, scanner, rate)
         )
         return (
-            f"{action} scanner '{scanner.name}'. It sweeps every 5 minutes, scanning "
+            f"{action} scanner '{scanner.name}'. It sweeps as often as every 5 minutes, scanning "
             f"{rate:.0%} of matching recordings, and keeps spending until it's turned off. {spend}"
         )
 

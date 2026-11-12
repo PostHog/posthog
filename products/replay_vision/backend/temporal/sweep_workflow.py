@@ -2,7 +2,6 @@
 
 import asyncio
 import datetime as dt
-from uuid import UUID
 
 import temporalio.workflow as wf
 from temporalio import common
@@ -27,6 +26,7 @@ from products.replay_vision.backend.temporal.activities import (
     check_scanner_budget_activity,
     count_in_flight_by_team_activity,
     find_scanner_candidates_activity,
+    sweep_scanner_tick_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
@@ -34,19 +34,35 @@ from products.replay_vision.backend.temporal.constants import (
     CHECK_SCANNER_BUDGET_TIMEOUT,
     COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
     FIND_SCANNER_CANDIDATES_TIMEOUT,
+    SWEEP_SCANNER_TICK_SCHEDULE_TO_CLOSE,
+    SWEEP_SCANNER_TICK_TIMEOUT,
     SWEEP_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
     in_flight_headroom,
 )
 from products.replay_vision.backend.temporal.sweep_types import (
-    AdvanceScannerWatermarkInputs,
     CandidateSessionPayload,
     CheckScannerBudgetInputs,
     CountInFlightAppliesInputs,
     FindScannerCandidatesInputs,
+    FindScannerCandidatesOutput,
     SweepScannerInputs,
+    watermark_advance,
 )
 from products.replay_vision.backend.temporal.types import ApplyScannerInputs
+
+# Gates the single-activity tick. Histories recorded before it keep the four-activity sequence in
+# `_run_legacy`, which can be deleted once no sweep started before this patch is still running.
+SWEEP_SINGLE_ACTIVITY_PATCH = "replay-vision-sweep-single-activity-2026-11"
+
+# Retries target fast ClickHouse admission rejections (code 202). The waits are long enough for a
+# burst to drain, so retries do not take the slots that free up first from API queries.
+_FIND_RETRY_POLICY = common.RetryPolicy(
+    initial_interval=dt.timedelta(seconds=30),
+    backoff_coefficient=2.0,
+    maximum_interval=dt.timedelta(seconds=120),
+    maximum_attempts=3,
+)
 
 
 @wf.defn(name=SWEEP_SCANNER_WORKFLOW_NAME)
@@ -55,6 +71,21 @@ class SweepScannerWorkflow(PostHogWorkflow):
 
     @wf.run
     async def run(self, inputs: SweepScannerInputs) -> None:
+        if wf.patched(SWEEP_SINGLE_ACTIVITY_PATCH):
+            tick = await wf.execute_activity(
+                sweep_scanner_tick_activity,
+                inputs,
+                start_to_close_timeout=SWEEP_SCANNER_TICK_TIMEOUT,
+                schedule_to_close_timeout=SWEEP_SCANNER_TICK_SCHEDULE_TO_CLOSE,
+                retry_policy=_FIND_RETRY_POLICY,
+            )
+            if tick.dispatch is not None:
+                await self._dispatch_and_advance(inputs, tick.dispatch)
+            return
+
+        await self._run_legacy(inputs)
+
+    async def _run_legacy(self, inputs: SweepScannerInputs) -> None:
         # A capped scanner scans no sessions this tick. Fails open because admissions stay gated at the
         # persistence boundary.
         try:
@@ -106,13 +137,11 @@ class SweepScannerWorkflow(PostHogWorkflow):
             FindScannerCandidatesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id, candidate_limit=headroom),
             start_to_close_timeout=FIND_SCANNER_CANDIDATES_TIMEOUT,
             schedule_to_close_timeout=dt.timedelta(seconds=450),
-            retry_policy=common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=30),
-                backoff_coefficient=2.0,
-                maximum_interval=dt.timedelta(seconds=120),
-                maximum_attempts=3,
-            ),
+            retry_policy=_FIND_RETRY_POLICY,
         )
+        await self._dispatch_and_advance(inputs, find_result)
+
+    async def _dispatch_and_advance(self, inputs: SweepScannerInputs, find_result: FindScannerCandidatesOutput) -> None:
         # A no-op when both lists are empty. First failure aborts the gather and skips the advance;
         # UNIQUE(scanner_id, session_id) dedups retries. Priming samples everything, so the tick's
         # balanced rates describe only the fast and deep candidates.
@@ -124,45 +153,12 @@ class SweepScannerWorkflow(PostHogWorkflow):
             *(self._start_child(inputs, c, None) for c in find_result.priming_candidates),
         )
 
-        if find_result.keyset_end is not None:
-            # The fetched batch's last row, which sits ahead of the dispatched candidates whenever
-            # exclusion dropped some, so dropping rows cannot stall the walk.
-            swept_at = find_result.keyset_end
-            # Always carried: the keyset compares the whole tuple, so keeping the tiebreaker cannot
-            # skip anything, while dropping it hides any session tied at that exact end_time.
-            last_seen_session_id = find_result.keyset_session_id
-        elif find_result.swept_through is not None:
-            # Advance through the covered settle horizon so `last_swept_at` reflects sweep liveness
-            # instead of freezing on low-yield scanners.
-            swept_at, last_seen_session_id = find_result.swept_through, ""
-        else:
+        advance = watermark_advance(inputs.scanner_id, find_result)
+        if advance is None:
             return
-
-        await self._advance_watermark(
-            inputs.scanner_id,
-            swept_at,
-            last_seen_session_id,
-            deep_swept_through=find_result.deep_swept_through,
-            deep_keyset_session_id=find_result.deep_keyset_session_id,
-        )
-
-    async def _advance_watermark(
-        self,
-        scanner_id: UUID,
-        swept_at: dt.datetime,
-        last_seen_session_id: str = "",
-        deep_swept_through: dt.datetime | None = None,
-        deep_keyset_session_id: str = "",
-    ) -> None:
         await wf.execute_activity(
             advance_scanner_watermark_activity,
-            AdvanceScannerWatermarkInputs(
-                scanner_id=scanner_id,
-                new_last_swept_at=swept_at,
-                new_last_seen_session_id=last_seen_session_id,
-                new_last_deep_swept_at=deep_swept_through,
-                new_last_deep_seen_session_id=deep_keyset_session_id,
-            ),
+            advance,
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=common.RetryPolicy(maximum_attempts=3),
         )
