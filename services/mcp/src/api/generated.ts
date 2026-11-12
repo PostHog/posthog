@@ -32161,12 +32161,17 @@ export namespace Schemas {
     }
 
     export interface CustomerioSegment {
-      /** The segment's id. */
+      /**
+         * The segment's id.
+         * @maxLength 200
+         */
       id: string;
       /** The segment's name. */
       name: string;
       /** The segment's type: `dynamic`, or `static` for a hand-made list. */
       type: string;
+      /** The segment's rules: the `conditions` object from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations check into a realtime cohort when every rule has an exact cohort condition, and uses that cohort. */
+      conditions?: unknown;
     }
 
     export interface CustomerioSenderIdentity {
@@ -33157,6 +33162,11 @@ export namespace Schemas {
       readonly status: string;
       /** True when the definition has drifted from its linked source insight (or the insight is gone). */
       readonly is_drifted: boolean;
+      /**
+         * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+         * @nullable
+         */
+      readonly match_reason: string | null;
       /** @nullable */
       readonly approved_at: string | null;
       /** User who approved this metric as canonical, or null. */
@@ -33323,6 +33333,11 @@ export namespace Schemas {
       readonly status: string;
       /** True when the definition has drifted from its linked source insight (or the insight is gone). */
       readonly is_drifted: boolean;
+      /**
+         * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+         * @nullable
+         */
+      readonly match_reason: string | null;
       /** @nullable */
       readonly approved_at: string | null;
       /** User who approved this metric as canonical, or null. */
@@ -43614,7 +43629,7 @@ export namespace Schemas {
          */
       trigger_threshold?: number | null;
       /**
-         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
          * @minimum 60
          * @maximum 1440
          */
@@ -43931,7 +43946,7 @@ export namespace Schemas {
          */
       trigger_threshold?: number | null;
       /**
-         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
          * @minimum 60
          * @maximum 1440
          */
@@ -46005,6 +46020,27 @@ export namespace Schemas {
      * * `flag_deleted` - Whether the feature flag is deleted
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
      * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+     * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `metric_name` - The name of a metric
+     * * `metric_role` - Whether a metric is primary or secondary
+     * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+     * * `sample_count` - Users or groups in a metric's results, across the variants
+     * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+     * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+     * * `variant` - The key of a variant
+     * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+     * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+     * * `significant` - Whether a variant's difference from the control is significant
+     * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+     * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+     * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+     * * `forced_count` - Users or groups that a release condition with a variant override served
+     * * `forced_percentage` - forced_count as a share of variant_matched_count
+     * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `changed_at` - When a change of the feature flag was saved
+     * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
      */
     export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
@@ -46032,6 +46068,27 @@ export namespace Schemas {
       FlagDeleted: 'flag_deleted',
       FlagRolledOut: 'flag_rolled_out',
       ShippedVariant: 'shipped_variant',
+      FlagLastCalledAt: 'flag_last_called_at',
+      SinceStartHours: 'since_start_hours',
+      DailyCalculationEndsAt: 'daily_calculation_ends_at',
+      MetricName: 'metric_name',
+      MetricRole: 'metric_role',
+      RatioSide: 'ratio_side',
+      SampleCount: 'sample_count',
+      PlannedSampleCount: 'planned_sample_count',
+      DataHours: 'data_hours',
+      Variant: 'variant',
+      DifferencePercentage: 'difference_percentage',
+      DetectableDifferencePercentage: 'detectable_difference_percentage',
+      Significant: 'significant',
+      ForcedConditionCount: 'forced_condition_count',
+      MatchedCount: 'matched_count',
+      VariantMatchedCount: 'variant_matched_count',
+      ForcedCount: 'forced_count',
+      ForcedPercentage: 'forced_percentage',
+      TrafficSinceAt: 'traffic_since_at',
+      ChangedAt: 'changed_at',
+      BeforeExposure: 'before_exposure',
     } as const;
 
     /**
@@ -46080,7 +46137,28 @@ export namespace Schemas {
        * * `flag_active` - Whether the feature flag is enabled
        * * `flag_deleted` - Whether the feature flag is deleted
        * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+       * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+       * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+       * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+       * * `metric_name` - The name of a metric
+       * * `metric_role` - Whether a metric is primary or secondary
+       * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+       * * `sample_count` - Users or groups in a metric's results, across the variants
+       * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+       * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+       * * `variant` - The key of a variant
+       * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+       * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+       * * `significant` - Whether a variant's difference from the control is significant
+       * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+       * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+       * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+       * * `forced_count` - Users or groups that a release condition with a variant override served
+       * * `forced_percentage` - forced_count as a share of variant_matched_count
+       * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+       * * `changed_at` - When a change of the feature flag was saved
+       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
       value: ExperimentHealthValueKeyEnum;
       /** The value that the key must reach. Below it, the check reports no finding. */
       threshold: number;
@@ -46110,7 +46188,28 @@ export namespace Schemas {
        * * `flag_active` - Whether the feature flag is enabled
        * * `flag_deleted` - Whether the feature flag is deleted
        * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+       * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+       * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+       * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+       * * `metric_name` - The name of a metric
+       * * `metric_role` - Whether a metric is primary or secondary
+       * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+       * * `sample_count` - Users or groups in a metric's results, across the variants
+       * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+       * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+       * * `variant` - The key of a variant
+       * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+       * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+       * * `significant` - Whether a variant's difference from the control is significant
+       * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+       * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+       * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+       * * `forced_count` - Users or groups that a release condition with a variant override served
+       * * `forced_percentage` - forced_count as a share of variant_matched_count
+       * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+       * * `changed_at` - When a change of the feature flag was saved
+       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
       value: ExperimentHealthValueKeyEnum;
       /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
@@ -46131,6 +46230,8 @@ export namespace Schemas {
      * What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides.
      */
     export type ExperimentHealthCheckResultValues = {[key: string]: string | number | boolean | null};
+
+    export type ExperimentHealthCheckResultRowsItem = {[key: string]: string | number | boolean | null};
 
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -46181,6 +46282,8 @@ export namespace Schemas {
       values: ExperimentHealthCheckResultValues;
       /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
       rule: ExperimentHealthCheckRule | null;
+      /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list. */
+      rows: ExperimentHealthCheckResultRowsItem[];
     }
 
     export interface ExperimentHealthReleaseCondition {
@@ -65212,6 +65315,8 @@ export namespace Schemas {
       readonly suspended: NodeSuspended;
       /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
       readonly endpoint: NodeEndpoint | null;
+      /** Whether you get failure notifications for this node. The creator of a view watches it until they unwatch it, and anyone else watches it after they watch it. */
+      readonly watching: boolean;
     }
 
     export interface LineageResponse {
@@ -65307,6 +65412,8 @@ export namespace Schemas {
        * * `Running` - Running
        * * `Starting` - Starting */
       status: BatchExportRunStatusEnum;
+      /** When the file download batch export run was created. */
+      created_at: string;
     }
 
     export interface LlmEvalReportSignalExtra {
@@ -69664,6 +69771,8 @@ export namespace Schemas {
       readonly transactional_hog_flow_id: string | null;
       /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
       draft_content?: MessageTemplateContent | null;
+      /** Whether the template has unpublished edits in `draft_content`. */
+      readonly has_draft: boolean;
     }
 
     export interface MessagingError {
@@ -71136,6 +71245,11 @@ export namespace Schemas {
     export interface NodeRunResponse {
       /** The nodes included in the dependency run. */
       node_ids: string[];
+    }
+
+    export interface NodeWatching {
+      /** Whether you now get failure notifications for this node. */
+      watching: boolean;
     }
 
     /**
@@ -85078,6 +85192,11 @@ export namespace Schemas {
       readonly status?: string;
       /** True when the definition has drifted from its linked source insight (or the insight is gone). */
       readonly is_drifted?: boolean;
+      /**
+         * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+         * @nullable
+         */
+      readonly match_reason?: string | null;
       /** @nullable */
       readonly approved_at?: string | null;
       /** User who approved this metric as canonical, or null. */
@@ -86307,7 +86426,7 @@ export namespace Schemas {
          */
       trigger_threshold?: number | null;
       /**
-         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
          * @minimum 60
          * @maximum 1440
          */
@@ -88716,6 +88835,8 @@ export namespace Schemas {
       readonly transactional_hog_flow_id?: string | null;
       /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
       draft_content?: MessageTemplateContent | null;
+      /** Whether the template has unpublished edits in `draft_content`. */
+      readonly has_draft?: boolean;
     }
 
     /**
@@ -88878,6 +88999,8 @@ export namespace Schemas {
       readonly suspended?: PatchedNodeSuspended;
       /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
       readonly endpoint?: NodeEndpoint | null;
+      /** Whether you get failure notifications for this node. The creator of a view watches it until they unwatch it, and anyone else watches it after they watch it. */
+      readonly watching?: boolean;
     }
 
     /**
@@ -110662,6 +110785,18 @@ export namespace Schemas {
      */
     export type SendEmailMessageData = {[key: string]: unknown};
 
+    /**
+     * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
+     */
+    export type SendEmailTracking = boolean | {
+      /** Whether PostHog adds its open pixel to the email. Defaults to true. */
+      opens?: boolean;
+      /** Whether the email's links go through a redirect that counts clicks. Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with `data-ph-no-track` keeps its own address. */
+      clicks?: boolean;
+      /** Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true. */
+      engagement?: boolean;
+    };
+
     export interface SendEmail {
       /** Email address of the recipient. */
       to: string;
@@ -110702,8 +110837,15 @@ export namespace Schemas {
          * @nullable
          */
       attachments?: EmailAttachment[] | null;
-      /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
+      /**
+         * Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says.
+         * @deprecated
+         */
       capture_engagement?: boolean;
+      /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
+      tracking?: SendEmailTracking;
+      /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
+      sensitive?: boolean;
       /**
          * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
          * @maxLength 1024
@@ -120151,6 +120293,16 @@ export namespace Schemas {
       color?: string | null;
     }
 
+    /**
+     * Webhook input values keyed by the source's declared webhook field names, for example `{"signing_secret": "..."}`. Only keys the source type declares as webhook fields are accepted, and a required field cannot be blank.
+     */
+    export type UpdateWebhookInputsRequestInputs = {[key: string]: string};
+
+    export interface UpdateWebhookInputsRequest {
+      /** Webhook input values keyed by the source's declared webhook field names, for example `{"signing_secret": "..."}`. Only keys the source type declares as webhook fields are accepted, and a required field cannot be blank. */
+      inputs: UpdateWebhookInputsRequestInputs;
+    }
+
     export interface UpdateWebhookInputsResponse {
       /** Whether the inputs were saved and pushed to the external service. */
       success: boolean;
@@ -122878,7 +123030,7 @@ export namespace Schemas {
       layouts?: WorkflowImportRequestLayouts;
       /** Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. Each email gets the PostHog sender with the same address. */
       sender_identities?: CustomerioSenderIdentity[];
-      /** Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones. */
+      /** Customer.io segments, without members: ids, names and types, so the notes can name each segment and flag static ones, and the rules of each segment the automations check, so the import can turn it into a realtime cohort. */
       segments?: CustomerioSegment[];
       /** When true, translate and check the automations but save nothing, to preview the import. */
       dry_run?: boolean;
@@ -122926,11 +123078,53 @@ export namespace Schemas {
       validation_errors: string[];
     }
 
+    /**
+     * * `created` - Created
+     * * `reused` - Reused
+     * * `would_create` - Would create
+     * * `not_converted` - Not converted
+     */
+    export type WorkflowImportSegmentCohortStatusEnum = typeof WorkflowImportSegmentCohortStatusEnum[keyof typeof WorkflowImportSegmentCohortStatusEnum];
+
+
+    export const WorkflowImportSegmentCohortStatusEnum = {
+      Created: 'created',
+      Reused: 'reused',
+      WouldCreate: 'would_create',
+      NotConverted: 'not_converted',
+    } as const;
+
+    export interface WorkflowImportSegmentCohort {
+      /** The Customer.io segment's id. */
+      segment_id: string;
+      /** The segment's name. */
+      segment_name: string;
+      /** `created`: the import made a realtime cohort from the segment's rules. `reused`: an earlier import made it. `would_create`: a real import makes one, in a preview. `not_converted`: no cohort is used, see `reason`.
+       *
+       * * `created` - Created
+       * * `reused` - Reused
+       * * `would_create` - Would create
+       * * `not_converted` - Not converted */
+      status: WorkflowImportSegmentCohortStatusEnum;
+      /**
+         * The cohort's id, when there is one.
+         * @nullable
+         */
+      cohort_id: number | null;
+      /**
+         * Why the segment was not turned into a cohort.
+         * @nullable
+         */
+      reason: string | null;
+    }
+
     export interface WorkflowImportResponse {
       /** One result per automation, in request order. */
       results: WorkflowImportResult[];
       /** True when PostHog read message content from Customer.io with the project's stored App API key. */
       content_fetched: boolean;
+      /** One entry per dynamic segment the automations check that was passed with its rules and had no cohort in segment_cohorts. */
+      segment_cohorts: WorkflowImportSegmentCohort[];
     }
 
     export interface WorkflowJobStep {
@@ -131225,7 +131419,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string;
     /**
@@ -138249,6 +138443,10 @@ export namespace Schemas {
 
     export type MessagingTemplatesListParams = {
     /**
+     * With true, leave out `content` and `draft_content` from each template, for lists that show names and metadata only. `has_draft` still says whether a draft exists.
+     */
+    basic?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -138256,6 +138454,11 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.
+     * @nullable
+     */
+    transactional?: boolean | null;
     };
 
     export type MetricsAttributeValuesRetrieveParams = {

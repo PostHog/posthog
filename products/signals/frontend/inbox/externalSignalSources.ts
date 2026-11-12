@@ -170,6 +170,15 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         sourceType: 'issue',
     },
     {
+        source: 'datadog',
+        label: 'Datadog',
+        category: 'Error tracking',
+        watches: 'Surface open error tracking issues and firing monitor alerts',
+        dwSourceType: 'Datadog',
+        requiredTables: ['error_tracking_issues', 'monitor_alerts'],
+        sourceType: 'issue',
+    },
+    {
         source: 'honeybadger',
         label: 'Honeybadger',
         category: 'Error tracking',
