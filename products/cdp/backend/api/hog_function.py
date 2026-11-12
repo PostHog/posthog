@@ -1039,7 +1039,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         staged = self._staged_secrets(instance, live_secrets)
         # A typed secret is an input change too, because the code can send one secret to an address another
         # one holds.
-        typed = (supplied & (declared | secrets.keys())) | staged.keys()
+        # A masked dictionary that leaves out stored entries drops them, which the code can see too.
+        reshaped = {
+            key
+            for key, item in requested.items()
+            if isinstance(item, dict)
+            and isinstance(item.get("value"), dict)
+            and isinstance((secrets.get(key) or {}).get("value"), dict)
+            and item["value"].keys() != secrets[key]["value"].keys()
+        }
+        typed = (supplied & (declared | secrets.keys())) | staged.keys() | reshaped
         if before == after and not typed:
             return
 

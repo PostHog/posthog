@@ -538,6 +538,7 @@ class TestHogFunctionDrafts(DraftTestCase):
         [
             (
                 "by_adding_an_entry",
+                True,
                 {
                     "url": {"value": MOVED_URL},
                     "secret_headers": {"value": {"url": SENDER_URL, "token": "********", "X-Extra": "1"}},
@@ -545,11 +546,22 @@ class TestHogFunctionDrafts(DraftTestCase):
             ),
             (
                 "by_editing_its_own_url_entry",
+                True,
                 {"url": {"value": SENDER_URL}, "secret_headers": {"value": {"url": MOVED_URL, "token": "********"}}},
+            ),
+            (
+                "by_dropping_an_entry_in_a_draft",
+                True,
+                {"url": {"value": SENDER_URL}, "secret_headers": {"secret": True, "value": {"token": "********"}}},
+            ),
+            (
+                "by_dropping_an_entry_in_a_live_save",
+                False,
+                {"url": {"value": SENDER_URL}, "secret_headers": {"secret": True, "value": {"token": "********"}}},
             ),
         ]
     )
-    def test_draft_that_keeps_part_of_a_dictionary_secret_cannot_be_published(self, _name: str, staged_inputs: dict):
+    def test_save_that_keeps_part_of_a_dictionary_secret_is_refused(self, _name: str, staged: bool, sent_inputs: dict):
         function_id = self._create(
             hog="fetch(inputs.secret_headers.url ?? inputs.url, {'headers': inputs.secret_headers});",
             inputs_schema=[
@@ -560,11 +572,15 @@ class TestHogFunctionDrafts(DraftTestCase):
         )
 
         with secret_reentry_flag(True):
-            self._stage(function_id, {"inputs": staged_inputs})
-            published = self._publish(function_id)
+            if staged:
+                self._stage(function_id, {"inputs": sent_inputs})
+                saved = self._publish(function_id)
+            else:
+                saved = self.client.patch(self._url(function_id), {"inputs": sent_inputs})
 
-        assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
-        assert HogFunction.objects.get(id=function_id).encrypted_inputs["secret_headers"]["value"]["token"] == "live"
+        assert saved.status_code == status.HTTP_400_BAD_REQUEST, saved.json()
+        stored = HogFunction.objects.get(id=function_id).encrypted_inputs["secret_headers"]["value"]
+        assert stored == {"url": SENDER_URL, "token": "live"}
 
     @parameterized.expand(
         [
