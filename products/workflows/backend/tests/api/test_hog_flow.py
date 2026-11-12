@@ -7637,8 +7637,6 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
                     timestamp=timestamp,
                 )
 
-    # Writes what the worker writes: the run under its workflow, or under its batch job for a batch-triggered run,
-    # and once the versioned mirror shipped, the same run again under the workflow and version.
     def _seed(self, workflow_id, *, batch_job=None, version=1, mirrored=True, **run):
         self._metric("hog_flow", str(batch_job.id if batch_job else workflow_id), **run)
         if mirrored:

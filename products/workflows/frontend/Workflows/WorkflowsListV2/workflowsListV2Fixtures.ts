@@ -43,7 +43,6 @@ export function buildWorkflowRow(
     }
 }
 
-/** A small invented project with a mix of statuses, types, triggers and owners. */
 export const FIXTURE_WORKFLOWS: HogFlowListSummaryApi[] = [
     buildWorkflowRow({
         id: 'wf-welcome',

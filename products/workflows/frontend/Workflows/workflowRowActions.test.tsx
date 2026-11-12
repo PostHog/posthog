@@ -18,8 +18,6 @@ const { ToastContainer, toast } = jest.requireActual('react-toastify')
 const TEAM_ID = '4242'
 const UPDATED_AT = '2026-09-27T12:00:00Z'
 
-// What a list keeps for the row while the dialog's request runs: whether it shows as busy, and its status
-// once the server answered (null once deleted).
 interface RowState {
     pending: boolean
     status: string | null
