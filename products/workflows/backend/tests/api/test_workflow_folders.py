@@ -228,6 +228,21 @@ class TestWorkflowFolders(APIBaseTest):
             ("file_by_editor", "file", "editor", 201, True),
             ("file_by_viewer", "file", "viewer", 403, False),
             ("file_by_key_without_workflow_scope", "file", "key_without_workflow_scope", 403, False),
+            ("file_without_ref_by_editor", "file_without_ref", "editor", 400, False),
+            (
+                "file_without_ref_by_key_without_workflow_scope",
+                "file_without_ref",
+                "key_without_workflow_scope",
+                400,
+                False,
+            ),
+            (
+                "retype_without_ref_by_key_without_workflow_scope",
+                "retype_without_ref",
+                "key_without_workflow_scope",
+                400,
+                False,
+            ),
             ("shortcut_by_viewer", "shortcut", "viewer", 201, True),
             ("shortcut_by_member_without_access", "shortcut", "no_access", 403, False),
             ("shortcut_by_key_without_workflow_scope", "shortcut", "key_without_workflow_scope", 403, False),
@@ -317,6 +332,8 @@ class TestWorkflowFolders(APIBaseTest):
             ),
             "rename": ("patch", f"{entry.id}/", {"path": "Renamed/Guarded email"}),
             "retype": ("patch", f"{plain.id}/", {"type": "message_template", "ref": template_id}),
+            "file_without_ref": ("post", "", {"path": "Placed/Guarded email", "type": "message_template", "ref": ""}),
+            "retype_without_ref": ("patch", f"{plain.id}/", {"type": "message_template"}),
             "promote": ("patch", f"{shortcut.id}/", {"shortcut": False}),
             "move": ("post", f"{entry.id}/move/", {"new_path": "Moved/Guarded email"}),
             "folder_move": ("post", f"{inbox.id}/move/", {"new_path": "Archive/Inbox"}),
@@ -356,7 +373,7 @@ class TestWorkflowFolders(APIBaseTest):
         owner.force_login(self.user)
 
         def stored() -> tuple[list[tuple[str, bool]], int]:
-            rows = FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id)
+            rows = FileSystem.objects.filter(team=self.team, type="message_template")
             template_status = owner.get(f"{templates_url}{template_id}/").status_code
             return sorted((row.path, bool(row.shortcut)) for row in rows), template_status
 

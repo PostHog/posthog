@@ -268,6 +268,11 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         ref = attrs.get("ref")
         if "ref" not in attrs and "type" in attrs and self.instance:
             ref = self.instance.ref
+        # The write guard checks access through the object a row points to, so a workflow or template row
+        # without one would skip it.
+        changes_object = self.instance is None or "type" in attrs or "ref" in attrs
+        if entry_type in WORKFLOW_FILE_SYSTEM_TYPES and not ref and changes_object:
+            raise serializers.ValidationError({"ref": "A workflow or email template file needs a ref."})
         if ref and entry_type:
             attrs["ref"] = canonical_file_system_ref(entry_type, ref)
         return attrs
