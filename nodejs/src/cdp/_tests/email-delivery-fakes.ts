@@ -74,7 +74,7 @@ export class BucketProxy {
     answer: BucketAnswer = 'pass'
     lastModifiedAgeMs = 0
     requests = 0
-    copies = 0
+    copied: string[] = []
     abandonedRequests = 0
     downloads = 0
     endpoint = ''
@@ -123,7 +123,7 @@ export class BucketProxy {
             this.downloads++
         }
         if (request.headers['x-amz-copy-source']) {
-            this.copies++
+            this.copied.push(new URL(request.url ?? '', this.endpoint).pathname)
         }
         this.answerRequest(request, response)
     }

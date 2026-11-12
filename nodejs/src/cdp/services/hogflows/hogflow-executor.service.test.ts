@@ -3880,7 +3880,7 @@ if (not res.success) { throw Error(res.error) }`,
                 const invocation = createExampleHogFlowInvocation(emailFlow(storedStep()), {
                     event: { ...createHogExecutionGlobals().event, event: TRANSACTIONAL_EMAIL_EVENT },
                 })
-                invocation.queueCreatedAt = DateTime.utc().minus({ seconds: 60 })
+                invocation.queueCreatedAt = DateTime.utc().minus({ hours: 1 })
                 invocation.state.scheduledAt = DateTime.utc().minus({ seconds: 30 }).toISO()!
                 const waits = (metricName: string): Promise<number> =>
                     metricValue('cdp_email_queue_to_send_ms', { source: 'transactional_api' }, metricName)
@@ -3898,7 +3898,7 @@ if (not res.success) { throw Error(res.error) }`,
                 expect((await waits('cdp_email_queue_to_send_ms_count')) - countBefore).toEqual(1)
                 const waitMs = (await waits('cdp_email_queue_to_send_ms_sum')) - sumBefore
                 expect(waitMs).toBeGreaterThanOrEqual(30_000)
-                expect(waitMs).toBeLessThan(60_000)
+                expect(waitMs).toBeLessThan(30 * 60_000)
             })
         })
 

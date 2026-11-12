@@ -3299,22 +3299,27 @@ describe('CDP API', () => {
             })
 
             it.each([
-                ['goes out now', undefined, 0],
-                ['is scheduled past the time its files expire', inDays(15), 1],
-            ])('keeps the files of a send that %s until a week after it is due', async (_desc, scheduledAt, copies) => {
-                bucket.lastModifiedAgeMs = ATTACHMENT_LIFETIME_MS - 20 * DAY_MS
-                const copiesBefore = bucket.copies
+                ['goes out now', undefined, false],
+                ['is scheduled past the time its files expire', inDays(15), true],
+            ])(
+                'keeps the files of a send that %s until a week after it is due',
+                async (_desc, scheduledAt, renewed) => {
+                    const file = await uploadAttachment(team.id, {})
+                    bucket.lastModifiedAgeMs = ATTACHMENT_LIFETIME_MS - 20 * DAY_MS
 
-                const res = await sendOnFilesApi({
-                    ...body,
-                    idempotency_key: newKey(),
-                    send: withFile({}),
-                    ...(scheduledAt && { scheduled_at: scheduledAt }),
-                })
+                    const res = await sendOnFilesApi({
+                        ...body,
+                        idempotency_key: newKey(),
+                        send: { ...codeSend, attachments: [reference(file)] },
+                        ...(scheduledAt && { scheduled_at: scheduledAt }),
+                    })
 
-                expect(res.status).toBe(202)
-                expect(bucket.copies - copiesBefore).toEqual(copies)
-            })
+                    expect(res.status).toBe(202)
+                    expect(bucket.copied.filter((path) => path.endsWith(`/${file.metadata.sha256}`))).toHaveLength(
+                        renewed ? 1 : 0
+                    )
+                }
+            )
 
             it.each([
                 ['the same files', () => [reference(invoice)], 202],
