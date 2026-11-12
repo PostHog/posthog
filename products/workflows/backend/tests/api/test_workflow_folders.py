@@ -1055,8 +1055,22 @@ class TestWorkflowFolders(APIBaseTest):
             [response.json() for response in placements], [{"path": "Campaigns/Synthetic email"}, {"path": None}]
         )
 
-    @parameterized.expand([("create", "post"), ("update", "patch")])
-    def test_filing_a_template_into_a_folder_needs_editor_access_to_the_workflow_resource(self, _name, method) -> None:
+    @parameterized.expand(
+        [
+            (
+                "create_in_folder",
+                "post",
+                {"_create_in_folder": "Campaigns", "name": "Synthetic new", "type": "email"},
+                False,
+            ),
+            ("file_into_folder", "patch", {"_create_in_folder": "Campaigns"}, False),
+            ("rename_filed", "patch", {"name": "Synthetic renamed"}, True),
+            ("delete_filed", "patch", {"deleted": True}, True),
+        ]
+    )
+    def test_filing_a_template_into_a_folder_needs_editor_access_to_the_workflow_resource(
+        self, _name: str, method: str, payload: dict[str, Any], filed: bool
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -1065,7 +1079,10 @@ class TestWorkflowFolders(APIBaseTest):
         template_id = self.client.post(
             templates_url, {"name": "Synthetic email", "type": "email"}, format="json"
         ).json()["id"]
-        FileSystem.objects.filter(team=self.team, type="message_template").delete()
+        if not filed:
+            FileSystem.objects.filter(team=self.team, type="message_template").delete()
+        tree = set(FileSystem.objects.filter(team=self.team).values_list("type", "path"))
+        self.assertEqual(any(file_type == "message_template" for file_type, _path in tree), filed)
         unrelated = HogFlow.objects.create(team=self.team, name="Synthetic unrelated", created_by=self.user)
         member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
         membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
@@ -1082,14 +1099,17 @@ class TestWorkflowFolders(APIBaseTest):
         self.client.force_login(member)
 
         url = templates_url if method == "post" else f"{templates_url}{template_id}/"
-        payload = {
-            "_create_in_folder": "Campaigns",
-            **({"name": "Synthetic new", "type": "email"} if method == "post" else {}),
-        }
         response = getattr(self.client, method)(url, payload, format="json")
 
         self.assertEqual(response.status_code, 403, response.content)
-        self.assertFalse(FileSystem.objects.filter(team=self.team, path__startswith="Campaigns").exists())
+        self.assertEqual(
+            set(
+                FileSystem.objects.filter(team=self.team, type__in=["message_template", "folder"]).values_list(
+                    "type", "path"
+                )
+            ),
+            {row for row in tree if row[0] in ("message_template", "folder")},
+        )
 
     @parameterized.expand([("resource_viewer", "viewer", 200), ("only_an_unrelated_workflow_grant", "none", 404)])
     def test_a_template_placement_needs_workflow_access_to_the_resource(self, _name, resource_level, status) -> None:
