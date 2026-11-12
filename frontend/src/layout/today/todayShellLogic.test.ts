@@ -262,6 +262,7 @@ describe('todayShellLogic', () => {
 
     test.each([
         ['/project/1/replay/home', 'analytics'],
+        ['/project/1/replay/0193a2b4-recording', 'analytics'],
         ['/project/1/sql', 'analytics'],
         ['/project/1/feature-flags', 'products'],
     ])('%s opened while the Analytics pane is open shows the %s pane', (pathname, pane) => {

@@ -154,7 +154,10 @@ let navProductPages: FileSystemImport[] | null = null
  * Session replay, belong to Products and keep an open Analytics pane open.
  */
 function byPostHogItemForPath(path: string): FileSystemImport | undefined {
-    return fromPostHogProducts().find((product) => isUnderPath(path, product.href.split(/[?#]/)[0]))?.item
+    const items = fromPostHogProducts().map((product) => product.item)
+    // Matched like the Products tab, so a recording under /replay belongs to Session replay, not only its home page.
+    const href = navProductHrefForPath(path, items)
+    return href ? items.find((item) => item.href === href) : undefined
 }
 
 /** Whether the Products pane lists the product that owns this page. Some, like Dashboards, open under Analytics too. */
