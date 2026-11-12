@@ -43,11 +43,16 @@ describe('config', () => {
     })
 
     function readExternalRequestTimeout(value: string): number {
+        const previous = process.env.EXTERNAL_REQUEST_TIMEOUT_MS
         process.env.EXTERNAL_REQUEST_TIMEOUT_MS = value
         try {
             return getExternalRequestConfig().EXTERNAL_REQUEST_TIMEOUT_MS
         } finally {
-            delete process.env.EXTERNAL_REQUEST_TIMEOUT_MS
+            if (previous === undefined) {
+                delete process.env.EXTERNAL_REQUEST_TIMEOUT_MS
+            } else {
+                process.env.EXTERNAL_REQUEST_TIMEOUT_MS = previous
+            }
         }
     }
 
