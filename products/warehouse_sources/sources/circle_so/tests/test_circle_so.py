@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from typing import Any
 
 from parameterized import parameterized
@@ -86,34 +85,6 @@ class TestListResume:
         assert result.committed_states[-1] == CircleSoResumeConfig(next_page=5)
 
 
-class TestIncrementalCharges:
-    @parameterized.expand(
-        [
-            ("incremental_with_watermark", True, datetime(2026, 3, 4, 5, 6, 7, tzinfo=UTC), "2026-03-04T05:06:07Z"),
-            ("incremental_first_sync", True, None, None),
-            ("full_refresh", False, datetime(2026, 3, 4, tzinfo=UTC), None),
-        ]
-    )
-    def test_request_shaping(
-        self, _name: str, incremental: bool, last_value: datetime | None, expected_filter: str | None
-    ) -> None:
-        result = _driver().run(
-            "community_member_charges",
-            [_page([{"id": 1, "created_at": "2026-03-05T00:00:00.000Z"}])],
-            incremental_field="created_at",
-            should_use_incremental_field=incremental,
-            db_incremental_field_last_value=last_value,
-        )
-
-        assert result.raised is None
-        assert result.params("created_at_gte") == [expected_filter]
-        # The ascending sort on created_at is what makes sort_mode="asc" true.
-        assert result.params("sort") == ["created_at"]
-        assert result.params("direction") == ["asc"]
-        assert result.response is not None
-        assert result.response.sort_mode == ("asc" if incremental else None)
-
-
 class TestFanout:
     @parameterized.expand(
         [
@@ -143,7 +114,11 @@ class TestFanout:
             return f"{BASE_PATH}/forms/{parent_id}/submissions" if child_path is None else f"{BASE_PATH}{child_path}"
 
         def child_query(parent_id: int, page: int) -> dict[str, tuple[str, ...]]:
-            query = {"per_page": ("100",), **{k: (v,) for k, v in child_params.items()}, "page": (str(page),)}
+            query: dict[str, tuple[str, ...]] = {
+                "per_page": ("100",),
+                **{k: (v,) for k, v in child_params.items()},
+                "page": (str(page),),
+            }
             if child_path is not None:
                 query[parent_key] = (str(parent_id),)
             return query

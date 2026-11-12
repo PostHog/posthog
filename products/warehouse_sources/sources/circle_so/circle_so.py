@@ -1,5 +1,4 @@
 import dataclasses
-from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
 from requests import Response
@@ -69,32 +68,12 @@ def _client_config(api_token: str) -> ClientConfig:
     }
 
 
-def _format_created_at_gte(value: Any) -> str:
-    if isinstance(value, datetime):
-        dt = value if value.tzinfo else value.replace(tzinfo=UTC)
-        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if isinstance(value, date):
-        return f"{value.isoformat()}T00:00:00Z"
-    return str(value)
-
-
-def _list_params(
-    config: CircleSoEndpointConfig, should_use_incremental_field: bool, db_incremental_field_last_value: Any
-) -> dict[str, Any]:
-    params: dict[str, Any] = {"per_page": PER_PAGE, **config.params}
-    if should_use_incremental_field and db_incremental_field_last_value is not None:
-        params["created_at_gte"] = _format_created_at_gte(db_incremental_field_last_value)
-    return params
-
-
 def _list_resource(
     api_token: str,
     config: CircleSoEndpointConfig,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[CircleSoResumeConfig],
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
 ) -> Resource:
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_token),
@@ -103,12 +82,10 @@ def _list_resource(
             {
                 "name": config.name,
                 "table_name": config.name,
-                "write_disposition": {"disposition": "merge", "strategy": "upsert"}
-                if should_use_incremental_field
-                else "replace",
+                "write_disposition": "replace",
                 "endpoint": {
                     "path": config.path,
-                    "params": _list_params(config, should_use_incremental_field, db_incremental_field_last_value),
+                    "params": {"per_page": PER_PAGE, **config.params},
                     **_RECORDS,
                 },
                 "table_format": "delta",
@@ -192,24 +169,13 @@ def circle_so_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[CircleSoResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = CIRCLE_SO_ENDPOINTS[endpoint]
-    use_incremental = should_use_incremental_field and bool(config.incremental_fields)
 
     if config.fanout is not None:
         resource = _fanout_resource(api_token, config, team_id, job_id, resumable_source_manager)
     else:
-        resource = _list_resource(
-            api_token,
-            config,
-            team_id,
-            job_id,
-            resumable_source_manager,
-            use_incremental,
-            db_incremental_field_last_value,
-        )
+        resource = _list_resource(api_token, config, team_id, job_id, resumable_source_manager)
 
     partition_key = config.partition_key
     return SourceResponse(
@@ -217,8 +183,6 @@ def circle_so_source(
         items=lambda: resource,
         primary_keys=config.primary_keys,
         column_hints=resource.column_hints,
-        # The incremental endpoint is requested with `sort=created_at&direction=asc`.
-        sort_mode="asc" if use_incremental else None,
         partition_count=1 if partition_key else None,
         partition_size=1 if partition_key else None,
         partition_mode="datetime" if partition_key else None,

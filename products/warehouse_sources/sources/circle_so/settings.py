@@ -1,12 +1,7 @@
 from dataclasses import field
 from typing import Any, Optional
 
-from products.warehouse_sources.sources.sdk import (
-    DependentEndpointConfig,
-    IncrementalField,
-    IncrementalFieldType,
-    frozen,
-)
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, frozen
 
 API_VERSION = "v2"
 BASE_URL = f"https://app.circle.so/api/admin/{API_VERSION}"
@@ -25,6 +20,7 @@ class CircleSoEndpointConfig:
     # A field that is set once when the record is created. `None` leaves the table unpartitioned.
     partition_key: Optional[str] = "created_at"
     fanout: Optional[DependentEndpointConfig] = None
+    # `build_dependent_resource` reads these two fields. No Circle table is incremental.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: Optional[str] = None
     page_size: int = PER_PAGE
@@ -41,15 +37,6 @@ def _fanout(parent_name: str, resolve_param: str) -> DependentEndpointConfig:
         child_response_actions=[{"status_code": 404, "action": "ignore"}],
     )
 
-
-_CREATED_AT_INCREMENTAL: list[IncrementalField] = [
-    {
-        "label": "created_at",
-        "type": IncrementalFieldType.DateTime,
-        "field": "created_at",
-        "field_type": IncrementalFieldType.DateTime,
-    }
-]
 
 # Sort params give each paged list a stable order, so a record created during a sync does not
 # move other records across a page boundary.
@@ -108,13 +95,10 @@ _ENDPOINT_LIST: tuple[CircleSoEndpointConfig, ...] = (
         path="/community_member_subscriptions",
         params={"sort": "created_at", "direction": "asc"},
     ),
-    # The only list endpoint with a server-side filter on a record timestamp (`created_at_gte`).
     CircleSoEndpointConfig(
         name="community_member_charges",
         path="/community_member_charges",
         params={"sort": "created_at", "direction": "asc"},
-        incremental_fields=_CREATED_AT_INCREMENTAL,
-        default_incremental_field="created_at",
     ),
 )
 
@@ -122,6 +106,7 @@ CIRCLE_SO_ENDPOINTS: dict[str, CircleSoEndpointConfig] = {config.name: config fo
 
 ENDPOINTS = tuple(CIRCLE_SO_ENDPOINTS)
 
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: config.incremental_fields for name, config in CIRCLE_SO_ENDPOINTS.items() if config.incremental_fields
-}
+# Every table is full refresh. No list endpoint filters on an update time. Charges filter only on
+# `created_at`, but a refund changes `status` and `amount_refunded` on an older charge, which a
+# `created_at` watermark would never read again.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
