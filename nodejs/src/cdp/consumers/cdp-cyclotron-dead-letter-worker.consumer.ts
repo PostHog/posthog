@@ -1,6 +1,7 @@
 import { PluginsServerConfig } from '../../types'
 import { ConsumerOptions, JobQueue } from '../services/job-queue/job-queue.interface'
 import { CrashGuard } from '../services/poison-batch/crash-guard'
+import { createQuarantineAutoDisable } from '../services/poison-batch/quarantine-auto-disable'
 import { InvocationQuarantine } from '../services/poison-batch/quarantine-invocations'
 import { DEAD_LETTER_QUEUE } from '../types'
 import { CdpCyclotronWorker, CdpCyclotronWorkerDeps } from './cdp-cyclotron-worker.consumer'
@@ -15,9 +16,18 @@ export class CdpCyclotronDeadLetterWorker extends CdpCyclotronWorker {
 
     constructor(config: PluginsServerConfig, deps: CdpCyclotronWorkerDeps, jobQueue: JobQueue) {
         super(config, deps, jobQueue, DEAD_LETTER_QUEUE)
+        const autoDisable = this.crashGuardSettings
+            ? createQuarantineAutoDisable(config, {
+                  valkey: this.crashGuardSettings.valkey,
+                  getHogFunction: (id) => this.hogFunctionManager.getHogFunction(id),
+                  hogWatcher: this.hogWatcher,
+                  hogWatcherMirror: this.hogWatcherMirror,
+              })
+            : null
         this.quarantine = new InvocationQuarantine(
             this.name,
-            this.invocationResultsService.invocationResultsRowsService
+            this.invocationResultsService.invocationResultsRowsService,
+            autoDisable
         )
     }
 
