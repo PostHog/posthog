@@ -3840,6 +3840,13 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
         assert response.json()["detail"] == "Couldn't load alert history. Try again in a minute."
 
+    def test_a_clickhouse_failure_does_not_fail_a_committed_edit(self) -> None:
+        with patch(f"{_ALERTS_API}.history_by_public_id", side_effect=Exception("ClickHouse is down")):
+            response = self.client.patch(f"{self.base_url}{self.alert.id}/", {"name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert (response.json()["name"], response.json()["state_timeline"]) == ("Renamed", [])
+
     def _record_events_history(self) -> None:
         def at(minutes_after_cutover: int) -> datetime:
             return self.now + timedelta(minutes=minutes_after_cutover)

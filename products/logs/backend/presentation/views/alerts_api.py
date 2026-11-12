@@ -316,6 +316,10 @@ def _platform_control_of(
     )
 
 
+# Set by the viewset for a response to a write that has committed. A history read that fails there must not
+# turn the committed write into an error, because a client that retries a create would create a second alert.
+_HISTORY_OPTIONAL_CONTEXT_KEY: Final = "platform_history_optional"
+_WRITE_ACTIONS: Final = frozenset({"create", "update", "partial_update", "reset"})
 # Set by the list serializer, whose alerts reach the child serializer already shown from their copies.
 _COPIES_SHOWN_CONTEXT_KEY: Final = "platform_copies_shown"
 _ROW_ANNOTATIONS: Final = ("_state_timeline_events", "_latest_error_message", "_pre_window_toggle_kind")
@@ -835,13 +839,20 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         data["last_notified_at"] = self.fields["last_notified_at"].to_representation(runtime.last_notified_at)
 
         window = self.context.get("state_timeline_window") or _state_timeline_window_bounds()
-        histories = self.context.get(_PLATFORM_HISTORY_CONTEXT_KEY)
-        if histories is None:
-            histories = _platform_history_of([instance], window)
+        try:
+            histories = self.context.get(_PLATFORM_HISTORY_CONTEXT_KEY)
+            if histories is None:
+                histories = _platform_history_of([instance], window)
+            controls = self.context.get(_PLATFORM_CONTROL_CONTEXT_KEY)
+            if controls is None:
+                controls = _platform_control_of([instance], window)
+        except PlatformHistoryUnavailable:
+            if not self.context.get(_HISTORY_OPTIONAL_CONTEXT_KEY):
+                raise
+            # An empty timeline rather than the logs rows' stale one. The next read shows the error.
+            data["state_timeline"] = []
+            return data
         history = histories.get(instance.id)
-        controls = self.context.get(_PLATFORM_CONTROL_CONTEXT_KEY)
-        if controls is None:
-            controls = _platform_control_of([instance], window)
         control = controls.get(instance.id)
         data["state_timeline"] = self._platform_state_timeline(instance, history, control, runtime.state, window)
         # With no platform check in the window, the logs row is the newest check anyone made.
@@ -1709,6 +1720,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context["state_timeline_window"] = (
             getattr(self, "_state_timeline_window", None) or _state_timeline_window_bounds()
         )
+        context[_HISTORY_OPTIONAL_CONTEXT_KEY] = self.action in _WRITE_ACTIONS
         return context
 
     @cached_property
