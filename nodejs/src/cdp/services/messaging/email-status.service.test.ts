@@ -4,6 +4,7 @@ import { v5 as uuidv5 } from 'uuid'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
+import { pinDate } from '~/tests/helpers/pin-date'
 import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
 
 import { EMAIL_STATUS_OUTPUT, EmailStatusOutput } from '../../outputs/outputs'
@@ -21,6 +22,10 @@ describe('EmailStatusService', () => {
     const messageId = new UUIDT(createdAt).toString()
     const keyedMessageId = uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8')
     const triggerTime = new Date(Date.UTC(2026, 0, 2, 3, 9, 0, 250))
+    const now = Date.UTC(2026, 0, 2, 4, 0, 0, 0)
+
+    beforeEach(() => pinDate(now))
+    afterEach(() => jest.useRealTimers())
 
     it.each([
         ['the message id', messageId, undefined, '2026-01-02 03:04:05.678000'],
@@ -191,6 +196,34 @@ describe('EmailStatusService', () => {
 
         expect(kafka.produced(EMAIL_STATUS_OUTPUT)).toEqual([])
         expect(await failedWrites('queued')).toBe(before + 1)
+    })
+
+    it.each([
+        ['in the far future', new Date(Date.UTC(2200, 0, 1))],
+        ['more than an hour ahead of the clock', new Date(now + 2 * 60 * 60 * 1000)],
+        ['older than the status tables keep', new Date(now - 32 * 24 * 60 * 60 * 1000)],
+    ])('drops and counts a row of a keyed message whose carried time is %s', async (_desc, messageCreatedAt) => {
+        const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
+        const service = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
+        const before = await failedWrites('delivered')
+
+        service.queue({ teamId: 2, messageId: keyedMessageId, status: 'delivered', messageCreatedAt })
+        await service.flush()
+
+        expect(kafka.produced(EMAIL_STATUS_OUTPUT)).toEqual([])
+        expect(await failedWrites('delivered')).toBe(before + 1)
+    })
+
+    it('writes a row of a keyed message whose carried time is inside the window with that exact created_at', async () => {
+        const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
+        const service = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
+
+        service.queue({ teamId: 2, messageId: keyedMessageId, status: 'delivered', messageCreatedAt: triggerTime })
+        await service.flush()
+
+        expect(kafka.produced(EMAIL_STATUS_OUTPUT)).toEqual([
+            expect.objectContaining({ message_id: keyedMessageId, created_at: '2026-01-02 03:09:00.250000' }),
+        ])
     })
 
     it.each([

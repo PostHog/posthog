@@ -155,6 +155,10 @@ export const messageCreatedAtOf = (event: { timestamp?: unknown } | null | undef
     return createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt : undefined
 }
 
+// Matches EMAIL_STATUS_TTL_DAYS in products/messaging/backend/models/email_status_sql.py.
+const EMAIL_STATUS_TTL_MS = 31 * 24 * 60 * 60 * 1000
+export const MESSAGE_CREATED_AT_MAX_AHEAD_MS = 60 * 60 * 1000
+
 // Every row of a message must carry the same created_at, so the rows share a partition and the email log can
 // group them. A keyed row without its carried time is refused rather than dated by the clock.
 const messageCreatedAt = ({ messageId, messageCreatedAt }: EmailStatusUpdate): Date => {
@@ -163,6 +167,11 @@ const messageCreatedAt = ({ messageId, messageCreatedAt }: EmailStatusUpdate): D
     }
     if (!messageCreatedAt || Number.isNaN(messageCreatedAt.getTime())) {
         throw new Error('keyed message id has no creation time')
+    }
+    // The carried time can come from an unsigned SES tag, and it picks the row's partition and TTL.
+    const ageMs = Date.now() - messageCreatedAt.getTime()
+    if (ageMs > EMAIL_STATUS_TTL_MS || ageMs < -MESSAGE_CREATED_AT_MAX_AHEAD_MS) {
+        throw new Error('keyed message creation time is outside the status tables window')
     }
     return messageCreatedAt
 }

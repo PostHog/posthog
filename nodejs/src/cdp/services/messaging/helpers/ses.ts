@@ -5,7 +5,7 @@ import { MinimalAppMetric } from '~/cdp/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
-import type { EmailStatus, EmailStatusReason } from '../email-status.service'
+import { type EmailStatus, type EmailStatusReason, MESSAGE_CREATED_AT_MAX_AHEAD_MS } from '../email-status.service'
 import { removeWorkflowRunTag } from './link-tags'
 import { SesBounce, SesEventRecord, sanitizeSesField } from './ses-events'
 import { SnsEnvelope, SnsEnvelopeVerifier } from './sns-envelope'
@@ -117,7 +117,9 @@ export const sesMessageCreatedTags = (createdAt: Date | undefined): { Name: stri
 
 const messageCreatedAtMs = (mail: { tags?: Record<string, string[]> }): number | undefined => {
     const createdMs = Number(mail.tags?.[SES_MESSAGE_CREATED_TAG]?.[0])
-    return Number.isSafeInteger(createdMs) && createdMs > 0 ? createdMs : undefined
+    return Number.isSafeInteger(createdMs) && createdMs > 0 && createdMs <= Date.now() + MESSAGE_CREATED_AT_MAX_AHEAD_MS
+        ? createdMs
+        : undefined
 }
 
 export type SesEmailStatusUpdate = {

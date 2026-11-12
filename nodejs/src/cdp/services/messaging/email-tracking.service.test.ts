@@ -37,6 +37,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { pinDate } from '~/tests/helpers/pin-date'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
@@ -961,34 +962,61 @@ describe('EmailTrackingService', () => {
             })
 
             const sentAt = Date.UTC(2026, 0, 2, 3, 4, 5, 678)
-            it.each([
-                ['dated by its message id', new UUIDT(sentAt).toString(), undefined],
-                [
-                    'of a keyed send, dated by its tag',
-                    uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'),
-                    String(sentAt),
-                ],
-            ])('records the bounced status of a transactional email %s', async (_desc, messageId, messageCreatedMs) => {
-                const hogFlow = await insertHogFlow(
-                    hub.postgres,
-                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+            describe('dated by the message', () => {
+                beforeEach(() => pinDate(sentAt + 60 * 60 * 1000))
+                afterEach(() => jest.useRealTimers())
+
+                it.each([
+                    ['dated by its message id', new UUIDT(sentAt).toString(), undefined],
+                    [
+                        'of a keyed send, dated by its tag',
+                        uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'),
+                        String(sentAt),
+                    ],
+                ])(
+                    'records the bounced status of a transactional email %s',
+                    async (_desc, messageId, messageCreatedMs) => {
+                        const hogFlow = await insertHogFlow(
+                            hub.postgres,
+                            new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                        )
+
+                        await recordBounce({
+                            functionId: hogFlow.id,
+                            transactionalMessageId: messageId,
+                            messageCreatedMs,
+                        })
+
+                        // Recording flushes the status row before the batch completes.
+                        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([
+                            expect.objectContaining({
+                                key: messageId,
+                                value: expect.objectContaining({
+                                    team_id: team.id,
+                                    message_id: messageId,
+                                    status: 'bounced',
+                                    reason: 'hard',
+                                    created_at: '2026-01-02 03:04:05.678000',
+                                }),
+                            }),
+                        ])
+                    }
                 )
 
-                await recordBounce({ functionId: hogFlow.id, transactionalMessageId: messageId, messageCreatedMs })
+                it('records no status for a keyed send whose tag dates it in the far future', async () => {
+                    const hogFlow = await insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                    )
 
-                // Recording flushes the status row before the batch completes.
-                expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([
-                    expect.objectContaining({
-                        key: messageId,
-                        value: expect.objectContaining({
-                            team_id: team.id,
-                            message_id: messageId,
-                            status: 'bounced',
-                            reason: 'hard',
-                            created_at: '2026-01-02 03:04:05.678000',
-                        }),
-                    }),
-                ])
+                    await recordBounce({
+                        functionId: hogFlow.id,
+                        transactionalMessageId: uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'),
+                        messageCreatedMs: String(Date.UTC(2200, 0, 1)),
+                    })
+
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([])
+                })
             })
 
             it.each<[string, Record<string, unknown>, Record<string, string[]>, boolean, Record<string, string>]>([

@@ -54,6 +54,7 @@ import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { FakeSes as TrackingFakeSes } from '~/tests/helpers/fake-ses'
 import { ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { pinDate } from '~/tests/helpers/pin-date'
 import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
@@ -348,6 +349,7 @@ describe('EmailService', () => {
         mockFetch.mockClear()
     })
     afterEach(async () => {
+        jest.useRealTimers()
         await analytics.close()
         await ses.close()
         await closeHub(hub)
@@ -2564,6 +2566,7 @@ describe('EmailService', () => {
                 )
             )
         )('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason, id, createdAt) => {
+            pinDate(Date.parse(statusTriggerTime) + 60 * 60 * 1000)
             const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
             const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
             service['emailStatusService'] = emailStatusService
