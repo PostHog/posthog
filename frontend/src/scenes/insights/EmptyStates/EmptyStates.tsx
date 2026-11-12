@@ -344,6 +344,19 @@ const LOADING_MESSAGES = holidaysMatcher(
 
 const DEFAULT_LOADING_SUGGESTION = 'Need to speed things up? Try reducing the date range.'
 
+function getLoadingRates(
+    pollResponse: Record<string, QueryStatus | null> | null | undefined,
+    bytesRead: number,
+    secondsElapsed: number
+): { bytesPerSecond: number; estimatedRows: number | null | undefined; cpuUtilization: number } {
+    const queryProgress = pollResponse?.status?.query_progress
+    return {
+        bytesPerSecond: (bytesRead / (secondsElapsed || 1)) * 1000,
+        estimatedRows: queryProgress?.estimated_rows_total,
+        cpuUtilization: (queryProgress?.active_cpu_time || 0) / (queryProgress?.time_elapsed || 1) / 10000,
+    }
+}
+
 function LoadingDetails({
     pollResponse,
     queryId,
@@ -358,12 +371,7 @@ function LoadingDetails({
     secondsElapsed: number
 }): JSX.Element {
     const quillSurface = useQuillSurface()
-    const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
-    const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
-    const cpuUtilization =
-        (pollResponse?.status?.query_progress?.active_cpu_time || 0) /
-        (pollResponse?.status?.query_progress?.time_elapsed || 1) /
-        10000
+    const { bytesPerSecond, estimatedRows, cpuUtilization } = getLoadingRates(pollResponse, bytesRead, secondsElapsed)
 
     if (quillSurface) {
         return (

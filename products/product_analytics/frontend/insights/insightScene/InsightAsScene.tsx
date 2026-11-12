@@ -42,12 +42,16 @@ export interface InsightAsSceneProps {
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
 
+function DataVisualizationReloadSkeleton(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    return todayRailNav ? <Skeleton className="h-100 w-full" /> : <LemonSkeleton className="h-100 w-full" />
+}
+
 export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JSX.Element | null {
     // insightSceneLogic
     const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, dashboardId } =
         useValues(insightSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // insightLogic
     const logic = insightLogic({
@@ -123,11 +127,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                 <SqlInsightFilters query={query} setQuery={setQuery}>
                     {isDataVisualizationNode(query) && insightLoading ? (
                         // Avoid painting the stale chart type during a reload (the query re-syncs in insightDataLogic).
-                        todayRailNav ? (
-                            <Skeleton className="h-100 w-full" />
-                        ) : (
-                            <LemonSkeleton className="h-100 w-full" />
-                        )
+                        <DataVisualizationReloadSkeleton />
                     ) : (
                         <Query
                             attachTo={attachTo}
