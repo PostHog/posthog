@@ -8619,3 +8619,28 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
         assert IntegrationManager.any.exists(self.team.id, external_id="L1") == (expected_status == 400)
         if expected_status == 400:
             assert "data warehouse sources" in json.dumps(response.json())
+
+
+class TestOauthTokenRefreshFailedResponse(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("linkedin-ads", "linkedin_ads_accounts"),
+            ("google-ads", "google_accessible_accounts"),
+        ]
+    )
+    def test_picker_answers_with_a_stable_code_when_the_token_cannot_be_refreshed(
+        self, kind: str, picker_path: str
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=kind,
+            integration_id="account-1",
+            config={"expires_in": 3600, "refreshed_at": int(time.time())},
+            sensitive_config={"access_token": "access", "refresh_token": "refresh"},
+            errors=ERROR_TOKEN_REFRESH_FAILED,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/integrations/{integration.id}/{picker_path}/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "integration_token_refresh_failed"
