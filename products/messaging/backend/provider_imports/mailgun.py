@@ -22,6 +22,7 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
@@ -149,8 +150,7 @@ class MailgunImportProvider(ImportProvider):
     api_key_url = "https://app.mailgun.com/settings/api_security"
     not_imported = (
         "Mailgun has no automations to import. Subscribed list members don't become people in PostHog. Routes, "
-        "webhooks, tracking settings, send history and stats stay in Mailgun, and Mailjet is a separate product, so "
-        "rebuild what you need."
+        "webhooks, tracking settings, send history and stats stay in Mailgun, so rebuild what you need."
     )
     next_steps = (
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so "
@@ -277,6 +277,7 @@ class MailgunImportProvider(ImportProvider):
                 ("already_present", "Already in PostHog, left as they are"),
                 ("no_content", "Skipped because they have no content"),
                 ("missing", "Mailgun couldn't find these, skipped"),
+                ("missing_domains", "Domains Mailgun couldn't find, skipped"),
             ),
         ),
         ImportStepSpec(
@@ -448,10 +449,11 @@ def _domain_targets(
 
 
 def _missing_domain(target: _Target) -> SavedPage:
+    place = target.name or "Account templates"
     return SavedPage(
         imported=0,
         counts={"missing_domains": 1},
-        warnings=(f"{target.name}: Mailgun couldn't find this domain, so nothing imported from it. Import again.",),
+        warnings=(f"{place}: Mailgun couldn't find this, so nothing imported from it. Import again.",),
     )
 
 
@@ -524,8 +526,10 @@ def _save_bounces(context: ImportContext, target: _Target, items: list[dict[str,
 def _upgrade_imported_complaints(team_id: int, bounces: Mapping[str, ImportedSuppression]) -> int:
     """A failed bounces step can resume after complaints ran. A complaint this import wrote must then still gain the
     bounce, which is what blocks transactional email. A row someone removed or added by hand stays as it is."""
+    # Imported rows live on the parent project of a child environment.
+    suppressions = MessageSuppression.objects.for_team(resolve_effective_team_id(team_id), canonical=True)
     rows = list(
-        MessageSuppression.objects.for_team(team_id, canonical=True).filter(
+        suppressions.filter(
             identifier__in=list(bounces),
             source=SuppressionSource.COMPLAINT,
             reason__startswith=COMPLAINT_REASON_PREFIX,
@@ -542,7 +546,7 @@ def _upgrade_imported_complaints(team_id: int, bounces: Mapping[str, ImportedSup
         row.hard_bounced_at = bounce.suppressed_at or now
         row.last_bounce_at = bounce.suppressed_at
         row.last_bounce_diagnostic = bounce.diagnostic
-    MessageSuppression.objects.for_team(team_id, canonical=True).bulk_update(
+    suppressions.bulk_update(
         rows, ["source", "reason", "hard_bounced_at", "last_bounce_at", "last_bounce_diagnostic"], batch_size=500
     )
     return len(rows)
@@ -655,7 +659,7 @@ def _save_allowlist(context: ImportContext, target: _Target, items: list[dict[st
                     ),
                 ),
             )
-            if items and (first or notes)
+            if items and first
             else ()
         ),
     )
