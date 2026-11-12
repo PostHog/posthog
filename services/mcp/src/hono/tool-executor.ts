@@ -24,6 +24,7 @@ import {
     findRecoverableApiError,
     hasTimeoutCause,
     isTimeoutError,
+    parseApiErrorIdentifiers,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
@@ -1209,7 +1210,15 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         return { errorType: 'api_5xx', status: apiError.status }
     }
     if (apiError instanceof PostHogApiError) {
-        return { errorType: 'api_4xx', status: apiError.status }
+        // Only identifier-shaped values survive `parseApiErrorIdentifiers`, never the body's free text.
+        const { code, attr } = parseApiErrorIdentifiers(apiError.body)
+        const errorField = attr ? normalizeErrorField(attr) : undefined
+        return {
+            errorType: 'api_4xx',
+            status: apiError.status,
+            ...(code ? { errorCode: code } : {}),
+            ...(errorField ? { errorField } : {}),
+        }
     }
     return { errorType: 'internal' }
 }

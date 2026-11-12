@@ -1999,7 +1999,7 @@ describe('exec tool', () => {
         const exec = createExec([makeMockTool({ name: 'notebooks-create-markdown' })], undefined, { heldTools })
 
         // An unknown-tool reply sends the agent to `search` for another way to reach the operation.
-        it.each(['info notebooks-create', 'schema notebooks-create', 'call notebooks-create {}'])(
+        it.each(['info notebooks-list', 'schema notebooks-list', 'call notebooks-list {}'])(
             'refuses a catalog tool outside the held set as not granted on %s',
             async (command) => {
                 await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
@@ -2016,17 +2016,17 @@ describe('exec tool', () => {
     })
 
     describe('flag-gated tool redirects', () => {
-        const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-create-markdown' })
+        const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-update-cell' })
 
         it('names the successor a flag retired the tool for', async () => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
-                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+                flagGatedTools: [{ name: 'notebooks-partial-update', supersededBy: ['notebooks-update-cell'] }],
             })
-            await expect(exec.handler(mockContext, { command: 'call notebooks-create {}' })).rejects.toThrow(
-                /retired[\s\S]*notebooks-create-markdown/
+            await expect(exec.handler(mockContext, { command: 'call notebooks-partial-update {}' })).rejects.toThrow(
+                /retired[\s\S]*notebooks-update-cell/
             )
-            await expect(exec.handler(mockContext, { command: 'info notebooks-create' })).rejects.toThrow(
-                /notebooks-create-markdown/
+            await expect(exec.handler(mockContext, { command: 'info notebooks-partial-update' })).rejects.toThrow(
+                /notebooks-update-cell/
             )
         })
 
@@ -2046,9 +2046,9 @@ describe('exec tool', () => {
         // so pointing at it would send the agent on a second dead-end round trip.
         it('falls back to the not-enabled message when no declared successor is registered', async () => {
             const exec = createExec([makeMockTool()], undefined, {
-                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+                flagGatedTools: [{ name: 'notebooks-partial-update', supersededBy: ['notebooks-update-cell'] }],
             })
-            await expect(exec.handler(mockContext, { command: 'call notebooks-create {}' })).rejects.toThrow(
+            await expect(exec.handler(mockContext, { command: 'call notebooks-partial-update {}' })).rejects.toThrow(
                 /is not enabled on this PostHog connection/
             )
         })
@@ -2057,17 +2057,17 @@ describe('exec tool', () => {
         // gate here. Held to the same rule as the successors, or the redirect trades
         // one dead end for another.
         it.each<[string, string, boolean]>([
-            ['a tool the catalog serves', 'Pair it with notebooks-create-markdown for the new shape.', true],
+            ['a tool the catalog serves', 'Pair it with notebooks-update-cell for the new shape.', true],
             ['a tool this connection cannot serve', 'Read the notebook with notebooks-get first.', false],
             ['a hyphenated word that is not a tool', 'The revamped notebooks are cell-based.', true],
         ])('holds a hint naming %s to the same reachability rule', async (_case, redirectHint, kept) => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
                 flagGatedTools: [
-                    { name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'], redirectHint },
+                    { name: 'notebooks-partial-update', supersededBy: ['notebooks-update-cell'], redirectHint },
                 ],
             })
 
-            const message = await exec.handler(mockContext, { command: 'call notebooks-create {}' }).then(
+            const message = await exec.handler(mockContext, { command: 'call notebooks-partial-update {}' }).then(
                 () => '',
                 (error: Error) => error.message
             )
@@ -2087,7 +2087,7 @@ describe('exec tool', () => {
 
         it('still reports a name we do not own as unknown', async () => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
-                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+                flagGatedTools: [{ name: 'notebooks-partial-update', supersededBy: ['notebooks-update-cell'] }],
             })
             await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toThrow(
                 /Unknown tool[\s\S]*search not-a-posthog-tool/
@@ -2097,6 +2097,9 @@ describe('exec tool', () => {
 
     describe('deprecated tool redirects', () => {
         it.each([
+            ['notebooks-create', 'notebooks-create-markdown'],
+            ['notebooks-retrieve', 'notebooks-get'],
+            ['notebook-edit', 'notebooks-update-cell'],
             ['read-data-warehouse-schema', 'execute-sql'],
             ['entity-search', 'execute-sql'],
             ['event-definitions-list', 'read-data-schema'],
@@ -3049,14 +3052,14 @@ describe('exec tool', () => {
                 )
             })
 
-            it('fires for the real generated notebooks-retrieve tool, not just a stand-in schema', () => {
+            it('fires for the real generated notebooks-get tool, not just a stand-in schema', () => {
                 // The failure this whole branch exists for: agents call the shipped
                 // tool with no short_id, so its rejection has to name notebooks-list.
-                const tool = GENERATED_TOOL_MAP['notebooks-retrieve']!()
+                const tool = GENERATED_TOOL_MAP['notebooks-get']!()
                 const result = tool.schema.safeParse({}, { reportInput: true })
                 expect(result.success).toBe(false)
 
-                expect(formatInputValidationError('notebooks-retrieve', result.error!, {}, tool.schema)).toContain(
+                expect(formatInputValidationError('notebooks-get', result.error!, {}, tool.schema)).toContain(
                     '`notebooks-list`'
                 )
             })

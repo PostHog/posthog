@@ -107,7 +107,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             >
                 <h3 className="m-0">No prompts yet</h3>
                 <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                    Add the questions your buyers ask AI assistants. Claude can suggest them from your site, or you can
+                    Add the questions your buyers ask AI assistants. PostHog can suggest them from your site, or you can
                     write your own. PostHog checks them once a day and shows the results here.
                 </p>
                 <div className="mt-4 flex justify-center gap-2">

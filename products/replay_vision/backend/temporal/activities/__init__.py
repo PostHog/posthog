@@ -41,6 +41,10 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
+from products.replay_vision.backend.temporal.activities.observation_steps import (
+    finalize_observation_activity,
+    prepare_observation_activity,
+)
 from products.replay_vision.backend.temporal.activities.reap_childless_inline_scanners import (
     reap_childless_inline_scanners_activity,
 )
@@ -60,6 +64,7 @@ from products.replay_vision.backend.temporal.activities.resolve_experiment_varia
     resolve_experiment_variant_activity,
 )
 from products.replay_vision.backend.temporal.activities.start_launched_scanners import start_launched_scanners_activity
+from products.replay_vision.backend.temporal.activities.sweep_scanner_tick import sweep_scanner_tick_activity
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
 
 __all__ = [
@@ -98,6 +103,9 @@ __all__ = [
     "reap_orphaned_observations_activity",
     "resolve_experiment_variant_activity",
     "start_launched_scanners_activity",
+    "sweep_scanner_tick_activity",
+    "finalize_observation_activity",
+    "prepare_observation_activity",
     "complete_observation_requests_activity",
     "refresh_scanner_estimate_activity",
     "upload_video_to_gemini_activity",

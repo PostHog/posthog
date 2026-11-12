@@ -357,6 +357,10 @@ If the user wants near-real-time replication from Postgres:
 3. Once prerequisites pass, proceed to db-schema and create. Set `sync_type: "cdc"` on the tables that need it, and
    include `primary_key_columns` for each (CDC requires them).
 
+To add CDC to a Postgres source that already exists, use `external-data-sources-enable-cdc-create` (it re-checks the
+prerequisites), then set `sync_type: "cdc"` on the tables. `external-data-sources-update-cdc-settings-create` tunes the
+lag thresholds. `external-data-sources-disable-cdc-create` turns CDC off and resets every CDC table, so ask first.
+
 ## Sending a source to the user's own warehouse (optional, when requested)
 
 Only do this when the user asks for their data in their own Snowflake, BigQuery, Postgres, Redshift, Databricks, S3 or

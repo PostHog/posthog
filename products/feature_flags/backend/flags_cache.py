@@ -71,7 +71,9 @@ from posthog.storage.hypercache_manager import (
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
-from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
+from products.experiments.backend.facade.change_signals import connect_experiment_changed
+from products.experiments.backend.facade.contracts import ExperimentChanged
+from products.experiments.backend.facade.feature_flags import flag_ids_with_live_experiment
 from products.feature_flags.backend.facade.config import (
     ConfigFormatError,
     UnsupportedConfig,
@@ -563,7 +565,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     # Note: We intentionally don't select_related("team") here because we only need
     # team_id (already on the model) for grouping, and the Team objects are already
     # loaded by the caller. Avoiding the join saves memory.
-    all_flags = list(
+    flag_queryset = (
         FeatureFlag.objects.filter(team__in=teams)
         .exclude(has_encrypted_payloads=True)
         .annotate(
@@ -572,14 +574,15 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
                 filter=Q(flag_evaluation_contexts__isnull=False),
                 distinct=True,
             ),
-            has_experiment_agg=live_experiment_exists(),
         )
     )
+    all_flags = list(flag_queryset)
+    live_experiment_flag_ids = flag_ids_with_live_experiment([flag.pk for flag in all_flags], using=flag_queryset.db)
 
     # Transfer aggregated tag names to model instances
     for flag in all_flags:
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
-        flag._has_experiment = flag.has_experiment_agg
+        flag._has_experiment = flag.pk in live_experiment_flag_ids
 
     # Group flags by team_id
     flags_by_team_id: dict[int, list[FeatureFlag]] = defaultdict(list)
@@ -1567,9 +1570,7 @@ def feature_flag_changed_flags_cache(sender, instance: "FeatureFlag", **kwargs):
     transaction.on_commit(lambda: _enqueue_invalidation(team_id))
 
 
-@receiver(post_save, sender=Experiment)
-@receiver(post_delete, sender=Experiment)
-def experiment_changed_flags_cache(sender, instance: "Experiment", **kwargs):
+def experiment_changed_flags_cache(sender: Any, change: ExperimentChanged, **kwargs: Any) -> None:
     """
     Invalidate flags cache when an experiment is created, soft-deleted, or removed.
 
@@ -1585,8 +1586,11 @@ def experiment_changed_flags_cache(sender, instance: "Experiment", **kwargs):
     if not settings.FLAGS_REDIS_URL:
         return
 
-    team_id = instance.team_id
+    team_id = change.team_id
     transaction.on_commit(lambda: _enqueue_invalidation(team_id))
+
+
+connect_experiment_changed(experiment_changed_flags_cache, dispatch_uid="feature_flags.flags_cache.experiment_changed")
 
 
 @receiver(post_save, sender=Team)

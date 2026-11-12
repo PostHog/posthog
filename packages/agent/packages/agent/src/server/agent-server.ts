@@ -42,6 +42,14 @@ import {
   type StartupFailure,
 } from "@posthog/agent-contracts/startup-failure";
 import { execGh } from "@posthog/git/gh";
+import {
+  getGitlabCurrentUsername,
+  getGitlabMergeRequest,
+  isGitlabRun,
+  parseGitlabMergeRequestUrl,
+  parseGitlabRemoteProject,
+  resolveGitlabClient,
+} from "@posthog/git/gitlab";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
@@ -481,12 +489,15 @@ interface PrAttribution {
 
 const GITHUB_REMOTE_REGEX = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i;
 
-export function parseGithubRemoteRepository(
+// `owner/name` for a GitHub remote, or the full project path for a gitlab.com
+// remote, lowercased to match `parsePrRepository`.
+export function parseRemoteRepository(
   remoteUrl: string | null | undefined,
 ): string | null {
   if (!remoteUrl) return null;
   const match = GITHUB_REMOTE_REGEX.exec(remoteUrl.trim());
-  return match ? match[1].toLowerCase() : null;
+  if (match) return match[1].toLowerCase();
+  return parseGitlabRemoteProject(remoteUrl)?.toLowerCase() ?? null;
 }
 
 // Branches the run has pushed, as recorded on its task run by signed commits
@@ -4822,6 +4833,7 @@ export class AgentServer {
       hasGithubToken: Boolean(resolveGithubToken()),
       identityInstructions: this.productSession.identityInstructions,
       deliveryInstructions: this.productSession.deliveryInstructions,
+      gitProvider: isGitlabRun() ? "gitlab" : "github",
       projectId: this.config.projectId,
       repositoryAttached: Boolean(this.config.repositoryPath),
       shouldAutoPublish: this.shouldAutoPublishCloudChanges(),
@@ -4858,14 +4870,12 @@ export class AgentServer {
     }
   }
 
-  // The checked-out branch and the GitHub repository its `origin` points at, or
-  // null without a checkout (no-repository mode) or on a detached HEAD.
   private async getCurrentCheckout(): Promise<OwnedBranch | null> {
     const branch = await this.getCurrentGitBranch();
     if (!branch || !this.config.repositoryPath) return null;
     let repository: string | null = null;
     try {
-      repository = parseGithubRemoteRepository(
+      repository = parseRemoteRepository(
         await getRemoteUrl(this.config.repositoryPath),
       );
     } catch (error) {
@@ -5424,9 +5434,12 @@ export class AgentServer {
     let checkout: OwnedBranch | null;
     let freshOutput: Record<string, unknown> | null;
     try {
+      const gitlabMr = parseGitlabMergeRequestUrl(prUrl);
       [attribution, ghLogin, checkout, freshOutput] = await Promise.all([
-        this.fetchPrAttribution(prUrl),
-        this.fetchGhLogin(),
+        gitlabMr
+          ? this.fetchGitlabMrAttribution(gitlabMr.projectPath, gitlabMr.iid)
+          : this.fetchPrAttribution(prUrl),
+        gitlabMr ? this.fetchGitlabLogin() : this.fetchGhLogin(),
         this.getCurrentCheckout(),
         this.posthogAPI
           .getTaskRun(payload.task_id, payload.run_id)
@@ -5551,6 +5564,52 @@ export class AgentServer {
     } catch {
       return unknown;
     }
+  }
+
+  private async fetchGitlabMrAttribution(
+    projectPath: string,
+    iid: number,
+  ): Promise<PrAttribution> {
+    const unknown: PrAttribution = {
+      createdAt: null,
+      author: null,
+      headRefName: null,
+      isCrossRepository: null,
+    };
+    const client = resolveGitlabClient();
+    if (!client) return unknown;
+    try {
+      const mr = await getGitlabMergeRequest(client, projectPath, iid);
+      return {
+        createdAt: mr.created_at,
+        author: mr.author_username,
+        headRefName: mr.source_branch,
+        isCrossRepository:
+          mr.source_project_id !== null && mr.target_project_id !== null
+            ? mr.source_project_id !== mr.target_project_id
+            : null,
+      };
+    } catch {
+      return unknown;
+    }
+  }
+
+  private gitlabLoginPromise: Promise<string | null> | null = null;
+
+  private fetchGitlabLogin(): Promise<string | null> {
+    if (this.gitlabLoginPromise !== null) return this.gitlabLoginPromise;
+    const client = resolveGitlabClient();
+    if (!client) return Promise.resolve(null);
+    this.gitlabLoginPromise = getGitlabCurrentUsername(client)
+      .then((login) => {
+        if (!login) this.gitlabLoginPromise = null;
+        return login;
+      })
+      .catch(() => {
+        this.gitlabLoginPromise = null;
+        return null;
+      });
+    return this.gitlabLoginPromise;
   }
 
   private ghLoginPromise: Promise<string | null> | null = null;

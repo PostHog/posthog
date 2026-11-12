@@ -150,6 +150,7 @@ describe('verifiedDomainsLogic', () => {
                     scim_base_url: 'https://example.com/scim/v2/other',
                     scim_bearer_token: null,
                     has_id_jag: false,
+                    id_jag_registered_by_application_name: null,
                 },
                 {
                     id: 'selected-config',
@@ -165,6 +166,7 @@ describe('verifiedDomainsLogic', () => {
                     scim_base_url: 'https://example.com/scim/v2/saml',
                     scim_bearer_token: null,
                     has_id_jag: false,
+                    id_jag_registered_by_application_name: null,
                 },
                 {
                     id: 'selected-scim-config',
@@ -180,6 +182,7 @@ describe('verifiedDomainsLogic', () => {
                     scim_base_url: 'https://example.com/scim/v2/scim',
                     scim_bearer_token: null,
                     has_id_jag: false,
+                    id_jag_registered_by_application_name: null,
                 },
             ]
 
