@@ -427,6 +427,14 @@ class TestWorkflowFolders(APIBaseTest):
                 'SELECT "posthog_filesystem"."id" AS "pk" FROM',
             ),
             (
+                "folder_root_move",
+                "folder",
+                "post",
+                "move/",
+                {"new_path": "Archive/Inbox"},
+                'SELECT "posthog_filesystem"."team_id", "posthog_filesystem"."id", ',
+            ),
+            (
                 "move",
                 "child",
                 "post",
@@ -477,12 +485,14 @@ class TestWorkflowFolders(APIBaseTest):
         )
         self.client.force_login(member)
         retyped = Event()
+        retargeted = folder if _name == "folder_root_move" else child
+        path_before = retargeted.path
 
         def retype_after_the_read(execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
             result = execute(sql, params, many, context)
             if not retyped.is_set() and sql.startswith(read) and "FOR UPDATE" not in sql:
                 retyped.set()
-                FileSystem.objects.filter(pk=child.pk).update(type="message_template", ref=template_id)
+                FileSystem.objects.filter(pk=retargeted.pk).update(type="message_template", ref=template_id)
             return result
 
         written = {"folder": folder, "child": child}[target]
@@ -493,8 +503,8 @@ class TestWorkflowFolders(APIBaseTest):
 
         self.assertTrue(retyped.is_set())
         self.assertEqual(response.status_code, 403, response.content)
-        child.refresh_from_db()
-        self.assertEqual(child.path, "Inbox/Report")
+        retargeted.refresh_from_db()
+        self.assertEqual(retargeted.path, path_before)
 
     @parameterized.expand(
         [
@@ -957,6 +967,18 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
 
         self.addCleanup(drop)
 
+    def _wait_for_blocked_backends(self, count: int) -> None:
+        for _ in range(200):
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0"
+                )
+                if cursor.fetchone()[0] >= count:
+                    return
+            Event().wait(0.05)
+        self.fail(f"expected {count} blocked backends")
+
     @parameterized.expand([("create",), ("update",), ("restore",)])
     def test_filing_a_template_into_a_folder_asks_the_flag_service_before_taking_any_lock(self, operation: str) -> None:
         remote_answers_in_a_transaction: list[bool] = []
@@ -1018,21 +1040,6 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
         middle_locked = Event()
         release_middle = Event()
 
-        def blocked_backends() -> int:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT count(*) FROM pg_stat_activity "
-                    "WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0"
-                )
-                return cursor.fetchone()[0]
-
-        def wait_for_blocked_backends(count: int) -> None:
-            for _ in range(200):
-                if blocked_backends() >= count:
-                    return
-                Event().wait(0.05)
-            self.fail(f"expected {count} blocked backends")
-
         def hold_the_middle_row() -> None:
             close_old_connections()
             try:
@@ -1075,9 +1082,9 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
             self.assertTrue(middle_locked.wait(timeout=5))
             try:
                 sync = executor.submit(sync_the_files)
-                wait_for_blocked_backends(1)
+                self._wait_for_blocked_backends(1)
                 move = executor.submit(move_the_folder)
-                wait_for_blocked_backends(2)
+                self._wait_for_blocked_backends(2)
             finally:
                 release_middle.set()
             holder.result(timeout=15)
@@ -1265,3 +1272,55 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
         with connection.cursor() as cursor:
             cursor.execute("SELECT name, deleted FROM posthog_messagetemplate WHERE id = %s", [template_id])
             self.assertEqual(cursor.fetchone(), ("Welcome v2", True))
+
+    def test_two_deletes_of_files_for_the_same_object_both_finish(self) -> None:
+        dashboard_id = str(
+            self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Report"}).json()["id"]
+        )
+        FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).delete()
+        first, second = sorted(
+            (
+                FileSystem.objects.create(
+                    team=self.team, path=path, depth=1, type="dashboard", ref=dashboard_id, shortcut=False
+                )
+                for path in ["Report", "Report copy"]
+            ),
+            key=lambda row: row.id,
+        )
+        first_locked = Event()
+        release_first = Event()
+
+        def hold_the_first_row() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic(), connection.cursor() as cursor:
+                    cursor.execute("SELECT id FROM posthog_filesystem WHERE id = %s FOR UPDATE", [first.id])
+                    first_locked.set()
+                    release_first.wait(timeout=10)
+            finally:
+                close_old_connections()
+
+        def delete(row: FileSystem) -> Any:
+            close_old_connections()
+            try:
+                return self.client.delete(f"/api/projects/{self.team.id}/file_system/{row.id}/")
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            holder = executor.submit(hold_the_first_row)
+            self.assertTrue(first_locked.wait(timeout=5))
+            try:
+                deleting_first = executor.submit(delete, first)
+                self._wait_for_blocked_backends(1)
+                deleting_second = executor.submit(delete, second)
+                self._wait_for_blocked_backends(2)
+            finally:
+                release_first.set()
+            holder.result(timeout=15)
+            statuses = sorted(
+                [deleting_first.result(timeout=15).status_code, deleting_second.result(timeout=15).status_code]
+            )
+
+        self.assertEqual(statuses, [200, 204])
+        self.assertFalse(FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).exists())

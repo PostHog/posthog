@@ -1454,6 +1454,24 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return deleted_objects
 
+    def _lock_delete_target(self, instance: FileSystem) -> FileSystem:
+        rows = Q(pk=instance.pk)
+        if instance.ref and not instance.shortcut and instance.type != "folder":
+            # _ensure_can_delete locks every row of the target's object in id order. Locking the target
+            # alone first would let two deletes of rows for one object each hold one row and wait for
+            # the other, so lock the target together with those rows in the same order.
+            ref = canonical_file_system_ref(instance.type, instance.ref)
+            any_surface = _any_surface_q(instance.team_id)
+            spellings = _stored_spellings(instance.team_id, instance.type, {ref}, any_surface)[ref] | {instance.ref}
+            rows |= Q(any_surface, team_id=instance.team_id, type=instance.type, shortcut=False, ref__in=spellings)
+        locked, _ = self._lock_and_authorize_workflow_files(
+            rows, writes=lambda row: [_row_target(row)] if row.pk == instance.pk else []
+        )
+        target = next((row for row in locked if row.pk == instance.pk), None)
+        if target is None:
+            raise NotFound()
+        return target
+
     @extend_schema(parameters=[FileSystemDeleteQuerySerializer])
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = FileSystemDeleteQuerySerializer(data=request.query_params)
@@ -1462,10 +1480,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         deleted_objects: list[dict[str, Any]]
 
         with transaction.atomic():
-            locked, _ = self._lock_and_authorize_workflow_files(Q(pk=instance.pk))
-            if not locked:
-                raise NotFound()
-            instance = locked[0]
+            instance = self._lock_delete_target(instance)
             original_path = instance.path
             instance_created_by = instance.created_by
             if instance.type == "folder" and not query.validated_data["recursive"]:
@@ -1621,16 +1636,20 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def move(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        old_path = instance.path
         new_path = request.data.get("new_path")
         if not new_path:
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
         new_path = validate_file_system_path(new_path)
 
-        if instance.type == "folder" and is_path_under(new_path, instance.path):
-            return Response({"detail": "Cannot move a folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
-        if instance.type == "folder":
-            with transaction.atomic():
+        with transaction.atomic():
+            locked, _ = self._lock_and_authorize_workflow_files(Q(pk=instance.pk))
+            if not locked:
+                raise NotFound()
+            instance = locked[0]
+            old_path = instance.path
+            if instance.type == "folder" and is_path_under(new_path, instance.path):
+                return Response({"detail": "Cannot move a folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
+            if instance.type == "folder":
                 # Lock and authorize the exact rows this move saves, so a row filed into the folder
                 # after the check is never moved without passing it. Lock in id order, the order
                 # create_or_update_file writes rows in, so the two never wait on each other in a cycle.
@@ -1663,13 +1682,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     instance.path = new_path
                     instance.depth = len(split_path(instance.path))
                     instance.save()
-
-        else:
-            with transaction.atomic():
-                locked, _ = self._lock_and_authorize_workflow_files(Q(pk=instance.pk))
-                if not locked:
-                    raise NotFound()
-                instance = locked[0]
+            else:
                 self._assure_parent_folders(new_path, cast(User, request.user))
                 instance.path = new_path
                 instance.depth = len(split_path(instance.path))
@@ -1679,7 +1692,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{old_path}/"))
         first_leftover = leftovers.first()
         if first_leftover:
-            self._assure_parent_folders(first_leftover.path, instance.created_by, first_leftover.team)
+            created_by = instance.created_by or cast(User, request.user)
+            self._assure_parent_folders(first_leftover.path, created_by, first_leftover.team)
 
         return Response(
             FileSystemSerializer(instance).data,
