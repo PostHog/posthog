@@ -333,6 +333,13 @@ def insight_tiles(*, dashboard_id: int) -> list[DashboardInsightTileSummary]:
     ]
 
 
+def insight_tiles_in_layout_order(*, dashboard_id: int) -> list[DashboardInsightTileSummary]:
+    """`insight_tiles` in the order the dashboard grid shows them. A tile without a position goes last."""
+    return sorted(
+        insight_tiles(dashboard_id=dashboard_id), key=lambda tile: tiles_logic.layout_order_key(tile.id, tile.layouts)
+    )
+
+
 def tile_groups(*, team_id: int, dashboard_id: int) -> list[DashboardTileGroupSummary]:
     """The tile groups of a dashboard that hold a live tile, in the order the dashboard shows them.
 

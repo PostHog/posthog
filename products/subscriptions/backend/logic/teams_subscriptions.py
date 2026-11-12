@@ -1,4 +1,3 @@
-from collections.abc import Mapping
 from typing import Any
 
 from django.conf import settings
@@ -7,6 +6,7 @@ from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.subscriptions.backend.logic.insight_groups import GroupHeadings
 from products.subscriptions.backend.logic.subscription_utils import (
     DEBUG_PLACEHOLDER_IMAGE_URL,
     TRUNCATION_MARKER,
@@ -116,7 +116,7 @@ def build_teams_subscription_card(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
-    group_headings: Mapping[int, str] | None = None,
+    group_headings: GroupHeadings | None = None,
 ) -> dict[str, Any]:
     resource_info = subscription.resource_info
     if not resource_info:

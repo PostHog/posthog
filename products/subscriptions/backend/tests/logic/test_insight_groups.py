@@ -1,5 +1,9 @@
 from products.dashboards.backend.facade.contracts import DashboardInsightTileSummary, DashboardTileGroupSummary
-from products.subscriptions.backend.logic.insight_groups import group_headings_by_asset_id, section_by_tile_group
+from products.subscriptions.backend.logic.insight_groups import (
+    StoredSection,
+    group_headings_by_asset_id,
+    section_by_tile_group,
+)
 
 
 def _tile(tile_id: int, group_key: str | None) -> DashboardInsightTileSummary:
@@ -32,6 +36,6 @@ def test_sections_follow_dashboard_group_order_with_ungrouped_first() -> None:
 
 def test_heading_moves_to_the_next_asset_when_the_first_is_missing() -> None:
     # The group's first chart was cleaned up before delivery.
-    stored = [{"heading": "Revenue", "exported_asset_ids": [2, 3]}]
+    stored = StoredSection.parse_list([{"heading": "Revenue", "exported_asset_ids": [2, 3]}])
 
     assert group_headings_by_asset_id(stored, [3]) == {3: "Revenue"}

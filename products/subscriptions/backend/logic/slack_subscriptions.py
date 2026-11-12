@@ -1,6 +1,5 @@
 import json
 import asyncio
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -23,6 +22,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.slack_app.backend.facade.api import slack_followup_invite, slack_followup_invite_text
+from products.subscriptions.backend.logic.insight_groups import GroupHeadings
 from products.subscriptions.backend.logic.subscription_utils import (
     DEBUG_PLACEHOLDER_IMAGE_URL,
     UTM_TAGS_BASE,
@@ -239,7 +239,7 @@ def _prepare_slack_gallery(
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
     integration: IntegrationRecord | None = None,
-    group_headings: Mapping[int, str] | None = None,
+    group_headings: GroupHeadings | None = None,
 ) -> SlackGallery:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     resource_info = subscription.resource_info
@@ -476,7 +476,7 @@ def _prepare_slack_message(
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
     integration: IntegrationRecord | None = None,
-    group_headings: Mapping[int, str] | None = None,
+    group_headings: GroupHeadings | None = None,
 ) -> SlackMessage:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -751,7 +751,7 @@ async def send_slack_message_with_integration_async(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
-    group_headings: Mapping[int, str] | None = None,
+    group_headings: GroupHeadings | None = None,
 ) -> SlackDeliveryResult:
     if subscription.delivery_config.get("post_all_insights_in_main_message"):
         gallery = await database_sync_to_async(_prepare_slack_gallery, thread_sensitive=False)(

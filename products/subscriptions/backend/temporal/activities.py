@@ -34,11 +34,13 @@ from products.subscriptions.backend.logic.failure_notifications import (
     send_subscription_delivery_failure_email,
 )
 from products.subscriptions.backend.logic.insight_groups import (
-    INSIGHT_GROUPS_SNAPSHOT_KEY,
+    SECTIONS_SNAPSHOT_KEY,
+    GroupHeadings,
     InsightSection,
+    StoredSection,
     group_headings_by_asset_id,
     section_by_tile_group,
-    snapshot_sections,
+    stored_sections,
     tile_group_sections_enabled,
 )
 from products.subscriptions.backend.logic.slack_subscriptions import send_slack_message_with_integration_async
@@ -106,10 +108,7 @@ class ResolvedExportableInsights:
 def _insight_tiles_in_layout_order(
     *, team_id: int, dashboard_id: int
 ) -> list[tuple[DashboardInsightTileSummary | None, Insight]]:
-    tiles = sorted(
-        dashboards_api.insight_tiles(dashboard_id=dashboard_id),
-        key=lambda tile: (tile.layouts.get("sm", {}).get("y", 100), tile.layouts.get("sm", {}).get("x", 100)),
-    )
+    tiles = dashboards_api.insight_tiles_in_layout_order(dashboard_id=dashboard_id)
     insights = {
         insight.id: insight
         for insight in insights_including_soft_deleted_for_team(
@@ -190,7 +189,7 @@ async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedEx
 async def _tile_group_sections(
     subscription: Subscription,
     tile_insight_pairs: list[tuple[DashboardInsightTileSummary | None, Insight]],
-) -> list[InsightSection]:
+) -> list[InsightSection[Insight]]:
     if subscription.dashboard_id is None or not any(tile and tile.group_key for tile, _ in tile_insight_pairs):
         return []
     owner = subscription.created_by
@@ -211,7 +210,7 @@ async def _persist_content_snapshot(
     delivery_id: uuid.UUID,
     total_insight_count: int,
     insight_snapshots: list[dict[str, typing.Any]],
-    insight_groups: list[dict[str, typing.Any]] | None = None,
+    sections: list[StoredSection] | None = None,
 ) -> int:
     """Merge insight snapshots onto SubscriptionDelivery.content_snapshot.
 
@@ -232,10 +231,10 @@ async def _persist_content_snapshot(
             "insights": insight_snapshots,
         }
         # A retried export can find no sections where the first attempt found some.
-        if insight_groups is None:
-            delivery.content_snapshot.pop(INSIGHT_GROUPS_SNAPSHOT_KEY, None)
+        if sections is None:
+            delivery.content_snapshot.pop(SECTIONS_SNAPSHOT_KEY, None)
         else:
-            delivery.content_snapshot[INSIGHT_GROUPS_SNAPSHOT_KEY] = insight_groups
+            delivery.content_snapshot[SECTIONS_SNAPSHOT_KEY] = [section.to_dict() for section in sections]
         delivery.save(update_fields=["content_snapshot", "last_updated_at"])
 
     await _merge()
@@ -385,10 +384,12 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         )
 
     sections = await _tile_group_sections(subscription, tile_insight_pairs)
-    if sections:
-        tile_insight_pairs = [pair for section in sections for pair in section.items]
-
-    export_pairs = tile_insight_pairs[:max_asset_count]
+    indexed_pairs = (
+        [(index, pair) for index, section in enumerate(sections) for pair in section.items]
+        if sections
+        else [(0, pair) for pair in tile_insight_pairs]
+    )[:max_asset_count]
+    export_pairs = [pair for _index, pair in indexed_pairs]
 
     expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
     assets = [
@@ -426,15 +427,11 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     # query_results can reach multi-MB and will trip Temporal's ~2 MiB payload cap.
     # Standalone callers (tests, management commands) that don't pass delivery_id
     # skip the persist — they don't have a row to write to.
-    insight_groups: list[dict[str, typing.Any]] | None = None
-    if sections:
-        # The export limit can cut off the last sections, which then keep no assets.
-        section_asset_ids: list[list[int]] = []
-        start = 0
-        for section in sections:
-            section_asset_ids.append([asset.id for asset in assets[start : start + len(section.items)]])
-            start += len(section.items)
-        insight_groups = snapshot_sections(sections, section_asset_ids)
+    exported_sections = (
+        stored_sections(sections, [index for index, _pair in indexed_pairs], [asset.id for asset in assets])
+        if sections
+        else None
+    )
 
     target_delivery_id = inputs.delivery_id
     if target_delivery_id is not None:
@@ -442,7 +439,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             delivery_id=target_delivery_id,
             total_insight_count=total_insight_count,
             insight_snapshots=insight_snapshots,
-            insight_groups=insight_groups,
+            sections=exported_sections,
         )
         await LOGGER.ainfo(
             "create_export_assets.content_snapshot_persisted",
@@ -644,19 +641,19 @@ async def _deliver_insight_dashboard_subscription(
     return result
 
 
-async def _group_headings(delivery_id: uuid.UUID | None, assets: list[ExportedAsset]) -> dict[int, str]:
+async def _group_headings(delivery_id: uuid.UUID | None, assets: list[ExportedAsset]) -> GroupHeadings:
     if delivery_id is None:
         return {}
     # Reads only the small sections key, not the multi-MB insight snapshots beside it.
     stored = await database_sync_to_async(
         lambda: (
             SubscriptionDelivery.objects.filter(pk=delivery_id)
-            .values_list(f"content_snapshot__{INSIGHT_GROUPS_SNAPSHOT_KEY}", flat=True)
+            .values_list(f"content_snapshot__{SECTIONS_SNAPSHOT_KEY}", flat=True)
             .first()
         ),
         thread_sensitive=False,
     )()
-    return group_headings_by_asset_id(stored, [asset.id for asset in assets])
+    return group_headings_by_asset_id(StoredSection.parse_list(stored), [asset.id for asset in assets])
 
 
 async def _send_to_target(
@@ -665,7 +662,7 @@ async def _send_to_target(
     assets: list[ExportedAsset],
     recipient_results: list[RecipientResult],
     send_only_to_new_recipients: bool,
-    group_headings: dict[int, str] | None = None,
+    group_headings: GroupHeadings | None = None,
 ) -> DeliverSubscriptionResult:
     """Send the assets over the subscription's channel. Split out so the caller can wrap the one send."""
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:

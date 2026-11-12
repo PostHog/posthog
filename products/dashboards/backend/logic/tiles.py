@@ -90,14 +90,13 @@ def delete_widget_tiles_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(DashboardTile._base_manager.filter(team_id__in=team_ids, widget__isnull=False))
 
 
-def _layout_position(layouts: dict | None) -> tuple[float, float]:
-    sm = (layouts or {}).get("sm")
-    if not isinstance(sm, dict):
-        return (float("inf"), float("inf"))
-    y, x = sm.get("y"), sm.get("x")
+def layout_order_key(tile_id: int, layouts: dict | None) -> tuple[float, float, int]:
+    """Top to bottom, then left to right, as the dashboard grid shows tiles. A tile without a position goes last."""
+    sm = layouts.get("sm") if isinstance(layouts, dict) else None
+    y, x = (sm.get("y"), sm.get("x")) if isinstance(sm, dict) else (None, None)
     if not isinstance(y, int | float) or not isinstance(x, int | float):
-        return (float("inf"), float("inf"))
-    return (y, x)
+        return (float("inf"), float("inf"), tile_id)
+    return (y, x, tile_id)
 
 
 def tile_groups(*, team_id: int, dashboard_id: int) -> list[DashboardTileGroupSummary]:
@@ -119,7 +118,7 @@ def tile_groups(*, team_id: int, dashboard_id: int) -> list[DashboardTileGroupSu
         .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
         .values_list("id", "layouts", "group_key")
     )
-    ordered = sorted(tiles, key=lambda tile: (*_layout_position(tile[1]), tile[0]))
+    ordered = sorted(tiles, key=lambda tile: layout_order_key(tile[0], tile[1]))
 
     counts: dict[str, int] = {}
     for _id, _layouts, group_key in ordered:
