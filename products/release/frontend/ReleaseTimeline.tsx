@@ -28,6 +28,7 @@ import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
 import { CALENDAR_SCALE, LANE, SPAN_LOOK, TOTAL, Track, buildTrack, mergeOverlapping } from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
 import { ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
+import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
 
 const NAME = 300
 const SUMMARY = 60
@@ -172,7 +173,7 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
 export function ReleaseTimeline(): JSX.Element {
     const { filteredRows, dataLoading, releases, flags, scheduledChanges } = useValues(releaseLogic)
     const { expanded, flagActivity } = useValues(releaseCalendarLogic)
-    const { toggleExpanded, loadFlagActivity, refreshFlagActivity } = useActions(releaseCalendarLogic)
+    const { toggleExpanded, loadFlagActivity } = useActions(releaseCalendarLogic)
 
     useEffect(() => {
         const ids = [
@@ -212,20 +213,7 @@ export function ReleaseTimeline(): JSX.Element {
         return steps
     }, [flags, flagActivity, scheduledChanges])
 
-    const seenVersions = useRef(new Map<number, string | null>())
-    useEffect(() => {
-        const changed: number[] = []
-        for (const flag of flags) {
-            const seen = seenVersions.current.get(flag.id)
-            if (seen !== undefined && seen !== flag.updated_at && flagActivity[flag.id]) {
-                changed.push(flag.id)
-            }
-            seenVersions.current.set(flag.id, flag.updated_at)
-        }
-        if (changed.length) {
-            refreshFlagActivity(changed)
-        }
-    }, [flags, flagActivity, refreshFlagActivity])
+    useRefreshChangedFlagHistory(flags)
 
     const state = useMemo(() => ({ expanded, stepsByFlag }), [expanded, stepsByFlag])
 
@@ -236,6 +224,7 @@ export function ReleaseTimeline(): JSX.Element {
         >
             <CalendarStateContext.Provider value={state}>
                 <DataTable
+                    key={filteredRows.length > PAGE_SIZE ? 'paged' : 'single'}
                     columns={COLUMNS}
                     data={filteredRows}
                     size="sm"

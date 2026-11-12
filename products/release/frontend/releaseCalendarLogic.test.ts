@@ -53,6 +53,23 @@ describe('releaseCalendarLogic', () => {
         expect(mockedRetrieve).toHaveBeenCalledTimes(2)
     })
 
+    it('ignores a superseded history response that arrives last', async () => {
+        const resolvers: ((value: unknown) => void)[] = []
+        mockedRetrieve.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)) as never)
+        const logic = releaseCalendarLogic()
+        logic.mount()
+
+        logic.actions.loadFlagActivity([1])
+        logic.actions.refreshFlagActivity([1])
+        const [stale, fresh] = resolvers
+        fresh({ ...PAGE, results: [{ id: 'new' }] })
+        await expectLogic(logic).toFinishAllListeners()
+        stale({ ...PAGE, results: [{ id: 'old' }] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.flagActivity[1]).toEqual([{ id: 'new' }])
+    })
+
     it('keeps at most six history requests in flight across loads', async () => {
         let inFlight = 0
         let peak = 0

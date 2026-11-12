@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import { ReleaseRolloutChart } from './ReleaseRolloutChart'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
 import { FLAG_LANE, Lane, Scale, laneHeight, sendLabel } from './releaseTracks'
@@ -20,7 +22,20 @@ export function ReleaseTrackLane({ lane, color, scale }: { lane: Lane; color: st
                     labelRoom={18}
                     className="!absolute left-0 top-0"
                 />
-            ) : lane.kind === 'broadcast' ? (
+            ) : null}
+            {lane.kind === 'flag' && (
+                <ReleaseTrackMarkers
+                    events={lane.events.filter(
+                        (event) =>
+                            !lane.steps.some(
+                                (step) => step.upcoming && dayjs(step.from).isSame(dayjs(event.date), 'day')
+                            )
+                    )}
+                    scale={scale}
+                    top={2}
+                />
+            )}
+            {lane.kind === 'flag' ? null : lane.kind === 'broadcast' ? (
                 <ReleaseTrackMarkers
                     events={lane.events.map((event) => ({ ...event, title: sendLabel(event) }))}
                     scale={scale}

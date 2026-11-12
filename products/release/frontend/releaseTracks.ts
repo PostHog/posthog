@@ -54,6 +54,7 @@ export type Lane =
           status: string
           live: boolean
           steps: RolloutStep[]
+          events: ReleaseEvent[]
           span: ReleaseSpan
           href: string
       }
@@ -92,6 +93,9 @@ export function buildTrack(row: ReleaseRow, stepsByFlag: Map<number, RolloutStep
             status: flag.active ? 'Live' : 'Off',
             live: !!flag.active,
             steps: stepsByFlag.get(flag.id) ?? [],
+            events: row.events.filter(
+                (event) => event.kind === 'schedule' && event.upcoming && event.href === urls.featureFlag(flag.id)
+            ),
             span: {
                 key: `flag-span-${flag.id}`,
                 kind: 'flag',

@@ -92,11 +92,17 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
             while (cache.running < ACTIVITY_CONCURRENCY && cache.queue.length) {
                 const flagId: number = cache.queue.shift()
                 const signal: AbortSignal = cache.controller.signal
+                const generation: number = cache.generations.get(flagId)
                 cache.running += 1
                 fetchHistory(flagId, signal)
-                    .then((entries) => !signal.aborted && actions.setFlagActivity(flagId, entries))
+                    .then(
+                        (entries) =>
+                            !signal.aborted &&
+                            cache.generations.get(flagId) === generation &&
+                            actions.setFlagActivity(flagId, entries)
+                    )
                     .catch(() => {
-                        if (!signal.aborted) {
+                        if (!signal.aborted && cache.generations.get(flagId) === generation) {
                             cache.requested.delete(flagId)
                             actions.setFlagActivityFailed(flagId)
                         }
@@ -120,6 +126,7 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
                 cache.requested = cache.requested ?? new Set<number>()
                 cache.queue = cache.queue ?? []
                 cache.running = cache.running ?? 0
+                cache.generations = cache.generations ?? new Map<number, number>()
                 if (!cache.controller) {
                     cache.disposables.add(
                         () => {
@@ -137,6 +144,7 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
                 for (const flagId of flagIds) {
                     if (!cache.requested.has(flagId)) {
                         cache.requested.add(flagId)
+                        cache.generations.set(flagId, (cache.generations.get(flagId) ?? 0) + 1)
                         cache.queue.push(flagId)
                     }
                 }
