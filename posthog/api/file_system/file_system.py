@@ -576,14 +576,18 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return self._visible_files(queryset)
 
     def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
-        queryset = self._filter_by_product_visibility(queryset)
+        return self._filter_by_access(
+            self._filter_by_product_visibility(queryset), workflow_files_enabled=self._workflow_files_enabled
+        )
+
+    def _filter_by_access(self, queryset: QuerySet, *, workflow_files_enabled: bool) -> QuerySet:
         queryset = keep_workflow_files_in_scoped_teams(queryset, self.request.successful_authenticator)
         if not self.user_access_control:
             return queryset
         accessible_team_ids = self._accessible_team_ids
         if accessible_team_ids is not None:
             queryset = queryset.filter(team_id__in=accessible_team_ids)
-        if not self._workflow_files_enabled:
+        if not workflow_files_enabled:
             return self.user_access_control.filter_and_annotate_file_system_queryset(
                 queryset, extra_denied_refs=self._denied_short_id_refs
             )
@@ -1911,8 +1915,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _without_hidden_workflow_files(self, leftovers: QuerySet) -> QuerySet:
         """Leftovers of a folder write that may get their parent folders back. A folder filed for a workflow or
-        template file the caller cannot read would show the caller that file's path, so those files get none."""
-        readable = self._filter_by_access_control(leftovers.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES))
+        template file the caller cannot read would show the caller that file's path, so those files get none.
+        A file the flag hides from the caller is still one the caller can read, so it keeps its folder."""
+        readable = self._filter_by_access(
+            leftovers.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES), workflow_files_enabled=True
+        )
         return leftovers.exclude(Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) & ~Q(pk__in=readable.values("pk")))
 
     def _assure_parent_folders(self, path: str, created_by: User, team: Team | None = None) -> None:

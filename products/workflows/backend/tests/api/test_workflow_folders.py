@@ -1117,6 +1117,30 @@ class TestWorkflowFolders(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "Unfiled"})
         self.assertEqual([entry["path"] for entry in response.json()["results"]], ["Unfiled"])
 
+    @parameterized.expand(
+        [
+            ("recursive_delete", "delete", "?recursive=true", None, 204),
+            ("folder_move", "post", "move/", {"new_path": "Archive/Campaigns"}, 200),
+        ]
+    )
+    def test_a_folder_change_with_the_flag_off_keeps_the_folder_of_the_files_it_hides(
+        self, _name: str, method: str, suffix: str, payload: dict | None, expected_status: int
+    ) -> None:
+        self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Hidden email", "type": "email", "_create_in_folder": "Campaigns"},
+            format="json",
+        )
+        folder = FileSystem.objects.create(team=self.team, path="Campaigns", depth=1, type="folder")
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/file_system/{folder.id}/{suffix}", payload, format="json"
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        paths = {row["path"] for row in self.client.get(f"/api/projects/{self.team.id}/file_system/").json()["results"]}
+        self.assertLessEqual({"Campaigns", "Campaigns/Hidden email"}, paths)
+
     @parameterized.expand([("list_v2_on", True), ("list_v2_off", False)])
     def test_a_template_placement_is_its_own_file_whether_or_not_the_tree_shows_it(self, _name, enabled) -> None:
         templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
