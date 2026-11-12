@@ -1,0 +1,42 @@
+import type { DriveSummary } from '../generator/generator'
+import type { Convergence, InvariantResult } from '../judge/judge'
+
+export type Status = 'passed' | 'failed' | 'invalid'
+
+export const EXIT_CODE = { passed: 0, failed: 1, invalid: 2 } as const
+
+export type Verdict = {
+    minOffered: number
+    units: DriveSummary
+    down: string[]
+    convergence: Convergence
+    invariants: InvariantResult[]
+}
+
+export function statusOf({ minOffered, units, down, convergence, invariants }: Verdict): {
+    status: Status
+    statusReason: string
+} {
+    if (down.length > 0) {
+        return { status: 'invalid', statusReason: `dependencies went away: ${down.join(', ')}` }
+    }
+    if (units.targetUnits === 0 || units.offeredUnits < minOffered * units.targetUnits) {
+        return {
+            status: 'invalid',
+            statusReason: `the generator offered ${units.offeredUnits} of ${units.targetUnits} units, under minOffered ${minOffered}`,
+        }
+    }
+    const reasons = [
+        ...(convergence.converged
+            ? []
+            : [
+                  `not converged: ${convergence.unfinishedJobs} unfinished jobs, ${convergence.unrecorded.length} units without a delivery record`,
+              ]),
+        ...invariants
+            .filter(({ passed }) => !passed)
+            .map(({ name, violation }) => `${name} failed${violation ? `: ${violation}` : ''}`),
+    ]
+    return reasons.length > 0
+        ? { status: 'failed', statusReason: reasons.join('; ') }
+        : { status: 'passed', statusReason: 'every invariant held' }
+}
