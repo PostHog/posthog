@@ -58,6 +58,7 @@ import { createTeam, getFirstTeam, resetBehavioralCohortsDatabase, resetTestData
 import { Hub, Team } from '../../src/types'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
+import { StoredFile, attachmentStoreConfig, uploadAttachment } from './_tests/email-delivery-fakes'
 import { HOG_FILTERS_EXAMPLES, HOG_FLOW_MASK_EXAMPLES } from './_tests/examples'
 import { startFakeSes } from './_tests/fake-ses'
 import {
@@ -3827,6 +3828,109 @@ describe('Workflows E2E (email queue)', () => {
                 await ses.close()
                 await preferencesPage.close()
             }
+        })
+
+        const withFilesThroughSes = async (
+            run: (ses: Awaited<ReturnType<typeof startFakeSes>>, invoice: StoredFile) => Promise<void>
+        ): Promise<void> => {
+            const ses = await startFakeSes({
+                [hub.SES_TRACKED_CONFIGURATION_SET]: { tracking: true },
+                [hub.SES_UNTRACKED_CONFIGURATION_SET]: { tracking: false },
+            })
+            const { SES_ENDPOINT, CDP_EMAIL_ATTACHMENTS_TEAMS, CDP_EMAIL_ATTACHMENTS_S3_PREFIX } = hub
+            try {
+                hub.SES_ENDPOINT = ses.endpoint
+                hub.CDP_EMAIL_ATTACHMENTS_TEAMS = `${team.id}`
+                hub.CDP_EMAIL_ATTACHMENTS_S3_PREFIX = attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_PREFIX
+                await insertIntegration(hub.postgres, team.id, {
+                    id: 2,
+                    kind: 'email',
+                    config: {
+                        email: 'sender@posthog.com',
+                        name: 'Test Sender',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                await run(ses, await uploadAttachment(team.id, { filename: 'invoice.pdf' }))
+            } finally {
+                hub.SES_ENDPOINT = SES_ENDPOINT
+                hub.CDP_EMAIL_ATTACHMENTS_TEAMS = CDP_EMAIL_ATTACHMENTS_TEAMS
+                hub.CDP_EMAIL_ATTACHMENTS_S3_PREFIX = CDP_EMAIL_ATTACHMENTS_S3_PREFIX
+                await ses.close()
+            }
+        }
+
+        const postWithFile = async (
+            flow: HogFlow,
+            to: string,
+            category: { id: string; type: 'marketing' | 'transactional' },
+            invoice: StoredFile
+        ) => {
+            let res: Awaited<ReturnType<typeof post>> | undefined
+            await withOtherPod(async (pod) => {
+                res = await post(
+                    'code',
+                    flow,
+                    {
+                        to,
+                        distinct_id: 'reader',
+                        send: {
+                            ...codeSend(category),
+                            from: { integrationId: 2, email: 'sender@posthog.com' },
+                            attachments: [
+                                {
+                                    sha256: invoice.metadata.sha256,
+                                    filename: 'invoice.pdf',
+                                    content_type: 'application/pdf',
+                                },
+                            ],
+                        },
+                    },
+                    pod
+                )
+            })
+            return res!
+        }
+
+        it('refuses a code send with a file in a marketing category from a transactional step, since sending limits can hold it past its files', async () => {
+            await withFilesThroughSes(async (ses, invoice) => {
+                const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+                const to = `reader-${new UUIDT().toString()}@example.com`
+
+                const res = await postWithFile(flow, to, newsletter, invoice)
+
+                expect(res.status).toEqual(400)
+                expect(res.body.error).toEqual('workflow_can_wait')
+                expect(await queryCyclotronJobs()).toEqual([])
+                expect(ses.sent).toEqual([])
+            })
+        })
+
+        it('delivers the file of a code send in a transactional category from a marketing step to a recipient who opted out of all marketing', async () => {
+            await withFilesThroughSes(async (ses, invoice) => {
+                const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'marketing'))
+                const to = `buyer-${new UUIDT().toString()}@example.com`
+                await optOut(to, '$all')
+
+                const res = await postWithFile(flow, to, receipts, invoice)
+                expect(res.status).toEqual(202)
+                await deliver(createCdpConsumerDeps(hub, kafkaProducer))
+
+                expect(ses.sent.map((email) => email.to)).toEqual([[to]])
+                const [email] = ses.sent
+                expect(email.attachments).toEqual([
+                    {
+                        filename: 'invoice.pdf',
+                        contentType: 'application/pdf',
+                        contentId: undefined,
+                        inline: false,
+                        bytes: invoice.bytes,
+                    },
+                ])
+                expect(email.tags).not.toHaveProperty('ph_marketing')
+            })
         })
 
         it.each<ApiSend & { status: number; error?: string }>([
