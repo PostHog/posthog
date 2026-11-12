@@ -57,30 +57,22 @@ export function revokePostHogAIAccess(): void {
 }
 let cachedFlagsProxy: FeatureFlagsSet | null = null
 
-export function deriveFeatureFlags(flags: FeatureFlagsSet, posthogAiAccess: boolean | undefined): FeatureFlagsSet {
-    const derived = { ...flags }
-    // PostHog AI 2.0 follows the server's access gate, which also admits beta orgs, so a denied user never sees 2.0 UI.
-    if (posthogAiAccess !== undefined) {
-        derived[FEATURE_FLAGS.PHAI_SANDBOX_MODE] = posthogAiAccess
-    }
-    // The nav switch changes `today-rail-nav` locally, before the server re-evaluates `scene-menu-bar`.
-    if (derived[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
-        derived[FEATURE_FLAGS.SCENE_MENU_BAR] = true
-    }
-    return derived
-}
-
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     const appContext = getAppContext()
     const persistedFlags = getPersistedFeatureFlags(appContext)
-    const mergedFlags =
+    const availableFlags =
         areClientFeatureFlagsHonored(appContext?.preflight ?? null) || process.env.NODE_ENV === 'test'
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
-    const availableFlags = deriveFeatureFlags(
-        mergedFlags,
-        posthogAiAccessRevoked ? false : appContext?.posthog_ai_access
-    )
+    // PostHog AI 2.0 follows the server's access gate, which also admits beta orgs, so a denied user never sees 2.0 UI.
+    const posthogAiAccess = posthogAiAccessRevoked ? false : appContext?.posthog_ai_access
+    if (posthogAiAccess !== undefined) {
+        availableFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE] = posthogAiAccess
+    }
+    // The nav switch changes `today-rail-nav` locally, before the server re-evaluates `scene-menu-bar`.
+    if (availableFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+        availableFlags[FEATURE_FLAGS.SCENE_MENU_BAR] = true
+    }
 
     const serialized = JSON.stringify(availableFlags)
     if (serialized === cachedFlagsSerialized && cachedFlagsProxy) {
