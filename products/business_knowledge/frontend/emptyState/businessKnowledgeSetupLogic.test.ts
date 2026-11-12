@@ -30,7 +30,7 @@ describe('businessKnowledgeSetupLogic', () => {
         [1, [], 'has-data'],
         [9, [], 'has-data'],
         [0, ['example/docs'], 'has-data'],
-        [0, null, 'needs-setup'],
+        [0, null, 'unknown'],
     ])('pushes %i sources and repositories %j as status %s', async (count, repos, expected) => {
         listSpy.mockResolvedValue({ count, next: null, previous: null, results: [] })
         if (repos) {

@@ -24,9 +24,13 @@ export const businessKnowledgeSetupLogic = createSetupDetectionLogic({
         if (response.count > 0) {
             return 'has-data'
         }
-        // The source count already answered, so a failed repository check must not fail detection open.
+        // A failed check is not an empty answer: `needs-setup` would lock a repository-only project out
+        // of Libraries and clear its cached answer, while `null` keeps the factory's fail-open behavior.
         const connection = await businessKnowledgeRepositoriesStatusRetrieve(projectId).catch(() => null)
-        return connection?.connected && connection.repos.length > 0 ? 'has-data' : 'needs-setup'
+        if (!connection) {
+            return null
+        }
+        return connection.connected && connection.repos.length > 0 ? 'has-data' : 'needs-setup'
     },
     recheckActionTypes: () => [
         businessKnowledgeLogic.actionTypes.submitTextSourceSuccess,
