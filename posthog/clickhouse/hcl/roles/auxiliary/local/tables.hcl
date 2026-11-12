@@ -106,5 +106,15 @@ database "posthog" {
       thread_per_consumer = true
     }
   }
+  patch_table "kafka_property_values_daily" {
+    engine "kafka" {
+      collection          = "warpstream_ingestion"
+      topic_list          = "clickhouse_property_values"
+      group_name          = "clickhouse_property_values_daily"
+      format              = "JSONEachRow"
+      num_consumers       = 1
+      thread_per_consumer = true
+    }
+  }
 
 }

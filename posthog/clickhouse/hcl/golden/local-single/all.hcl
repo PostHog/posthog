@@ -4494,6 +4494,32 @@ database "posthog" {
     }
   }
 
+  table "kafka_property_values_daily" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "property_type" {
+      type = "LowCardinality(String)"
+    }
+    column "property_key" {
+      type = "String"
+    }
+    column "property_value" {
+      type = "String"
+    }
+    column "property_count" {
+      type = "UInt64"
+    }
+    engine "kafka" {
+      collection          = "warpstream_ingestion"
+      topic_list          = "clickhouse_property_values"
+      group_name          = "clickhouse_property_values_daily"
+      format              = "JSONEachRow"
+      num_consumers       = 1
+      thread_per_consumer = true
+    }
+  }
+
   table "kafka_session_replay_events" {
     column "session_id" {
       type = "String"
@@ -9135,6 +9161,60 @@ SQL
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.property_values"
       replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "property_values_daily" {
+    order_by     = ["team_id", "property_type", "property_key", "property_value"]
+    partition_by = "day"
+    ttl          = "day + toIntervalDay(7)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "property_type" {
+      type = "LowCardinality(String)"
+    }
+    column "property_key" {
+      type = "LowCardinality(String)"
+    }
+    column "property_value" {
+      type = "String"
+    }
+    column "day" {
+      type    = "Date"
+      default = "toDate(now())"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.property_values_daily"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "property_values_daily_distributed" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "property_type" {
+      type = "LowCardinality(String)"
+    }
+    column "property_key" {
+      type = "LowCardinality(String)"
+    }
+    column "property_value" {
+      type = "String"
+    }
+    column "day" {
+      type    = "Date"
+      default = "toDate(now())"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "property_values_daily"
     }
   }
 
@@ -24711,6 +24791,35 @@ SQL
     }
     column "_offset" {
       type = "UInt64"
+    }
+  }
+
+  materialized_view "property_values_daily_mv" {
+    to_table = "posthog.property_values_daily"
+    query    = <<SQL
+SELECT
+  team_id,
+  property_type,
+  property_key,
+  property_value,
+  toDate(coalesce(_timestamp, now())) AS day
+FROM posthog.kafka_property_values_daily
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "property_type" {
+      type = "LowCardinality(String)"
+    }
+    column "property_key" {
+      type = "String"
+    }
+    column "property_value" {
+      type = "String"
+    }
+    column "day" {
+      type = "Date"
     }
   }
 

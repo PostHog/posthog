@@ -1,6 +1,11 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_PROPERTY_VALUES, kafka_engine, kafka_num_consumers
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_PROPERTY_VALUES,
+    CONSUMER_GROUP_PROPERTY_VALUES_DAILY,
+    kafka_engine,
+    kafka_num_consumers,
+)
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_PROPERTY_VALUES
 
@@ -8,6 +13,11 @@ TABLE_NAME = "property_values"
 KAFKA_TABLE_NAME = f"kafka_{TABLE_NAME}"
 MV_NAME = f"{TABLE_NAME}_mv"
 DISTRIBUTED_TABLE_NAME = f"{TABLE_NAME}_distributed"
+
+DAILY_TABLE_NAME = "property_values_daily"
+KAFKA_DAILY_TABLE_NAME = f"kafka_{DAILY_TABLE_NAME}"
+DAILY_MV_NAME = f"{DAILY_TABLE_NAME}_mv"
+DISTRIBUTED_DAILY_TABLE_NAME = f"{DAILY_TABLE_NAME}_distributed"
 
 # The Kafka message schema: pre-processed rows from the property-values aggregator.
 # Each message is one (team_id, property_type, property_key, property_value)
@@ -55,16 +65,20 @@ SETTINGS
     )
 
 
-def KAFKA_PROPERTY_VALUES_TABLE_SQL_FN() -> str:
+def _kafka_property_values_table_sql(table_name: str, group: str) -> str:
     return KAFKA_PROPERTY_VALUES_TABLE_SQL.format(
-        table_name=KAFKA_TABLE_NAME,
+        table_name=table_name,
         num_consumers=kafka_num_consumers(8),
         engine=kafka_engine(
             topic=KAFKA_CLICKHOUSE_PROPERTY_VALUES,
-            group=CONSUMER_GROUP_PROPERTY_VALUES,
+            group=group,
             named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
         ),
     )
+
+
+def KAFKA_PROPERTY_VALUES_TABLE_SQL_FN() -> str:
+    return _kafka_property_values_table_sql(KAFKA_TABLE_NAME, CONSUMER_GROUP_PROPERTY_VALUES)
 
 
 def DROP_KAFKA_PROPERTY_VALUES_TABLE_SQL() -> str:
@@ -103,4 +117,61 @@ def DISTRIBUTED_PROPERTY_VALUES_TABLE_SQL() -> str:
             cluster=settings.CLICKHOUSE_AUX_CLUSTER,
         ),
         extra_fields="",
+    )
+
+
+PROPERTY_VALUES_DAILY_TABLE_BASE_SQL = """
+CREATE TABLE IF NOT EXISTS {table_name}
+(
+    `team_id` Int64,
+    `property_type` LowCardinality(String),
+    `property_key` LowCardinality(String),
+    `property_value` String,
+    `day` Date DEFAULT toDate(now())
+) ENGINE = {engine}
+"""
+
+
+def PROPERTY_VALUES_DAILY_TABLE_SQL() -> str:
+    return (
+        PROPERTY_VALUES_DAILY_TABLE_BASE_SQL
+        + """
+PARTITION BY day
+ORDER BY (team_id, property_type, property_key, property_value)
+TTL day + INTERVAL 7 DAY DELETE
+SETTINGS
+    index_granularity = 8192,
+    ttl_only_drop_parts = 1
+"""
+    ).format(
+        table_name=DAILY_TABLE_NAME,
+        engine=AggregatingMergeTree(DAILY_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED),
+    )
+
+
+def KAFKA_PROPERTY_VALUES_DAILY_TABLE_SQL() -> str:
+    return _kafka_property_values_table_sql(KAFKA_DAILY_TABLE_NAME, CONSUMER_GROUP_PROPERTY_VALUES_DAILY)
+
+
+def PROPERTY_VALUES_DAILY_MV_SQL() -> str:
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {DAILY_MV_NAME}
+TO {DAILY_TABLE_NAME}
+AS SELECT
+    team_id,
+    property_type,
+    property_key,
+    property_value,
+    toDate(coalesce(_timestamp, now())) as day
+FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_DAILY_TABLE_NAME}
+"""
+
+
+def DISTRIBUTED_PROPERTY_VALUES_DAILY_TABLE_SQL() -> str:
+    return PROPERTY_VALUES_DAILY_TABLE_BASE_SQL.format(
+        table_name=DISTRIBUTED_DAILY_TABLE_NAME,
+        engine=Distributed(
+            data_table=DAILY_TABLE_NAME,
+            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+        ),
     )

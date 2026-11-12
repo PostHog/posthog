@@ -280,6 +280,13 @@ CREATE TABLE posthog.kafka_property_values (
   property_value String,
   property_count UInt64
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_property_values', kafka_num_consumers = 1, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_property_values';
+CREATE TABLE posthog.kafka_property_values_daily (
+  team_id Int64,
+  property_type LowCardinality(String),
+  property_key String,
+  property_value String,
+  property_count UInt64
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_property_values_daily', kafka_num_consumers = 1, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_property_values';
 CREATE TABLE posthog.log_entries_data (
   team_id UInt64,
   log_source LowCardinality(String),
@@ -382,6 +389,20 @@ CREATE TABLE posthog.property_values (
   last_seen SimpleAggregateFunction(max, DateTime) DEFAULT now(),
   INDEX idx_property_value_ngrambf lower(property_value) TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.property_values', '{replica}-{shard}') ORDER BY (team_id, property_type, property_key, property_value) TTL last_seen + toIntervalDay(30) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.property_values_daily (
+  team_id Int64,
+  property_type LowCardinality(String),
+  property_key LowCardinality(String),
+  property_value String,
+  day Date DEFAULT toDate(now())
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.property_values_daily', '{replica}-{shard}') ORDER BY (team_id, property_type, property_key, property_value) PARTITION BY day TTL day + toIntervalDay(7) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.property_values_daily_distributed (
+  team_id Int64,
+  property_type LowCardinality(String),
+  property_key LowCardinality(String),
+  property_value String,
+  day Date DEFAULT toDate(now())
+) ENGINE = Distributed('aux', 'posthog', 'property_values_daily');
 CREATE TABLE posthog.property_values_distributed (
   team_id Int64 CODEC(DoubleDelta, ZSTD(1)),
   property_type LowCardinality(String),
@@ -1610,6 +1631,13 @@ SELECT
   lc.estimated_bytes AS lc_estimated_bytes
 FROM system.query_log AS ql
 WHERE ql.type != 'QueryStart';
+CREATE MATERIALIZED VIEW posthog.property_values_daily_mv TO posthog.property_values_daily (team_id Int64, property_type LowCardinality(String), property_key String, property_value String, day Date) AS SELECT
+  team_id,
+  property_type,
+  property_key,
+  property_value,
+  toDate(coalesce(_timestamp, now())) AS day
+FROM posthog.kafka_property_values_daily;
 CREATE MATERIALIZED VIEW posthog.property_values_mv TO posthog.property_values (team_id Int64, property_type LowCardinality(String), property_key String, property_value String, property_count UInt64, last_seen DateTime) AS SELECT
   team_id,
   property_type,

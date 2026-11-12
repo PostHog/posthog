@@ -117,6 +117,31 @@ database "posthog" {
       thread_per_consumer = true
     }
   }
+  table "kafka_property_values_daily" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "property_type" {
+      type = "LowCardinality(String)"
+    }
+    column "property_key" {
+      type = "String"
+    }
+    column "property_value" {
+      type = "String"
+    }
+    column "property_count" {
+      type = "UInt64"
+    }
+    engine "kafka" {
+      collection          = "warpstream_ingestion"
+      topic_list          = "clickhouse_property_values"
+      group_name          = "clickhouse_property_values_daily"
+      format              = "JSONEachRow"
+      num_consumers       = 8
+      thread_per_consumer = true
+    }
+  }
   table "message_assets_data" {
     order_by     = ["team_id", "function_kind", "function_id", "invocation_id", "action_id"]
     partition_by = "toYYYYMMDD(sent_at)"
@@ -243,6 +268,35 @@ database "posthog" {
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.property_values"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+  table "property_values_daily" {
+    order_by     = ["team_id", "property_type", "property_key", "property_value"]
+    partition_by = "day"
+    ttl          = "day + toIntervalDay(7)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "property_type" {
+      type = "LowCardinality(String)"
+    }
+    column "property_key" {
+      type = "LowCardinality(String)"
+    }
+    column "property_value" {
+      type = "String"
+    }
+    column "day" {
+      type    = "Date"
+      default = "toDate(now())"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.property_values_daily"
       replica_name = "{replica}-{shard}"
     }
   }
@@ -898,6 +952,26 @@ database "posthog" {
     }
     column "_partition" {
       type = "UInt64"
+    }
+  }
+  materialized_view "property_values_daily_mv" {
+    to_table = "posthog.property_values_daily"
+    query    = file("sql/property_values_daily_mv.sql")
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "property_type" {
+      type = "LowCardinality(String)"
+    }
+    column "property_key" {
+      type = "String"
+    }
+    column "property_value" {
+      type = "String"
+    }
+    column "day" {
+      type = "Date"
     }
   }
   materialized_view "property_values_mv" {
