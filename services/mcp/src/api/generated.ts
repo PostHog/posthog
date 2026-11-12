@@ -53448,6 +53448,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `posthog-js` - posthog-js
+     * * `none` - None
+     */
+    export type TypeScriptSDKEnum = typeof TypeScriptSDKEnum[keyof typeof TypeScriptSDKEnum];
+
+
+    export const TypeScriptSDKEnum = {
+      PosthogJs: 'posthog-js',
+      None: 'none',
+    } as const;
+
+    export interface GeneratedDefinitions {
+      /** The generated module, ready to write to a file. */
+      content: string;
+      /** How many events the module types. */
+      event_count: number;
+      /** A hash of the event schemas and generator version. It changes when the module would change. */
+      schema_hash: string;
+      /** The version of the generator that wrote the module. */
+      generator_version: string;
+      /** TypeScript only: the SDK the module wraps. Clients check it to detect a PostHog that ignores `sdk`.
+       *
+       * * `posthog-js` - posthog-js
+       * * `none` - None */
+      sdk?: TypeScriptSDKEnum;
+    }
+
+    /**
      * * `initial` - initial
      * * `regenerate` - regenerate
      * * `improve` - improve
@@ -133694,6 +133722,25 @@ export namespace Schemas {
      */
     names?: string[];
     };
+
+    export type EventDefinitionsTypescriptRetrieveParams = {
+    /**
+     * The SDK the module wraps. `posthog-js` exports a typed posthog-js instance. `none` exports only the event types, with no imports, for any other SDK.
+     *
+     * * `posthog-js` - posthog-js
+     * * `none` - None
+     * @minLength 1
+     */
+    sdk?: EventDefinitionsTypescriptRetrieveSdk;
+    };
+
+    export type EventDefinitionsTypescriptRetrieveSdk = typeof EventDefinitionsTypescriptRetrieveSdk[keyof typeof EventDefinitionsTypescriptRetrieveSdk];
+
+
+    export const EventDefinitionsTypescriptRetrieveSdk = {
+      PosthogJs: 'posthog-js',
+      None: 'none',
+    } as const;
 
     export type EventSchemasListParams = {
     /**
