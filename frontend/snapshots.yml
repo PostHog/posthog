@@ -8478,6 +8478,22 @@ snapshots:
         hash: v1.k794b7964.2be0596eea5d943ea5154d78d076fb1ae33583f6d1a82bd61b23e91807004a6c.c2JSeWbl54pOJlq8Zu3slJG20JJVq25E1D9JX4yn8rw
     products-web-analytics-content-autopilot-sources--with-research-notes--light:
         hash: v1.k794b7964.2b00d07a8309e97b1db2efbeab13f07f9322b1f00469022426334f630e26f7e4.BsB6fMyHEZzCEBAtZJr3IZa8IJHJQOt_lwYHaMypv3A
+    products-web-analytics-content-autopilot-suggest-keywords--failed--dark:
+        hash: v1.k794b7964.628e963dd845b29ff5e7453527b56e471130ddf6b557e7e8271d732242e37813.R2ruBIhdEtNoUnwvpk6Nz9YG4YQIyYjJxtkE0v1QauQ
+    products-web-analytics-content-autopilot-suggest-keywords--failed--light:
+        hash: v1.k794b7964.c8482e936d4e998d1408cab63befca5d4dd86ddbcb3539cad6e415afd898fd15.DhoLrnY57laOoxnFMNNfgwMIDElO_5mVZD5ODG4Cio0
+    products-web-analytics-content-autopilot-suggest-keywords--form--dark:
+        hash: v1.k794b7964.c7452d5b8c2f5812d0525a8574a8be1068bc8a13a6ae5ed2159f7246b654b0f5.MPYn9QG3fs_yFgkd48QMdAqBu1c2qCRSm-RAe_GrKy8
+    products-web-analytics-content-autopilot-suggest-keywords--form--light:
+        hash: v1.k794b7964.5f4d6ca27f046163ccac42a05e9b8b2fcaf112f52a6d44e49a99ce8f7cd49a46.6B3HB2CIUliChCdIbuVfzKOuA7-1nwZdmVFmJKBt2vI
+    products-web-analytics-content-autopilot-suggest-keywords--review--dark:
+        hash: v1.k794b7964.b5143dea9432c8abfc408611647483bcdbcbaffe87e719cad7fb3c6d4671965e.TnIGxhYlVXZoh53YUHbPQ4Y3duJMiSSx9vIrR45XLlo
+    products-web-analytics-content-autopilot-suggest-keywords--review--light:
+        hash: v1.k794b7964.ea77772082232426f6c0747dc0834bfbeacdf5e404bbeaa22e4c099e14ab047d.jMr1UzhEN3EjxzNzj8wBjd4tm5BfWOSGYc1JryCN3x8
+    products-web-analytics-content-autopilot-suggest-keywords--working--dark:
+        hash: v1.k794b7964.4953ada94f409772d092d2163a21b37ff1b0d097f11d93d6ade3f577b3df7371.kCX1WSxIQgrPnBpYaOUacx2lSJhLRCdwE1d7QuOYKgc
+    products-web-analytics-content-autopilot-suggest-keywords--working--light:
+        hash: v1.k794b7964.b3a588ae11f16b001071ff8f2741b6585ecd44b3256df1e096dabc5d922d386d.N0i9Ww4CIIgGbbZjpDJtRjDA4GfTVmd0g3yYz2QIGX0
     products-web-analytics-content-autopilot-validation-summary--could-not-draft--dark:
         hash: v1.k794b7964.0346e971e925e9cc9e5eda113570520eae42f5806f5f6ece4e96cd403f78deef.H-TcmAsWmz8HVNF4BV9Thcrlt4K6pkep-H6fBlzN3YM
     products-web-analytics-content-autopilot-validation-summary--could-not-draft--light:
