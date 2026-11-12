@@ -26,6 +26,7 @@ RUNNING_CONTEXT = HealthContext(
     archived=False,
     team_timezone="Europe/Berlin",
     flag=None,
+    can_read_flag_calls=True,
     flag_called=None,
     flag_called_during_run=None,
     flag_called_after_end=None,
