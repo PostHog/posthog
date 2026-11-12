@@ -986,7 +986,9 @@ export const EngineEnumApi = {
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
+    /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
     enabled?: boolean
+    /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
     include_invoiceless_charges?: boolean
 }
 
@@ -1587,6 +1589,13 @@ export interface ExternalDataJobSerializersApi {
 export interface CdcResumeResponseApi {
     /** Whether the extraction schedule was unpaused. */
     success: boolean
+}
+
+export interface PatchedExternalDataSourceRevenueAnalyticsConfigApi {
+    /** Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed. */
+    enabled?: boolean
+    /** Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices. */
+    include_invoiceless_charges?: boolean
 }
 
 export interface CdcUpdateSettingsRequestApi {
