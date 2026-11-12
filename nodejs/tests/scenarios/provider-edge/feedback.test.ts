@@ -198,11 +198,14 @@ describe('provider edge SES feedback', () => {
         const throttle = { name: 'ses.throttle', params: { rate: 1 } }
         const bounce = { name: 'ses.reject', params: { type: 'bounce' }, dose: { share: 1 } }
         try {
+            const added = []
             for (const fault of order === 'throttle first' ? [throttle, bounce] : [bounce, throttle]) {
-                await control('POST', '/_faults', fault)
+                added.push((await control('POST', '/_faults', fault)).status)
             }
+            const answers = [await sendTracked(), await sendTracked()]
+            await waitForExpect(() => expect(received).toHaveLength(1), 5000, 10)
 
-            expect([await sendTracked(), await sendTracked()]).toEqual([200, 429])
+            expect({ added, answers }).toEqual({ added: [201, 201], answers: [200, 429] })
         } finally {
             clock.mockRestore()
         }
