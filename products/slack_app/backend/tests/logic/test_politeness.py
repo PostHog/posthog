@@ -17,7 +17,6 @@ class TestIsPoliteRequest(SimpleTestCase):
             ("thanks", "check signups, thanks", True),
             ("thanks inside another word", "a thanksgiving recap", False),
             ("empty text", "", False),
-            ("no text", None, False),
         ]
     )
     def test_polite_phrases(self, _name, text, expected):

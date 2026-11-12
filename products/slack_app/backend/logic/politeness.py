@@ -7,5 +7,5 @@ POLITE_REQUEST_REACTION = "orange_heart"
 _POLITE_PHRASE = re.compile(r"\b(please|thanks|thank\s+you)\b", re.IGNORECASE)
 
 
-def is_polite_request(text: str | None) -> bool:
-    return bool(text and _POLITE_PHRASE.search(text))
+def is_polite_request(text: str) -> bool:
+    return _POLITE_PHRASE.search(text) is not None

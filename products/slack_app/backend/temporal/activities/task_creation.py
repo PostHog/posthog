@@ -20,6 +20,7 @@ from products.slack_app.backend.logic.thread_join import ThreadJoinDecision, dec
 from products.slack_app.backend.services.slack_messages import (
     SlackThreadMessage,
     context_block,
+    extract_message_text,
     parse_slack_file_refs,
     post_slack_thread_reply,
     thread_permalink,
@@ -686,10 +687,11 @@ def create_posthog_code_task_for_repo_activity(
     user_message_ts = event.get("ts")
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
+        if is_polite_request(extract_message_text(event)):
+            safe_react(slack.client, channel, user_message_ts, POLITE_REQUEST_REACTION)
 
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         decode_slack_event_text,
-        extract_message_text,
         labeled_mentions_to_display_names,
     )
     from products.slack_app.backend.services.slack_user_info import get_slack_user_info  # noqa: PLC0415
@@ -698,8 +700,6 @@ def create_posthog_code_task_for_repo_activity(
     # how a request arrives from a Slack workflow or a client that posts rich text. The
     # thread and fork paths already read every source through this extractor.
     user_text = decode_slack_event_text(slack, integration, extract_message_text(event))
-    if user_message_ts and is_polite_request(user_text):
-        safe_react(slack.client, channel, user_message_ts, POLITE_REQUEST_REACTION)
     # Title is shown in PostHog Desktop's UI (task lists, PR titles) where the
     # labeled `<@U…|name>` form would render as literal noise; the description
     # keeps the labeled form so the agent can echo tokens back as real pings.
