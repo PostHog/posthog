@@ -82,6 +82,7 @@ from products.ai_observability.backend.facade.temporal import (
 from products.alerts_platform.backend.facade.temporal import (
     create_alerts_platform_expired_holds_schedule,
     create_alerts_platform_inventory_schedule,
+    create_alerts_platform_registrar_schedule,
     create_alerts_platform_tick_schedule,
 )
 from products.autoresearch.backend.facade.temporal import create_autoresearch_daily_schedule
@@ -995,6 +996,7 @@ schedules = [
     create_alerts_platform_tick_schedule,
     create_alerts_platform_inventory_schedule,
     create_alerts_platform_expired_holds_schedule,
+    create_alerts_platform_registrar_schedule,
     create_logs_alert_check_schedule,
     disable_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
