@@ -11,10 +11,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
-from posthog.models.team.logs_retention import DEFAULT_LOGS_RETENTION_DAYS
 
 from products.logs.backend.logs_query_runner import COLUMN_FILTER_FACET_FIELDS, LogsQueryResponse, LogsQueryRunner
-from products.logs.backend.models import LogsRetentionRule
 from products.logs.backend.services_query_runner import ROLLUP_BUCKET_SECONDS, ROLLUP_RETENTION
 
 # Maps API breakdown type to ClickHouse field name
@@ -112,19 +110,7 @@ class SparklineQueryRunner(LogsQueryRunner):
             or filters.attribute_filter_groups
         ):
             return False
-        if not all(log_filter.key in COLUMN_FILTER_FACET_FIELDS for log_filter in filters.log_filters):
-            return False
-        return date_range.date_from() >= dt.datetime.now(dt.UTC) - dt.timedelta(days=self._shortest_retention_days)
-
-    @property
-    def _shortest_retention_days(self) -> int:
-        # The rollup keeps counts longer than the logs table keeps the logs. A range older than the
-        # shortest retention of the team must read the logs table, so that it shows no expired logs.
-        team_days = (self.team.logs_settings or {}).get("retention_days", DEFAULT_LOGS_RETENTION_DAYS)
-        rule_configs = LogsRetentionRule.objects.filter(team_id=self.team.pk, enabled=True).values_list(
-            "config", flat=True
-        )
-        return min([team_days, *(config["retention_days"] for config in rule_configs if "retention_days" in config)])
+        return all(log_filter.key in COLUMN_FILTER_FACET_FIELDS for log_filter in filters.log_filters)
 
     def _logs_series_query(self) -> ast.SelectQuery:
         query = parse_select(
@@ -160,6 +146,12 @@ class SparklineQueryRunner(LogsQueryRunner):
                 "time_bucket >= {date_from_start_of_interval}"
                 " AND time_bucket < {date_to_start_of_interval} + {one_interval_period}",
                 placeholders=self.query_date_range.to_placeholders(),
+            ),
+            # The rollup keeps a count longer than the logs table keeps the logs. retention_days is the
+            # retention that ingestion gave to the logs, so this hides the counts of expired logs.
+            parse_expr(
+                "time_bucket + toIntervalDay(retention_days) > {now}",
+                placeholders={"now": ast.Constant(value=dt.datetime.now(dt.UTC))},
             ),
             *self.column_filter_exprs(),
         ]
