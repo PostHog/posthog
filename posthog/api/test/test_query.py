@@ -57,6 +57,7 @@ from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
 from posthog.models import OrganizationMembership, PersonalAPIKey
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.query_scan.findings import FindingCause, build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
@@ -1600,6 +1601,18 @@ class TestQueryRetrieve(APIBaseTest):
             AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
             response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
 
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertNotIn("warehouse totals", response.content.decode())
+
+        # A sharing token reaches this endpoint without a user, so no connection access can be checked for it.
+        share = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        self.client.logout()
+        with patch(
+            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/query/{self.valid_query_id}/?sharing_access_token={share.access_token}"
+            )
         self.assertEqual(response.status_code, 403, response.content)
         self.assertNotIn("warehouse totals", response.content.decode())
 

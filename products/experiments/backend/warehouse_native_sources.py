@@ -127,6 +127,10 @@ def validate_warehouse_native_connection(connection_id: str, *, team: Team, user
 def validate_warehouse_native_connection_access(team: Team, user: User | None, connection_id: str) -> None:
     """The check for an async result served by id. Raises the Django PermissionDenied, which the facade can
     hand to the query status endpoint without a DRF import."""
+    # A shared link authenticates without a user, and the connection check has no access control to apply to
+    # it. The result endpoint serves any query id of the team, so a share cannot stand for the totals.
+    if user is None:
+        raise DjangoPermissionDenied("Sign in to read the results of a warehouse-native experiment.")
     try:
         validate_warehouse_native_connection(connection_id, team=team, user=user)
     except ValidationError as error:
