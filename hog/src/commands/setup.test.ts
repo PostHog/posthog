@@ -490,6 +490,28 @@ describe('hog setup', () => {
         expect(result.error()).toMatchObject({ code, hint: expect.stringContaining(hint) })
     })
 
+    test.each([
+        ['a CI job', { CLAUDECODE: '', CI: 'true' }],
+        ["a Jenkins job, which doesn't set CI", { CLAUDECODE: '', JENKINS_URL: 'https://jenkins.example.com/' }],
+    ])('%s gets no setup, and hog changes nothing', async (_name, env) => {
+        const machine = world()
+        const before = { ...machine.files }
+
+        const result = await machine.run(['setup', 'next', ...ONE_PRODUCT], { env })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.error()).toMatchObject({ code: 'not_in_ci', hint: expect.stringContaining('hog ci setup') })
+        expect(result.requests).toEqual([])
+        expect(machine.files).toEqual(before)
+    })
+
+    test('an agent in a CI sandbox still runs setup, because it hands the login to a person', async () => {
+        const result = await world().run(['setup', 'next', ...ONE_PRODUCT], { env: { CI: 'true' } })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toMatchObject({ step: 'login' })
+    })
+
     test('hog learn records nothing without a setup in the folder', async () => {
         const machine = world()
 

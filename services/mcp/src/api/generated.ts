@@ -117,6 +117,49 @@ export namespace Schemas {
       aliases?: string[];
     }
 
+    /**
+     * * `web_search` - Web search
+     * * `no_search` - No search
+     */
+    export type CheckModeEnum = typeof CheckModeEnum[keyof typeof CheckModeEnum];
+
+
+    export const CheckModeEnum = {
+      WebSearch: 'web_search',
+      NoSearch: 'no_search',
+    } as const;
+
+    /**
+     * * `daily` - Daily
+     * * `weekly` - Weekly
+     */
+    export type CheckFrequencyEnum = typeof CheckFrequencyEnum[keyof typeof CheckFrequencyEnum];
+
+
+    export const CheckFrequencyEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+    } as const;
+
+    export interface AEOEngineSetting {
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
+      engine: string;
+      /** 'web_search' when the engine searches the web while answering, 'no_search' when it answers from training data alone. A no-search engine never cites, so read its mention rate.
+       *
+       * * `web_search` - Web search
+       * * `no_search` - No search */
+      mode: CheckModeEnum;
+      /** Whether this deployment can run the engine. An unavailable engine never runs, whatever 'enabled' says. */
+      available: boolean;
+      /** Whether the daily run checks the project's prompts on this engine. */
+      enabled: boolean;
+      /** 'daily' checks every prompt each day. 'weekly' checks each prompt once a week, a seventh of the prompt set each day.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly */
+      frequency: CheckFrequencyEnum;
+    }
+
     export interface AEOKeyword {
       /** Keyword id. */
       id: string;
@@ -144,7 +187,7 @@ export namespace Schemas {
     }
 
     export interface AEOModifierEngineCount {
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** Answers from this engine whose searches used the modifier. */
       answers: number;
@@ -297,10 +340,17 @@ export namespace Schemas {
     }
 
     export interface AEOPromptEngineCheck {
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
-      /** Whether the answer cited a URL on one of the target domains. */
+      /** 'web_search' when the engine could search the web, 'no_search' when it answered from training data alone.
+       *
+       * * `web_search` - Web search
+       * * `no_search` - No search */
+      mode: CheckModeEnum;
+      /** Whether the answer cited a URL on one of the target domains. Always false for a no-search engine. */
       cited: boolean;
+      /** Whether the answer names the brand or cites a target domain. The column to read for a no-search engine. */
+      mentioned: boolean;
       /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
       check_failed: boolean;
       /**
@@ -417,8 +467,13 @@ export namespace Schemas {
       id: string;
       /** Groups the checks of one daily run across prompts and engines. */
       run_id: string;
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
+      /** 'web_search' when the engine could search the web, 'no_search' when it answered from training data alone and so never cites.
+       *
+       * * `web_search` - Web search
+       * * `no_search` - No search */
+      mode: CheckModeEnum;
       /** Engine model that answered. */
       model: string;
       /** When the check ran. */
@@ -470,7 +525,7 @@ export namespace Schemas {
     export interface AEOPromptDailyEngineStats {
       /** Day, in the project's timezone. */
       date: string;
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** Checks on this engine that day, failed ones included. */
       checks: number;
@@ -488,7 +543,7 @@ export namespace Schemas {
     }
 
     export interface AEOPromptEngineDomainShare {
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** One of the most cited domains across all engines in the window. */
       domain: string;
@@ -499,7 +554,7 @@ export namespace Schemas {
     }
 
     export interface AEOPromptEngineSentiment {
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** Answers in the last 30 days whose brand sentences read positive. */
       positive: number;
@@ -522,7 +577,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly mention_rate: number | null;
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
       /** Checks of the prompt on this engine, failed ones included. */
       checks: number;
@@ -628,7 +683,7 @@ export namespace Schemas {
          * @nullable
          */
       avg_position: number | null;
-      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
     }
 
@@ -1431,7 +1486,6 @@ export namespace Schemas {
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -1560,7 +1614,6 @@ export namespace Schemas {
       UploadedMedia: 'uploaded_media',
       UsageMetric: 'usage_metric',
       User: 'user',
-      UserInterview: 'user_interview',
       VisionAction: 'vision_action',
       VisionAlert: 'vision_alert',
       VisualReview: 'visual_review',
@@ -1689,7 +1742,6 @@ export namespace Schemas {
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
        * * `user` - user
-       * * `user_interview` - user_interview
        * * `vision_action` - vision_action
        * * `vision_alert` - vision_alert
        * * `visual_review` - visual_review
@@ -1941,7 +1993,6 @@ export namespace Schemas {
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
        * * `user` - user
-       * * `user_interview` - user_interview
        * * `vision_action` - vision_action
        * * `vision_alert` - vision_alert
        * * `visual_review` - visual_review
@@ -2362,7 +2413,6 @@ export namespace Schemas {
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
        * * `user` - user
-       * * `user_interview` - user_interview
        * * `vision_action` - vision_action
        * * `vision_alert` - vision_alert
        * * `visual_review` - visual_review
@@ -16128,6 +16178,70 @@ export namespace Schemas {
          * @nullable
          */
       delete_verified_at: string | null;
+    }
+
+    export interface AttachmentUploadFile {
+      /**
+         * SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it.
+         * @pattern ^[0-9a-f]{64}$
+         */
+      sha256: string;
+      /**
+         * Size of the file in bytes.
+         * @minimum 1
+         */
+      size: number;
+    }
+
+    /**
+     * For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256.
+     */
+    export type AttachmentUploadSlotHeaders = {[key: string]: string};
+
+    /**
+     * * `present` - Present
+     * * `upload` - Upload
+     */
+    export type AttachmentUploadStatusEnum = typeof AttachmentUploadStatusEnum[keyof typeof AttachmentUploadStatusEnum];
+
+
+    export const AttachmentUploadStatusEnum = {
+      Present: 'present',
+      Upload: 'upload',
+    } as const;
+
+    export interface AttachmentUploadSlot {
+      /** SHA-256 of the file, as sent. */
+      sha256: string;
+      /** `present` when PostHog already has the file and nothing needs uploading, `upload` when the file must be uploaded to `url` before the send.
+       *
+       * * `present` - Present
+       * * `upload` - Upload */
+      status: AttachmentUploadStatusEnum;
+      /** For a `present` file: when PostHog deletes it unless a send uses it before then. */
+      expires_at?: string;
+      /** For an `upload` file: where to send the file's bytes, without your PostHog API key. */
+      url?: string;
+      /** For an `upload` file: the HTTP method, `PUT`. */
+      method?: string;
+      /** For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256. */
+      headers?: AttachmentUploadSlotHeaders;
+      /** For an `upload` file: when `url` stops accepting the upload. */
+      url_expires_at?: string;
+    }
+
+    export interface AttachmentUploadsRequest {
+      /**
+         * The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.
+         * @minItems 1
+         * @maxItems 10
+         */
+      files: AttachmentUploadFile[];
+    }
+
+    export interface AttachmentUploadsResponse {
+      /** One answer per requested file, in request order. */
+      files: AttachmentUploadSlot[];
     }
 
     export interface Author {
@@ -38902,12 +39016,15 @@ export namespace Schemas {
 
     export interface EmailAttachment {
       /**
+         * SHA-256 of a file uploaded through `POST /api/projects/{project_id}/messaging/attachments/uploads/`, as 64 lowercase hex characters.
+         * @pattern ^[0-9a-f]{64}$
+         */
+      sha256: string;
+      /**
          * File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.
          * @maxLength 255
          */
       filename: string;
-      /** The file's bytes as standard base64, without line breaks. */
-      content: string;
       /**
          * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
          * @maxLength 78
@@ -69056,7 +69173,6 @@ export namespace Schemas {
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
        * * `user` - user
-       * * `user_interview` - user_interview
        * * `vision_action` - vision_action
        * * `vision_alert` - vision_alert
        * * `visual_review` - visual_review
@@ -83107,6 +83223,16 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       aliases?: string[];
+    }
+
+    export interface PatchedAEOEngineSettingUpdateRequest {
+      /** Whether the daily run checks the project's prompts on this engine. */
+      enabled?: boolean;
+      /** 'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly */
+      frequency?: CheckFrequencyEnum;
     }
 
     export interface PatchedAEOPromptUpdateRequest {
@@ -110042,7 +110168,7 @@ export namespace Schemas {
       /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
       bcc?: string | string[] | null;
       /**
-         * Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
+         * Files attached to the email your code rendered: up to 10, each uploaded first through `POST /api/projects/{project_id}/messaging/attachments/uploads/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
          * @maxItems 10
          * @nullable
          */
@@ -124380,7 +124506,7 @@ export namespace Schemas {
          * @nullable
          */
       promql?: string | null;
-      /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
+      /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-30M' (minutes), '-1h', '-7d', '-2w' or '-1m' (months; lowercase m is months, capital M is minutes). Defaults to 24 hours before dateTo. */
       dateFrom?: string;
       /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
       dateTo?: string;
@@ -138210,7 +138336,31 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.
+     *
+     * * `logs` - Logs
+     * * `insight` - Insight
+     * * `warehouse_source` - Warehouse source
+     * * `warehouse_destination` - Warehouse destination
+     * * `metrics` - Metrics
+     * * `traces` - Traces
+     * @minLength 1
+     */
+    source_kind?: PlatformAlertsListSourceKind;
     };
+
+    export type PlatformAlertsListSourceKind = typeof PlatformAlertsListSourceKind[keyof typeof PlatformAlertsListSourceKind];
+
+
+    export const PlatformAlertsListSourceKind = {
+      Logs: 'logs',
+      Insight: 'insight',
+      WarehouseSource: 'warehouse_source',
+      WarehouseDestination: 'warehouse_destination',
+      Metrics: 'metrics',
+      Traces: 'traces',
+    } as const;
 
     export type PluginConfigsLogsListParams = {
     /**

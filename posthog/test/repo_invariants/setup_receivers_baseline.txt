@@ -304,6 +304,7 @@ post_save:products.tasks.backend.search_index.channel_saved
 post_save:products.tasks.backend.search_index.task_artifact_saved
 post_save:products.tasks.backend.search_index.task_run_saved
 post_save:products.tasks.backend.search_index.task_saved
+post_save:products.tasks.backend.task_run_sync.sync_task_status_on_run
 post_save:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_saved
 post_save:products.workflows.backend.models.hog_flow.hog_flow.team_saved_for_hog_flows
 post_save:products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.handle_hog_flow_batch_job_created
