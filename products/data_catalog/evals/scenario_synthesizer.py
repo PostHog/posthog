@@ -258,6 +258,38 @@ class EventNeedle:
     events: tuple[PlantedEvent, ...]
 
 
+# Ingestion copies these event properties onto the person as `$initial_<name>` the first time it sees each one.
+_INITIAL_PROPERTY_KEYS = (
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_content",
+    "utm_term",
+    "gclid",
+    "fbclid",
+    "$browser",
+    "$browser_version",
+    "$device_type",
+    "$current_url",
+    "$pathname",
+    "$os",
+    "$referring_domain",
+    "$referrer",
+)
+
+
+def initial_person_properties(events: Sequence[PlantedEvent]) -> dict[str, dict[str, Any]]:
+    """The `$initial_*` properties that ingestion sets on each distinct id from its earliest events."""
+    initial: dict[str, dict[str, Any]] = {}
+    for event in sorted(events, key=lambda event: event.minute_of_day - event.days_ago * 24 * 60):
+        person = initial.setdefault(event.distinct_id, {})
+        for key in _INITIAL_PROPERTY_KEYS:
+            value = event.properties.get(key)
+            if value is not None:
+                person.setdefault(f"$initial_{key.removeprefix('$')}", value)
+    return initial
+
+
 @frozen
 class DuplicateSpec:
     """Duplicate every existing ``event`` row in the window with a new uuid and the new library version."""

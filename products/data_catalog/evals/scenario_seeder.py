@@ -64,6 +64,7 @@ from products.data_catalog.evals.scenario_synthesizer import (
     build_wau_bot_spike,
     build_wau_spike,
     crm_deals_table,
+    initial_person_properties,
 )
 from products.data_catalog.evals.seeders import _FLOAT_COLUMN, _INTEGER_COLUMN, _STRING_COLUMN, _synced_table
 from products.feature_flags.backend.facade.api import create_flag
@@ -127,11 +128,14 @@ def _plant_needle(team: Team, needle: EventNeedle, now: datetime) -> int:
     last_seen = max((_at(now, event.days_ago, event.minute_of_day) for event in needle.events), default=now)
     created_at = first_seen - timedelta(minutes=5)
     person_properties: dict[str, dict[str, Any]] = {}
+    initial_properties = initial_person_properties(needle.events)
     # Personhog serves person lookups from the persons database, so a person that exists only in
     # ClickHouse could not be hydrated by an id lookup the agent makes.
     with persons_db_connection(writer=True, autocommit=True) as conn:
         for person in needle.persons:
-            properties = {key: value for key, value in (("email", person.email), ("name", person.name)) if value}
+            properties = initial_properties.get(person.distinct_id, {}) | {
+                key: value for key, value in (("email", person.email), ("name", person.name)) if value
+            }
             person_properties[person.distinct_id] = properties
             person_id = insert_seed_person(
                 conn,

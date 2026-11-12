@@ -44,6 +44,12 @@ def test_wau_spikes_stay_inside_their_window() -> None:
     assert min(event.days_ago for event in campaign.events) >= pack.WAU_SPIKE_LAST_RETURN_DAYS_AGO
     # Campaign users without the web SDK properties read as scripted accounts, not as campaign traffic.
     assert all(event.properties["$lib"] == "web" for event in campaign.events)
+    initial = pack.initial_person_properties(campaign.events)
+    assert len(initial) == pack.WAU_SPIKE_PERSON_COUNT
+    for properties in initial.values():
+        assert properties["$initial_utm_source"] == pack.CAMPAIGN_UTM_SOURCE
+        assert properties["$initial_pathname"] == pack.CAMPAIGN_PATH
+        assert properties["$initial_referring_domain"] == pack.CAMPAIGN_REFERRING_DOMAIN
 
     bots = pack.build_wau_bot_spike()
     assert {event.days_ago for event in bots.events} <= set(pack.WAU_SPIKE_DAYS_AGO)
