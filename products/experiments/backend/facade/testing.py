@@ -8,7 +8,8 @@ creates the feature flag from a key and validates the metrics, and the outside s
 flag they made themselves.
 
 The `patch_*` helpers patch one internal step for a suite, so the suite does not name an internal
-module path that a move inside the product would break.
+module path that a move inside the product would break. They take the keyword arguments of
+`unittest.mock.patch`, such as `return_value` or `side_effect`, and yield the mock.
 """
 
 from contextlib import AbstractContextManager
@@ -152,17 +153,14 @@ def set_team_experiments_config(*, team_id: int, **fields: Any) -> None:
 
 
 def patch_replay_precompute(**kwargs: Any) -> AbstractContextManager[MagicMock]:
-    """Patch the precompute call that the replay exposure linkage makes for a precomputing team.
-
-    Takes the keyword arguments of `unittest.mock.patch`, such as `return_value`, and yields the mock.
-    """
+    """Patch the precompute call that the replay exposure linkage makes for a precomputing team."""
     return patch.object(replay_linkage, "ensure_precomputed", **kwargs)
 
 
 def patch_live_exposure_scan(**kwargs: Any) -> AbstractContextManager[MagicMock]:
-    """Patch the live events scan that selects an experiment's exposures. A precomputing team reads the
-    preaggregated table instead, so a `side_effect` that raises proves which path a read took.
+    """Patch the live events scan that selects an experiment's exposures.
 
-    Takes the keyword arguments of `unittest.mock.patch` and yields the mock.
+    A precomputing team reads the preaggregated table instead, so a `side_effect` that raises proves
+    which path a read took.
     """
     return patch.object(ExposureQueryBuilder, "_build_exposure_select_query", **kwargs)

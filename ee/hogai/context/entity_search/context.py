@@ -128,16 +128,17 @@ FACADE_SEARCHES: dict[str, FacadeSearch] = {
     ACTION_ENTITY: search_live_actions,
     DASHBOARD_ENTITY: search_dashboards,
 }
+# Dashboards and experiments keep their place after insights, and actions theirs before cohorts, in the counts.
 _UNION_ENTITY_NAMES = [*ENTITY_MAP]
-# Dashboards and experiments keep their place after insights, and actions theirs between feature flags and cohorts,
-# in the counts.
+_DASHBOARD_SLOT = _UNION_ENTITY_NAMES.index("insight") + 1
+_ACTION_SLOT = _UNION_ENTITY_NAMES.index("cohort")
 COUNTED_ENTITIES = [
-    *_UNION_ENTITY_NAMES[: _UNION_ENTITY_NAMES.index("feature_flag")],
+    *_UNION_ENTITY_NAMES[:_DASHBOARD_SLOT],
     DASHBOARD_ENTITY,
     EXPERIMENT_ENTITY,
-    *_UNION_ENTITY_NAMES[_UNION_ENTITY_NAMES.index("feature_flag") : _UNION_ENTITY_NAMES.index("cohort")],
+    *_UNION_ENTITY_NAMES[_DASHBOARD_SLOT:_ACTION_SLOT],
     ACTION_ENTITY,
-    *_UNION_ENTITY_NAMES[_UNION_ENTITY_NAMES.index("cohort") :],
+    *_UNION_ENTITY_NAMES[_ACTION_SLOT:],
 ]
 
 EXCLUDE_FROM_DISPLAY: dict[str, set[str]] = {

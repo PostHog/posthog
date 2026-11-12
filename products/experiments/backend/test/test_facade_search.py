@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 from parameterized import parameterized
 
-from posthog.api.search import EntityConfig, search_entities
+from posthog.api.search import ENTITY_MAP, EntityConfig, search_entities
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -12,7 +12,6 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.facade.search import search_experiments
 from products.experiments.backend.facade.testing import create_experiment
-from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -59,9 +58,7 @@ class TestSearchExperiments(APIBaseTest):
         self, _name: str, query: str | None, include_deleted: bool, with_access_levels: bool, expected: list[str]
     ) -> None:
         config: EntityConfig = {
-            "klass": Experiment,
-            "search_fields": {"name": "A", "description": "C"},
-            "extra_fields": ["name", "description"],
+            **ENTITY_MAP["experiment"],
             "filters": {} if include_deleted else {"deleted": False},
         }
         union_results, union_counts, _ = search_entities(
