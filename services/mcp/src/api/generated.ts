@@ -12121,6 +12121,7 @@ export namespace Schemas {
       trendLine?: boolean | null;
       /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
       valueLabels?: ValueLabels | null;
+      wrapText?: boolean | null;
       yAxisPosition?: YAxisPosition | null;
     }
 

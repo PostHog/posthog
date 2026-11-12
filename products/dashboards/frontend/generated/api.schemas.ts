@@ -9646,6 +9646,7 @@ export interface ChartSettingsDisplayApi {
     trendLine?: boolean | null
     /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
     valueLabels?: ValueLabelsApi | null
+    wrapText?: boolean | null
     yAxisPosition?: YAxisPositionApi | null
 }
 
