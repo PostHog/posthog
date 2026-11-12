@@ -304,8 +304,7 @@ async function resolveInsertAnchor(
  * A `<Query>` whose source is HogQL is the legacy SQL cell. It renders a result table or chart but
  * does not run through the sandbox, so it names no dataframe other cells can reference and keeps no
  * run history. SQLV2 (cell_type 'sql') supersedes it and charts its result the same way, so SQL
- * authored over MCP must land there. The editor's insert menu makes the same choice behind the
- * revamped-py-notebooks flag that gates this tool.
+ * authored over MCP must land there. The editor's insert menu makes the same choice.
  */
 function hasHogQLQuerySource(props: Record<string, unknown> | undefined): boolean {
     const query = props?.query

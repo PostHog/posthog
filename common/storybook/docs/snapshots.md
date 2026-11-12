@@ -23,6 +23,7 @@ The runner counts these as loaders: `.Spinner`, `.quill-spinner`, `.LemonSkeleto
 
 - A toast counts as a loader. A story that leaves a toast on screen times out.
 - The loader wait holds until no loader on the page is visible. On a timeout, the error lists the loaders that still show.
+- The loader wait runs again before each theme and before each capture, so a loader that starts late is waited for too.
 - `waitForSelector` waits for existence. Pick an element that exists only after the async work is done, such as a row from the mocked data, not a container that renders before the data.
 - For Monaco, wait for `.CodeEditor[data-editor-ready="true"]`. `.monaco-editor` also matches a root that Monaco adds to `<body>` before any editor mounts.
 - A story that shows a loading state on purpose sets `waitForLoadersToDisappear: false` and waits for the loader with `waitForSelector`.
@@ -67,14 +68,15 @@ You don't need to add waits for any of this. Knowing the order helps when a stor
 3. It makes hidden `content-visibility` content visible, fires a resize, and waits 300 ms for resize observers.
 4. It runs the loader wait and `waitForSelector`.
 5. For each theme, it sets `body[theme]` and the color scheme, then:
+   - runs the loader wait again;
    - makes lazy images eager, waits until every image has loaded and decoded, and hides GIFs;
    - waits up to 8 seconds for iframes, plus 1 second;
    - scrolls the window and the scroll containers back to the top;
    - waits until the body size stops changing, for up to 3 seconds;
    - waits 1 more second;
    - waits until no quill chart canvas is still painting.
-6. It captures the target. A component snapshot grows to include a popover or a tooltip that overflows the root.
-7. It waits 100 ms, waits for chart paint and animations again, and captures again. It keeps the capture when two in a row match. After four captures it keeps the last one and logs the story as still changing.
+6. It runs the loader wait again and captures the target. A component snapshot grows to include a popover or a tooltip that overflows the root.
+7. It waits 100 ms, waits for chart paint, animations and loaders again, and captures again. It keeps the capture when two in a row match and no loader shows after the capture. After four captures it keeps the last one and logs the story as still changing.
 
 Chromium runs with `--disable-partial-raster`. Without it, Chromium paints a partly changed tile again in place, and the anti-aliased edges in that tile can differ by a color level from run to run.
 
@@ -90,7 +92,7 @@ An iframe that loads `/embedded/` or `/shared/` gets a fixed placeholder page, s
 ## Baselines and visual review
 
 - Baselines are hashes in `frontend/snapshots.yml`, one entry per `<story-id>[--<width>]--<theme>`, signed by visual review. The PNGs under `frontend/__snapshots__/` are not the baseline, and CI deletes them before each run.
-- On a PR, CI runs only the stories that the diff can affect, in Chromium. Master and the merge queue run every story, in WebKit too.
+- On a PR, CI runs only the stories that the diff can affect, in Chromium. Master and the merge queue run every story in Chromium. A nightly run on master renders every story in WebKit and Firefox, which take no snapshots and only catch stories that fail to render.
 - The `run-ci-frontend` label runs every story on a PR. Use it to bring back a baseline for a story that the diff doesn't touch. The label takes effect on the next push or ready-for-review, not when you add it.
 - Each changed snapshot shows up in the visual review run for the PR. A person approves it there, and finalizing the run commits the new hashes to the PR branch.
 - A finalized run pushes a commit to the branch. In a stack, that forces a restack of every layer above it, so put the stories that change in the top layer.

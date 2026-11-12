@@ -15,6 +15,11 @@ from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, Cha
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import Experiment
 
+_NEW_VARIANTS = [
+    {"key": "control", "rollout_percentage": 10},
+    {"key": "test", "rollout_percentage": 90},
+]
+
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
 class TestExperimentServiceApprovals(APIBaseTest):
@@ -89,6 +94,10 @@ class TestExperimentServiceApprovals(APIBaseTest):
         experiment.refresh_from_db()
         return experiment
 
+    def _assert_pending_zero_applied(self) -> None:
+        assert ChangeRequest.objects.filter(state=ChangeRequestState.PENDING).count() == 1
+        assert ChangeRequest.objects.filter(state=ChangeRequestState.APPLIED).count() == 0
+
     def test_launch_under_enable_policy_requires_approval(self, _mock_enabled):
         experiment = self._create_draft_experiment("launch-gated")
         self._create_enable_policy()
@@ -100,6 +109,7 @@ class TestExperimentServiceApprovals(APIBaseTest):
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.active is False
         assert experiment.start_date is None
+        self._assert_pending_zero_applied()
 
     def test_launch_under_enable_policy_without_request_requires_approval(self, _mock_enabled):
         # Internal callers (e.g. _create_running_experiment) invoke launch with request=None,
@@ -126,6 +136,7 @@ class TestExperimentServiceApprovals(APIBaseTest):
 
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.active is True
+        self._assert_pending_zero_applied()
 
     def test_resume_under_enable_policy_requires_approval(self, _mock_enabled):
         experiment = self._create_launched_experiment("resume-gated")
@@ -141,6 +152,7 @@ class TestExperimentServiceApprovals(APIBaseTest):
 
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.active is False
+        self._assert_pending_zero_applied()
 
     def test_launch_without_policy_flips_flag_and_sets_start_date(self, _mock_enabled):
         experiment = self._create_draft_experiment("launch-ungated")
@@ -170,8 +182,31 @@ class TestExperimentServiceApprovals(APIBaseTest):
         # Flag distribution unchanged and experiment not ended.
         assert experiment.feature_flag.filters["multivariate"]["variants"] == original_variants
         assert experiment.end_date is None
+        self._assert_pending_zero_applied()
 
-    def test_update_experiment_variant_edit_under_update_policy_leaves_pending_cr(self, _mock_enabled):
+    # A direct service caller may still send the variants in the deprecated `parameters` keys, which the
+    # service turns into a `feature_flag_config`. Both inputs must reach the gate.
+    @parameterized.expand(
+        [
+            (
+                "feature_flag_config",
+                {"update_feature_flag_params": True},
+                {"filters": {"multivariate": {"variants": _NEW_VARIANTS}}},
+            ),
+            (
+                "deprecated_parameters",
+                {"update_feature_flag_params": True, "parameters": {"feature_flag_variants": _NEW_VARIANTS}},
+                None,
+            ),
+        ]
+    )
+    def test_update_experiment_variant_edit_under_update_policy_leaves_pending_cr(
+        self,
+        _mock_enabled,
+        _name: str,
+        update_data: dict[str, Any],
+        feature_flag_config: dict[str, Any] | None,
+    ):
         # update_experiment() syncs a variant/rollout change back through FeatureFlagSerializer,
         # gated by feature_flag.update. The gated flag write runs OUTSIDE the method's atomic block
         # (like ship_variant/launch/pause/resume), so ApprovalRequired leaves the flag untouched
@@ -180,10 +215,6 @@ class TestExperimentServiceApprovals(APIBaseTest):
         original_variants = experiment.feature_flag.filters["multivariate"]["variants"]
         self._create_update_policy()
 
-        new_variants = [
-            {"key": "control", "rollout_percentage": 10},
-            {"key": "test", "rollout_percentage": 90},
-        ]
         context = {
             "request": self._request(),
             "team_id": self.team.id,
@@ -194,16 +225,12 @@ class TestExperimentServiceApprovals(APIBaseTest):
 
         with self.assertRaises(ApprovalRequired):
             self._service().update_experiment(
-                experiment,
-                {"update_feature_flag_params": True},
-                feature_flag_config={"filters": {"multivariate": {"variants": new_variants}}},
-                serializer_context=context,
+                experiment, update_data, feature_flag_config=feature_flag_config, serializer_context=context
             )
 
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.filters["multivariate"]["variants"] == original_variants
-        assert ChangeRequest.objects.filter(state=ChangeRequestState.PENDING).count() == 1
-        assert ChangeRequest.objects.filter(state=ChangeRequestState.APPLIED).count() == 0
+        self._assert_pending_zero_applied()
 
     def test_update_experiment_invalid_payload_does_not_commit_flag_variant_change(self, _mock_enabled):
         # A single update that both rewrites the flag's variant rollout (update_feature_flag_params=True)
@@ -214,10 +241,6 @@ class TestExperimentServiceApprovals(APIBaseTest):
         experiment = self._create_launched_experiment("update-invalid-payload")
         original_variants = experiment.feature_flag.filters["multivariate"]["variants"]
 
-        new_variants = [
-            {"key": "control", "rollout_percentage": 10},
-            {"key": "test", "rollout_percentage": 90},
-        ]
         context = {
             "request": self._request(),
             "team_id": self.team.id,
@@ -234,7 +257,7 @@ class TestExperimentServiceApprovals(APIBaseTest):
                     # baseline_variant_key references a variant that does not exist in the resolved set.
                     "stats_config": {"baseline_variant_key": "nonexistent"},
                 },
-                feature_flag_config={"filters": {"multivariate": {"variants": new_variants}}},
+                feature_flag_config={"filters": {"multivariate": {"variants": _NEW_VARIANTS}}},
                 serializer_context=context,
             )
 

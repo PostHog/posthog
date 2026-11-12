@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { SkillReadResult, SkillsLibrary, SkillsResult } from '@posthog/mcp/src/cli/library-types'
+import type { CatalogSkill, SkillReadResult, SkillsLibrary, SkillsResult } from '@posthog/mcp/src/cli/library-types'
 
 import { escapeControls } from '@/core/output'
 import { processRuntime } from '@/core/runtime'
@@ -40,7 +40,12 @@ function ok<T>(value: T): SkillsResult<T> {
     return { ok: true, value }
 }
 
-function fakeSkills(): SkillsLibrary {
+const CATALOG: CatalogSkill[] = [
+    { name: 'querying-posthog-data', kind: 'learning', description: 'Write HogQL' },
+    { name: 'tracing-nodejs', kind: 'implementation', description: 'Trace Node.js' },
+]
+
+function fakeSkills(catalog: CatalogSkill[] = CATALOG): SkillsLibrary {
     return {
         read: async ({ skill, file, lines }) => {
             const path = file ?? 'SKILL.md'
@@ -69,10 +74,7 @@ function fakeSkills(): SkillsLibrary {
             }),
         catalog: async () =>
             ok({
-                skills: [
-                    { name: 'querying-posthog-data', kind: 'learning', description: 'Write HogQL' },
-                    { name: 'tracing-nodejs', kind: 'implementation', description: 'Trace Node.js' },
-                ],
+                skills: catalog,
                 assets: [],
                 release: { assets: [] },
             }),
@@ -92,6 +94,7 @@ interface World {
     events: number[]
     intentStatus: number
     token: string
+    catalog: CatalogSkill[]
 }
 
 // One machine across several hog runs: files and the keychain carry over, and PostHog answers the
@@ -103,6 +106,7 @@ function world(files: Record<string, string> = {}, cwd = '/work'): World {
         events: [],
         intentStatus: 201,
         token: TOKEN,
+        catalog: CATALOG,
         async run(argv, extra = {}) {
             const respond = (url: string, body: unknown): { status: number; body: unknown } => {
                 const origin = new URL(url).origin
@@ -163,7 +167,7 @@ function world(files: Record<string, string> = {}, cwd = '/work'): World {
                 files: state.files,
                 keychain,
                 respond,
-                skills: fakeSkills,
+                skills: () => fakeSkills(state.catalog),
                 telemetryToken: extra.telemetry ? 'phc_telemetry' : undefined,
             })
             state.files = result.files
@@ -279,17 +283,30 @@ describe('hog setup', () => {
         // An event PostHog received before the setup started doesn't count, and setup finishes
         // without events after waiting for them.
         machine.events.push(START - 60_000)
+        // As many skills as PostHog publishes, with descriptions as long as theirs.
+        machine.catalog = [
+            ...CATALOG,
+            ...Array.from({ length: 179 }, (_, index) => ({
+                name: `learning-skill-${index}`,
+                kind: 'learning' as const,
+                description: 'Explains how to use one part of PostHog, step by step. '.repeat(11),
+            })),
+        ]
         const reviewed = await machine.run(['setup', 'next', '--reviewed'])
         expect(reviewed.exitCode).toBe(0)
         expect(reviewed.json()).toMatchObject({
             step: 'connected',
             status: 'connected',
             next: { kind: 'done' },
-            context: {
-                events: { since: '2026-01-01T00:00:00.000Z', count: 0 },
-                skills: [{ id: 'querying-posthog-data' }],
-            },
+            context: { events: { since: '2026-01-01T00:00:00.000Z', count: 0 } },
         })
+
+        expect(reviewed.stdout.length).toBeLessThan(10_000)
+        expect(Object.keys(reviewed.json() as object)).toEqual(['step', 'status', 'code', 'next', 'done', 'context'])
+        const skills = (reviewed.json() as any).context.skills
+        expect(skills).toHaveLength(180)
+        expect(skills).toContain('querying-posthog-data')
+        expect(skills).not.toContain('tracing-nodejs')
         const instructions = (reviewed.json() as any).next.instructions
         expect(instructions).toContain("PostHog hasn't received any events yet.")
         expect(instructions).toContain('At the end of your turn, tell the user')

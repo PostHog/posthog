@@ -1134,6 +1134,27 @@ class TestOauthIntegrationModel(BaseTest):
             ("meta_shape_on_other_kind", 400, {"error": {"code": 190}}, "hubspot", "other"),
             ("meta_non_grant_error_code", 400, {"error": {"type": "OAuthException", "code": 10}}, "meta-ads", "other"),
             ("meta_190_5xx_is_outage", 502, {"error": {"code": 190}}, "meta-ads", "http_5xx"),
+            (
+                "stripe_app_rejected",
+                400,
+                {"error": "invalid_request", "error_description": "Authorization not supported for this app"},
+                "stripe",
+                "app_rejected",
+            ),
+            (
+                "stripe_other_invalid_request",
+                400,
+                {"error": "invalid_request", "error_description": "Missing required param: refresh_token."},
+                "stripe",
+                "other",
+            ),
+            (
+                "stripe_app_rejected_shape_on_other_kind",
+                400,
+                {"error": "invalid_request", "error_description": "Authorization not supported for this app"},
+                "hubspot",
+                "other",
+            ),
         ]
     )
     def test_oauth_refresh_failure_reason(self, _name, status_code, body, kind, expected):
@@ -1489,6 +1510,44 @@ class TestOauthIntegrationModel(BaseTest):
         stored = Integration.objects.get(id=integration.id)
         assert stored.sensitive_config["refresh_token"] == "ROTATED_AGAIN"
         assert "stripe_refresh_key_round" not in stored.config
+
+    @parameterized.expand(
+        [
+            (
+                "replayed_server_error",
+                500,
+                {"error": {"type": "api_error"}},
+                {"Request-Id": "req_original", "Idempotent-Replayed": "true"},
+                "warning",
+                {"stripe_request_id": "req_original", "stripe_idempotent_replayed": True},
+            ),
+            (
+                "fresh_success",
+                200,
+                {"access_token": "REFRESHED", "refresh_token": "ROTATED"},
+                {"Request-Id": "req_fresh"},
+                "info",
+                {"stripe_request_id": "req_fresh", "stripe_idempotent_replayed": False},
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.oauth.logger")
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_stripe_refresh_logs_the_stripe_request_id_and_replay(
+        self, _name, status_code, body, headers, level, expected, mock_post, mock_reload, mock_logger
+    ):
+        res = requests.Response()
+        res.status_code = status_code
+        res._content = json.dumps(body).encode()
+        res.headers.update(headers)
+        mock_post.return_value = res
+        integration = self.create_integration(kind="stripe")
+
+        with self.settings(STRIPE_APP_CLIENT_ID="ca_test_clientid", STRIPE_APP_SECRET_KEY="sk_test_secret"):
+            OauthIntegration(integration).refresh_access_token()
+
+        assert getattr(mock_logger, level).call_args.kwargs.items() >= expected.items()
 
     @parameterized.expand(
         [

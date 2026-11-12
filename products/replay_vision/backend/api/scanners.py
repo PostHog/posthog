@@ -106,6 +106,7 @@ from products.replay_vision.backend.models.replay_observation_feed_dismissal imp
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     SamplingMode,
+    ScannerDisabledReason,
     ScannerModel,
     ScannerProvider,
     ScannerType,
@@ -125,21 +126,21 @@ from products.replay_vision.backend.queries import (
 )
 from products.replay_vision.backend.queries.filter_errors import REDACTED_FILTER_ERROR, filter_error_message
 from products.replay_vision.backend.quota import (
+    FREE_CREDITS_USED_CODE,
     ScannerBudget,
     ScannerSpend,
     compute_scanner_budgets,
     credits_used_by_scanner,
     current_period_bounds,
     free_credits_ceiling,
+    free_credits_used_up,
     org_credit_cap,
     quota_state,
-    quota_state_for_cap,
     scanner_period_receipts,
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
     SCANNER_CREATOR_LOST_ACCESS_CODE,
-    UnrunnableReason,
     accessible_experiment_ids,
     accessible_observations,
     can_read_targeted_experiment,
@@ -149,7 +150,6 @@ from products.replay_vision.backend.scanner_access import (
     recording_viewer_access,
     scanner_experiment_scope_q,
     scanners_for_reading_observations,
-    unrunnable_reasons,
 )
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
@@ -700,12 +700,16 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "repeat the offer if the user declines."
         ),
     )
-    unrunnable_reason = serializers.SerializerMethodField(
+    disabled_reason = serializers.ChoiceField(
+        choices=ScannerDisabledReason.choices,
+        read_only=True,
+        allow_null=True,
         help_text=(
-            "Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not "
-            "approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, "
-            "which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. "
-            "The sweep turns an enabled scanner off when either applies."
+            "Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. "
+            "`free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the "
+            "organization has not approved AI data processing. `creator_lost_access`: the creator can no longer "
+            "view recordings, which the sweep reads as them, so turning the scanner on requires "
+            "`take_over_as_creator`. `experiment_deleted`: its experiment was deleted."
         ),
     )
     last_swept_at = serializers.DateTimeField(
@@ -757,7 +761,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "dashboard_suggested",
             "last_swept_at",
             "filter_error",
-            "unrunnable_reason",
+            "disabled_reason",
             "created_at",
             "created_by",
             "updated_at",
@@ -886,16 +890,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # Readiness is only computed for scanners without a live dashboard.
         return scanner.id in self._page_dashboard_state(scanner)[1]
 
-    @extend_schema_field(serializers.ChoiceField(choices=UnrunnableReason.choices, allow_null=True))
-    def get_unrunnable_reason(self, scanner: ReplayScanner) -> UnrunnableReason | None:
-        # Shared across the list's children, so a page costs one access lookup rather than one per creator.
-        reasons = self.context.get("_scanner_unrunnable_reasons")
-        if reasons is None or scanner.id not in reasons:
-            page = self.root.instance if isinstance(self.root, serializers.ListSerializer) else None
-            reasons = unrunnable_reasons(list(page) if page is not None else [scanner])
-            self.context["_scanner_unrunnable_reasons"] = reasons
-        return reasons[scanner.id]
-
     @extend_schema_field(serializers.BooleanField())
     def get_limit_reached(self, scanner: ReplayScanner) -> bool:
         # `blocked`, not `exhausted`: the enforcement gates admit an observation only when its full cost
@@ -950,6 +944,17 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 )
             self._check_can_take_over(self.instance)
             attrs["take_over_as_creator"] = True
+        if attrs.get("free_only", self.instance.free_only) and free_credits_used_up(
+            self.context["get_team"]().organization_id,
+            credits_per_observation=observation_credits_for_model(attrs.get("model", self.instance.model)),
+        ):
+            raise serializers.ValidationError(
+                {
+                    "enabled": "Your free credits for this billing period are used up. "
+                    'Turn off "Free credits only" to turn this scanner on.'
+                },
+                code=FREE_CREDITS_USED_CODE,
+            )
 
     def _check_can_take_over(self, scanner: ReplayScanner) -> None:
         # The creator scans as themselves and manages the scanner's access, so the new one needs all of it.
@@ -1317,7 +1322,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 **source_kwargs,
             )
         # A pure enable/disable toggle is not a config edit. A save that also flips enabled fires both events.
-        if any(field != "enabled" for field in changed_fields):
+        if any(field not in ("enabled", "disabled_reason") for field in changed_fields):
             report_user_action(
                 user,
                 "replay_vision_scanner_edited",
@@ -2097,7 +2102,7 @@ class DraftScannerRequestSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "Draft a scanner that runs only on the organization's free monthly credits, so it never adds "
-            "to the bill and pauses when they run out. The draft is sized to those free credits and comes "
+            "to the bill and stops when they run out. The draft is sized to those free credits and comes "
             "back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`."
         ),
     )
@@ -3394,8 +3399,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             cap = org_credit_cap(self.team.organization_id)
             # A free-only scanner is sized to what the organization can spend for free, which billing can lower.
             monthly_credit_budget = free_credits_ceiling(cap)
-            # A free-only draft saved after the free credits run out pauses before its first scan.
-            if quota_state_for_cap(self.team.organization_id, cap).credits_used >= monthly_credit_budget:
+            # A free-only draft saved after the free credits run out turns off before its first scan.
+            if free_credits_used_up(self.team.organization_id, cap):
                 raise ValidationError(
                     {
                         "free_only": "Your organization has used its free credits for this billing period. "

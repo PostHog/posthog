@@ -4,7 +4,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 import { HttpResponse } from 'msw'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { recordingPlaylists } from 'scenes/session-recordings/__mocks__/recording_playlists'
@@ -522,7 +521,6 @@ export const CohortViews: Story = { parameters: { pageUrl: urls.notebook('cohort
 export const InsightViews: Story = {
     parameters: {
         pageUrl: urls.notebook('insight-widget-views'),
-        featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS],
     },
     play: async ({ canvasElement }) => {
         await waitFor(() => {
