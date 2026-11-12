@@ -672,6 +672,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 (False, "editor", "You need editor access to change this. Ask a project admin to grant it."),
                 (True, "viewer", "You need access to this to add a shortcut to it. Ask a project admin to grant it."),
             )
+            # A row without a ref names no object, so it takes the resource level in its own environment.
+            # The tree spans every environment in the project, and `self.user_access_control` answers only
+            # for the environment of the request. A denied environment falls back to the resource default,
+            # so its project access is checked first.
+            access_by_team = self.user_access_control.for_team_ids(
+                {target.team_id for target in ordered if not target.ref}
+            )
             for shortcut, level, message in checks:
                 group = [target for target in ordered if target.shortcut is shortcut and target not in denied]
                 missing = set(
@@ -685,8 +692,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for target in group:
                     if (target.type, target.ref) in missing or (
                         not target.ref
-                        and not self.user_access_control.check_access_level_for_resource(
-                            file_system_resource(target.type), required_level=level
+                        and not (
+                            access_by_team[target.team_id].has_project_access
+                            and access_by_team[target.team_id].check_access_level_for_resource(
+                                file_system_resource(target.type), required_level=level
+                            )
                         )
                     ):
                         denied[target] = PermissionDenied(message)
@@ -1515,10 +1525,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ):
             for item in items:
                 self._ensure_can_restore(item["type"], item["ref"])
-                self._lock_and_authorize_workflow_files(
-                    new_files=[_workflow_target(item["type"], item["ref"], self.team.id, False)]
-                )
+                # A refusal that names its reason, such as a linked workflow the caller can't edit, would tell
+                # the caller that a deleted object exists under a guessed ref. So it gets the same answer as a
+                # ref that names nothing.
                 try:
+                    self._lock_and_authorize_workflow_files(
+                        new_files=[_workflow_target(item["type"], item["ref"], self.team.id, False)]
+                    )
                     restored_instance = undo_delete_object(
                         type_string=item["type"],
                         ref=item["ref"],
@@ -1528,6 +1541,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         team=self.team,
                         organization=getattr(self, "organization", None),
                     )
+                except InsufficientScope:
+                    raise
+                except PermissionDenied:
+                    raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
                 except ValueError:
                     logger.exception(
                         "Exception during undo_delete_object (type=%s, ref=%s)", item.get("type"), item.get("ref")
