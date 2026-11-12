@@ -104,7 +104,7 @@ class TestLoginTurnstileShadow(APIBaseTest):
             override_instance_config("LOGIN_TURNSTILE_MODE", "shadow"),
             patch("posthog.login_challenge.posthoganalytics.capture") as capture,
         ):
-            response = client.post("/api/login", {"email": self.CONFIG_EMAIL.upper(), "password": self.CONFIG_PASSWORD})
+            response = client.post("/api/login", {"email": self.user.email.upper(), "password": self.CONFIG_PASSWORD})
 
         assert response.status_code == 200
         assert _outcomes(capture) == ["skipped_known_device"]

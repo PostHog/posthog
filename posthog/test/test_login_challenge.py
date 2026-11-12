@@ -1,3 +1,5 @@
+from typing import Literal
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -48,16 +50,24 @@ def _verify(result: SiteverifyResult, error_codes: tuple[str, ...] = ()) -> Magi
 
 @override_settings(**KEYS)
 class TestLoginChallenge(BaseTest):
-    def _record(self, request: HttpRequest, **overrides) -> LoginTurnstileOutcome | None:
-        kwargs = {
-            "email": self.user.email,
-            "existing_user": self.user,
-            "is_reauth": False,
-            "token": "",
-            "client_status": "",
-        }
-        kwargs.update(overrides)
-        return record_login_turnstile_decision(request, **kwargs)
+    def _record(
+        self,
+        request: HttpRequest,
+        *,
+        email: str | None = None,
+        existing_user: User | None | Literal["self"] = "self",
+        is_reauth: bool = False,
+        token: str = "",
+        client_status: str = "",
+    ) -> LoginTurnstileOutcome | None:
+        return record_login_turnstile_decision(
+            request,
+            email=email or self.user.email,
+            existing_user=self.user if existing_user == "self" else existing_user,
+            is_reauth=is_reauth,
+            token=token,
+            client_status=client_status,
+        )
 
     def test_unknown_mode_value_is_off(self):
         with override_instance_config("LOGIN_TURNSTILE_MODE", "enforce"):
