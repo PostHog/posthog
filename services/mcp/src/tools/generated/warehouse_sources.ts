@@ -410,8 +410,14 @@ const externalDataSourcesBulkUpdateSchemas = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = () =>
-    z.object({}).extend({ source_type: ExternalDataSourceTypeSchema })
+const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = () => {
+    const ExternalDataSourcesCheckCdcPrerequisitesCreateBody =
+        orvalSchemas.ExternalDataSourcesCheckCdcPrerequisitesCreateBody()
+    return ExternalDataSourcesCheckCdcPrerequisitesCreateBody.extend({
+        source_type: ExternalDataSourceTypeSchema,
+        payload: ExternalDataSourcePayloadSchema,
+    })
+}
 
 const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
     ReturnType<typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema>,
@@ -427,6 +433,21 @@ const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.source_type !== undefined) {
             body['source_type'] = params.source_type
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
+        if (params.cdc_management_mode !== undefined) {
+            body['cdc_management_mode'] = params.cdc_management_mode
+        }
+        if (params.tables !== undefined) {
+            body['tables'] = params.tables
+        }
+        if (params.cdc_slot_name !== undefined) {
+            body['cdc_slot_name'] = params.cdc_slot_name
+        }
+        if (params.cdc_publication_name !== undefined) {
+            body['cdc_publication_name'] = params.cdc_publication_name
         }
         const result = await context.api.request<Schemas.CdcPrerequisitesResponse>({
             method: 'POST',
