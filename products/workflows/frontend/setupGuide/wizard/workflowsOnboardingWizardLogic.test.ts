@@ -175,6 +175,37 @@ describe('workflowsOnboardingWizardLogic', () => {
         expect(router.values.searchParams).toMatchObject({ templateId: WELCOME_TEMPLATE.id })
     })
 
+    it('stays on the journey picked before the setup check finishes in the test arm', async () => {
+        let releaseSetupCheck: () => void = () => {}
+        const setupCheckHeld = new Promise<void>((resolve) => {
+            releaseSetupCheck = resolve
+        })
+        const heldWorkflows = async (): Promise<[number, unknown]> => {
+            await setupCheckHeld
+            return [200, page([])]
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/': heldWorkflows,
+                '/api/environments/:team_id/hog_flows/': heldWorkflows,
+            },
+        })
+        setJourneyFirstVariant('test')
+        logic = workflowsOnboardingWizardLogic()
+        logic.mount()
+        router.actions.push(onboardingWizardUrl('messaging'))
+        await expectLogic(logic).delay(1)
+        expect(logic.values.stepDone).toBeNull()
+
+        logic.actions.selectTemplate(WELCOME_TEMPLATE.id)
+        releaseSetupCheck()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).delay(1)
+
+        expect(logic.values.stepDone).not.toBeNull()
+        expect(logic.values.currentStep).toBe('journey')
+    })
+
     it.each<[string, string | undefined, string]>([
         ['keeps a later step when the journey is picked', WELCOME_TEMPLATE.id, 'domain'],
         ['sends a resume without a picked journey back to the pick', undefined, 'journey'],

@@ -883,6 +883,13 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 captureStepViewed()
             },
             positionAtFirstOpenStep: captureStepViewed,
+            // A journey picked before the setup check finishes settles the wizard on the pick, so the check
+            // does not then move the person past it.
+            selectTemplate: () => {
+                if (values.initialized && !values.hasPositioned && values.wizardPath !== 'automation') {
+                    actions.positionAtFirstOpenStep(values.stepIndex)
+                }
+            },
             next: () => {
                 const step = values.currentStep
                 // pinned: analytics event name - renaming breaks dashboards
