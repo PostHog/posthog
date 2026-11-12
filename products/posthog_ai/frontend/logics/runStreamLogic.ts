@@ -1245,7 +1245,9 @@ function isAgentMessageEntry(entry: StoredLogEntry): boolean {
     return (
         entry.notification.method === 'session/update' &&
         isRecord(update) &&
-        (update.sessionUpdate === 'agent_message_chunk' || update.sessionUpdate === 'agent_message')
+        (update.sessionUpdate === 'agent_message_chunk' ||
+            update.sessionUpdate === 'agent_message' ||
+            update.sessionUpdate === 'agent_thought_chunk')
     )
 }
 
