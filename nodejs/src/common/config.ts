@@ -299,7 +299,7 @@ export function parseNumberFromEnv(key: string, raw: string, fallback: number): 
     const trimmed = raw.trim()
     const unquoted = trimmed.replace(/^(["'])(.*)\1$/, '$2').trim()
     const value = unquoted === '' && trimmed !== '' ? NaN : toNumber(unquoted)
-    if (Number.isFinite(value)) {
+    if (!Number.isNaN(value)) {
         return value
     }
     logger.error(`Ignoring ${key}: its env value is not a number, keeping the default`, {

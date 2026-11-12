@@ -64,7 +64,7 @@ describe('config', () => {
         ['.5', 0.5],
         ['"3008', 'default'],
         ['abc', 'default'],
-        ['Infinity', 'default'],
+        ['Infinity', Infinity],
     ]
     const overrideRows: Row[] = [
         ['10ms', 10],
