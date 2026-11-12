@@ -1,5 +1,6 @@
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextvars import ContextVar
 from datetime import datetime
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
@@ -1341,6 +1342,11 @@ class HogQLQueryExecutor:
         ]
 
 
+hogql_execution_override: ContextVar[Callable[[HogQLQueryExecutor], HogQLQueryResponse] | None] = ContextVar(
+    "hogql_execution_override", default=None
+)
+
+
 def _restriction_key(restricted: set[RestrictedProperty] | None) -> tuple[str, ...] | None:
     return tuple(sorted(repr(prop) for prop in restricted)) if restricted is not None else None
 
@@ -1353,4 +1359,6 @@ def _names_a_missing_column(error: Exception) -> bool:
 
 
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:
-    return HogQLQueryExecutor(*args, **kwargs).execute()
+    executor = HogQLQueryExecutor(*args, **kwargs)
+    override = hogql_execution_override.get()
+    return override(executor) if override is not None else executor.execute()

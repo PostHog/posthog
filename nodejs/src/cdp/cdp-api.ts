@@ -51,6 +51,10 @@ import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogf
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
+import {
+    HOG_FLOW_QUOTA_LIMITED_MESSAGE,
+    shouldBlockHogFlowDueToQuota,
+} from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
@@ -100,6 +104,7 @@ import {
     sameWatcherState,
     sameWatcherStates,
 } from './services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from './services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
@@ -288,6 +293,7 @@ export class CdpApi {
     private hogWatcherMirror: HogWatcherService
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
+    private workflowsActivationReporter: WorkflowsActivationReporter
     private rerunJobManager: RerunJobManager | null = null
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private hogQueue: JobQueue
@@ -341,6 +347,7 @@ export class CdpApi {
         this.hogWatcher = services.hogWatcher
         this.hogWatcherMirror = services.hogWatcherMirror
         this.invocationResultsService = services.invocationResultsService
+        this.workflowsActivationReporter = services.workflowsActivationReporter
         this.emailStatusService = services.emailStatusService
         this.personsManager = services.personsManager
 
@@ -1143,6 +1150,21 @@ export class CdpApi {
 
             if (hogFlow.trigger?.type !== 'schedule') {
                 return res.status(400).json({ error: 'Workflow trigger must be of type "schedule"' })
+            }
+
+            const quotaLimited = await shouldBlockHogFlowDueToQuota(
+                { teamId: team.id, functionId: hogFlow.id, hogFlow },
+                {
+                    quotaLimiting: this.deps.quotaLimiting,
+                    hogFunctionMonitoringService: this.invocationResultsService.monitoringService,
+                    workflowsActivationReporter: this.workflowsActivationReporter,
+                }
+            )
+            if (quotaLimited) {
+                void this.invocationResultsService.monitoringService.flush().catch((error) => {
+                    logger.error('Error flushing hogflow quota metrics', { error })
+                })
+                return res.status(429).json({ error: HOG_FLOW_QUOTA_LIMITED_MESSAGE })
             }
 
             // Build a synthetic event for the scheduled run. Schedule triggers don't have a real
