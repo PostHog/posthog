@@ -9,8 +9,14 @@ function lastSegments(path: string, count: number): string {
     return path.split('/').filter(Boolean).slice(-count).join('/') || path
 }
 
+// A blank line or a line that starts a block ends an inline construct, so a mention value with line
+// breaks would leave its code span or link label and render as markdown.
+function singleLine(text: string): string {
+    return text.replace(/\s+/g, ' ').trim()
+}
+
 function codeSpan(text: string): string {
-    return `\`${text.replace(/`/g, "'")}\``
+    return `\`${singleLine(text).replace(/`/g, "'")}\``
 }
 
 function mentionToMarkdown(match: string[]): string {
@@ -19,7 +25,7 @@ function mentionToMarkdown(match: string[]): string {
         return codeSpan(lastSegments(unescapeXml(file), 2))
     }
     if (githubKind) {
-        const label = `#${number}${title ? ` - ${unescapeXml(title)}` : ''}`.replace(/[[\]]/g, '')
+        const label = singleLine(`#${number}${title ? ` - ${unescapeXml(title)}` : ''}`).replace(/[[\]]/g, '')
         return url ? `[${label}](${unescapeXml(url)})` : label
     }
     if (errorLabel) {
