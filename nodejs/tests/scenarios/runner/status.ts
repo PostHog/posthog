@@ -49,12 +49,7 @@ export function statusOf({ minOffered, units, down, convergence, invariants, tim
     const unobserved = timeline
         .filter(({ observedAt }) => observedAt === undefined)
         .map(({ valve, target, error }) => `${valve} on ${target} was not observed: ${error ?? 'no record'}`)
-    if (crashes.length === 0 && unobserved.length > 0) {
-        return { status: 'invalid', statusReason: unobserved.join('; ') }
-    }
-    const reasons = [
-        ...crashes,
-        ...unobserved,
+    const failures = [
         ...(convergence.converged
             ? []
             : [
@@ -64,6 +59,10 @@ export function statusOf({ minOffered, units, down, convergence, invariants, tim
             .filter(({ passed }) => !passed)
             .map(({ name, violation }) => `${name} failed${violation ? `: ${violation}` : ''}`),
     ]
+    if (crashes.length === 0 && failures.length === 0 && unobserved.length > 0) {
+        return { status: 'invalid', statusReason: unobserved.join('; ') }
+    }
+    const reasons = [...crashes, ...unobserved, ...failures]
     return reasons.length > 0
         ? { status: 'failed', statusReason: reasons.join('; ') }
         : { status: 'passed', statusReason: 'every invariant held' }
