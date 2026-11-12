@@ -175,6 +175,7 @@ class TestMailgunImport(BaseTest):
 
         category = MessageCategory.objects.get(team_id=self.team.id, name="Developers")
         assert self._preferences()["Left@example.com"] == {str(category.id): "OPTED_OUT"}
+        assert category.public_description == ""
         assert "stays@example.com" not in self._preferences()
         assert MessageCategory.objects.filter(team_id=self.team.id, name="empty@mg.example.com").exists()
         member_calls = [call for call in self.mailgun.calls if call["path"].endswith("/members/pages")]

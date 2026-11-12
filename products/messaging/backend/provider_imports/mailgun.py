@@ -577,6 +577,7 @@ def _tag_category(tag: str) -> ImportedCategory:
         key=_category_key("mailgun_tag_", tag),
         name=tag[:128] or ALL_TAGS,
         description=f"Imported from Mailgun. People unsubscribed from email tagged {tag}.",
+        public_description="",
     )
 
 
@@ -710,6 +711,8 @@ def _list_category(mailing_list: Mapping[str, Any], address: str) -> ImportedCat
         key=_category_key("mailgun_list_", address),
         name=(_clean(mailing_list.get("name")) or address)[:128],
         description=f"Imported from the Mailgun list {address}. {description}".strip(),
+        # A list's description is the sender's own note, so recipients don't see it.
+        public_description="",
     )
 
 
