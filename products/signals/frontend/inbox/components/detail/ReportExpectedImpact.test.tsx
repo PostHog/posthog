@@ -259,6 +259,10 @@ describe('ReportExpectedImpact', () => {
         await waitFor(() => expect(screen.getAllByText(/Approved measurement/)).toHaveLength(2))
         expect(approvalRequests).toEqual(['check-1', 'check-2', 'check-2'])
         expect(logic.values.reportChecks?.every((check) => check.next_run_at === '2026-10-13T00:00:00Z')).toBe(true)
+        expect(screen.queryByText('Looks good')).not.toBeInTheDocument()
+        expect(screen.queryByText('Suggest different metrics')).not.toBeInTheDocument()
+        await user.click(screen.getByText('Suggest another metric'))
+        expect(screen.getByText('Describe what success would look like')).toBeInTheDocument()
     })
 
     it('shows range goals and verdicts, and does not offer approval or replacement for finished checks', () => {

@@ -6,7 +6,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { autoresearchNewLogic, populationSummary } from '../autoresearchNewLogic'
-import { POPULATION_FILTER_GROUP_TYPES } from './DefinitionSentence'
+import { POPULATION_FILTER_GROUP_TYPES } from './PopulationPicker'
 
 export function AdvancedSettings(): JSX.Element {
     const { newPipeline, advancedOpen } = useValues(autoresearchNewLogic)

@@ -1551,8 +1551,12 @@ class ExperimentService:
         # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
         try:
             flag_age = timezone.now() - experiment.feature_flag.created_at
-            # No health check reads a feature flag rule yet, so a rule-linked launch reports no findings.
-            health_context = None if experiment.is_rule_linked else load_health_context(experiment)
+            # No health check reads a feature flag rule yet, so a rule-linked launch reports no findings. The findings
+            # go to PostHog's own analytics, not to the launcher, so the flag's calls are read whatever the launcher may
+            # query.
+            health_context = (
+                None if experiment.is_rule_linked else load_health_context(experiment, can_read_flag_calls=True)
+            )
             # Every launch reports the findings it leaves open, also for a launcher who has no health findings.
             findings = (
                 evaluate_health(health_context, EXPERIMENT_HEALTH_CHECKS).findings if health_context is not None else ()
