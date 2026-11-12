@@ -108,6 +108,7 @@ describe('featureAccessFor', () => {
             errors: null,
             replay: null,
             inbox: null,
+            experiments: null,
             ...(handled ? { [feature]: scope } : {}),
         })
     })

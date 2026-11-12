@@ -71,6 +71,7 @@ jobs:
                           - 'products/posthog_ai/frontend/generated/api.schemas.ts'
                           - 'products/signals/frontend/generated/api.schemas.ts'
                           - 'products/error_tracking/frontend/generated/api.schemas.ts'
+                          - 'products/experiments/frontend/generated/api.schemas.ts'
 
     check:
         name: Check mobile
@@ -98,6 +99,7 @@ jobs:
                       products/posthog_ai/frontend/generated/api.schemas.ts
                       products/signals/frontend/generated/api.schemas.ts
                       products/error_tracking/frontend/generated/api.schemas.ts
+                      products/experiments/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false
 
             # Reads packageManager from the app's package.json, not the repo root's,
