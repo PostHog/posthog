@@ -247,18 +247,14 @@ describe('SyncFrequencySelect', () => {
         expect(explanation).toContain('hubspot_contacts has no sync schedule')
     })
 
-    it.each([
-        ['15min', 'Needs a Boost, Teams, Scale, or Enterprise add-on'],
-        ['30min', 'Needs a paid plan'],
-        ['1hour', 'More often than your plan allows'],
-    ])('names what unlocks %s below the plan floor', (cadence, reason) => {
+    it('says a cadence below the plan floor is more often than the plan allows', () => {
         const options = buildOptions(
             bounds({
-                options: [{ cadence, allowed: false, blocked_by: 'plan', blocker: null }],
+                options: [{ cadence: '15min', allowed: false, blocked_by: 'plan', blocker: null }],
             } as Partial<SyncFrequencyBoundsApi>)
         )
 
-        expect(options[0].disabledReason).toBe(reason)
+        expect(options[0].disabledReason).toBe('More often than your plan allows')
     })
 
     it.each([

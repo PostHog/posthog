@@ -346,6 +346,7 @@ class TestReconcileDagSchedules(BaseTest):
 
         update.assert_called_once()
         self.assertEqual(update.call_args.kwargs["id"], tier_schedule_id(str(dag.id), M15))
+        self.assertTrue(update.call_args.kwargs["keep_paused"])
         delete.assert_not_called()
 
     def test_listed_tier_that_is_already_gone_is_recreated_and_stays_materialized(self):

@@ -42,11 +42,6 @@ export const CADENCE_SEGMENTS: Record<DataModelingSyncInterval, string> = {
 export const SYNC_FREQUENCY_HELP =
     'How often this model refreshes. It cannot refresh more often than its upstream sources sync, or less often than downstream models and endpoints need it. Hover over an unavailable frequency to see what limits it.'
 
-const PLAN_UPGRADE_REASONS: Partial<Record<DataModelingSyncInterval, string>> = {
-    '15min': 'Needs a Boost, Teams, Scale, or Enterprise add-on',
-    '30min': 'Needs a paid plan',
-}
-
 const ORDERED_CADENCES = Object.keys(CADENCE_LABELS) as DataModelingSyncInterval[]
 
 /**
@@ -566,7 +561,7 @@ function blockedReason(option: SyncFrequencyBoundsApi['options'][number], bounds
         return name ? `More often than upstream source ${name} syncs` : 'More often than the upstream sources sync'
     }
     if (option.blocked_by === 'plan') {
-        return PLAN_UPGRADE_REASONS[option.cadence as DataModelingSyncInterval] ?? 'More often than your plan allows'
+        return 'More often than your plan allows'
     }
     if (option.blocked_by === 'consumer' && bounds.ceiling) {
         return name ? `Too slow for downstream view ${name}` : 'Too slow for a downstream view'

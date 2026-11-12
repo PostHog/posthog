@@ -51,7 +51,8 @@ An hourly task rewrites every cadence saved faster than the minimum to the minim
 The rewrite is permanent: an upgrade or turning the flag off does not restore the old cadence, and the person picks a faster one again.
 Each rewrite sends a `data modeling refresh clamped to plan floor` event that holds the previous cadence.
 Managed views keep the cadence their provider declares.
-An endpoint's query edit keeps the cadence of the version it replaces, and the task rewrites it with the rest.
+When an endpoint's query changes while its cadence is still faster than the minimum, the new version is created but not materialized.
+Picking a cadence at or above the minimum materializes it.
 Deploying the code alone does not enable the rollout.
 
 ## Model materialization usage
