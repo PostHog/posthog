@@ -67,7 +67,7 @@ from products.messaging.backend.services.mailgun_client import (
     MailgunRegion,
     quoted,
 )
-from products.messaging.backend.services.message_templates import create_template
+from products.messaging.backend.services.message_templates import create_template, with_editor_design
 
 # The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit.
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
@@ -969,7 +969,7 @@ def _senders(team_id: int) -> dict[str, IntegrationRecord]:
 def _email_content(
     version: Mapping[str, Any], converted: ConvertedVersion, senders: Mapping[str, IntegrationRecord], target: _Target
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
-    email: dict[str, Any] = {"subject": converted.subject, "html": converted.html}
+    email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": converted.html})
     headers = _as_dict(version.get("headers"))
     by_name = {str(key).lower(): value for key, value in headers.items()}
     if reply_to := by_name.get("reply-to"):

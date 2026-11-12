@@ -225,6 +225,7 @@ class TestMailgunImport(BaseTest):
         assert templates["welcome"].content["email"]["replyTo"] == '{{ "{{" }}help}}@mg.example.com'
         assert "{{ variables.city | raw }}" in templates["welcome"].content["email"]["html"]
         assert "{{ unsubscribe_url }}" in templates["welcome"].content["email"]["html"]
+        assert templates["welcome"].content["email"]["design"]["body"]["rows"]
         assert "Hi {{ variables.Name }}" in templates["mg-example-com-5b21c8439f-welcome"].content["email"]["html"]
         assert "Hallo" in templates["eu-welcome"].content["email"]["html"]
         assert not any("Old hello" in row.content["email"]["html"] for row in templates.values())
