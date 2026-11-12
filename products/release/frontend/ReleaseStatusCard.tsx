@@ -22,7 +22,7 @@ import { urls } from 'scenes/urls'
 import { ReleaseLifecycle } from './ReleaseLifecycle'
 import { ReleaseLinkFlagCombobox } from './ReleaseLinkFlagCombobox'
 import { releaseLogic } from './releaseLogic'
-import { REVIEW_AFTER_DAYS, ReleaseRow } from './releaseUtils'
+import { REVIEW_AFTER_DAYS, ReleaseRow, STAGE_COLOR } from './releaseUtils'
 
 export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
     const { canEditReleases } = useValues(releaseLogic)
@@ -32,7 +32,7 @@ export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
     return (
         <Card data-attr="release-status">
             <CardContent className="flex flex-col gap-5">
-                <ReleaseLifecycle steps={row.lifecycle} />
+                <ReleaseLifecycle steps={row.lifecycle} color={STAGE_COLOR[row.stage]} />
                 <div className="flex flex-col gap-1">
                     <Heading size="lg" render={<h2 className="m-0" />}>
                         {row.headline}
