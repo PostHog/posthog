@@ -11,13 +11,22 @@ URL = {"key": "url", "type": "string", "label": "URL"}
 HEADERS = {"key": "headers", "type": "dictionary", "label": "Headers"}
 METHOD = {"key": "method", "type": "string", "label": "Method", "required": True, "default": "POST"}
 TARGET = {"key": "target", "type": "string", "label": "Target", "secret": True}
+CHOICE = {
+    "key": "url",
+    "type": "choice",
+    "label": "URL",
+    "choices": [
+        {"label": "A", "value": "https://a.example.com"},
+        {"label": "Token", "value": "{inputs.target}"},
+    ],
+}
 
 
 def content(hog: str = HOG, inputs: Any = None, schema: Any = None, mappings: Any = None) -> dict:
     return {"hog": hog, "inputs": inputs or {}, "schema": schema or [URL, HEADERS], "mappings": mappings or []}
 
 
-def guarded(save: dict) -> tuple:
+def guarded(save: dict) -> str:
     secret_keys = {schema["key"] for schema in save["schema"] if schema.get("secret")}
     return guarded_content(save["hog"], save["inputs"], save["schema"], save["mappings"], secret_keys)
 
@@ -32,28 +41,14 @@ class TestGuardedContent(SimpleTestCase):
                 content(inputs={"headers": {"value": {"b": "2", "a": "1"}}}),
             ),
             (
-                "default_filled_in_for_a_missing_required_input",
-                content(schema=[URL, METHOD]),
-                content(inputs={"method": {"value": "POST"}}, schema=[URL, METHOD]),
+                "server_derived_fields",
+                content(inputs={"url": {"value": "{event.url}", "bytecode": ["_H", 1], "order": 0}}),
+                content(inputs={"url": {"value": "{event.url}", "bytecode": ["_H", 2], "order": 1}}),
             ),
             (
-                "default_filled_in_with_the_schema_templating",
-                content(schema=[URL, {**METHOD, "templating": "liquid"}]),
-                content(
-                    inputs={"method": {"value": "POST", "templating": "liquid"}},
-                    schema=[URL, {**METHOD, "templating": "liquid"}],
-                ),
-            ),
-            ("malformed_stored_inputs", content(inputs=["url"]), content()),
-            (
-                "templating_taken_from_the_schema",
-                content(
-                    inputs={"url": {"value": "{{ event.url }}"}}, schema=[{**URL, "templating": "liquid"}, HEADERS]
-                ),
-                content(
-                    inputs={"url": {"value": "{{ event.url }}", "templating": "liquid"}},
-                    schema=[{**URL, "templating": "liquid"}, HEADERS],
-                ),
+                "mapping_filter_bytecode",
+                content(mappings=[{"filters": {"events": [{"id": "$pageview"}], "bytecode": ["_H", 1]}}]),
+                content(mappings=[{"filters": {"events": [{"id": "$pageview"}], "bytecode": ["_H", 2]}}]),
             ),
         ]
     )
@@ -80,6 +75,32 @@ class TestGuardedContent(SimpleTestCase):
                 "mapping_schema_order",
                 content(mappings=[{"inputs_schema": [URL, HEADERS]}]),
                 content(mappings=[{"inputs_schema": [HEADERS, URL]}]),
+            ),
+            (
+                "value_dropped_from_a_choice_list",
+                content(inputs={"url": {"value": "{inputs.target}"}}, schema=[CHOICE, TARGET]),
+                content(
+                    inputs={"url": {"value": "{inputs.target}"}},
+                    schema=[{**CHOICE, "choices": [{"label": "A", "value": "https://a.example.com"}]}, TARGET],
+                ),
+            ),
+            (
+                "dictionary_entry_named_like_a_derived_field",
+                content(inputs={"headers": {"value": {"order": "1"}}}),
+                content(inputs={"headers": {"value": {"order": "{inputs.target}"}}}),
+            ),
+            (
+                "mapping_filters",
+                content(mappings=[{"filters": {"events": [{"id": "$pageview"}]}}]),
+                content(mappings=[{"filters": {"events": [{"id": "$autocapture"}]}}]),
+            ),
+            (
+                "templating_left_to_the_schema",
+                content(inputs={"url": {"value": "{{ event.url }}"}}, schema=[{**URL, "templating": "liquid"}]),
+                content(
+                    inputs={"url": {"value": "{{ event.url }}", "templating": "liquid"}},
+                    schema=[{**URL, "templating": "liquid"}],
+                ),
             ),
             (
                 "default_that_fills_an_empty_secret",

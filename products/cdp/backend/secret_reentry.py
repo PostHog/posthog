@@ -72,73 +72,45 @@ def replaces_stored_value(value: Any, stored: Any) -> bool:
     return True
 
 
-def _templating(value: Any) -> Optional[str]:
-    if value is False:
-        return None
-    return "liquid" if value == "liquid" else "hog"
+# Fields the serializer computes from what the user saved. Each sits at a fixed place, never inside a value, so a
+# value that holds a key with one of these names still counts.
+_DERIVED_FIELDS = frozenset({"bytecode", "bytecode_contract", "bytecode_error", "input_deps", "order", "transpiled"})
 
 
-def _schema_signature(inputs_schema: Any) -> dict:
-    # The worker reads the type to coerce a value and the templating flag to decide whether to render it. Validation
-    # fills an empty required input with its default, which can give an empty secret input a value nobody typed.
+def _without_derived_fields(entry: Any) -> Any:
+    if not isinstance(entry, dict):
+        return entry
+    return {key: value for key, value in entry.items() if key not in _DERIVED_FIELDS}
+
+
+def _authored_inputs(inputs: Any, secret_keys: set[str]) -> Any:
+    if not isinstance(inputs, dict):
+        return inputs
+    return {str(key): _without_derived_fields(item) for key, item in inputs.items() if key not in secret_keys}
+
+
+def _authored_mapping(mapping: Any) -> Any:
+    if not isinstance(mapping, dict):
+        return mapping
     return {
-        str(schema.get("key")): (
-            schema.get("type"),
-            bool(schema.get("secret")),
-            _templating(schema.get("templating")),
-            json.dumps(schema.get("default") if schema.get("required") else None, default=str, sort_keys=True),
-        )
-        for schema in inputs_schema or []
-        if isinstance(schema, dict)
+        **mapping,
+        "inputs": _authored_inputs(mapping.get("inputs"), set()),
+        "filters": _without_derived_fields(mapping.get("filters")),
     }
 
 
-def _inputs_signature(inputs: Any, inputs_schema: Any, skipped: set[str]) -> dict:
-    # Only inputs the schema declares are validated and kept, so an undeclared stored one is left out on both sides.
-    items = dict(inputs) if isinstance(inputs, dict) else {}
-    for schema in inputs_schema or []:
-        # Validation fills in the default of a missing required input, so a function stored without it compares
-        # as if it held the default.
-        if isinstance(schema, dict) and schema.get("required") and schema.get("default") is not None:
-            if not items.get(schema.get("key")):
-                items[str(schema["key"])] = {
-                    "value": schema["default"],
-                    "templating": _templating(schema.get("templating")),
-                }
-    schema_templating = {
-        str(schema.get("key")): schema["templating"]
-        for schema in inputs_schema or []
-        if isinstance(schema, dict) and "templating" in schema
-    }
-    declared = _schema_signature(inputs_schema).keys() - skipped
-    # Values compare as JSON text because Python equates `True` with `1`, which the worker prints differently. Keys
-    # are sorted because Postgres `jsonb` stores object keys in its own order, so the worker never sees the order a
-    # client sent.
-    return {
-        key: (
-            json.dumps(item.get("value"), default=str, sort_keys=True),
-            schema_templating.get(key, item.get("templating")) == "liquid",
-        )
-        for key, item in items.items()
-        if isinstance(item, dict) and key in declared
-    }
-
-
-def guarded_content(hog: Optional[str], inputs: Any, inputs_schema: Any, mappings: Any, secret_keys: set[str]) -> tuple:
-    """What decides where the code sends a secret it reads. Derived values such as bytecode are left out, because the
-    editor sends the whole config on every save and a recompile must not count as a change."""
-    return (
-        # The serializer trims the code it saves.
-        (hog or "").strip(),
-        # Inputs are evaluated in schema order, so a reorder counts as a change.
-        list(_schema_signature(inputs_schema).items()),
-        _inputs_signature(inputs, inputs_schema, secret_keys),
-        [
-            (
-                list(_schema_signature(mapping.get("inputs_schema")).items()),
-                _inputs_signature(mapping.get("inputs"), mapping.get("inputs_schema"), set()),
-            )
-            for mapping in mappings or []
-            if isinstance(mapping, dict)
-        ],
+def guarded_content(hog: Optional[str], inputs: Any, inputs_schema: Any, mappings: Any, secret_keys: set[str]) -> str:
+    """Everything the user saved that decides where the code sends a secret it reads, as canonical JSON. Any change
+    to it counts, so no field can be missed. Derived values such as bytecode are left out, because the editor sends
+    the whole config on every save and a recompile must not count as a change. Secret values are compared apart."""
+    return json.dumps(
+        {
+            # The serializer trims the code it saves.
+            "hog": (hog or "").strip(),
+            "inputs_schema": inputs_schema or [],
+            "inputs": _authored_inputs(inputs, secret_keys),
+            "mappings": [_authored_mapping(mapping) for mapping in mappings or []],
+        },
+        default=str,
+        sort_keys=True,
     )
