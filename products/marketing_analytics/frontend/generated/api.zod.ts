@@ -74,6 +74,9 @@ export const marketingAnalyticsRecommendationResolutionsCreateBodyIdentityOneCam
 
 export const marketingAnalyticsRecommendationResolutionsCreateBodyIdentityOneSubjectMax = 10000
 
+export const marketingAnalyticsRecommendationResolutionsCreateBodyNameDefault = ``
+export const marketingAnalyticsRecommendationResolutionsCreateBodyNameMax = 400
+
 export const MarketingAnalyticsRecommendationResolutionsCreateBody = /* @__PURE__ */ zod.object({
     identity: zod
         .object({
@@ -117,6 +120,13 @@ export const MarketingAnalyticsRecommendationResolutionsCreateBody = /* @__PURE_
                 ),
         })
         .describe("The recommendation's `identity` from the recommendations query, sent as is."),
+    name: zod
+        .string()
+        .max(marketingAnalyticsRecommendationResolutionsCreateBodyNameMax)
+        .default(marketingAnalyticsRecommendationResolutionsCreateBodyNameDefault)
+        .describe(
+            'A display label for the recommendation, such as the campaign name or the search term. The activity log shows it. It is not part of the identity.'
+        ),
     resolution: zod
         .enum(['dismissed', 'applied'])
         .describe('\* `dismissed` - Dismissed\n\* `applied` - Applied')

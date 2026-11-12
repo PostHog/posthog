@@ -77045,6 +77045,8 @@ export namespace Schemas {
       identity: RecommendationIdentity;
       /** Opaque id of `identity`, the same as the `key` of the recommendation in the recommendations query. */
       key: string;
+      /** The display label sent with the last resolution, such as the campaign name. Empty when none was sent. */
+      name: string;
       /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
        *
        * * `dismissed` - Dismissed
@@ -103907,6 +103909,11 @@ export namespace Schemas {
     export interface RecommendationResolutionRequest {
       /** The recommendation's `identity` from the recommendations query, sent as is. */
       identity: RecommendationIdentity;
+      /**
+         * A display label for the recommendation, such as the campaign name or the search term. The activity log shows it. It is not part of the identity.
+         * @maxLength 400
+         */
+      name?: string;
       /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
        *
        * * `dismissed` - Dismissed
