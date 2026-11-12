@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
@@ -30,7 +31,9 @@ def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs | None:
     return async_to_sync(load_scanner_llm_inputs)(str(observation_id))
 
 
-def _emit_observation_signals(inputs: EmitObservationSignalInputs) -> list[EmittedSignal]:
+def _emit_observation_signals(
+    inputs: EmitObservationSignalInputs, heartbeat: Callable[[dict[str, int]], None] | None
+) -> list[EmittedSignal]:
     """Emit the observation's side-mission findings as PostHog Signals; fails soft, returns each signal it
     actually emitted, in emission order. Findings below the confidence floor and findings whose emission
     fails are left out, so the caller's count and types stay in step."""
@@ -108,8 +111,9 @@ def _emit_observation_signals(inputs: EmitObservationSignalInputs) -> list[Emitt
                         confidence=signal.confidence,
                     )
                 )
-                # Findings go out one network call at a time, so beat between them.
-                activity.heartbeat({"emitted": len(emitted), "index": index})
+                if heartbeat is not None:
+                    # Findings go out one network call at a time, so beat between them.
+                    heartbeat({"emitted": len(emitted), "index": index})
             except Exception:
                 # One bad finding never blocks the rest; signals are advisory.
                 any_failed = True
@@ -133,6 +137,12 @@ def _emit_observation_signals(inputs: EmitObservationSignalInputs) -> list[Emitt
 @activity.defn
 @track_activity(side_effect="signal")
 def emit_observation_signal_summaries_activity(inputs: EmitObservationSignalInputs) -> list[EmittedSignal]:
+    return emit_observation_signal_summaries(inputs, heartbeat=activity.heartbeat)
+
+
+def emit_observation_signal_summaries(
+    inputs: EmitObservationSignalInputs, heartbeat: Callable[[dict[str, int]], None] | None = None
+) -> list[EmittedSignal]:
     """Emit the observation's side-mission findings and return each emitted signal, in emission order — the
     highlight feed names them on the card and weighs them by confidence when it ranks."""
-    return _emit_observation_signals(inputs)
+    return _emit_observation_signals(inputs, heartbeat)

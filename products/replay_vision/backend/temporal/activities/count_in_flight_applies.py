@@ -50,7 +50,12 @@ def count_in_flight(
 @activity.defn
 @track_activity()
 def count_in_flight_by_team_activity(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:
-    with bounded_queries(COUNT_IN_FLIGHT_APPLIES_TIMEOUT):
+    return count_in_flight_applies(inputs)
+
+
+def count_in_flight_applies(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:
+    # Its own budget, because the folded sweep tick runs the budget check first in the same attempt.
+    with bounded_queries(COUNT_IN_FLIGHT_APPLIES_TIMEOUT, from_attempt_start=False):
         rows = count_in_flight_rows(inputs.team_id, inputs.scanner_id)
     counts = count_in_flight(inputs.team_id, inputs.scanner_id, rows=rows)
     team = counts["team"]

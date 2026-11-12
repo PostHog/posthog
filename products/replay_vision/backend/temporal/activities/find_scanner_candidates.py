@@ -182,6 +182,10 @@ def _turn_off_unrunnable_scanner(scanner: ReplayScanner, reason: ScannerDisabled
 @activity.defn
 @track_activity()
 def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> FindScannerCandidatesOutput:
+    return find_scanner_candidates(inputs)
+
+
+def find_scanner_candidates(inputs: FindScannerCandidatesInputs) -> FindScannerCandidatesOutput:
     # `enabled=True` short-circuits sweeps the instant a scanner is disabled.
     scanner = (
         ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id, enabled=True)
