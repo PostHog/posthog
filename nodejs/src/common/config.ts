@@ -285,12 +285,17 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_PROXY_TEAMS'
 >
 
-export function parseNumberFromEnv(
-    key: string,
-    raw: string,
-    fallback: number,
-    toNumber: (value: string) => number
-): number {
+const EXTERNAL_REQUEST_NUMBER_KEYS = new Set<string>([
+    'EXTERNAL_REQUEST_TIMEOUT_MS',
+    'EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS',
+    'EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS',
+    'EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS',
+    'EXTERNAL_REQUEST_CONNECTIONS',
+    'EXTERNAL_REQUEST_H2_CONNECTIONS',
+])
+
+export function parseNumberFromEnv(key: string, raw: string, fallback: number): number {
+    const toNumber = EXTERNAL_REQUEST_NUMBER_KEYS.has(key) ? Number : parseFloat
     const trimmed = raw.trim()
     const unquoted = trimmed.replace(/^(["'])(.*)\1$/, '$2').trim()
     const value = unquoted === '' && trimmed !== '' ? NaN : toNumber(unquoted)
@@ -306,7 +311,7 @@ export function parseNumberFromEnv(
 
 function numberFromEnv(key: keyof ExternalRequestConfig, fallback: number): number {
     const raw = process.env[key]
-    return raw === undefined ? fallback : parseNumberFromEnv(key, raw, fallback, Number)
+    return raw === undefined ? fallback : parseNumberFromEnv(key, raw, fallback)
 }
 
 export function getExternalRequestConfig(): ExternalRequestConfig {

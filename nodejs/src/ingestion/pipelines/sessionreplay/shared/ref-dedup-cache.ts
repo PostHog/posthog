@@ -75,8 +75,6 @@ const capacityGauge = new Gauge({
 })
 
 function validateRefCacheMax(name: string, max: number): void {
-    // `overrideConfigWithEnv` passes fractions and negatives through from env, and the cache
-    // rejects them with an error naming neither the knob nor the cache.
     if (!Number.isInteger(max) || max < 0) {
         throw new Error(`${name} ref cache max must be 0 or a positive integer, got ${max}`)
     }

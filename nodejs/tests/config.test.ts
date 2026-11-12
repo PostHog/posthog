@@ -102,6 +102,15 @@ describe('config', () => {
         })
     })
 
+    test.each(['', '0x10', '""', '3000ms'])(
+        'overrideWithEnv reads the external request env value %p as the request config does',
+        (value) => {
+            const config = overrideWithEnv(getDefaultConfig(), { EXTERNAL_REQUEST_TIMEOUT_MS: value })
+
+            expect(config.EXTERNAL_REQUEST_TIMEOUT_MS).toEqual(readExternalRequestTimeout(value))
+        }
+    )
+
     test('a service started with quoted and unparsable numbers reads the quoted one and logs the other', async () => {
         const { stdout } = await promisify(execFile)(
             join(__dirname, '../node_modules/.bin/tsx'),
