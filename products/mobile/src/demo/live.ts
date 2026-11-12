@@ -1,4 +1,5 @@
 import type { LiveQueryKey } from '@/api/live'
+import type { LiveProjectState } from '@/model/live'
 
 // Live demo traffic for hedgebox.net, a fictional file-sharing site. Every id, path and number is invented. A seeded
 // generator writes events up to the moment of each read, and each read answers in the shape of its live query, so demo
@@ -78,6 +79,29 @@ const EVENT_WEIGHTS: Weights = {
     folder_created: 2,
 }
 const SCREENS = ['File browser', 'Upload', 'Share sheet', 'Folder detail', 'Settings']
+// The Hedgebox phone app, for the app-only state: screens and app events, no pageviews.
+const APP_EVENT_WEIGHTS: Weights = {
+    $screen: 74,
+    file_uploaded: 10,
+    share_link_created: 8,
+    file_downloaded: 6,
+    folder_created: 2,
+}
+const APP_SCREEN_WEIGHTS: Weights = {
+    Home: 129,
+    Paywall: 105,
+    Files: 97,
+    'Share sheet': 66,
+    'Sign up': 52,
+    'Folder detail': 46,
+    'Log in': 41,
+    "What's new": 21,
+    Settings: 19,
+    Upload: 18,
+}
+const APP_DEVICE_WEIGHTS: Weights = { Mobile: 92, Tablet: 8 }
+/** What the breakdown jobs answer for events without `$browser`. */
+const NO_BROWSER = 'Unknown'
 const EVENT_PATHS: Record<string, string> = {
     file_uploaded: '/files',
     share_link_created: '/files/shared',
@@ -118,6 +142,7 @@ function minuteIso(at: number): string {
 
 export class LiveDemo {
     private seed: number
+    private readonly state: LiveProjectState
     private events: DemoEvent[] = []
     private active: DemoPerson[] = []
     private left: DemoPerson[] = []
@@ -125,8 +150,10 @@ export class LiveDemo {
     private nextAt: number
     private driftMinute: number
 
-    constructor(seed: number, start: number) {
+    /** `state` picks the traffic: web visits, app events only, or none for the quiet and not set up states. */
+    constructor(seed: number, start: number, state: LiveProjectState = 'web') {
         this.seed = seed
+        this.state = state
         this.nextAt = start - WINDOW_MINUTES * MINUTE
         this.driftMinute = Math.floor(this.nextAt / MINUTE)
         for (let index = 0; index < 12; index++) {
@@ -174,27 +201,14 @@ export class LiveDemo {
                 }
                 return { results: rows }
             }
-            case 'paths': {
-                const minutes = Array.from({ length: WINDOW_MINUTES }, (_, index) => from + index * MINUTE)
-                const perPath = new Map<string, number[]>()
-                for (const event of pageviews) {
-                    const data = perPath.get(event.path ?? '') ?? Array<number>(WINDOW_MINUTES).fill(0)
-                    const index = Math.floor((event.at - from) / MINUTE)
-                    data[index] = (data[index] ?? 0) + 1
-                    perPath.set(event.path ?? '', data)
-                }
-                const total = (data: number[]): number => data.reduce((sum, value) => sum + value, 0)
-                return {
-                    results: [...perPath.entries()]
-                        .sort(([, a], [, b]) => total(b) - total(a))
-                        .slice(0, 10)
-                        .map(([path, data]) => ({
-                            breakdown_value: path,
-                            data,
-                            days: minutes.map((at) => new Date(at).toISOString()),
-                        })),
-                }
-            }
+            case 'paths':
+                return this.topViews(pageviews, from, (event) => event.path)
+            case 'screens':
+                return this.topViews(
+                    inWindow.filter((event) => event.event === '$screen'),
+                    from,
+                    (event) => event.screen
+                )
             case 'recentEvents':
                 return {
                     results: inWindow
@@ -215,6 +229,34 @@ export class LiveDemo {
                 const recent = this.events.filter((event) => event.at > now - MINUTE && event.at <= now)
                 return { results: [[new Set(recent.map((event) => event.person.distinctId)).size]] }
             }
+        }
+    }
+
+    /** A `TrendsQuery` breakdown answer: views per minute for the top 10 values of `keyOf`. */
+    private topViews(
+        events: DemoEvent[],
+        from: number,
+        keyOf: (event: DemoEvent) => string | null
+    ): { results: { breakdown_value: string; data: number[]; days: string[] }[] } {
+        const minutes = Array.from({ length: WINDOW_MINUTES }, (_, index) => from + index * MINUTE)
+        const perValue = new Map<string, number[]>()
+        for (const event of events) {
+            const value = keyOf(event) ?? ''
+            const data = perValue.get(value) ?? Array<number>(WINDOW_MINUTES).fill(0)
+            const index = Math.floor((event.at - from) / MINUTE)
+            data[index] = (data[index] ?? 0) + 1
+            perValue.set(value, data)
+        }
+        const total = (data: number[]): number => data.reduce((sum, value) => sum + value, 0)
+        return {
+            results: [...perValue.entries()]
+                .sort(([, a], [, b]) => total(b) - total(a))
+                .slice(0, 10)
+                .map(([value, data]) => ({
+                    breakdown_value: value,
+                    data,
+                    days: minutes.map((at) => new Date(at).toISOString()),
+                })),
         }
     }
 
@@ -270,7 +312,11 @@ export class LiveDemo {
                 this.driftMinute += 1
                 this.drift()
             }
-            this.events.push(this.makeEvent(this.nextAt))
+            if (this.state === 'web') {
+                this.events.push(this.makeEvent(this.nextAt))
+            } else if (this.state === 'app_only') {
+                this.events.push(this.makeAppEvent(this.nextAt))
+            }
             this.nextAt += 1200 + this.random() * 2400
         }
         const oldest = now - (WINDOW_MINUTES + 1) * MINUTE
@@ -326,13 +372,26 @@ export class LiveDemo {
         }
     }
 
+    /** An app event: a screen name on every event, and no path, URL or browser. */
+    private makeAppEvent(at: number): DemoEvent {
+        const event = this.makeEvent(at)
+        return {
+            ...event,
+            event: this.weighted(APP_EVENT_WEIGHTS),
+            path: null,
+            url: null,
+            screen: this.weighted(APP_SCREEN_WEIGHTS),
+        }
+    }
+
     private newPerson(): DemoPerson {
-        const device = this.weighted(DEVICE_WEIGHTS)
+        const app = this.state === 'app_only'
+        const device = this.weighted(app ? APP_DEVICE_WEIGHTS : DEVICE_WEIGHTS)
         return {
             distinctId: this.uuid(),
             deviceId: this.uuid(),
             device,
-            browser: this.weighted(BROWSER_WEIGHTS[device] ?? BROWSER_WEIGHTS.Desktop ?? {}),
+            browser: app ? NO_BROWSER : this.weighted(BROWSER_WEIGHTS[device] ?? BROWSER_WEIGHTS.Desktop ?? {}),
             country: this.weighted(COUNTRY_WEIGHTS),
             referrer: this.weighted(REFERRER_WEIGHTS),
             sessionId: this.random() < 0.82 ? this.uuid() : null,
@@ -377,10 +436,23 @@ export class LiveDemo {
 }
 
 const DEMO_SEED = 1105
-let shared: LiveDemo | null = null
+const shared = new Map<LiveProjectState, LiveDemo>()
 
-/** One simulator for the app session, so leaving and reopening Live continues the same traffic. */
-export function liveDemo(now: number = Date.now()): LiveDemo {
-    shared ??= new LiveDemo(DEMO_SEED, now)
-    return shared
+/** One simulator per state for the app session, so leaving and reopening Live continues the same traffic. */
+export function liveDemo(now: number = Date.now(), state: LiveProjectState = 'web'): LiveDemo {
+    let demo = shared.get(state)
+    if (!demo) {
+        demo = new LiveDemo(DEMO_SEED, now, state)
+        shared.set(state, demo)
+    }
+    return demo
+}
+
+/**
+ * A dev aid for screenshots: `EXPO_PUBLIC_DEMO_LIVE_STATE=app_only|quiet|not_set_up` shows that Live state in demo
+ * mode. Release builds ignore it, so the store demo always shows web traffic.
+ */
+export function liveDemoState(): LiveProjectState {
+    const value = __DEV__ ? process.env.EXPO_PUBLIC_DEMO_LIVE_STATE : undefined
+    return value === 'app_only' || value === 'quiet' || value === 'not_set_up' ? value : 'web'
 }

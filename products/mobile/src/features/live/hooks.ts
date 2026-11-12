@@ -15,13 +15,13 @@ import { addSessionEndTask } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { type DataMode, useDataMode } from '@/demo/demoMode'
-import { LIVE_DEMO_READ_MS, liveDemo } from '@/demo/live'
+import { LIVE_DEMO_READ_MS, liveDemo, liveDemoState } from '@/demo/live'
 import { useAppActive } from '@/features/handoff/useTaskRun'
 import { reportScopeError } from '@/features/views/useViewsAccess'
 import { sleep } from '@/lib/sleep'
 import { useDelayedReconnecting } from '@/lib/useDelayedReconnecting'
-import { liveUsersOnlineFromQuery, liveUsersOnlineFromStats } from '@/model/adapters/live'
-import { EMPTY_LIVE_SNAPSHOT, type LiveSnapshot, type LiveWorld } from '@/model/live'
+import { liveProjectState, liveUsersOnlineFromQuery, liveUsersOnlineFromStats } from '@/model/adapters/live'
+import { EMPTY_LIVE_SNAPSHOT, type LiveProjectState, type LiveSnapshot, type LiveWorld } from '@/model/live'
 
 import {
     type LiveErrorKind,
@@ -29,6 +29,7 @@ import {
     trackLivePaused,
     trackLiveRefreshed,
     trackLiveResumed,
+    trackLiveStateShown,
 } from './analytics'
 import {
     LiveController,
@@ -52,51 +53,80 @@ const BACKGROUND_GRACE_MS = 2000
 const MAX_BACKOFF_MS = 5 * 60_000
 /** After this many failed stats reads in a row, users online comes from the HogQL count instead. */
 const STATS_FAILURES_BEFORE_FALLBACK = 2
+/** While a project has sent no event, Live reads the project again on focus, at most this often. */
+const PROJECT_RECHECK_MS = 60_000
 
 interface LiveProjectInfo {
     token: string | null
     pathCleaning: boolean
+    /** False until the project ingests its first event. Null when the response does not say. */
+    ingestedEvent: boolean | null
 }
 
 interface LiveSource {
     run: LiveQueryRunner
-    project: () => Promise<LiveProjectInfo | null>
+    /** The project read of this session, or a new one when the last is at least `maxAgeMs` old. */
+    project: (maxAgeMs?: number) => Promise<LiveProjectInfo | null>
     /** The live events service for users online, or null when the HogQL count stands in for it. */
     statsHost: string | null
 }
 
+interface ProjectRead {
+    pending: Promise<LiveProjectInfo | null>
+    /** When the read started, epoch milliseconds. */
+    at: number
+}
+
 // The token lives for the session: the server mints it for a week, and a new sign-in clears this.
-const projects = new Map<string, Promise<LiveProjectInfo | null>>()
+const projects = new Map<string, ProjectRead>()
 addSessionEndTask(() => projects.clear())
 
-function projectInfo(scope: ProjectScope): Promise<LiveProjectInfo | null> {
-    const key = `${sessionGeneration()}|${scope.host}|${scope.projectId}`
-    let pending = projects.get(key)
-    if (!pending) {
-        pending = fetchLiveProject().then(
-            (project: LiveProjectApi) => ({
-                token: project.live_events_token || null,
-                pathCleaning: Array.isArray(project.path_cleaning_filters) && project.path_cleaning_filters.length > 0,
-            }),
-            () => {
-                // A failed read is not kept, so the next visit asks again.
-                projects.delete(key)
-                return null
-            }
-        )
-        projects.set(key, pending)
+function projectInfoFrom(project: LiveProjectApi): LiveProjectInfo {
+    return {
+        token: project.live_events_token || null,
+        pathCleaning: Array.isArray(project.path_cleaning_filters) && project.path_cleaning_filters.length > 0,
+        ingestedEvent: typeof project.ingested_event === 'boolean' ? project.ingested_event : null,
     }
-    return pending
+}
+
+function projectInfo(scope: ProjectScope, maxAgeMs = Number.POSITIVE_INFINITY): Promise<LiveProjectInfo | null> {
+    const key = `${sessionGeneration()}|${scope.host}|${scope.projectId}`
+    const cached = projects.get(key)
+    if (cached && Date.now() - cached.at < maxAgeMs) {
+        return cached.pending
+    }
+    const kept = cached?.pending
+    const read: ProjectRead = {
+        at: Date.now(),
+        pending: fetchLiveProject().then(projectInfoFrom, () => {
+            // A failed first read is not kept, so the next visit asks again. A failed read after a good one keeps
+            // the good answer with this read's start time, so a project that keeps failing is read at most once a
+            // `maxAgeMs`.
+            if (projects.get(key) === read) {
+                if (kept) {
+                    projects.set(key, { pending: kept, at: read.at })
+                } else {
+                    projects.delete(key)
+                }
+            }
+            return kept ?? Promise.resolve(null)
+        }),
+    }
+    projects.set(key, read)
+    return read.pending
 }
 
 function sourceFor(mode: DataMode, scope: ProjectScope | null): LiveSource | null {
     if (mode === 'demo') {
+        const state = liveDemoState()
+        const project: LiveProjectInfo | null =
+            state === 'not_set_up' ? { token: null, pathCleaning: false, ingestedEvent: false } : null
         return {
             run: async (key, _query, signal, now) => {
                 await sleep(LIVE_DEMO_READ_MS, signal)
-                return liveDemo(now).respond(key, now)
+                return liveDemo(now, state).respond(key, now)
             },
-            project: () => Promise.resolve(null),
+            project: () => Promise.resolve(project),
             statsHost: null,
         }
     }
@@ -112,7 +142,7 @@ function sourceFor(mode: DataMode, scope: ProjectScope | null): LiveSource | nul
                 throw error
             }
         },
-        project: () => projectInfo(scope),
+        project: (maxAgeMs) => projectInfo(scope, maxAgeMs),
         statsHost: liveStatsHost(scope.host),
     }
 }
@@ -182,8 +212,11 @@ interface StatsUsersOnline {
     controller: LiveController<number | null> | null
 }
 
-/** Users online from the live events service on Cloud, every `intervalMs` while the screen is seen. */
-function useStatsUsersOnline(source: LiveSource | null, intervalMs: number): StatsUsersOnline {
+/**
+ * Users online from the live events service on Cloud, every `intervalMs` while the screen is seen and `enabled` is
+ * true.
+ */
+function useStatsUsersOnline(source: LiveSource | null, intervalMs: number, enabled = true): StatsUsersOnline {
     // Kept with the source it came from, so a project switch never reads with the last project's token.
     const [known, setKnown] = useState<{ source: LiveSource; token: string | null } | null>(null)
     const [failedFor, setFailedFor] = useState<LiveSource | null>(null)
@@ -206,7 +239,7 @@ function useStatsUsersOnline(source: LiveSource | null, intervalMs: number): Sta
         }
     }, [source, host])
 
-    const active = host !== null && typeof token === 'string' && !failed
+    const active = enabled && host !== null && typeof token === 'string' && !failed
     const read = useCallback(
         async (signal: AbortSignal): Promise<LiveReadResult<number | null>> => {
             if (!host || !token) {
@@ -230,6 +263,42 @@ function useStatsUsersOnline(source: LiveSource | null, intervalMs: number): Sta
         failed: failed || (active && poller.state.failures > 0),
         controller: poller.controller,
     }
+}
+
+interface LiveProjectRead {
+    /** Undefined until the first project read settles. Null when it failed. */
+    info: LiveProjectInfo | null | undefined
+    /** Reads the project again when the last read is at least `maxAgeMs` old. */
+    recheck: (maxAgeMs: number) => Promise<void>
+}
+
+function useLiveProject(source: LiveSource | null): LiveProjectRead {
+    // Kept with the source it came from, so a project switch never shows the last project's state.
+    const [known, setKnown] = useState<{ source: LiveSource; info: LiveProjectInfo | null } | null>(null)
+    useEffect(() => {
+        let cancelled = false
+        if (source) {
+            void source.project().then((info) => {
+                if (!cancelled) {
+                    setKnown({ source, info })
+                }
+            })
+        }
+        return () => {
+            cancelled = true
+        }
+    }, [source])
+    const recheck = useCallback(
+        async (maxAgeMs: number): Promise<void> => {
+            if (!source) {
+                return
+            }
+            const info = await source.project(maxAgeMs)
+            setKnown((current) => (current?.source === source ? { source, info } : current))
+        },
+        [source]
+    )
+    return { info: known?.source === source ? known.info : undefined, recheck }
 }
 
 /**
@@ -278,9 +347,25 @@ export function useLiveUsersOnline(): { count: number | null; reconnecting: bool
     }
 }
 
+/** `mobile_live_state_shown` once per focus for each state other than `web`. */
+function useLiveStateShown(state: LiveProjectState | null): void {
+    const focused = useIsFocused()
+    const shown = useRef<LiveProjectState | null>(null)
+    useEffect(() => {
+        if (!focused) {
+            shown.current = null
+        } else if (state && state !== 'web' && state !== shown.current) {
+            shown.current = state
+            trackLiveStateShown({ state })
+        }
+    }, [focused, state])
+}
+
 export interface LiveFeed {
     screenActive: boolean
     snapshot: LiveSnapshot
+    /** Null until the project read settles. */
+    state: LiveProjectState | null
     status: LiveStatus
     updatedAt: number | null
     usersOnline: number | null
@@ -297,12 +382,17 @@ export interface LiveFeed {
 /**
  * Polls the live queries while the screen is focused and the app is in the foreground. Mount it only when the session
  * has access, keyed by the session and project identity.
+ *
+ * A project that has never sent an event runs no live reads. Live reads the project again on focus and foreground, at
+ * most once a minute, and starts polling once the project has an event.
  */
 export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     const mode = useDataMode()
     const scope = useProjectScope()
     const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
-    const stats = useStatsUsersOnline(source, STATS_INTERVAL_MS)
+    const project = useLiveProject(source)
+    const notSetUp = project.info?.ingestedEvent === false
+    const stats = useStatsUsersOnline(source, STATS_INTERVAL_MS, !notSetUp)
     const useStatsRef = useRef(stats.active)
     useStatsRef.current = stats.active
 
@@ -331,7 +421,7 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         }
     }, [])
     const main = usePoller<LiveSnapshot>({
-        enabled: source !== null,
+        enabled: source !== null && project.info !== undefined && !notSetUp,
         read,
         intervalMs: READ_INTERVAL_MS,
         slowdown: READ_SLOWDOWN,
@@ -371,12 +461,26 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         }
     }, [errorKind, failing, source])
 
+    const { recheck } = project
+    const screenActive = main.screenActive
+    useEffect(() => {
+        if (notSetUp && screenActive) {
+            void recheck(PROJECT_RECHECK_MS)
+        }
+    }, [notSetUp, screenActive, recheck])
+
+    const snapshot = main.state.data ?? EMPTY_LIVE_SNAPSHOT
+    const state = source && project.info !== undefined ? liveProjectState(snapshot, project.info) : null
+    useLiveStateShown(state)
+
     const [pulling, setPulling] = useState(false)
     const pull = useCallback(() => {
         trackLiveRefreshed({ trigger: 'pull' })
         setPulling(true)
-        void Promise.all([main.controller?.refresh(), stats.controller?.refresh()]).finally(() => setPulling(false))
-    }, [main.controller, stats.controller])
+        // A pull is a person asking, so it reads the project now instead of waiting out the minute.
+        const reads = notSetUp ? [recheck(0)] : [main.controller?.refresh(), stats.controller?.refresh()]
+        void Promise.all(reads).finally(() => setPulling(false))
+    }, [notSetUp, recheck, main.controller, stats.controller])
     const pause = useCallback(() => {
         trackLivePaused({ trigger: 'button' })
         main.controller?.pause()
@@ -390,12 +494,12 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         void main.controller?.refresh()
     }, [main.controller])
 
-    const snapshot = main.state.data ?? EMPTY_LIVE_SNAPSHOT
     let status: LiveStatus = source ? liveStatus(main.state) : 'loading'
     if (status === 'reconnecting' && !reconnecting) status = hasData ? 'live' : 'loading'
     return {
-        screenActive: main.screenActive,
+        screenActive,
         snapshot,
+        state,
         status,
         updatedAt: main.state.updatedAt,
         usersOnline: stats.count ?? snapshot.usersOnline,

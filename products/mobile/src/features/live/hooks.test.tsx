@@ -1,7 +1,10 @@
 import { act, cleanupAsync, renderHook } from '@testing-library/react-native'
 import type { Context, ReactElement, ReactNode } from 'react'
 
+import type { LiveProjectApi } from '@/api/live'
+import type { ProjectScope } from '@/api/reports'
 import { LIVE_DEMO_READ_MS, LiveDemo } from '@/demo/live'
+import { track } from '@/lib/analytics'
 import { RECONNECT_NOTICE_DELAY_MS } from '@/lib/useDelayedReconnecting'
 
 import { useLiveFeed, useLiveUsersOnline, useLiveWorld } from './hooks'
@@ -12,6 +15,10 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 )
 let mockFocused = true
 let mockAppActive = true
+let mockMode: 'demo' | 'live' = 'demo'
+let mockScope: ProjectScope | null = null
+const mockFetchProject = jest.fn<Promise<LiveProjectApi>, []>()
+const mockFetchQuery = jest.fn<Promise<unknown>, [Record<string, unknown>]>()
 // A hook under `MockFocus` reads its own focus, so a test can blur Live while another screen stays focused.
 jest.mock('expo-router', () => {
     const { createContext, useContext } = jest.requireActual<typeof import('react')>('react')
@@ -26,10 +33,16 @@ function LiveFocus({ children }: { children: ReactNode }): ReactElement {
 }
 jest.mock('@/demo/demoMode', () => ({
     ...jest.requireActual<typeof import('@/demo/demoMode')>('@/demo/demoMode'),
-    useDataMode: () => 'demo',
+    useDataMode: () => mockMode,
 }))
-jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => null }))
+jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => mockScope }))
 jest.mock('@/features/handoff/useTaskRun', () => ({ useAppActive: () => mockAppActive }))
+jest.mock('@/api/live', () => ({
+    ...jest.requireActual<typeof import('@/api/live')>('@/api/live'),
+    fetchLiveProject: () => mockFetchProject(),
+    fetchLiveQuery: (query: Record<string, unknown>) => mockFetchQuery(query),
+}))
+jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
 
 async function advance(ms: number): Promise<void> {
     await act(async () => {
@@ -37,11 +50,70 @@ async function advance(ms: number): Promise<void> {
     })
 }
 
+/** Renders the feed and lets the project read settle, which is what starts the poller. */
+async function renderFeed(
+    onError: Parameters<typeof useLiveFeed>[0] = () => undefined
+): Promise<ReturnType<typeof renderHook<ReturnType<typeof useLiveFeed>, unknown>>> {
+    const hook = renderHook(() => useLiveFeed(onError))
+    await advance(0)
+    return hook
+}
+
+type Traffic = 'none' | 'app'
+
+/** What the server answers for a window with no events, or with app events and no pageviews. */
+function fakeLiveAnswer(query: Record<string, unknown>, traffic: Traffic): unknown {
+    const app = traffic === 'app'
+    if (query.kind === 'TrendsQuery') {
+        const event = (query.series as { event: string }[])[0]?.event
+        const breakdown = (query.breakdownFilter as { breakdown: string }).breakdown
+        const screens = app && event === '$screen' && breakdown === '$screen_name'
+        return { results: screens ? [{ breakdown_value: 'Home', data: [2, 1] }] : [] }
+    }
+    const minute = Math.floor(Date.now() / 60_000) * 60_000
+    const counts = (key: string): unknown => ({ results: [[app ? [[key, 3]] : []]] })
+    switch ((query.tags as { name: string }).name) {
+        case 'live_users_pageviews':
+            return { results: app ? [[minute, 3, 3, 0]] : [] }
+        case 'live_device_breakdown':
+            return counts('Mobile')
+        case 'live_browser_breakdown':
+            return counts('Unknown')
+        case 'live_geo':
+            return counts('US')
+        case 'live_recent_events':
+            return { results: app ? [['e1', '$screen', 'person-1', Date.now(), null, 'Home', null, null]] : [] }
+        case 'live_users_count':
+            return { results: [[app ? 3 : 0]] }
+        default:
+            return { results: [] }
+    }
+}
+
+let nextProjectId = 1
+
+/** A self-hosted project, so users online come from HogQL and every read goes through the fakes. */
+function liveProject(project: LiveProjectApi, traffic: Traffic): void {
+    mockMode = 'live'
+    mockScope = { host: 'https://posthog.example.com', projectId: nextProjectId++ }
+    mockFetchProject.mockResolvedValue(project)
+    mockFetchQuery.mockImplementation(async (query) => fakeLiveAnswer(query, traffic))
+}
+
+function pathsEventsAsked(): string[] {
+    return mockFetchQuery.mock.calls
+        .map(([query]) => query)
+        .filter((query) => query.kind === 'TrendsQuery')
+        .map((query) => (query.series as { event: string }[])[0]?.event ?? '')
+}
+
 describe('useLiveFeed', () => {
     beforeEach(() => {
         mockFocused = true
         liveFocused = true
         mockAppActive = true
+        mockMode = 'demo'
+        mockScope = null
         jest.useFakeTimers()
     })
 
@@ -50,10 +122,11 @@ describe('useLiveFeed', () => {
         clearLiveWorldShare()
         jest.useRealTimers()
         jest.restoreAllMocks()
+        jest.clearAllMocks()
     })
 
     test('demo mode fills every card, counts users online with HogQL, and reads nothing while paused', async () => {
-        const { result, unmount } = renderHook(() => useLiveFeed(() => undefined))
+        const { result, unmount } = await renderFeed()
         expect(result.current.status).toBe('loading')
 
         await advance(5000)
@@ -85,6 +158,7 @@ describe('useLiveFeed', () => {
         'with Visitors by country focused and Live %s, Live sends nothing and the screen sends only geo reads',
         async (status, paused, keys) => {
             const live = renderHook(() => useLiveFeed(() => undefined), { wrapper: LiveFocus })
+            await advance(0)
             await advance(5000)
             if (paused) {
                 act(() => live.result.current.pause())
@@ -153,7 +227,7 @@ describe('useLiveFeed', () => {
             const original = LiveDemo.prototype.respond
             const respond = jest.spyOn(LiveDemo.prototype, 'respond')
             const onError = jest.fn()
-            const { result } = renderHook(() => useLiveFeed(onError))
+            const { result } = await renderFeed(onError)
             await advance(LIVE_DEMO_READ_MS * 4)
             expect(result.current.status).toBe('live')
 
@@ -203,7 +277,7 @@ describe('useLiveFeed', () => {
             const original = LiveDemo.prototype.respond
             const respond = jest.spyOn(LiveDemo.prototype, 'respond')
             const onError = jest.fn()
-            const { result, rerender } = renderHook(() => useLiveFeed(onError))
+            const { result, rerender } = await renderFeed(onError)
             await advance(LIVE_DEMO_READ_MS * 4)
             const readKeys = respond.mock.calls.map(([key]) => key)
             respond.mockImplementation(() => {
@@ -227,13 +301,77 @@ describe('useLiveFeed', () => {
         }
     )
 
+    test('a window without events reads as quiet, says so once per focus, and keeps polling', async () => {
+        liveProject({ ingested_event: true }, 'none')
+        const { result, unmount } = await renderFeed()
+        await advance(1000)
+        expect(result.current.state).toBe('quiet')
+
+        const asked = mockFetchQuery.mock.calls.length
+        await advance(30_000)
+        expect(mockFetchQuery.mock.calls.length).toBeGreaterThan(asked)
+        expect(result.current.state).toBe('quiet')
+        expect(jest.mocked(track).mock.calls.filter(([event]) => event === 'mobile_live_state_shown')).toEqual([
+            ['mobile_live_state_shown', { state: 'quiet' }],
+        ])
+        unmount()
+    })
+
+    test('app events without pageviews list top screens from the first read, then ask for screens alone', async () => {
+        liveProject({ ingested_event: true }, 'app')
+        const { result, unmount } = await renderFeed()
+        await advance(1000)
+        expect(result.current.state).toBe('app_only')
+        expect(result.current.snapshot).toMatchObject({
+            topPagesMode: 'screens',
+            topPages: [{ label: 'Home', views: 3 }],
+        })
+        expect(pathsEventsAsked()).toEqual(['$pageview', '$screen'])
+
+        await advance(30_000)
+        expect(pathsEventsAsked()).toEqual(['$pageview', '$screen', '$screen'])
+        unmount()
+    })
+
+    test('a project without events runs no live jobs and reads the project again on focus, once a minute at most', async () => {
+        liveProject({ ingested_event: false }, 'none')
+        const { result, rerender, unmount } = await renderFeed()
+        expect(result.current.state).toBe('not_set_up')
+        await advance(5 * 60_000)
+        expect(mockFetchProject).toHaveBeenCalledTimes(1)
+        expect(mockFetchQuery).not.toHaveBeenCalled()
+
+        const refocus = async (): Promise<void> => {
+            mockFocused = false
+            rerender({})
+            mockFocused = true
+            rerender({})
+            await advance(0)
+        }
+        await refocus()
+        expect(mockFetchProject).toHaveBeenCalledTimes(2)
+        await advance(30_000)
+        await refocus()
+        expect(mockFetchProject).toHaveBeenCalledTimes(2)
+
+        mockFetchProject.mockResolvedValue({ ingested_event: true })
+        await advance(30_000)
+        await refocus()
+        await advance(1000)
+        expect(mockFetchProject).toHaveBeenCalledTimes(3)
+        expect(mockFetchQuery).toHaveBeenCalled()
+        expect(result.current.state).toBe('quiet')
+        unmount()
+    })
+
     test.each(['tab blur', 'app background'])(
         'disables Live visual updates on %s and reenables them on return',
-        (event) => {
+        async (event) => {
             const { result, rerender } = renderHook(() => ({
                 feed: useLiveFeed(() => undefined).screenActive,
                 chip: useLiveUsersOnline().screenActive,
             }))
+            await advance(0)
             expect(result.current).toEqual({ feed: true, chip: true })
 
             mockFocused = event !== 'tab blur'

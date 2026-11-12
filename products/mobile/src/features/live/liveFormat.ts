@@ -1,5 +1,5 @@
 import { plural } from '@/model/adapters/text'
-import type { LiveWorld } from '@/model/live'
+import type { LiveProjectState, LiveWorld } from '@/model/live'
 
 import type { LiveStatus } from './liveController'
 
@@ -16,7 +16,15 @@ export function agoText(at: number, now: number): string {
     return minutes < 60 ? `${minutes} min ago` : `${Math.floor(minutes / 60)} h ago`
 }
 
-export function statusText(status: LiveStatus, updatedAt: number | null, now: number): string {
+export function statusText(
+    status: LiveStatus,
+    updatedAt: number | null,
+    now: number,
+    state: LiveProjectState | null = null
+): string {
+    if (state === 'not_set_up') {
+        return 'Not receiving events yet'
+    }
     switch (status) {
         case 'paused':
             return 'Paused'
@@ -25,6 +33,9 @@ export function statusText(status: LiveStatus, updatedAt: number | null, now: nu
         case 'loading':
             return 'Loading…'
         case 'live':
+            if (state === 'quiet') {
+                return 'Live · waiting for activity'
+            }
             return updatedAt === null ? 'Live' : `Live · updated ${agoText(updatedAt, now)}`
     }
 }

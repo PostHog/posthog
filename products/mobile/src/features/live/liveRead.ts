@@ -6,25 +6,22 @@ import {
     liveBreakdown,
     liveEvents,
     livePathCounts,
+    livePathsMode,
     liveRankedRows,
     liveReferrerCounts,
     liveUsersOnlineFromQuery,
     liveWorld,
 } from '@/model/adapters/live'
-import type { LiveRankedRow, LiveSnapshot, LiveWorld } from '@/model/live'
+import type { LivePathsMode, LiveRankedRow, LiveSnapshot, LiveWorld } from '@/model/live'
 
 import type { LiveReadResult } from './liveController'
 
+const TOP_JOB: Record<LivePathsMode, LiveQueryKey> = { pages: 'paths', screens: 'screens' }
+
 /** The web's jobs, the chart's first so a slow read fills the top of the screen first. */
-const JOBS: readonly LiveQueryKey[] = [
-    'usersPageviews',
-    'paths',
-    'referrer',
-    'device',
-    'browser',
-    'geo',
-    'recentEvents',
-]
+function jobs(mode: LivePathsMode): LiveQueryKey[] {
+    return ['usersPageviews', TOP_JOB[mode], 'referrer', 'device', 'browser', 'geo', 'recentEvents']
+}
 /** The Views queue's limit, so one read never holds more than two server queries at a time. */
 const CONCURRENCY = 2
 
@@ -81,7 +78,8 @@ function answered(value: unknown): boolean {
  */
 export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadResult<LiveSnapshot>> {
     const { run, previous, now, signal } = input
-    const keys: LiveQueryKey[] = input.countUsersOnline ? [...JOBS, 'usersOnline'] : [...JOBS]
+    const askedMode = livePathsMode(previous.activity)
+    const keys = input.countUsersOnline ? [...jobs(askedMode), 'usersOnline' as const] : jobs(askedMode)
     const options = { window: liveWindow(now), pathCleaning: input.pathCleaning }
     const settled = await settleInTurn(
         keys.map((key) => () => run(key, liveQuery(key, options), signal, now)),
@@ -104,6 +102,25 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
     const activity = answers.has('usersPageviews')
         ? liveActivity(answers.get('usersPageviews'), now)
         : previous.activity
+    let complete = answers.size === keys.length
+    // The top list asks in the form the last read called for. When this read calls for the other form, as on an app
+    // project's first read, it asks once more in that form, so the list never shows the wrong form for a whole interval.
+    const mode = livePathsMode(activity)
+    if (mode !== askedMode && !signal.aborted) {
+        answers.delete(TOP_JOB[askedMode])
+        try {
+            const answer = await run(TOP_JOB[mode], liveQuery(TOP_JOB[mode], options), signal, now)
+            if (answered(answer)) {
+                answers.set(TOP_JOB[mode], answer)
+            } else {
+                complete = false
+            }
+        } catch {
+            complete = false
+        }
+    }
+    const topMode: LivePathsMode = answers.has('screens') ? 'screens' : 'pages'
+    const topAnswer = answers.get(TOP_JOB[topMode])
     const ranked = (counts: Map<string, number>, before: LiveRankedRow[] | null): LiveRankedRow[] => {
         // Shares are of the window's pageviews; without them, of the listed views, so they never read 0%.
         const listed = [...counts.values()].reduce((sum, views) => sum + views, 0)
@@ -115,7 +132,11 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
     return {
         data: {
             activity,
-            topPages: part('paths', (answer) => ranked(livePathCounts(answer), previous.topPages), previous.topPages),
+            // Rank changes compare rows of one form only, so a switch between pages and screens shows no badges.
+            topPages: topAnswer
+                ? ranked(livePathCounts(topAnswer), previous.topPagesMode === topMode ? previous.topPages : null)
+                : previous.topPages,
+            topPagesMode: topAnswer ? topMode : previous.topPagesMode,
             topReferrers: part(
                 'referrer',
                 (answer) => ranked(liveReferrerCounts(answer), previous.topReferrers),
@@ -128,7 +149,7 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
             events: part('recentEvents', liveEvents, previous.events),
             usersOnline: part('usersOnline', liveUsersOnlineFromQuery, previous.usersOnline),
         },
-        complete: answers.size === keys.length,
+        complete,
     }
 }
 

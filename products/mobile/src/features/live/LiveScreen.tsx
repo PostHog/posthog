@@ -16,7 +16,8 @@ import { type Toasts, useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { viewWebUrl } from '@/features/views/webLinks'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useNow } from '@/lib/useNow'
-import type { LiveBreakdownKind, LiveEventRow } from '@/model/live'
+import { liveBreakdownKinds } from '@/model/adapters/live'
+import type { LiveBreakdownKind, LiveEventRow, LiveProjectState } from '@/model/live'
 import type { ViewEntry } from '@/model/views'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
@@ -44,6 +45,7 @@ import { LiveBreakdownCard } from './LiveBreakdownCard'
 import { LiveEventSheet } from './LiveEventSheet'
 import { LiveEventsCard } from './LiveEventsCard'
 import { LiveMapCard } from './LiveMapCard'
+import { LiveNoTraffic } from './LiveNoTraffic'
 import { LiveRankedTable } from './LiveRankedTable'
 import { LiveStats } from './LiveStats'
 import type { LiveStatus } from './liveController'
@@ -151,7 +153,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
     const [breakdown, setBreakdown] = useState<LiveBreakdownKind>('devices')
     const [sheetOpen, setSheetOpen] = useState(false)
     const [sheetEvent, setSheetEvent] = useState<LiveEventRow | null>(null)
-    const { snapshot } = feed
+    const { snapshot, state } = feed
     const contentTop = topOffset(insets, tab ? TABS_HEADER_BOTTOM : SCREEN_CONTENT_TOP)
     const contentBottom = tab ? tabBottom : bottomOffset(insets, 48)
 
@@ -169,6 +171,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
         <LiveTitle
             tab={tab}
             status={feed.status}
+            state={state}
             screenActive={feed.screenActive}
             updatedAt={feed.updatedAt}
             paused={feed.paused}
@@ -190,6 +193,8 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                 testID="live-error"
             />
         )
+    } else if (state === 'quiet' || state === 'not_set_up') {
+        content = <LiveNoTraffic state={state} scope={scope} />
     } else if (nothingYet) {
         content = (
             <View testID="live-loading">
@@ -198,6 +203,9 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
         )
     } else {
         const activity = snapshot.activity
+        const screens = snapshot.topPagesMode === 'screens'
+        const kinds = liveBreakdownKinds(snapshot)
+        const shownBreakdown = kinds.includes(breakdown) ? breakdown : kinds[0]
         content = (
             <View style={styles.cards}>
                 <LiveStats
@@ -208,25 +216,49 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                 />
                 <LiveMapCard world={snapshot.world} paused={feed.paused} />
                 <LiveActivityCard activity={activity} />
-                <LiveRankedTable
-                    title="Top pages (last 30 minutes)"
-                    columnLabel="Path"
-                    rows={snapshot.topPages}
-                    emptyText="No pageviews recorded in the last 30 minutes"
-                    mono
-                    version={feed.updatedAt}
-                    testID="live-top-pages"
-                />
-                <LiveRankedTable
-                    title="Top referrers (last 30 minutes)"
-                    columnLabel="Referrer"
-                    rows={snapshot.topReferrers}
-                    emptyText="No referrer data in the last 30 minutes"
-                    mono
-                    version={feed.updatedAt}
-                    testID="live-top-referrers"
-                />
-                <LiveBreakdownCard kind={breakdown} breakdown={snapshot[breakdown]} onChange={changeBreakdown} />
+                {/* Keyed by form, so a switch between pages and screens redraws the rows instead of sliding them. */}
+                {screens ? (
+                    <LiveRankedTable
+                        key="screens"
+                        title="Top screens (last 30 minutes)"
+                        columnLabel="Screen"
+                        rows={snapshot.topPages}
+                        emptyText="No screen views recorded in the last 30 minutes"
+                        version={feed.updatedAt}
+                        testID="live-top-screens"
+                    />
+                ) : (
+                    <LiveRankedTable
+                        key="pages"
+                        title="Top pages (last 30 minutes)"
+                        columnLabel="Path"
+                        rows={snapshot.topPages}
+                        emptyText="No pageviews recorded in the last 30 minutes"
+                        mono
+                        version={feed.updatedAt}
+                        testID="live-top-pages"
+                    />
+                )}
+                {/* App events carry no referrer. */}
+                {state === 'app_only' ? null : (
+                    <LiveRankedTable
+                        title="Top referrers (last 30 minutes)"
+                        columnLabel="Referrer"
+                        rows={snapshot.topReferrers}
+                        emptyText="No referrer data in the last 30 minutes"
+                        mono
+                        version={feed.updatedAt}
+                        testID="live-top-referrers"
+                    />
+                )}
+                {shownBreakdown ? (
+                    <LiveBreakdownCard
+                        kinds={kinds}
+                        kind={shownBreakdown}
+                        breakdown={snapshot[shownBreakdown]}
+                        onChange={changeBreakdown}
+                    />
+                ) : null}
                 <LiveEventsCard events={snapshot.events} onOpen={openEvent} screenActive={feed.screenActive} />
             </View>
         )
@@ -272,6 +304,7 @@ interface LiveTitleProps {
     /** On a tab the shared tabs header draws the title, so one row holds the dot, the status line and Pause. */
     tab: boolean
     status: LiveStatus
+    state: LiveProjectState | null
     screenActive: boolean
     updatedAt: number | null
     paused: boolean
@@ -283,6 +316,7 @@ interface LiveTitleProps {
 function LiveTitle({
     tab,
     status,
+    state,
     screenActive,
     updatedAt,
     paused,
@@ -292,25 +326,29 @@ function LiveTitle({
 }: LiveTitleProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const pauseButton = (
-        <Pressable44
-            onPress={paused ? onResume : onPause}
-            accessibilityLabel={paused ? 'Resume live updates' : 'Pause live updates'}
-            pressedBackground={colors.pressed}
-            style={styles.pauseButton}
-            testID="live-pause"
-        >
-            {paused ? <PlayIcon size={12} color={colors.ink} /> : <PauseIcon size={16} color={colors.ink} />}
-            <Text style={styles.pauseText}>{paused ? 'Resume' : 'Pause'}</Text>
-        </Pressable44>
-    )
+    const on = status === 'live' && state !== 'quiet' && state !== 'not_set_up'
+    // A project with no events runs no reads, so there is nothing to pause.
+    const pauseButton =
+        state === 'not_set_up' ? null : (
+            <Pressable44
+                onPress={paused ? onResume : onPause}
+                accessibilityLabel={paused ? 'Resume live updates' : 'Pause live updates'}
+                pressedBackground={colors.pressed}
+                style={styles.pauseButton}
+                testID="live-pause"
+            >
+                {paused ? <PlayIcon size={12} color={colors.ink} /> : <PauseIcon size={16} color={colors.ink} />}
+                <Text style={styles.pauseText}>{paused ? 'Resume' : 'Pause'}</Text>
+            </Pressable44>
+        )
     if (tab) {
         return (
             <View style={[styles.titleBlock, styles.titleRow, styles.tabTitleRow]}>
                 <View style={styles.tabStatus}>
-                    <LiveDot on={status === 'live'} animate={screenActive} />
+                    <LiveDot on={on} animate={screenActive} />
                     <LiveStatusLine
                         status={status}
+                        state={state}
                         screenActive={screenActive}
                         updatedAt={updatedAt}
                         numberOfLines={1}
@@ -330,18 +368,19 @@ function LiveTitle({
                         <Text style={styles.title} accessibilityRole="header">
                             Live
                         </Text>
-                        <LiveDot on={status === 'live'} animate={screenActive} />
+                        <LiveDot on={on} animate={screenActive} />
                     </View>
                     {pauseButton}
                 </View>
             </View>
-            <LiveStatusLine status={status} screenActive={screenActive} updatedAt={updatedAt} />
+            <LiveStatusLine status={status} state={state} screenActive={screenActive} updatedAt={updatedAt} />
         </View>
     )
 }
 
 interface LiveStatusLineProps {
     status: LiveStatus
+    state: LiveProjectState | null
     screenActive: boolean
     updatedAt: number | null
     /** The tab's row truncates the line beside the Pause pill. */
@@ -350,9 +389,17 @@ interface LiveStatusLineProps {
 }
 
 /** Its own component, so the one-second clock re-renders only this line. */
-function LiveStatusLine({ status, screenActive, updatedAt, numberOfLines, style }: LiveStatusLineProps): ReactElement {
+function LiveStatusLine({
+    status,
+    state,
+    screenActive,
+    updatedAt,
+    numberOfLines,
+    style,
+}: LiveStatusLineProps): ReactElement {
     const styles = useStyles()
-    const now = useNow(screenActive && status === 'live' ? 1000 : null).getTime()
+    const ticking = screenActive && status === 'live' && state !== 'quiet' && state !== 'not_set_up'
+    const now = useNow(ticking ? 1000 : null).getTime()
     return (
         <Text
             style={[styles.status, style]}
@@ -360,7 +407,7 @@ function LiveStatusLine({ status, screenActive, updatedAt, numberOfLines, style 
             accessibilityLiveRegion="polite"
             testID="live-status"
         >
-            {statusText(status, updatedAt, now)}
+            {statusText(status, updatedAt, now, state)}
         </Text>
     )
 }
@@ -408,6 +455,8 @@ const useStyles = createStyles(({ colors }) => ({
     },
     tabTitleRow: {
         marginTop: 0,
+        // The Pause pill's height, so the row keeps its place when a project without events hides the pill.
+        minHeight: 40,
     },
     tabStatus: {
         flexDirection: 'row',
