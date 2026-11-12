@@ -1037,8 +1037,9 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
             rrule="",
             starts_at=None,
             trigger_threshold=threshold,
-            # since = last_delivered_at; cooldown default is 60min and NOW is 3h later, so it passes.
+            # since = last_delivered_at; the minimum cooldown keeps every check here past it.
             last_delivered_at=since,
+            cooldown_minutes=EvaluationReport.COOLDOWN_MINUTES_MIN,
             delivery_targets=[{"type": "email", "value": "test@example.com"}],
         )
 

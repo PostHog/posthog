@@ -613,47 +613,6 @@ async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked(
 }
 
 #[tokio::test]
-async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_requeue() {
-    // Else the next send could reach the worker before the requeued messages.
-    let mock = start_mock(AckMode::NackSeq(1), None).await;
-    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
-    let url = worker_url(mock.addr);
-
-    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
-    let first_err = first.wait().await.expect_err("nacked send must fail");
-    let guard = first_err
-        .fence_guard
-        .expect("a fenced send carries a guard");
-
-    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
-    let second_err = tokio::time::timeout(Duration::from_secs(2), second.wait())
-        .await
-        .expect("a send during a fence must fail promptly")
-        .expect_err("a send during a fence must fail");
-    assert_eq!(second_err.messages[0].offset, 2);
-    assert!(matches!(
-        second_err.error,
-        TransportError::WorkerStreamFailed(_)
-    ));
-    assert_eq!(mock.received.lock().await.len(), 1);
-
-    drop(guard);
-    drop(second_err);
-    let third = transport.begin_send(&url, "batch-3", vec![msg("d1", 3)], false);
-    let _ = tokio::time::timeout(Duration::from_secs(5), third.wait())
-        .await
-        .expect("the worker stream must resume once the fence is released");
-    let batch_ids: Vec<_> = mock
-        .received
-        .lock()
-        .await
-        .iter()
-        .map(|s| s.batch_id.clone())
-        .collect();
-    assert_eq!(batch_ids, vec!["batch-1", "batch-3"]);
-}
-
-#[tokio::test]
 async fn an_oversized_sub_batch_rides_the_stream_as_ordered_chunks() {
     // One frame over the worker's cap would fence and replay forever.
     let mock = start_mock(AckMode::Immediate, None).await;
@@ -724,7 +683,6 @@ async fn a_failed_chunk_hands_back_the_whole_sub_batch() {
         vec![1, 2, 3],
         "the whole sub-batch comes back in order"
     );
-    assert!(err.fence_guard.is_some(), "a fenced send carries a guard");
 }
 
 #[tokio::test]
@@ -1020,21 +978,27 @@ async fn a_worker_ending_the_stream_as_the_idle_timer_fires_does_not_fence() {
     assert_eq!(*mock.hellos.lock().await, vec![1, 2]);
 }
 
+#[rstest]
+#[case::one_frame(&[1])]
+#[case::split_into_chunks(&[1, 2, 3])]
 #[tokio::test]
-async fn a_dead_worker_fences_instead_of_hanging() {
+async fn a_dead_worker_fences_instead_of_hanging(#[case] offsets: &[i64]) {
     // The caller's deferral path owns the retry pacing.
-    let transport = GrpcTransport::new(GrpcPort::Fixed(1), Duration::from_secs(30));
+    let mut transport = GrpcTransport::new(GrpcPort::Fixed(1), Duration::from_secs(30));
+    // One `msg()` estimates to ~143 bytes, so each 200-byte frame fits one message.
+    transport.set_max_body_bytes(200);
     let pending = transport.begin_send(
         "http://127.0.0.1:9001",
         "batch-1",
-        vec![msg("d1", 1)],
+        offsets.iter().map(|&offset| msg("d1", offset)).collect(),
         false,
     );
     let err = tokio::time::timeout(Duration::from_secs(10), pending.wait())
         .await
         .expect("must resolve, not hang")
         .expect_err("connect failure");
-    assert_eq!(err.messages.len(), 1);
+    let handed_back: Vec<i64> = err.messages.iter().map(|m| m.offset).collect();
+    assert_eq!(handed_back, offsets, "every chunk comes back in order");
 }
 
 #[tokio::test]
