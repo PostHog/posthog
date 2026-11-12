@@ -14,6 +14,7 @@ from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, InsightThresholdType
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.alerts.backend.facade.contracts import MovedAlertSettings
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade.api import (
     delete_owned_configuration,
@@ -302,72 +303,60 @@ def _built_alert(
     created_by: User | None,
     enabled: bool,
 ) -> AlertConfiguration:
-    source_config = configuration.source_config
-    condition = source_config.get(SOURCE_CONDITION_KEY) or {}
-    threshold_config = condition.get("threshold")
+    threshold_config = _threshold_of(configuration)
     return AlertConfiguration(
         id=configuration.id,
         team=insight.team,
         insight=insight,
-        name=configuration.name,
         enabled=enabled,
-        config=source_config.get("config") or {},
-        condition=condition.get("comparison") or {},
-        detector_config=condition.get("detector"),
         threshold=Threshold(team=insight.team, insight=insight, configuration=threshold_config)
         if threshold_config
         else None,
-        calculation_interval=interval_of(configuration.check_interval_minutes),
-        skip_weekend=source_config.get("skip_weekend", False),
-        evaluation_delay_intervals=source_config.get("evaluation_delay_intervals", 0),
-        investigation_agent_enabled=source_config.get("investigation_agent_enabled", False),
-        investigation_gates_notifications=source_config.get("investigation_gates_notifications", False),
-        investigation_inconclusive_action=source_config.get("investigation_inconclusive_action", "notify"),
-        schedule_restriction=configuration.schedule_restriction,
-        snoozed_until=configuration.snooze_until,
         owner=PlatformAlertOwner.PLATFORM,
         created_by=created_by,
+        **_row_settings(configuration),
     )
 
 
-# The insight stays the row's, because the API checks the reader's access to the row's insight.
-COPY_SETTINGS: Final = INSIGHT_ROW_SETTINGS | {
-    "name",
-    "enabled",
-    "condition",
-    "detector_config",
-    "calculation_interval",
-    "schedule_restriction",
-    "snoozed_until",
-}
+def _threshold_of(configuration: PlatformAlertCheckInput | PlatformAlertConfigurationView) -> dict[str, Any] | None:
+    return (configuration.source_config.get(SOURCE_CONDITION_KEY) or {}).get("threshold")
 
 
-def show_copy_settings(alerts: Collection[AlertConfiguration]) -> None:
-    """Shows each alert the platform owns through a copy with the settings the copy holds, in place.
-    The alerts are only for showing: one saved afterwards would write the copy's settings to its row."""
-    copies = {alert.id: alert for alert in alerts if alert.platform_owned and not alert.has_no_insight_row}
-    if not copies:
-        return
+def _row_settings(configuration: PlatformAlertCheckInput | PlatformAlertConfigurationView) -> dict[str, Any]:
+    """A platform alert's settings, by the insight row field that holds each one, apart from `enabled`,
+    the threshold and the insight."""
+    source_config = configuration.source_config
+    condition = source_config.get(SOURCE_CONDITION_KEY) or {}
+    return {
+        "name": configuration.name,
+        "config": source_config.get("config") or {},
+        "condition": condition.get("comparison") or {},
+        "detector_config": condition.get("detector"),
+        "calculation_interval": interval_of(configuration.check_interval_minutes),
+        "skip_weekend": source_config.get("skip_weekend", False),
+        "evaluation_delay_intervals": source_config.get("evaluation_delay_intervals", 0),
+        "investigation_agent_enabled": source_config.get("investigation_agent_enabled", False),
+        "investigation_gates_notifications": source_config.get("investigation_gates_notifications", False),
+        "investigation_inconclusive_action": source_config.get("investigation_inconclusive_action", "notify"),
+        "schedule_restriction": configuration.schedule_restriction,
+        "snoozed_until": configuration.snooze_until,
+    }
+
+
+def moved_alert_settings(*, team_id: int, alert_ids: Collection[UUID]) -> dict[UUID, MovedAlertSettings]:
+    """The settings the platform copy of each named alert holds, for the alerts the platform owns. The
+    insight is left out, because the API checks the reader's access to the row's insight."""
     views = owned_copies_by_legacy_id(
-        team_id=next(iter(copies.values())).team_id,
-        source_kind=SourceKind.INSIGHT,
-        legacy_configuration_ids=list(copies),
+        team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=alert_ids
     )
-    for legacy_id, view in views.items():
-        alert = copies[legacy_id]
-        built = _built_alert(view, insight=alert.insight, created_by=alert.created_by, enabled=view.enabled)
-        for field in COPY_SETTINGS:
-            setattr(alert, field, getattr(built, field))
-        alert.schedule_start_time = view.anchor_time
-        if built.threshold is None:
-            alert.threshold = None
-        elif alert.threshold is None:
-            # Stable across reads, as in `_presented`.
-            built.threshold.id = view.id
-            built.threshold.created_at = view.created_at
-            alert.threshold = built.threshold
-        else:
-            alert.threshold.configuration = built.threshold.configuration
+    return {
+        alert_id: MovedAlertSettings(
+            fields={**_row_settings(view), "enabled": view.enabled},
+            threshold=_threshold_of(view),
+            schedule_start_time=view.anchor_time,
+        )
+        for alert_id, view in views.items()
+    }
 
 
 def legacy_alert(*, team_id: int, alert_id: UUID) -> AlertConfiguration | None:
