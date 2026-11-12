@@ -189,12 +189,13 @@ class OrganizationPersonalApiKeys:
 
     def __init__(self, organization: Organization) -> None:
         self.organization = organization
+        self._reachable = get_organization_personal_api_keys(organization)
 
     def count(self) -> int:
-        return get_organization_personal_api_keys(self.organization).count()
+        return self._reachable.count()
 
     def keys(self, limit: int | None = None) -> list[PersonalAPIKey]:
-        keys = get_organization_personal_api_keys(self.organization).order_by("user__email", "-created_at")
+        keys = self._reachable.order_by("user__email", "-created_at")
         return list(keys[:limit] if limit is not None else keys)
 
     def reaching_other_organizations(self, keys: list[PersonalAPIKey]) -> set[str]:
@@ -225,7 +226,7 @@ class OrganizationPersonalApiKeys:
 
     def previewed(self, key_ids: list[str]) -> QuerySet[PersonalAPIKey]:
         """The keys the preview listed that still reach the organization."""
-        return get_organization_personal_api_keys(self.organization).filter(pk__in=key_ids)
+        return self._reachable.filter(pk__in=key_ids)
 
     def lock_previewed(self, key_id: str, rolled_before: datetime | None) -> PersonalAPIKey | None:
         # Postgres refuses FOR UPDATE with the DISTINCT of the reach query, so the lock is taken by primary key and
