@@ -177,9 +177,6 @@ type PersonDistinctIdMove = {
     version: number
 }
 
-// A parked job the matcher needs to act on this batch: either resume it (stepMatched, or a
-// conversion match on an exit-on-conversion flow) and/or count its conversion once. Carries the
-// fields needed to emit the `conversion` metric without re-reading the hogflow.
 // Filter types that read the trigger event or the run's own variables. Neither changes while the run
 // waits, so a person change cannot move a term of these types.
 const PERSON_INDEPENDENT_FILTER_TYPES = new Set([
@@ -209,6 +206,9 @@ function conditionNeedsRunGlobals(action: Extract<HogFlowAction, { type: 'wait_u
     )
 }
 
+// A parked job the matcher needs to act on this batch: either resume it (stepMatched, or a
+// conversion match on an exit-on-conversion flow) and/or count its conversion once. Carries the
+// fields needed to emit the `conversion` metric without re-reading the hogflow.
 type MatchedJob = {
     id: string
     teamId: number
