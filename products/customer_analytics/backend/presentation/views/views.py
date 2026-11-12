@@ -70,6 +70,7 @@ from products.access_control.backend.facade.user_access_control import (
     model_to_resource,
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.cdp.backend.permissions import CDPPropertyAccessPermission
 from products.cdp.backend.presentation.icons import CDPIconsService
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
@@ -2956,6 +2957,8 @@ class EventStreamViewSet(
     every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
     destination that is re-provisioned inside the same transaction as every write, so
     config and delivery can't drift apart."""
+
+    permission_classes = [CDPPropertyAccessPermission]
 
     scope_object = "account"
     serializer_class = EventStreamSerializer

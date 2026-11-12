@@ -17,7 +17,9 @@ class CDPPropertyAccessPermission(BasePermission):
         "Your property access permissions do not allow configuring pipelines, running them, or reading their logs. "
         "Ask a project administrator for help."
     )
-    sensitive_read_actions = frozenset({"logs"})
+    sensitive_read_actions = frozenset(
+        {"logs", "invocation_results", "invocation_results_count", "invocation_result", "assets", "asset_content"}
+    )
 
     def has_permission(self, request: "Request", view: "APIView") -> bool:
         team_view = cast("TeamAndOrgViewSetMixin", view)

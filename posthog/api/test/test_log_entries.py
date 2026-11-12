@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
@@ -145,7 +146,7 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self, _name: str, property_type: int, access: str, source: str
     ) -> None:
         self._set_property_access(property_type, access)
-        sources = ["batch_export", "hog_function", "plugin", "session_replay"]
+        sources = ["batch_export", "hog_flow", "hog_function", "plugin", "session_replay"]
         for log_source in sources:
             create_log_entry(
                 team_id=self.team.pk,
@@ -178,7 +179,7 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_hogql_invocation_errors_follow_property_access(self, access: str) -> None:
         self._set_property_access(PropertyDefinition.Type.EVENT, access)
         now = datetime(2026, 1, 15, 12, tzinfo=UTC)
-        kinds = ["hog_flow", "hog_function", "hog_function_rerun"]
+        kinds = ["hog_flow", "hog_flow_rerun", "hog_function", "hog_function_rerun"]
         for kind in kinds:
             sync_execute(
                 INSERT_HOG_INVOCATION_RESULT_SQL,
@@ -220,8 +221,52 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        expected_kinds = ["hog_flow"] if access == "restricted" else kinds
+        expected_kinds = [] if access == "restricted" else kinds
         assert response.json()["results"] == [[kind, f"{kind} error message"] for kind in expected_kinds]
+
+    @parameterized.expand([("restricted",), ("member_rule",), ("admin",), ("granted",)])
+    @time_machine.travel("2026-11-01 12:00:00", tick=False)
+    def test_mirrored_pipeline_logs_follow_property_access(self, access: str) -> None:
+        self._set_property_access(PropertyDefinition.Type.EVENT, access)
+        if access == "member_rule":
+            PropertyAccessControl.objects.filter(team=self.team).update(
+                organization_member=self.organization_membership
+            )
+        services = ["application", "posthog-internal-hog-functions", "posthog-internal-workflows"]
+        for service in services:
+            sync_execute(
+                """INSERT INTO logs
+                (uuid, team_id, timestamp, observed_timestamp, body, severity_text, severity_number, service_name)
+                VALUES (%(uuid)s, %(team_id)s, %(timestamp)s, %(timestamp)s, %(body)s, 'info', 9, %(service)s)""",
+                {
+                    "uuid": str(uuid4()),
+                    "team_id": self.team.pk,
+                    "timestamp": datetime(2026, 11, 1, 11, tzinfo=UTC),
+                    "body": f"{service} message",
+                    "service": service,
+                },
+                workload=Workload.LOGS,
+            )
+        expected_services = ["application"] if access in {"restricted", "member_rule"} else services
+
+        hogql = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "SELECT service_name, body FROM logs ORDER BY service_name"},
+                "refresh": "force_blocking",
+            },
+        )
+        assert hogql.status_code == 200, hogql.json()
+        assert hogql.json()["results"] == [[service, f"{service} message"] for service in expected_services]
+
+        logs = self.client.post(
+            f"/api/projects/{self.team.pk}/logs/query/",
+            {"query": {"dateRange": {"date_from": "-1d"}, "limit": 100}},
+        )
+        assert logs.status_code == 200, logs.json()
+        assert sorted(row["body"] for row in logs.json()["results"]) == [
+            f"{service} message" for service in expected_services
+        ]
 
     @time_machine.travel("2023-09-23 12:00:00", tick=False)
     def test_pages_log_entries_by_offset(self):

@@ -328,6 +328,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     def _execute(self, query: ast.SelectQuery) -> list:
         return execute_hogql_query(
             query_type="LogsQuery",
+            user=self.user,
             query=query,
             modifiers=self.modifiers,
             team=self.team,

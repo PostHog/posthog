@@ -66,7 +66,9 @@ class HogInvocationResultsTable(Table):
 
     def get_predicates(self, context: "HogQLContext | None" = None) -> list[ast.Expr]:
         if context is not None and context.restricted_properties:
-            return [parse_expr("function_kind NOT IN ('hog_function', 'hog_function_rerun')")]
+            return [
+                parse_expr("function_kind NOT IN ('hog_function', 'hog_function_rerun', 'hog_flow', 'hog_flow_rerun')")
+            ]
         return []
 
     def to_printed_clickhouse(self, context):

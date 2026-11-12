@@ -1,11 +1,15 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -229,7 +233,7 @@ class TestCDPPropertyAccess(APIBaseTest):
         assert "property access" in response.json()["detail"].lower()
         assert PluginSourceFile.objects.get(plugin=plugin, filename="index.ts").source == "'original'"
 
-    @parameterized.expand([("member_override",), ("admin",), ("feature_disabled",)])
+    @parameterized.expand([("member_override",), ("role_override",), ("admin",), ("feature_disabled",)])
     def test_allowed_member_can_update_plugin_source(self, access: str) -> None:
         plugin = self._create_source_plugin()
         if access == "member_override":
@@ -238,6 +242,12 @@ class TestCDPPropertyAccess(APIBaseTest):
                 property_definition=self.property,
                 organization_member=self.organization_membership,
                 access_level="read",
+            )
+        elif access == "role_override":
+            role = Role.objects.create(organization=self.organization, name="Readers")
+            RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+            PropertyAccessControl.objects.create(
+                team=self.team, property_definition=self.property, role=role, access_level="read"
             )
         elif access == "admin":
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -287,3 +297,31 @@ class TestCDPPropertyAccess(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert PluginSourceFile.objects.get(plugin=plugin, filename="index.ts").source == "'updated'"
+
+    @parameterized.expand([("admin",), ("member",)])
+    def test_plugin_permission_queries_do_not_grow_with_projects(self, access: str) -> None:
+        self.organization_membership.level = (
+            OrganizationMembership.Level.ADMIN if access == "admin" else OrganizationMembership.Level.MEMBER
+        )
+        self.organization_membership.save()
+        self.rule.access_level = "read"
+        self.rule.save()
+
+        def query_count() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                assert not access_control_api.has_restricted_properties_in_organization(
+                    user=self.user, organization_id=self.organization.id
+                )
+            return len(queries)
+
+        baseline = query_count()
+        for index in range(3):
+            team = Team.objects.create(organization=self.organization, name=f"Project {index}")
+            property_definition = PropertyDefinition.objects.create(
+                team=team, name="public_note", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(
+                team=team, property_definition=property_definition, access_level="read"
+            )
+
+        assert query_count() == baseline

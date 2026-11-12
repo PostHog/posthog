@@ -2,7 +2,15 @@ import re
 
 from posthog.api.snuffle_proxy import SnuffleProxyViewSet
 
+from products.cdp.backend.permissions import CDPPropertyAccessPermission
+
 _LABEL_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
+
+
+class LokiPropertyAccessPermission(CDPPropertyAccessPermission):
+    # The upstream query engine cannot apply HogQL's per-service property restrictions.
+    sensitive_read_actions = frozenset({"proxy"})
+    message = "Your property access permissions do not allow using the LogQL API. Use the Logs viewer instead."
 
 
 class LokiQueryViewSet(SnuffleProxyViewSet):
@@ -13,6 +21,7 @@ class LokiQueryViewSet(SnuffleProxyViewSet):
     """
 
     scope_object = "logs"
+    permission_classes = [*SnuffleProxyViewSet.permission_classes, LokiPropertyAccessPermission]
     upstream_prefix = "/loki/api/v1"
     allowed_paths = (
         re.compile(r"query"),

@@ -51,7 +51,7 @@ class LogEntriesTable(Table):
 
     def get_predicates(self, context: "HogQLContext | None" = None) -> list[ast.Expr]:
         if context is not None and context.restricted_properties:
-            return [parse_expr("log_source NOT IN ('hog_function', 'plugin')")]
+            return [parse_expr("log_source NOT IN ('hog_function', 'plugin', 'hog_flow')")]
         return []
 
     def to_printed_clickhouse(self, context):

@@ -97,6 +97,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.cdp.backend.permissions import CDPPropertyAccessPermission
 from products.cdp.backend.presentation.hog_functions import (
     COHORT_NOT_READY_CODE,
     DATA_WAREHOUSE_SOURCES,
@@ -5177,6 +5178,8 @@ class HogFlowViewSet(
     AppMetricsMixin,
     viewsets.ModelViewSet,
 ):
+    permission_classes = [CDPPropertyAccessPermission]
+
     scope_object = "hog_flow"
     scope_object_read_actions = [
         "list",
