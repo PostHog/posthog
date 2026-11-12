@@ -9,17 +9,49 @@ use crate::debug_recorder::{DebugEventKind, DebugRecorder, PartitionOffset};
 
 type PollKey = u64;
 
+/// Records `PollCompleted` debug events. Without a debug recorder it keeps
+/// no state.
+pub(super) struct CompletedPolls {
+    tracker: Option<Tracker>,
+}
+
+impl CompletedPolls {
+    pub(super) fn new(recorder: Option<Arc<DebugRecorder>>) -> Self {
+        Self {
+            tracker: recorder.map(Tracker::new),
+        }
+    }
+
+    pub(super) fn record_poll(&mut self, poll: &InFlightPoll) {
+        if let Some(tracker) = &mut self.tracker {
+            tracker.record_poll(poll);
+        }
+    }
+
+    pub(super) fn record_settled(&mut self, topic_partition: &TopicPartition, offsets: &[Offset]) {
+        if let Some(tracker) = &mut self.tracker {
+            tracker.record_settled(topic_partition, offsets);
+        }
+    }
+
+    pub(super) fn forget(&mut self, topic_partitions: &[TopicPartition]) {
+        if let Some(tracker) = &mut self.tracker {
+            tracker.forget(topic_partitions);
+        }
+    }
+}
+
 // Not the partition frontier: polls finish in any order, and the frontier
 // passes a poll only after every earlier poll on the partition finishes.
-pub(super) struct CompletedPolls {
+struct Tracker {
     recorder: Arc<DebugRecorder>,
     polls: HashMap<PollKey, PendingPoll>,
     next_poll: PollKey,
     partitions: HashMap<TopicPartition, PartitionShares>,
 }
 
-impl CompletedPolls {
-    pub(super) fn new(recorder: Arc<DebugRecorder>) -> Self {
+impl Tracker {
+    fn new(recorder: Arc<DebugRecorder>) -> Self {
         Self {
             recorder,
             polls: HashMap::new(),
@@ -28,7 +60,7 @@ impl CompletedPolls {
         }
     }
 
-    pub(super) fn record_poll(&mut self, poll: &InFlightPoll) {
+    fn record_poll(&mut self, poll: &InFlightPoll) {
         // A rejected charge never settles.
         let charged: Vec<_> = poll
             .partitions
@@ -51,7 +83,7 @@ impl CompletedPolls {
         self.polls.insert(key, PendingPoll::new(poll, &charged));
     }
 
-    pub(super) fn settled(&mut self, topic_partition: &TopicPartition, offsets: &[Offset]) {
+    fn record_settled(&mut self, topic_partition: &TopicPartition, offsets: &[Offset]) {
         let Some(shares) = self.partitions.get_mut(topic_partition) else {
             return;
         };
@@ -75,7 +107,7 @@ impl CompletedPolls {
         }
     }
 
-    pub(super) fn forget(&mut self, topic_partitions: &[TopicPartition]) {
+    fn forget(&mut self, topic_partitions: &[TopicPartition]) {
         let mut done = Vec::new();
         for topic_partition in topic_partitions {
             let Some(shares) = self.partitions.remove(topic_partition) else {

@@ -19,7 +19,7 @@ pub(crate) struct ContinuousPolling {
     settlement: Arc<GroupSettlement>,
     uncommitted: UncommittedCharges,
     processed: ProcessedTimestamps,
-    completed_polls: Option<CompletedPolls>,
+    completed_polls: CompletedPolls,
     limits: ChargeLimit,
     at_limit: bool,
     accepting_new_batches: bool,
@@ -33,7 +33,7 @@ impl ContinuousPolling {
             settlement: parts.settlement,
             uncommitted: UncommittedCharges::default(),
             processed: ProcessedTimestamps::new(parts.group_id),
-            completed_polls: parts.debug_recorder.map(CompletedPolls::new),
+            completed_polls: CompletedPolls::new(parts.debug_recorder),
             limits,
             at_limit: false,
             accepting_new_batches: true,
@@ -81,9 +81,8 @@ impl PollingStrategy for ContinuousPolling {
         if outcome == RunOutcome::Stale {
             return Ok(());
         }
-        if let Some(completed_polls) = &mut self.completed_polls {
-            completed_polls.settled(topic_partition, &completion.offsets);
-        }
+        self.completed_polls
+            .record_settled(topic_partition, &completion.offsets);
         counter!("ingestion_consumer_messages_processed_total")
             .increment(completion.offsets.len() as u64);
         self.commit_due = true;
@@ -124,9 +123,7 @@ impl PollingStrategy for ContinuousPolling {
     fn on_submitted(&mut self, poll: InFlightPoll) {
         self.uncommitted.record_poll(&poll);
         self.processed.record_poll(&poll);
-        if let Some(completed_polls) = &mut self.completed_polls {
-            completed_polls.record_poll(&poll);
-        }
+        self.completed_polls.record_poll(&poll);
     }
 
     fn next_step(&mut self, now: Instant) -> Option<Step> {
@@ -158,9 +155,7 @@ impl ContinuousPolling {
         let building = self.collector.remove_partitions(topic_partitions) as u64;
         self.uncommitted.forget(topic_partitions);
         self.processed.forget(topic_partitions);
-        if let Some(completed_polls) = &mut self.completed_polls {
-            completed_polls.forget(topic_partitions);
-        }
+        self.completed_polls.forget(topic_partitions);
         report_revoked(building);
     }
 }
