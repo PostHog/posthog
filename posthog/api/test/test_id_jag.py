@@ -941,19 +941,28 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ema_names_its_organization", True, "own", status.HTTP_200_OK),
-            ("ema_names_another_organization", True, "other", status.HTTP_400_BAD_REQUEST),
-            ("ema_without_claim", True, None, status.HTTP_400_BAD_REQUEST),
-            ("manual_config_ignores_claim", False, "other", status.HTTP_200_OK),
+            ("ema_names_its_organization", True, True, "own", status.HTTP_200_OK),
+            ("ema_names_another_organization", True, True, "other", status.HTTP_400_BAD_REQUEST),
+            ("ema_without_claim", True, True, None, status.HTTP_400_BAD_REQUEST),
+            ("ema_application_no_longer_approved", True, False, "own", status.HTTP_400_BAD_REQUEST),
+            ("manual_config_ignores_claim", False, False, "other", status.HTTP_200_OK),
         ]
     )
-    def test_aud_tenant_must_name_the_organization_of_an_ema_registered_issuer(
-        self, _name: str, registered_through_ema: bool, aud_tenant: str | None, expected_status: int
+    def test_ema_registered_issuer_requires_its_organization_and_an_approved_application(
+        self,
+        _name: str,
+        registered_through_ema: bool,
+        application_approved: bool,
+        aud_tenant: str | None,
+        expected_status: int,
     ) -> None:
         domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
         config = domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG).first()
         if registered_through_ema:
-            config.id_jag_registered_by_application = OAuthApplication.objects.get(client_id=_RESOURCE_CLIENT_ID)
+            application = OAuthApplication.objects.get(client_id=_RESOURCE_CLIENT_ID)
+            application.can_manage_ema_issuer = application_approved
+            application.save()
+            config.id_jag_registered_by_application = application
             config.save()
 
         claims: dict[str, Any] = {}

@@ -1,3 +1,4 @@
+import time
 import base64
 import hashlib
 from datetime import timedelta
@@ -282,7 +283,7 @@ class TestEmaIssuerSetup(APIBaseTest):
     def test_consent_follows_the_policy_of_the_selected_organization(self, _name, policy):
         organization = self._other_admin_organization(**policy)
         session = self.client.session
-        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = 1_800_000_000
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
         session.save()
 
         response = self.client.post(

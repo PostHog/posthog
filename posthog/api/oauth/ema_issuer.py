@@ -34,7 +34,8 @@ its configuration, so ID-JAGs from the previous issuer stop working.
 The configuration is read-only in PostHog. Admins see it in the authentication settings and
 turn it off by deleting it. The scope stays out of `scopes_supported` and the scope pickers:
 only applications that PostHog staff marked with `can_manage_ema_issuer` can request it, and
-those know about it without discovery.
+those know about it without discovery. Removing that mark stops new setups and makes the ID-JAG
+exchange reject every issuer the application registered, without deleting the configurations.
 """
 
 import html

@@ -133,7 +133,12 @@ class IdentityProviderConfigManager(models.Manager["IdentityProviderConfig"]):
         return self.get_queryset().saml_for_email(email)
 
     def get_id_jag_for_request(self, email: str, issuer: str) -> IDJagIdentityProviderResolution:
-        issuer_configs = self.get_queryset().for_scope(ConfigScope.ID_JAG).with_id_jag_issuer(issuer)
+        issuer_configs = (
+            self.get_queryset()
+            .for_scope(ConfigScope.ID_JAG)
+            .with_id_jag_issuer(issuer)
+            .select_related("id_jag_registered_by_application")
+        )
 
         matching: list[tuple[IdentityProviderConfig, OrganizationDomain]] = []
         if "@" in email:

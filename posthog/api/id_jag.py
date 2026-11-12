@@ -330,6 +330,19 @@ def _verify_and_extract_id_jag_token(
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
     idp_config = resolution.identity_provider_config
+
+    # An issuer registered through EMA setup is trusted only while staff keep the registering
+    # application approved, so removing the flag cuts off every organization that client set up.
+    registering_application = idp_config.id_jag_registered_by_application
+    if registering_application is not None and not registering_application.can_manage_ema_issuer:
+        logger.info(
+            "id_jag_token_rejected",
+            reason="The application that registered this issuer is no longer approved for EMA setup",
+            issuer=issuer,
+            stage="pre_signature_registering_application_check",
+        )
+        raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
+
     organization_domain = resolution.organization_domain
     expected_issuer = (idp_config.id_jag_issuer_url or "").rstrip("/")
     provider_name = organization_domain.domain

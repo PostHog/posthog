@@ -174,7 +174,8 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         db_default=False,
         help_text=(
             "True if this client may request ema_issuer:manage, which registers its ID-JAG issuer as trusted "
-            "for an organization. Only grant this to clients PostHog has agreed enterprise-managed auth with."
+            "for an organization. Only grant this to clients PostHog has agreed enterprise-managed auth with. "
+            "Removing it also makes PostHog reject assertions from every issuer this client registered."
         ),
     )
 
