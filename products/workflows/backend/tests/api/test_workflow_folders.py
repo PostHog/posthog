@@ -245,6 +245,18 @@ class TestWorkflowFolders(APIBaseTest):
 
         self.assertEqual([row["path"] for row in rows], [])
 
+    @parameterized.expand(REF_SPELLINGS)
+    def test_a_ref_search_finds_a_workflow_file_filed_under_any_spelling_of_its_id(self, _name, spell) -> None:
+        flow = HogFlow.objects.create(team=self.team, name="Synthetic searched", created_by=self.user)
+        FileSystem.objects.filter(team=self.team, type="hog_flow").delete()
+        FileSystem.objects.create(
+            team=self.team, path="Filed/Synthetic searched", depth=2, type="hog_flow", ref=spell(flow.id)
+        )
+
+        rows = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"search": f"ref:{flow.id}"}).json()
+
+        self.assertEqual([row["path"] for row in rows["results"]], ["Filed/Synthetic searched"])
+
     @parameterized.expand([("create",), ("bulk_update",), ("update",)])
     def test_starring_a_workflow_under_another_ref_spelling_needs_access_to_the_workflow(self, write) -> None:
         self.organization.available_product_features = [
@@ -617,6 +629,8 @@ class TestWorkflowFolders(APIBaseTest):
             ("unfiled_by_editor", "unfiled", "editor", 200, True),
             ("unfiled_by_viewer", "unfiled", "viewer", 200, False),
             ("unfiled_by_read_only_key", "unfiled", "read_only_key", 200, False),
+            ("depth_repair_by_editor", "depth_repair", "editor", 200, True),
+            ("depth_repair_by_viewer", "depth_repair", "viewer", 200, False),
             ("refless_rename_by_owner", "refless_rename", "owner", 200, True),
             (
                 "refless_rename_by_key_without_workflow_scope",
@@ -685,6 +699,8 @@ class TestWorkflowFolders(APIBaseTest):
             self.client.patch(f"{templates_url}{template_id}/", {"deleted": True}, format="json")
         if path == "unfiled":
             FileSystem.objects.filter(team=self.team, type="message_template").delete()
+        if path == "depth_repair":
+            FileSystem.objects.filter(pk=entry.pk).update(depth=9)
         refless = FileSystem.objects.create(
             team=self.team, path="Refless email", depth=1, type="message_template", ref=""
         )
@@ -717,6 +733,7 @@ class TestWorkflowFolders(APIBaseTest):
                 {"items": [{"type": "message_template", "ref": template_id, "path": "Restored/Guarded email"}]},
             ),
             "unfiled": ("get", "unfiled/?type=message_template", None),
+            "depth_repair": ("get", "unfiled/", None),
             "refless_rename": ("patch", f"{refless.id}/", {"path": "Renamed/Refless email"}),
             "refless_move": ("post", f"{refless.id}/move/", {"new_path": "Moved/Refless email"}),
         }
@@ -756,10 +773,10 @@ class TestWorkflowFolders(APIBaseTest):
         owner = APIClient()
         owner.force_login(self.user)
 
-        def stored() -> tuple[list[tuple[str, bool]], int]:
+        def stored() -> tuple[list[tuple[str, bool, int | None]], int]:
             rows = FileSystem.objects.filter(team=self.team, type="message_template")
             template_status = owner.get(f"{templates_url}{template_id}/").status_code
-            return sorted((row.path, bool(row.shortcut)) for row in rows), template_status
+            return sorted((row.path, bool(row.shortcut), row.depth) for row in rows), template_status
 
         before = stored()
         method, suffix, payload = requests[path]
@@ -1046,6 +1063,22 @@ class TestWorkflowFolders(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "Unfiled"})
         self.assertEqual([entry["path"] for entry in response.json()["results"]], ["Unfiled"])
 
+    def test_unfiled_for_the_template_type_with_the_flag_off_files_no_template(self) -> None:
+        self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Synthetic email", "type": "email"},
+            format="json",
+        )
+        FileSystem.objects.filter(team=self.team, type="message_template").delete()
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/file_system/unfiled/", {"type": "message_template"}
+            )
+
+        self.assertEqual((response.status_code, response.json()["count"]), (200, 0), response.content)
+        self.assertFalse(FileSystem.objects.filter(team=self.team, type="message_template").exists())
+
     @parameterized.expand(
         [
             ("recursive_delete", "delete", "?recursive=true", None, 204),
@@ -1221,6 +1254,19 @@ class TestWorkflowFolders(APIBaseTest):
 
         self.assertEqual(response.status_code, status, response.content)
         self.assertEqual("Hidden" in response.content.decode(), status == 200)
+
+    @parameterized.expand([("deleted", None), ("never_created", str(UUID(int=1))), ("malformed", "not-a-template")])
+    def test_a_template_placement_is_not_found_once_the_template_is_gone(self, _name, asked_id) -> None:
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        template_id = self.client.post(
+            templates_url, {"name": "Synthetic email", "type": "email", "_create_in_folder": "Campaigns"}, format="json"
+        ).json()["id"]
+        deleted = self.client.patch(f"{templates_url}{template_id}/", {"deleted": True}, format="json")
+        self.assertEqual(deleted.status_code, 200, deleted.content)
+
+        response = self.client.get(f"{templates_url}{asked_id or template_id}/placement/")
+
+        self.assertEqual(response.status_code, 404, response.content)
 
     @parameterized.expand([("root", "Synthetic email"), ("escaped_folder", "Spring\\/Summer/Synthetic email")])
     def test_undoing_a_template_delete_with_the_flag_off_puts_it_back_at_its_placement(self, _name, path) -> None:
