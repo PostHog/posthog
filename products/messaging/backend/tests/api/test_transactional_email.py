@@ -797,6 +797,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {"subject": "Welcome, Jane", "text": "Hi", "captureEngagement": True},
             ),
             ("null_copies_and_attachments", {"cc": None, "bcc": None, "attachments": None}, WELCOME_DELIVERED),
+            ("key_of_256_characters", {"template_key": "k" * 256}, WELCOME_DELIVERED),
             (
                 "cc_and_bcc",
                 {"cc": "copy@example.com", "bcc": ["audit@example.com", "archive@example.com"]},
@@ -854,6 +855,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("neither_a_template_nor_a_key", {"template_key": None}, "template_id"),
             ("nested_identifiers", {"identifiers": {"distinct_id": "user-1"}}, "identifiers"),
             ("invalid_key", {"template_key": "welcome email"}, "template_key"),
+            ("key_over_256_characters", {"template_key": "k" * 257}, "template_key"),
             ("sender_that_is_not_an_address", {"from": "Example"}, "from"),
             ("sender_with_a_quoted_local_part", {"from": '"security"@example.com'}, "from"),
             ("sender_nested_too_deep_to_parse", {"from": "(" * 1000 + "security@example.com" + ")" * 1000}, "from"),
@@ -873,11 +875,12 @@ class TestTransactionalEmail(APIBaseTest):
     def test_refuses_a_code_send_with_an_invalid_field(self, mock_post, _flag, _capture, _name, fields, attr):
         body = {key: value for key, value in self._code_send(**fields).items() if value is not None}
 
-        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, body, format="json")
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, body, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == attr
-        mock_post.assert_not_called()
+        assert cdp.received == []
 
     @parameterized.expand(
         [
