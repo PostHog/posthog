@@ -108,7 +108,16 @@ class TestTransactionalPushLog(ClickhouseTestMixin, APIBaseTest):
                 ("warn", "Workflow-level warning that is not about the push step"),
             ],
         )
-        failed = self._run(2, "carol", "failed", error="Push integration not found")
+        failed = self._run(
+            2,
+            "carol",
+            "failed",
+            logs=[
+                ("error", "[Action:transactional_push] Push integration not found"),
+                ("error", "[Action:transactional_push] Errored: Error: Push integration not found"),
+            ],
+            error="Push integration not found",
+        )
         sending = self._run(1, "dave", "running")
         other_workflow = str(create_workflow_for_test(team_id=self.team.id, name="Password reset").id)
         MessageTemplate.objects.create(team=self.team, name="Password reset", transactional_hog_flow_id=other_workflow)

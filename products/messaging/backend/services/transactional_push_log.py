@@ -29,7 +29,8 @@ RETENTION = timedelta(days=PUSH_LOG_RETENTION_DAYS)
 _CLOCK_SKEW = timedelta(minutes=5)
 # A send's step logs a line per device platform, so a handful covers every reason.
 _MAX_MESSAGES = 10
-_ACTION_PREFIX = re.compile(r"^\[Action:[^\]]*\]\s*")
+# The step logs its terminal error twice, once more behind "Errored: Error:", and the run records it a third time.
+_ACTION_PREFIX = re.compile(r"^\[Action:[^\]]*\]\s*(?:Errored:\s*(?:Error:\s*)?)?")
 
 _RUNS = """
     SELECT
@@ -220,15 +221,13 @@ def list_transactional_pushes(
     entries = []
     for run_id, queued_at, send_status, run_error, distinct_id, person_id, run_workflow_id in rows:
         template = templates[run_workflow_id]
-        run_messages = list(messages.get(run_id, []))
-        if run_error:
-            run_messages.append(run_error)
+        run_messages = [*messages.get(run_id, []), *([run_error] if run_error else [])]
         entries.append(
             TransactionalPushLogEntry(
                 run_id=run_id,
                 created_at=queued_at.replace(tzinfo=UTC),
                 status=PushSendStatus(send_status),
-                messages=tuple(run_messages),
+                messages=tuple(dict.fromkeys(run_messages)),
                 distinct_id=distinct_id,
                 person_id=person_id,
                 workflow_id=run_workflow_id,
