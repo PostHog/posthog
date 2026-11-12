@@ -1201,6 +1201,59 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("rename_by_viewer_there", "patch", "file", {"path": "Renamed/Refless email"}, "viewer", 403, False),
+            ("rename_by_editor_there", "patch", "file", {"path": "Renamed/Refless email"}, "editor", 200, True),
+            (
+                "folder_move_by_viewer_there",
+                "post",
+                "folder_move",
+                {"new_path": "Archive/Sibling folder"},
+                "viewer",
+                403,
+                False,
+            ),
+        ]
+    )
+    def test_a_template_file_without_a_ref_needs_editor_access_in_its_own_environment(
+        self,
+        _name: str,
+        method: str,
+        target: str,
+        payload: dict | None,
+        sibling_level: str,
+        expected_status: int,
+        writes: bool,
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        folder = FileSystem.objects.create(team=sibling_team, path="Sibling folder", depth=1, type="folder")
+        refless = FileSystem.objects.create(
+            team=sibling_team, path="Sibling folder/Refless email", depth=2, type="message_template", ref=""
+        )
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        member.is_staff = True
+        member.save()
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        for team_id, level in ((self.team.id, "editor"), (sibling_team.id, sibling_level)):
+            create_access_control(
+                team_id=team_id, resource="hog_flow", access_level=level, organization_member_id=membership.id
+            )
+        self.client.force_login(member)
+        suffix = {"file": f"{refless.id}/", "folder_move": f"{folder.id}/move/"}[target]
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/file_system/{suffix}", payload, format="json"
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        stored = FileSystem.objects.filter(pk=refless.pk).values_list("path", flat=True).first()
+        self.assertEqual(stored != "Sibling folder/Refless email", writes, stored)
+
+    @parameterized.expand(
+        [
             ("list", "get", "file_system/?type=message_template", None, 200),
             ("starred", "get", "file_system_shortcut/", None, 200),
             ("delete", "delete", "file_system/{file_id}/", None, 404),
