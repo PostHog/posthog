@@ -43,10 +43,12 @@ describe('deliveryWebhooksLogic', () => {
     let logic: ReturnType<typeof deliveryWebhooksLogic.build>
     let created: Record<string, any>[]
     let requestedTeamIds: Set<string>
+    let serverFiltersTransactional: boolean
     const environment = { ...MOCK_DEFAULT_TEAM, id: 2001 }
 
     beforeEach(() => {
         created = []
+        serverFiltersTransactional = true
         requestedTeamIds = new Set()
         useMocks({
             get: {
@@ -54,7 +56,10 @@ describe('deliveryWebhooksLogic', () => {
                     requestedTeamIds.add(String(params.team_id))
                     const query = new URL(request.url).searchParams
                     const matching = STORED_TEMPLATES.filter(
-                        (template) => query.get('transactional') !== 'true' || template.transactional_hog_flow_id
+                        (template) =>
+                            !serverFiltersTransactional ||
+                            query.get('transactional') !== 'true' ||
+                            template.transactional_hog_flow_id
                     )
                     const offset = Number(query.get('offset') ?? 0)
                     const limit = Math.min(Number(query.get('limit') ?? 100), SERVER_PAGE_SIZE)
@@ -88,10 +93,17 @@ describe('deliveryWebhooksLogic', () => {
         logic.unmount()
     })
 
-    it.each<[string, string[], string[] | undefined]>([
-        ['every transactional email', [], undefined],
-        ['the picked transactional emails', ['Password reset'], ['flow-reset']],
-    ])('creates a signed webhook for %s that the webhooks list finds', async (_, picked, workflowIds) => {
+    it.each<[string, string[], string[] | undefined, boolean]>([
+        ['every transactional email', [], undefined, true],
+        ['the picked transactional emails', ['Password reset'], ['flow-reset'], true],
+        [
+            'emails picked from a server that ignores the transactional filter',
+            ['Password reset'],
+            ['flow-reset'],
+            false,
+        ],
+    ])('creates a signed webhook for %s that the webhooks list finds', async (_, picked, workflowIds, filters) => {
+        serverFiltersTransactional = filters
         const list = hogFunctionsListLogic(DELIVERY_WEBHOOK_LIST_PROPS)
         list.mount()
         logic.actions.openAddModal()

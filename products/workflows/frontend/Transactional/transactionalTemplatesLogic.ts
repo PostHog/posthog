@@ -66,14 +66,16 @@ export const transactionalTemplatesLogic = kea<transactionalTemplatesLogicType>(
         transactionalTemplates: [
             [] as MessageTemplateApi[],
             {
-                loadTransactionalTemplates: async () =>
-                    await listAllPages((params) =>
+                loadTransactionalTemplates: async () => {
+                    const templates = await listAllPages((params) =>
                         messagingTemplatesList(String(values.currentTeamIdStrict), {
                             ...params,
                             transactional: true,
                             basic: true,
                         })
-                    ),
+                    )
+                    return templates.filter((template) => template.transactional_hog_flow_id)
+                },
             },
         ],
     })),

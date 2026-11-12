@@ -219,12 +219,15 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
                     const templates = await listAllPages((params) =>
                         messagingTemplatesList(projectId, { ...params, transactional: true, basic: true })
                     )
+                    const transactional = templates.flatMap(({ transactional_hog_flow_id, ...template }) =>
+                        transactional_hog_flow_id ? [{ ...template, transactional_hog_flow_id }] : []
+                    )
                     const nameCounts = new Map<string, number>()
-                    for (const { name } of templates) {
+                    for (const { name } of transactional) {
                         nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1)
                     }
-                    return templates.map((template) => ({
-                        key: template.transactional_hog_flow_id!,
+                    return transactional.map((template) => ({
+                        key: template.transactional_hog_flow_id,
                         label:
                             nameCounts.get(template.name)! > 1
                                 ? `${template.name} (${template.id.slice(-8)})`

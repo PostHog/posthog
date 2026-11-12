@@ -39,9 +39,11 @@ const STORED_TEMPLATES = [
 describe('transactionalEmailsLogic', () => {
     let logic: ReturnType<typeof transactionalEmailsLogic.build>
     let writes: { id: string; tags: string[] }[]
+    let serverFiltersTransactional: boolean
 
     beforeEach(async () => {
         writes = []
+        serverFiltersTransactional = true
         useMocks({
             patch: {
                 '/api/projects/:team_id/messaging_templates/:id/': async ({ request, params }) => {
@@ -57,7 +59,10 @@ describe('transactionalEmailsLogic', () => {
                     const offset = Number(params.get('offset') ?? 0)
                     const limit = Math.min(Number(params.get('limit') ?? SERVER_PAGE_SIZE), SERVER_PAGE_SIZE)
                     const matching = STORED_TEMPLATES.filter(
-                        (t) => params.get('transactional') !== 'true' || t.transactional_hog_flow_id
+                        (t) =>
+                            !serverFiltersTransactional ||
+                            params.get('transactional') !== 'true' ||
+                            t.transactional_hog_flow_id
                     ).map(({ content, draft_content, ...basic }) =>
                         params.get('basic') === 'true' ? basic : { ...basic, content, draft_content }
                     )
@@ -73,13 +78,23 @@ describe('transactionalEmailsLogic', () => {
 
     afterEach(() => logic.unmount())
 
-    it('loads every page of transactional emails without their content', () => {
-        expect(logic.values.transactionalTemplates.map(({ name, content }) => ({ name, content }))).toEqual([
-            { name: 'Password reset', content: undefined },
-            { name: 'Receipt', content: undefined },
-            { name: 'Sign-in code', content: undefined },
-        ])
-    })
+    it.each([
+        ['filters', true],
+        ['ignores, as a server that predates it does,', false],
+    ])(
+        'loads every page of transactional emails without their content when the server %s the filter',
+        async (_case, filters) => {
+            serverFiltersTransactional = filters
+            logic.actions.loadTransactionalTemplates()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.transactionalTemplates.map(({ name, content }) => ({ name, content }))).toEqual([
+                { name: 'Password reset', content: undefined },
+                { name: 'Receipt', content: undefined },
+                { name: 'Sign-in code', content: undefined },
+            ])
+        }
+    )
 
     it.each([
         ['a tag', `/transactional?tags=${encodeURIComponent('["auth"]')}`, ['Password reset', 'Sign-in code']],
