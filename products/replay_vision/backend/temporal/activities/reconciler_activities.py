@@ -22,25 +22,29 @@ from products.replay_vision.backend.temporal.reconciler_types import (
     UpsertScannerScheduleActivityInputs,
 )
 from products.replay_vision.backend.temporal.schedule import (
+    ScannerScheduleState,
     a_delete_scanner_schedule,
     a_upsert_scanner_schedule,
-    load_enabled_scanner_fingerprints,
+    load_enabled_scanner_schedule_states,
 )
 
 logger = structlog.get_logger(__name__)
 
 
-def _load_enabled_scanner_fingerprints() -> dict[UUID, tuple[int, str]]:
+def _load_enabled_scanner_schedule_states() -> dict[UUID, ScannerScheduleState]:
     with bounded_queries(LIST_ENABLED_SCANNERS_TIMEOUT):
-        return load_enabled_scanner_fingerprints()
+        return load_enabled_scanner_schedule_states()
 
 
 @activity.defn
 @track_activity()
 async def list_enabled_scanners_activity() -> list[EnabledScannerEntry]:
-    """Every enabled ReplayScanner with its current fingerprint."""
-    rows = await database_sync_to_async(_load_enabled_scanner_fingerprints)()
-    return [EnabledScannerEntry(scanner_id=sid, team_id=team_id, fingerprint=fp) for sid, (team_id, fp) in rows.items()]
+    """Every enabled, unpaused ReplayScanner with its current fingerprint."""
+    states = await database_sync_to_async(_load_enabled_scanner_schedule_states)()
+    return [
+        EnabledScannerEntry(scanner_id=sid, team_id=state.team_id, fingerprint=state.fingerprint)
+        for sid, state in states.items()
+    ]
 
 
 def _schedule_fingerprint(listing: object) -> str | None:

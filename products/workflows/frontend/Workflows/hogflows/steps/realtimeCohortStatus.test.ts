@@ -2,8 +2,8 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import { keepOnlyRealtimeCohort } from './realtimeCohortStatus'
 
-const cohort = (id: number): AnyPropertyFilter =>
-    ({ key: 'id', type: PropertyFilterType.Cohort, value: id, operator: PropertyOperator.In }) as AnyPropertyFilter
+const cohort = (id: number, operator = PropertyOperator.In): AnyPropertyFilter =>
+    ({ key: 'id', type: PropertyFilterType.Cohort, value: id, operator }) as AnyPropertyFilter
 const email: AnyPropertyFilter = {
     key: 'email',
     type: PropertyFilterType.Person,
@@ -24,6 +24,8 @@ describe('keepOnlyRealtimeCohort', () => {
         ['the cohort no longer in the audience', [email, cohort(3)]],
         ['the cohort alone already', [cohort(2)]],
         ['an empty audience', []],
+        // Keeping only an exclusion would drop the other conditions and still fail to save.
+        ['the cohort excluded', [email, cohort(2, PropertyOperator.NotIn)]],
     ])('changes nothing, never emptying the audience, with %s', (_name, properties) => {
         expect(keepOnlyRealtimeCohort(properties, 2)).toBeNull()
     })
