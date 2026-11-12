@@ -1201,10 +1201,12 @@ class TestSurvey(APIBaseTest):
             ANY,
             "feature flag created",
             {
+                "feature_flag_id": ff_instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [100],
                 "has_filters": True,
                 "filter_count": 2,
                 "created_at": ff_instance.created_at,

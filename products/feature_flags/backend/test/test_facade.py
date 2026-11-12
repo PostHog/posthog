@@ -1131,6 +1131,7 @@ class TestModelAccessorsRequireV1:
             flag.get_payload("true")
         assert flag.is_eligible_for_experiment is False
         assert flag.get_analytics_metadata() == {
+            "feature_flag_id": flag.id,
             "created_at": flag.created_at,
             "config_format": "v2" if filters.get("version") == 2 else "unsupported",
         }
@@ -1170,6 +1171,50 @@ class TestModelAccessorsRequireV1:
         assert flag.has_feature_enrollment is enrolled
         assert flag.get_payload("a") == (filters.get("payloads") or {}).get("a")
         assert flag.get_analytics_metadata()["groups_count"] == len(conditions)
+
+
+class TestAnalyticsMetadataRecordsRolloutAndIdentity:
+    @parameterized.expand(
+        [
+            ("absent", [{"properties": []}], [None], False),
+            ("explicit_null", [{"properties": [], "rollout_percentage": None}], [None], False),
+            ("zero", [{"properties": [], "rollout_percentage": 0}], [0], False),
+            ("fifty", [{"properties": [], "rollout_percentage": 50}], [50], True),
+            ("hundred", [{"properties": [], "rollout_percentage": 100}], [100], True),
+        ]
+    )
+    def test_each_condition_reports_its_stored_rollout(self, _name, groups, expected, expected_has_rollout):
+        metadata = FeatureFlag(filters={"groups": groups}).get_analytics_metadata()
+        assert metadata["condition_rollout_percentages"] == expected
+        assert metadata["has_rollout_percentage"] is expected_has_rollout
+
+    def test_absent_and_zero_stay_distinct(self):
+        absent = FeatureFlag(filters={"groups": [{"properties": []}]}).get_analytics_metadata()
+        zero = FeatureFlag(filters={"groups": [{"properties": [], "rollout_percentage": 0}]}).get_analytics_metadata()
+        assert absent["condition_rollout_percentages"] == [None]
+        assert zero["condition_rollout_percentages"] == [0]
+        assert absent["has_rollout_percentage"] == zero["has_rollout_percentage"]
+
+    def test_rollouts_keep_condition_order(self):
+        groups = [
+            {"properties": [], "rollout_percentage": 100},
+            {"properties": [], "rollout_percentage": 0},
+            {"properties": []},
+        ]
+        metadata = FeatureFlag(filters={"groups": groups}).get_analytics_metadata()
+        assert metadata["condition_rollout_percentages"] == [100, 0, None]
+
+    def test_metadata_carries_the_flag_id(self):
+        flag = FeatureFlag(filters={"groups": V1_GROUPS})
+        flag.id = 4321
+        assert flag.get_analytics_metadata()["feature_flag_id"] == 4321
+
+    def test_unreadable_config_still_reports_the_flag_id(self):
+        flag = FeatureFlag(filters={"version": 2})
+        flag.id = 99
+        metadata = flag.get_analytics_metadata()
+        assert metadata["feature_flag_id"] == 99
+        assert metadata["config_format"] == "v2"
 
 
 class TestGetCohortIdsReadsEitherFormat:

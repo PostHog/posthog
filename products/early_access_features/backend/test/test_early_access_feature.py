@@ -1130,10 +1130,12 @@ class TestEarlyAccessFeature(APIBaseTest):
             ANY,
             "feature flag created",
             {
+                "feature_flag_id": ff_instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": False,
+                "condition_rollout_percentages": [0],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": ff_instance.created_at,

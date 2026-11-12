@@ -322,17 +322,23 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         try:
             self._v1_filters()
         except ConfigFormatError as exc:
-            return {"created_at": self.created_at, "config_format": exc.config_format.kind}
+            return {
+                "feature_flag_id": self.id,
+                "created_at": self.created_at,
+                "config_format": exc.config_format.kind,
+            }
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
         variants_count = len(self.variants)
         payload_count = len(self._payloads)
 
         return {
+            "feature_flag_id": self.id,
             "groups_count": len(self.conditions),
             "has_variants": variants_count > 0,
             "variants_count": variants_count,
             "has_filters": filter_count > 0,
             "has_rollout_percentage": any(condition.get("rollout_percentage") for condition in self.conditions),
+            "condition_rollout_percentages": [condition.get("rollout_percentage") for condition in self.conditions],
             "filter_count": filter_count,
             "created_at": self.created_at,
             "aggregating_by_groups": self.aggregation_group_type_index is not None,
