@@ -353,6 +353,16 @@ class TestManageScheduledEmails(EmailsApiTestBase):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"id": self.message_id, "status": "canceled"}
 
+    def test_a_repeat_cancel_after_the_mark_expired_needs_the_canceled_status(self, mock_post, _flag):
+        self._job("waiting")
+        self._cancel(mock_post)
+        del self.cdp.jobs[(self.team.id, self.message_id)]
+
+        with time_machine.travel(datetime.now(UTC) + timedelta(hours=1, minutes=1)):
+            response = self._cancel(mock_post)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
     @parameterized.expand(
         [
             ("just_queued_before_any_status_landed", 10, [], [], status.HTTP_503_SERVICE_UNAVAILABLE),
@@ -425,8 +435,8 @@ class TestManageScheduledEmails(EmailsApiTestBase):
         self._job("waiting")
 
         with patch(
-            "products.messaging.backend.services.scheduled_emails._cancel_marks.set",
-            side_effect=ConnectionError("down"),
+            "products.messaging.backend.services.scheduled_emails._cancel_marks",
+            return_value=MagicMock(**{"set.side_effect": ConnectionError("down")}),
         ):
             response = self._cancel(mock_post)
 
@@ -437,8 +447,8 @@ class TestManageScheduledEmails(EmailsApiTestBase):
         self._status_rows([("canceled", 60, "")])
 
         with patch(
-            "products.messaging.backend.services.scheduled_emails._cancel_marks.get",
-            side_effect=ConnectionError("down"),
+            "products.messaging.backend.services.scheduled_emails._cancel_marks",
+            return_value=MagicMock(**{"get.side_effect": ConnectionError("down")}),
         ):
             response = self._cancel(mock_post)
 

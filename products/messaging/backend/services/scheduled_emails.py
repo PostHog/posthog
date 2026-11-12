@@ -3,15 +3,16 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any
 from uuid import UUID
 
-from django.core.cache import caches
 from django.utils.dateparse import parse_datetime
 
 import requests
 import structlog
+from redis import Redis
 
+from posthog import redis
 from posthog.plugins.plugin_server_api import cancel_scheduled_email, reschedule_scheduled_email
 
 from products.messaging.backend.facade.contracts import (
@@ -27,15 +28,10 @@ from products.messaging.backend.services.transactional_email_status import get_e
 
 logger = structlog.get_logger(__name__)
 
-_cancel_marks = caches["transactional_email_cancel_marks"]
-
 _CANCEL_MARK_TTL = timedelta(hours=1)
 _STATUS_LAG = timedelta(minutes=5)
+_REDIS_TIMEOUT_SECONDS = 1.0
 _WAITING = (EmailSendStatus.SCHEDULED, EmailSendStatus.QUEUED)
-
-
-class _CacheWrite(Protocol):
-    def __call__(self, key: str, value: str, *, timeout: int) -> object: ...
 
 
 class _CancelMark(StrEnum):
@@ -88,17 +84,21 @@ def _cancel_mark_key(team_id: int, message_id: UUID) -> str:
     return f"transactional_email_canceled:{team_id}:{message_id}"
 
 
+def _cancel_marks() -> Redis:
+    return redis.get_client(socket_timeout=_REDIS_TIMEOUT_SECONDS, socket_connect_timeout=_REDIS_TIMEOUT_SECONDS)
+
+
 def _mark_canceled(team_id: int, message_id: UUID) -> None:
-    _write_cancel_mark(_cancel_marks.set, team_id, message_id, _CancelMark.CANCELED)
+    _write_cancel_mark(team_id, message_id, _CancelMark.CANCELED, only_if_unmarked=False)
 
 
 def _mark_attempted_unless_canceled(team_id: int, message_id: UUID) -> None:
-    _write_cancel_mark(_cancel_marks.add, team_id, message_id, _CancelMark.ATTEMPTED)
+    _write_cancel_mark(team_id, message_id, _CancelMark.ATTEMPTED, only_if_unmarked=True)
 
 
-def _write_cancel_mark(write: _CacheWrite, team_id: int, message_id: UUID, mark: _CancelMark) -> None:
+def _write_cancel_mark(team_id: int, message_id: UUID, mark: _CancelMark, *, only_if_unmarked: bool) -> None:
     try:
-        write(_cancel_mark_key(team_id, message_id), mark.value, timeout=int(_CANCEL_MARK_TTL.total_seconds()))
+        _cancel_marks().set(_cancel_mark_key(team_id, message_id), mark.value, ex=_CANCEL_MARK_TTL, nx=only_if_unmarked)
     except Exception:
         logger.exception(
             "transactional_email_cancel_mark_write_failed", team_id=team_id, message_id=str(message_id), mark=mark
@@ -107,10 +107,11 @@ def _write_cancel_mark(write: _CacheWrite, team_id: int, message_id: UUID, mark:
 
 def _read_cancel_mark(team_id: int, message_id: UUID) -> _CancelMark | None:
     try:
-        mark = _cancel_marks.get(_cancel_mark_key(team_id, message_id))
+        stored = _cancel_marks().get(_cancel_mark_key(team_id, message_id))
     except Exception:
         logger.exception("transactional_email_cancel_mark_read_failed", team_id=team_id, message_id=str(message_id))
         return None
+    mark = stored.decode() if isinstance(stored, bytes) else None
     return _CancelMark(mark) if mark in set(_CancelMark) else None
 
 
