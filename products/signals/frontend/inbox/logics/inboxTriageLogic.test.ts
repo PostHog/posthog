@@ -14,6 +14,7 @@ import { openResolveReportDialog } from '../components/shell/ResolveReportDialog
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, SignalReport, SignalReportStatus } from '../types'
 import { inboxFiltersLogic } from './inboxFiltersLogic'
 import { inboxTriageLogic } from './inboxTriageLogic'
+import { reportGithubAccessLogic } from './reportGithubAccessLogic'
 
 jest.mock('../components/shell/DismissReportDialog', () => ({ openDismissReportDialog: jest.fn() }))
 jest.mock('../components/shell/ResolveReportDialog', () => ({ openResolveReportDialog: jest.fn() }))
@@ -91,6 +92,33 @@ describe('inboxTriageLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
+
+    it('passes the selected repository when implementing from triage', async () => {
+        const report = { ...makeReport('selected-repo'), status: SignalReportStatus.PENDING_INPUT, repo_slug: null }
+        useMocks({
+            get: {
+                [REPORTS_URL]: { count: 1, next: null, previous: null, results: [report] },
+                '/api/projects/:team/integrations/': {
+                    results: [{ id: 1, kind: 'github', installation_status: 'connected' }],
+                    next: null,
+                },
+            },
+        })
+        await mountAt({ report: report.id, at: 0 })
+        const access = reportGithubAccessLogic({ report, surface: 'triage_mode' })
+        const unmount = access.mount()
+        try {
+            await waitFor(() => expect(access.values.loading).toBe(false))
+            access.actions.requireRepositorySelection()
+            access.actions.setSelectedRepository('example/app')
+            expect(access.values.selectedRepository).toBe('example/app')
+            await expectLogic(logic, () => logic.actions.createPrForCurrent()).toDispatchActions([
+                logic.actionCreators.implementReport(report, undefined, 'triage_mode', false, 'example/app'),
+            ])
+        } finally {
+            unmount()
+        }
+    })
 
     it('warns that triage closes an open PR on a failed report', async () => {
         const report = {
