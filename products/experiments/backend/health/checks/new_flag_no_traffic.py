@@ -34,6 +34,8 @@ def new_flag_no_traffic(ctx: HealthContext) -> CheckOutcome:
         return not_applicable(NO_FLAG)
     if ctx.flag.deleted:
         return not_applicable(FLAG_DELETED)
+    if not ctx.can_read_flag_calls:
+        return not_checked("Couldn't check because you can't query the feature flag's call events")
     if ctx.flag_called is None:
         return not_checked(
             "Couldn't check because this organization's flag calls are stored where this check can't read them"
