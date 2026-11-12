@@ -1777,7 +1777,7 @@ async def test_replay_follows_merge_and_recovers_candidate(ateam, patch_side_eff
     )
     source.status = SignalReport.Status.SUPPRESSED
     await database_sync_to_async(source.save)(update_fields=["status"])
-    await database_sync_to_async(SignalReportArtefact.add_log)(
+    await database_sync_to_async(SignalReportArtefact.append_dismissal)(
         team_id=ateam.id,
         report_id=str(source.id),
         content=Dismissal(reason=MERGE_DISMISSAL_REASON),

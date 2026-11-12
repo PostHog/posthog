@@ -109,12 +109,8 @@ async def assigned_signal_ids_activity(signals: list[EmitSignalInputs]) -> list[
         return []
     team_id = signals[0].team_id
     signal_ids = [signal.signal_id for signal in signals if signal.signal_id and signal.team_id == team_id]
-    records = await database_sync_to_async(list)(
-        SignalGroupingRecord.objects.for_team(team_id)
-        .filter(signal_id__in=signal_ids)
-        .values_list("signal_id", flat=True)
-    )
-    return [str(signal_id) for signal_id in records]
+    records = SignalGroupingRecord.objects.for_team(team_id).filter(signal_id__in=signal_ids)
+    return [str(signal_id) async for signal_id in records.values_list("signal_id", flat=True)]
 
 
 @temporalio.workflow.defn(name="team-signal-grouping-v2")
