@@ -435,9 +435,9 @@ def _fetch_suppressions(
         server_client = client.for_server(server)
         for stream in _sending_streams(server_client):
             rows = _dump_rows(server_client, str(stream.get("ID")))
-            invalid += _merge(merged, rows, stream.get("MessageStreamType") == "Transactional")
-            if len(merged) > MAX_SUPPRESSED_ADDRESSES:
+            if len(merged) + len(rows) > MAX_SUPPRESSED_ADDRESSES:
                 raise ImportTooLarge(TOO_MANY_SUPPRESSIONS_MESSAGE)
+            invalid += _merge(merged, rows, stream.get("MessageStreamType") == "Transactional")
 
     after = str(checkpoint.get("after_address", "")) if checkpoint else ""
     addresses = [address for address in sorted(merged) if address > after]

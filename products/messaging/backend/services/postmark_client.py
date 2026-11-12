@@ -21,12 +21,15 @@ from posthog.dataclasses import frozen
 PAGE_SIZE = 100
 REQUESTS_PER_SECOND = 2
 MAX_RATE_LIMIT_WAITS = 5
+# A long import sees the odd timeout or 5xx. Retrying here keeps them from using up the whole step's retries.
+MAX_TRANSIENT_RETRIES = 3
+TRANSIENT_RETRY_BASE_SECONDS = 2
 MAX_RATE_LIMIT_WAIT_SECONDS = 60
 DEFAULT_TIMEOUT_SECONDS = 30
 # A suppression dump has no pages, so one response holds the whole list.
 DUMP_TIMEOUT_SECONDS = 120
 # The import worker is shared, so a list bigger than this stops the step instead of using up the worker's memory.
-MAX_DUMP_BYTES = 100 * 1024 * 1024
+MAX_DUMP_BYTES = 80 * 1024 * 1024
 USER_AGENT = "posthog-messaging-import/1.0"
 # Postmark's code for a token that can't use the message streams API.
 NO_STREAMS_PERMISSION_CODE = 1220
@@ -151,6 +154,8 @@ class PostmarkClient:
         max_bytes: int | None = None,
     ) -> dict[str, Any]:
         waits = 0
+        # A client that doesn't wait out a rate limit, like the key check, doesn't retry either.
+        retries_left = MAX_TRANSIENT_RETRIES if self._max_rate_limit_waits else 0
         while True:
             self._pace.wait()
             try:
@@ -168,6 +173,10 @@ class PostmarkClient:
                 )
                 content = _read_capped(response, max_bytes) if max_bytes is not None else None
             except requests.RequestException as e:
+                if retries_left:
+                    time.sleep(TRANSIENT_RETRY_BASE_SECONDS ** (MAX_TRANSIENT_RETRIES - retries_left + 1))
+                    retries_left -= 1
+                    continue
                 # The exception text can hold the request's details, so only its type leaves this function.
                 raise PostmarkAPIError(f"Couldn't reach Postmark ({type(e).__name__}).") from None
             if response.status_code == 429:
@@ -175,6 +184,10 @@ class PostmarkClient:
                     raise PostmarkRateLimited("Postmark asked PostHog to slow down.", status_code=429)
                 time.sleep(_rate_limit_wait_seconds(response, waits))
                 waits += 1
+                continue
+            if response.status_code >= 500 and retries_left:
+                time.sleep(TRANSIENT_RETRY_BASE_SECONDS ** (MAX_TRANSIENT_RETRIES - retries_left + 1))
+                retries_left -= 1
                 continue
             return _parse(response, content)
 
@@ -242,10 +255,12 @@ def _parse(response: requests.Response, content: bytes | None = None) -> dict[st
         body = json.loads(content) if content is not None else response.json()
     except ValueError:
         body = None
+    if response.ok:
+        if not isinstance(body, dict):
+            raise PostmarkAPIError("Postmark sent a response PostHog couldn't read.", status_code=response.status_code)
+        return body
     if not isinstance(body, dict):
         body = {}
-    if response.ok:
-        return body
     status = response.status_code
     error_code = body.get("ErrorCode")
     error_code = error_code if isinstance(error_code, int) else None

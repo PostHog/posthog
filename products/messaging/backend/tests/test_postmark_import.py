@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
+import requests
 from parameterized import parameterized
 
 from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
@@ -29,6 +30,7 @@ from products.messaging.backend.provider_imports.base import (
 )
 from products.messaging.backend.provider_imports.postmark import _merge
 from products.messaging.backend.provider_imports.postmark_templates import convert_template, convert_text
+from products.messaging.backend.services.postmark_client import PostmarkAPIError, _parse
 from products.messaging.backend.services.suppression import remove_suppressions
 from products.messaging.backend.temporal.workflow import STEP_RETRY_POLICY
 from products.messaging.backend.tests.postmark_fake_server import FIXTURE, FakePostmark, start_server
@@ -526,7 +528,7 @@ class TestPostmarkImport(BaseTest):
             with self.assertRaisesRegex(ImportTooLarge, "more suppressed addresses than PostHog can import"):
                 runs.run_step(self.team.id, run.id, "suppressions", attempt=1)
 
-        assert "ImportTooLarge" in STEP_RETRY_POLICY.non_retryable_error_types
+        assert "ImportTooLarge" in (STEP_RETRY_POLICY.non_retryable_error_types or [])
         assert self._sources() == {}
 
     def test_a_new_retry_of_the_same_run_continues_templates_from_the_saved_offset(self) -> None:
@@ -542,7 +544,7 @@ class TestPostmarkImport(BaseTest):
             for index in range(150)
         ]
         self.fake.data = data
-        self.fake.fail("/templates/page-120", 500)
+        self.fake.fail("/templates/page-120", 500, times=4)
         run = runs.start_run(self.team.id, "postmark", ["templates"], PRODUCTION_TOKEN, self.user.id)
 
         with self.assertRaises(ImportProviderUnavailable):
@@ -555,6 +557,22 @@ class TestPostmarkImport(BaseTest):
         assert MessageTemplate.objects.filter(team_id=self.team.id).count() == 150
         offsets = [r["query"]["Offset"] for r in self.fake.requests if r["path"] == "/templates"]
         assert offsets == ["100"]
+
+    def test_a_passing_server_error_is_retried_inside_the_step(self) -> None:
+        self.fake.fail("/templates", 503)
+
+        run = self._run(["templates"], token=PRODUCTION_TOKEN)
+
+        assert run.status == "completed"
+        assert 2 in [call.args[0] for call in self.sleep.call_args_list]
+
+    def test_a_successful_response_that_is_not_json_is_an_error(self) -> None:
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b"<html>maintenance</html>"
+
+        with self.assertRaisesRegex(PostmarkAPIError, "couldn't read"):
+            _parse(response)
 
     def test_an_empty_account_finishes_with_nothing_written(self) -> None:
         self.fake.data = {
