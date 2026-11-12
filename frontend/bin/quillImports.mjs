@@ -25,15 +25,20 @@ const PACKAGES = {
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 
+const INDEX_IMPORT = /^import\s*\{([^}]*)\}\s*from\s*"([^"]+)";?$/
+const INDEX_EXPORT = /^export\s*\{([^}]*)\}(?:\s*from\s*"([^"]+)")?;?$/
+const isQuillFile = (specifier) => specifier.startsWith('.')
+
 /**
  * Reads a rollup-built index of re-exports. Returns a map from each export name to the file that
  * defines it and the name it has in that file.
+ *
+ * A name that the index re-exports from another package is not in the map, so its imports stay on the
+ * index. The app cannot import that package by name, because only the quill package depends on it.
  */
-const INDEX_IMPORT = /^import\s*\{([^}]*)\}\s*from\s*"(\.[^"]+)";?$/
-const INDEX_EXPORT = /^export\s*\{([^}]*)\}(?:\s*from\s*"(\.[^"]+)")?;?$/
-
 export function quillExportMap(indexSource, distDir) {
     const localBindings = new Map()
+    const fromOtherPackages = new Set()
     const exports = new Map()
     const bindings = (list) =>
         list
@@ -48,7 +53,11 @@ export function quillExportMap(indexSource, distDir) {
         if (importMatch) {
             const [, list, file] = importMatch
             for (const [imported, local] of bindings(list)) {
-                localBindings.set(local ?? imported, { file: path.join(distDir, file), imported })
+                if (isQuillFile(file)) {
+                    localBindings.set(local ?? imported, { file: path.join(distDir, file), imported })
+                } else {
+                    fromOtherPackages.add(local ?? imported)
+                }
             }
             continue
         }
@@ -59,6 +68,9 @@ export function quillExportMap(indexSource, distDir) {
         }
         const [, list, file] = exportMatch
         for (const [name, exported] of bindings(list)) {
+            if (file ? !isQuillFile(file) : fromOtherPackages.has(name)) {
+                continue
+            }
             const target = file ? { file: path.join(distDir, file), imported: name } : localBindings.get(name)
             if (!target) {
                 throw new Error(`quill-imports: ${name} is exported from a quill index but defined nowhere in it`)
@@ -72,6 +84,9 @@ export function quillExportMap(indexSource, distDir) {
 /**
  * Rewrites the named quill imports in `source`. `maps` holds one export map per import specifier.
  * A name that no map knows, and every type import, stays on the index. Returns null when nothing changed.
+ *
+ * Only the imports before the first backtick are rewritten. Text after it can be inside a template
+ * literal, and some files hold source code there that they ship to users as text.
  */
 export function rewriteQuillImports(source, maps) {
     const specifiers = [...maps.keys()].map(escapeRegExp).join('|')
@@ -79,10 +94,12 @@ export function rewriteQuillImports(source, maps) {
         `^([ \\t]*)import\\s+(type\\s+)?\\{([^}]*)\\}\\s*from\\s*(['"])(${specifiers})\\4;?`,
         'gm'
     )
+    const firstBacktick = source.indexOf('`')
     let changed = false
-    const contents = source.replace(namedImport, (statement, indent, typeOnly, list, _quote, specifier) => {
+    const contents = source.replace(namedImport, (statement, indent, typeOnly, list, _quote, specifier, offset) => {
+        const canBeInTemplateLiteral = firstBacktick !== -1 && offset > firstBacktick
         // A comment in the list would swallow the rest of the one-line statement we emit.
-        if (typeOnly || /\/[/*]/.test(list)) {
+        if (typeOnly || canBeInTemplateLiteral || /\/[/*]/.test(list)) {
             return statement
         }
         const map = maps.get(specifier)

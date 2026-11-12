@@ -3,8 +3,10 @@ import { quillExportMap, rewriteQuillImports } from './quillImports.mjs'
 const INDEX = `/* empty css */
 import { Button as e, buttonVariants as t } from "./button2.js";
 import { Drawer as n } from "./drawer2.js";
-export { e as Button, n as Drawer, t as buttonVariants };
+import { DirectionProvider as r } from "@base-ui/react/direction-provider";
+export { e as Button, r as DirectionProvider, n as Drawer, t as buttonVariants };
 export { cn } from "./lib/utils.js";
+export { useDirection } from "@base-ui/react/direction-provider";
 `
 
 describe('quillImports', () => {
@@ -14,7 +16,7 @@ describe('quillImports', () => {
         ['lib/ui/quill', primitives],
     ])
 
-    it('maps each export of a built index to the file that defines it', () => {
+    it('maps each export of a built index to the quill file that defines it', () => {
         expect(Object.fromEntries(primitives)).toEqual({
             Button: { file: '/dist/button2.js', imported: 'Button' },
             buttonVariants: { file: '/dist/button2.js', imported: 'buttonVariants' },
@@ -44,6 +46,11 @@ describe('quillImports', () => {
             name: 'a statement over several lines keeps its line count',
             source: `import {\n    Button,\n    Drawer,\n} from '@posthog/quill'\nconst after = 1\n`,
             expected: `import { Button } from "/dist/button2.js"; import { Drawer } from "/dist/drawer2.js";\n\n\n\nconst after = 1\n`,
+        },
+        {
+            name: 'only the imports before the first template literal',
+            source: `import { Button } from '@posthog/quill'\nconst text = \`\nimport { Drawer } from '@posthog/quill'\n\`\n`,
+            expected: `import { Button } from "/dist/button2.js";\nconst text = \`\nimport { Drawer } from '@posthog/quill'\n\`\n`,
         },
     ])('rewrites $name', ({ source, expected }) => {
         expect(rewriteQuillImports(source, maps)).toEqual(expected)
