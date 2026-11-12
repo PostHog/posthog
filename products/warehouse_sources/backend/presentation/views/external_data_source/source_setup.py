@@ -625,12 +625,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
-        # For the same reason, a stored connection target replaces the source's own, and one the user did not
-        # enter is dropped rather than inherited.
+        # For the same reason, a stored connection target or TLS setting replaces the source's own, and one the
+        # user did not enter is dropped rather than inherited.
         if stored_credential is not None:
-            for field in (*helpers._CONNECTION_TARGET_FIELDS, *source.connection_host_fields):
+            for field in (*_CONNECTION_ROUTING_KEYS, *source.connection_host_fields):
                 if field not in incoming_job_inputs:
                     new_job_inputs.pop(field, None)
+
+        # The secrets of a stored credential are complete: the connect page checked them on their own. So a
+        # reconnect carries over no stored secret the user left blank there, such as an old key passphrase.
+        secrets_base: dict[str, Any] = {} if stored_credential is not None else existing_job_inputs
 
         # CDC resource ownership changes must go through the CDC-specific endpoints.
         for key in helpers._CDC_EXPOSED_JOB_INPUT_KEYS:
@@ -691,7 +695,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if connection_host_changed or ssh_tunnel_changed or job_inputs_host_added:
             gate_sensitive_fields = sensitive_fields - helpers._CREATION_ONLY_SECRET_FIELDS
             preserved_credentials = helpers.has_preserved_credentials(
-                existing_job_inputs,
+                secrets_base,
                 incoming_job_inputs,
                 gate_sensitive_fields,
                 nested_containers=(*helpers._NESTED_AUTH_CONTAINERS, *declared_field_names.switch_groups),
@@ -705,15 +709,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         # Preserve sensitive credentials not explicitly provided (API response omits them for security)
         for key in sensitive_fields:
-            if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
-                new_job_inputs[key] = existing_job_inputs[key]
+            if secrets_base.get(key) and not incoming_job_inputs.get(key):
+                new_job_inputs[key] = secrets_base[key]
 
         # Nested containers (e.g. Stripe `auth_method`, Snowflake `auth_type`, Billomat `registered_app`)
         # need a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge
         # above would otherwise wipe redacted credentials nested inside these containers. Same container
         # list as the host-change gate above, so a merge here always has a matching preserved-credential check.
         for container_key in helpers._NESTED_AUTH_CONTAINERS:
-            existing_container = existing_job_inputs.get(container_key)
+            existing_container = secrets_base.get(container_key)
             incoming_container = incoming_job_inputs.get(container_key)
             if incoming_container is not None and not isinstance(incoming_container, dict):
                 raise ValidationError({"job_inputs": {container_key: "Must be an object."}})
@@ -744,9 +748,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             incoming_group = incoming_job_inputs[incoming_key]
             if not isinstance(incoming_group, dict):
                 raise ValidationError({"job_inputs": {group_key: "Must be an object."}})
-            existing_group = helpers._stored_value(existing_job_inputs, group_key)
+            existing_group = helpers._stored_value(secrets_base, group_key)
             if not isinstance(existing_group, dict):
-                continue
+                if stored_credential is None:
+                    continue
+                existing_group = {}
             merged_group = {**existing_group, **incoming_group}
             # No switch group declares a secret today, but keep the carry-over so one could.
             for key in sensitive_fields:
@@ -760,9 +766,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # SSH tunnel is a nested config, so deep-merge it to keep the stored fields a partial update omits.
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if incoming_ssh_tunnel is not None:
-            new_job_inputs["ssh_tunnel"] = helpers.merge_ssh_tunnel(
-                existing_job_inputs.get("ssh_tunnel"), incoming_ssh_tunnel
-            )
+            new_job_inputs["ssh_tunnel"] = helpers.merge_ssh_tunnel(secrets_base.get("ssh_tunnel"), incoming_ssh_tunnel)
 
         # A client may point the source at another credentials row only when the source can use that row.
         # The check runs for every team, also while the dual-write flag is off, because it keeps a client
