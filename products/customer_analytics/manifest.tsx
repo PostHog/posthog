@@ -56,6 +56,8 @@ export const manifest: ProductManifest = {
         '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
         // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+        // nosemgrep: frontend-route-hyphen -- parent URL is an existing product route
+        '/customer_analytics/product-activity': ['CustomerAnalytics', 'customerAnalyticsProductActivity'],
         // Match before UUID routes; the wildcard also accepts characters excluded from named segments.
         // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/accounts/by-external-id/*': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
@@ -101,6 +103,7 @@ export const manifest: ProductManifest = {
         customerAnalytics: (): string => '/customer_analytics',
         customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
         customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
+        customerAnalyticsProductActivity: (): string => '/customer_analytics/product-activity',
         // Account detail path. The flag-off scene falls back to the filtered, expanded Accounts list.
         customerAnalyticsAccount: (accountId: string, tab?: string): string =>
             `/customer_analytics/accounts/${accountId}${tab ? `/${encodeURIComponent(tab)}` : ''}`,
