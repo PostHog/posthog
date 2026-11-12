@@ -283,7 +283,7 @@ export const getLogsAlertsDestinationsDeleteCreateUrl = (projectId: string, id: 
 export const logsAlertsDestinationsDeleteCreate = async (
     projectId: string,
     id: string,
-    logsAlertDeleteDestinationApi: LogsAlertDeleteDestinationApi,
+    logsAlertDeleteDestinationApi?: LogsAlertDeleteDestinationApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getLogsAlertsDestinationsDeleteCreateUrl(projectId, id), {

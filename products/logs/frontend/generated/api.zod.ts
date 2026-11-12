@@ -620,12 +620,18 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Delete a notification destination by deleting its HogFunction group atomically.
  */
+export const logsAlertsDestinationsDeleteCreateBodyDestinationIdsMax = 100
 
 export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
         .array(zod.uuid())
-        .min(1)
+        .optional()
         .describe('HogFunction IDs to delete as one atomic destination group.'),
+    destination_ids: zod
+        .array(zod.uuid())
+        .max(logsAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
+        .optional()
+        .describe('Destination IDs, from `destinations[].id`, to delete with their HogFunctions.'),
 })
 
 /**

@@ -66405,6 +66405,11 @@ export namespace Schemas {
 
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
+      /**
+         * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an empty `hog_function_ids`, and is deleted by this ID.
+         * @nullable
+         */
+      id: string | null;
       /** Notification destination type.
        *
        * * `slack` - slack
@@ -66418,6 +66423,8 @@ export namespace Schemas {
       message_customized: boolean;
       slack_workspace_id?: number;
       slack_channel_id?: string;
+      /** The Slack channel's name when the destination was added. Absent for older destinations. */
+      slack_channel_name?: string;
       /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
       webhook_url?: string;
       /** PagerDuty integration key reduced to its last four characters. */
@@ -66583,11 +66590,13 @@ export namespace Schemas {
     }
 
     export interface LogsAlertDeleteDestination {
+      /** HogFunction IDs to delete as one atomic destination group. */
+      hog_function_ids?: string[];
       /**
-         * HogFunction IDs to delete as one atomic destination group.
-         * @minItems 1
+         * Destination IDs, from `destinations[].id`, to delete with their HogFunctions.
+         * @maxItems 100
          */
-      hog_function_ids: string[];
+      destination_ids?: string[];
     }
 
     export interface LogsAlertDestinationResponse {

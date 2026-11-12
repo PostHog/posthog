@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import replace
 from typing import Literal
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationAction,
+    AlertEventKind,
     DestinationType,
     EventKindSpec,
     IncidentAction,
@@ -162,6 +164,21 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
 
 EVENT_KINDS: tuple[EventKind, ...] = tuple(EVENT_KIND_CONFIG.keys())
 LOGS_ALERT_EVENT_IDS: tuple[str, ...] = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
+# An incident manager's row hears firings and resolves, which delivery turns into its trigger and resolve.
+_ROW_EVENT_KINDS: dict[EventKind, AlertEventKind] = {
+    "firing": AlertEventKind.FIRING,
+    "resolved": AlertEventKind.RESOLVED,
+    "broken": AlertEventKind.BROKEN,
+    "errored": AlertEventKind.ERRORED,
+    "incident_opened": AlertEventKind.FIRING,
+    "incident_closed": AlertEventKind.RESOLVED,
+}
+
+
+def row_event_kinds(kinds: Collection[EventKind]) -> tuple[AlertEventKind, ...]:
+    """The kinds the `AlertDestination` row of a destination hears, given the kinds its HogFunctions hear."""
+    return tuple(dict.fromkeys(_ROW_EVENT_KINDS[kind] for kind in kinds))
+
 
 _SEVERITY_SERVICE_CONTEXT = (
     "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0,"

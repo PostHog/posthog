@@ -15,6 +15,8 @@ import { urls } from 'scenes/urls'
 import { LogSeverityLevel } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
+import { platformAlertDestinationsLogic } from 'products/alerts_platform/frontend/destinations/platformAlertDestinationsLogic'
+import { logsAlertDestinationsLogicProps } from 'products/logs/frontend/components/LogsAlerting/logsAlertDestinations'
 import { logsAlertEventHistoryLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertEventHistoryLogic'
 import {
     RegroupConfirmationRequired,
@@ -22,7 +24,6 @@ import {
     logsAlertFormLogic,
 } from 'products/logs/frontend/components/LogsAlerting/logsAlertFormLogic'
 import { logsAlertingLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertingLogic'
-import { logsAlertNotificationLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertNotificationLogic'
 import {
     SNOOZE_DURATIONS,
     dispatchPreEnableCheck,
@@ -105,7 +106,7 @@ export interface logsAlertDetailSceneLogicActions {
     } // logsAlertFormLogic
     destinationsChanged: () => {
         value: true
-    } // logsAlertNotificationLogic
+    } // platformAlertDestinationsLogic
     loadAlerts: (_?: any) => any // logsAlertingLogic
     applyEnabledChange: (enabled: boolean) => {
         enabled: boolean
@@ -213,7 +214,7 @@ export const logsAlertDetailSceneLogic = kea<logsAlertDetailSceneLogicType>([
                 'setAlertFormValue',
                 'closeRegroupConfirmation',
             ],
-            logsAlertNotificationLogic({ alertId: props.id }),
+            platformAlertDestinationsLogic(logsAlertDestinationsLogicProps(props.id)),
             ['destinationsChanged'],
             logsAlertEventHistoryLogic({ alertId: props.id }),
             ['loadEvents'],

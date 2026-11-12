@@ -7,14 +7,16 @@ import { WizardReview } from 'lib/components/WizardReview'
 
 import { AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
+import { platformAlertDestinationsLogic } from 'products/alerts_platform/frontend/destinations/platformAlertDestinationsLogic'
+import { PlatformAlertCreateDestinationApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 
+import { logsAlertDestinationsLogicProps } from './logsAlertDestinations'
 import { LogsAlertFilters, LogsAlertTrigger } from './LogsAlertForm'
 import { logsAlertFormLogic, LogsAlertFormType } from './logsAlertFormLogic'
 import { GROUP_BY_LABELS } from './logsAlertGrouping'
-import { logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import { LogsAlertNotifications } from './LogsAlertNotifications'
 import { LogsAlertSimulation } from './LogsAlertSimulation'
-import { hasAnyFilter, PendingLogsAlertNotification } from './logsAlertUtils'
+import { hasAnyFilter } from './logsAlertUtils'
 
 interface LogsAlertCreateModalProps {
     isOpen: boolean
@@ -35,7 +37,9 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
         logsAlertFormLogic(formLogicProps)
     )
     const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
-    const { pendingNotifications } = useValues(logsAlertNotificationLogic({}))
+    const { pendingDestinations: pendingNotifications } = useValues(
+        platformAlertDestinationsLogic(logsAlertDestinationsLogicProps())
+    )
     const hasLogFilter = hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
     const nameError = alertForm.name.trim() ? undefined : 'Enter an alert name.'
     const filterError = hasLogFilter
@@ -55,24 +59,22 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
 
     return (
         <BindLogic logic={logsAlertFormLogic} props={formLogicProps}>
-            <BindLogic logic={logsAlertNotificationLogic} props={{}}>
-                <Form
-                    logic={logsAlertFormLogic}
-                    props={formLogicProps}
-                    formKey="alertForm"
-                    enableFormOnSubmit
-                    className="LemonModal__layout"
-                >
-                    <AlertWizard
-                        title="New alert"
-                        steps={steps}
-                        isSubmitting={isAlertFormSubmitting}
-                        hasChanges={alertFormChanged}
-                        onBack={onClose}
-                        onSubmitAttempted={() => touchAlertFormField('name')}
-                    />
-                </Form>
-            </BindLogic>
+            <Form
+                logic={logsAlertFormLogic}
+                props={formLogicProps}
+                formKey="alertForm"
+                enableFormOnSubmit
+                className="LemonModal__layout"
+            >
+                <AlertWizard
+                    title="New alert"
+                    steps={steps}
+                    isSubmitting={isAlertFormSubmitting}
+                    hasChanges={alertFormChanged}
+                    onBack={onClose}
+                    onSubmitAttempted={() => touchAlertFormField('name')}
+                />
+            </Form>
         </BindLogic>
     )
 }
@@ -87,7 +89,7 @@ function buildLogsAlertWizardSteps({
     canGroup,
 }: {
     alertForm: LogsAlertFormType
-    pendingNotifications: PendingLogsAlertNotification[]
+    pendingNotifications: PlatformAlertCreateDestinationApi[]
     configurationCannotAdvanceReason: string | undefined
     triggerCannotAdvanceReason: string | undefined
     nameError: string | undefined
@@ -152,7 +154,7 @@ function LogsAlertReview({
     canGroup,
 }: {
     alertForm: LogsAlertFormType
-    pendingNotifications: PendingLogsAlertNotification[]
+    pendingNotifications: PlatformAlertCreateDestinationApi[]
     canGroup: boolean
 }): JSX.Element {
     const severity = alertForm.severityLevels.length ? alertForm.severityLevels.join(', ') : 'all severities'

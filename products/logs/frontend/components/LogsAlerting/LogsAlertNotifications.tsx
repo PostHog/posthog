@@ -1,159 +1,48 @@
-import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useValues } from 'kea'
 
-import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    AlertNotificationDestinationEditor,
-    AlertNotificationDestinationView,
-    PendingAlertNotificationDestinationView,
-    pagerDutyPendingDetail,
-} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+import { AlertNotificationDestinationView } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+import { AlertDestinationEntry } from 'products/alerts_platform/frontend/destinations/platformAlertDestinations'
+import { PlatformAlertNotifications } from 'products/alerts_platform/frontend/destinations/PlatformAlertNotifications'
 
-import { LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS, logsAlertNotificationLogic } from './logsAlertNotificationLogic'
-import {
-    CUSTOM_MESSAGE_TAG,
-    getHogFunctionEventKind,
-    logsAlertEventKindsFor,
-    LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY,
-    LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
-    LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
-    PendingLogsAlertNotification,
-    resolveGroupLabel,
-} from './logsAlertUtils'
-
-function getPendingNotificationDestination(
-    notification: PendingLogsAlertNotification
-): Pick<PendingAlertNotificationDestinationView, 'title' | 'detail'> {
-    if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
-        return { title: 'Slack', detail: `#${notification.slackChannelName ?? 'channel'}` }
-    }
-    if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS) {
-        return { title: 'Microsoft Teams', detail: notification.webhookUrl }
-    }
-    if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
-        return { title: 'PagerDuty', detail: pagerDutyPendingDetail(notification) }
-    }
-    return { title: 'Webhook', detail: notification.webhookUrl }
-}
+import { LOGS_ALERT_DESTINATION_TYPE_OPTIONS, logsAlertDestinationsLogicProps } from './logsAlertDestinations'
+import { CUSTOM_MESSAGE_TAG } from './logsAlertUtils'
 
 export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.Element {
-    const {
-        existingHogFunctionsLoading,
-        destinationGroups,
-        customizedDestinationKeys,
-        pendingNotifications,
-        integrationsLoading,
-        integrationsFailed,
-        slackIntegrations,
-        firstSlackIntegration,
-        selectedType,
-        slackChannelValue,
-        webhookUrl,
-        urlInput,
-        pagerDutyRoutingKey,
-        pagerDutySeverity,
-        pagerDutyRegion,
-        addDisabledReason,
-    } = useValues(logsAlertNotificationLogic)
-    const {
-        addSelectedNotification,
-        removePendingNotification,
-        deleteExistingDestination,
-        setSelectedType,
-        setSlackChannelValue,
-        setWebhookUrl,
-        setPagerDutyRoutingKey,
-        setPagerDutySeverity,
-        setPagerDutyRegion,
-        loadIntegrations,
-    } = useActions(logsAlertNotificationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const customization = !!featureFlags[FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION]
 
-    const slackLogic = slackIntegrationLogic({ id: firstSlackIntegration?.id ?? 0 })
-    const { slackChannels } = useValues(slackLogic)
-    const { loadAllSlackChannels } = useActions(slackLogic)
-
-    useEffect(() => {
-        if (firstSlackIntegration) {
-            loadAllSlackChannels()
-        }
-    }, [firstSlackIntegration?.id, loadAllSlackChannels, firstSlackIntegration])
-
-    const existingDestinations: AlertNotificationDestinationView[] = destinationGroups.map((group) => {
-        const detailHogFunctionId =
-            group.hogFunctions.find(
-                (hogFunction) => getHogFunctionEventKind(hogFunction) === logsAlertEventKindsFor(group.type)[0]
-            )?.id ?? group.hogFunctions[0]?.id
+    const destinationView = (destination: AlertDestinationEntry): Partial<AlertNotificationDestinationView> => {
+        // The detail page opens a destination by any one of its HogFunctions.
+        const hogFunctionId = destination.hog_function_ids?.[0]
         const detailUrl =
-            alertId && detailHogFunctionId ? urls.logsAlertNotificationDetail(alertId, detailHogFunctionId) : undefined
-
+            alertId && hogFunctionId ? urls.logsAlertNotificationDetail(alertId, hogFunctionId) : undefined
         return {
-            key: group.key,
-            title: resolveGroupLabel(group, slackChannels),
             tags: [
-                { label: group.enabled ? 'Active' : 'Paused', type: group.enabled ? 'success' : 'default' },
-                ...(customizedDestinationKeys.has(group.key)
-                    ? [{ label: CUSTOM_MESSAGE_TAG.label, tooltip: CUSTOM_MESSAGE_TAG.tooltip }]
-                    : []),
+                {
+                    label: destination.enabled ? 'Active' : 'Paused',
+                    type: destination.enabled ? 'success' : 'default',
+                },
+                ...(customization && destination.message_customized ? [CUSTOM_MESSAGE_TAG] : []),
             ],
             viewAction: {
                 kind: 'button',
                 label: 'View',
                 url: detailUrl,
-                disabledReason: detailUrl ? undefined : 'Save the alert to view details',
+                disabledReason: detailUrl ? undefined : 'This destination has no message to view',
                 dataAttr: 'logs-alert-destination-view',
             },
-            onDelete: () => deleteExistingDestination(group),
         }
-    })
-
-    const pendingDestinations: PendingAlertNotificationDestinationView[] = pendingNotifications.map(
-        (notification, index) => ({
-            key: `${notification.type}-${index}`,
-            ...getPendingNotificationDestination(notification),
-            onRemove: () => removePendingNotification(index),
-        })
-    )
+    }
 
     return (
-        <AlertNotificationDestinationEditor
-            description="Each destination gets a notification when the alert fires, resolves, or breaks. PagerDuty gets an incident that opens when the alert fires and resolves when it resolves."
-            destinations={{
-                showExisting: true,
-                existingLoading: existingHogFunctionsLoading,
-                existing: existingDestinations,
-                pending: pendingDestinations,
-            }}
-            notificationType={{
-                options: LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS,
-                value: selectedType,
-                onChange: setSelectedType,
-            }}
-            slack={{
-                notificationType: LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
-                integrationsLoading,
-                integrationsFailed,
-                onRetryIntegrations: loadIntegrations,
-                integrations: slackIntegrations,
-                integration: firstSlackIntegration,
-                channelValue: slackChannelValue,
-                onChannelValueChange: setSlackChannelValue,
-            }}
-            url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
-            pagerduty={
-                selectedType === LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
-                    ? {
-                          routingKey: pagerDutyRoutingKey,
-                          onRoutingKeyChange: setPagerDutyRoutingKey,
-                          severity: pagerDutySeverity,
-                          onSeverityChange: setPagerDutySeverity,
-                          region: pagerDutyRegion,
-                          onRegionChange: setPagerDutyRegion,
-                      }
-                    : undefined
-            }
-            add={{ onClick: addSelectedNotification, disabledReason: addDisabledReason }}
+        <PlatformAlertNotifications
+            {...logsAlertDestinationsLogicProps(alertId)}
+            typeOptions={LOGS_ALERT_DESTINATION_TYPE_OPTIONS}
+            destinationView={destinationView}
         />
     )
 }
