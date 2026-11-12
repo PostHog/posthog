@@ -172,6 +172,10 @@ describe('credential redaction', () => {
 
     it.each([
         { name: 'a database error code', input: 'Code: 241. DB::Exception: Memory limit exceeded' },
+        {
+            name: 'a database error code before an escaped line break',
+            input: 'Code: 241.\\nDB::Exception: Memory limit exceeded',
+        },
         { name: 'a status code in a JSON log line', input: '{"event": "request_finished", "code": 302}' },
         { name: 'a status code in a key-value log line', input: 'event=request_finished code=500 request=GET' },
         { name: 'a status code in parentheses', input: 'request failed (code: 500) after 3 retries' },

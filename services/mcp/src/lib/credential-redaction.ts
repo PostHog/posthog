@@ -91,7 +91,8 @@ const QUOTED_DIAGNOSTIC_CODE = /^(["'])\d{1,3}\1/
 // A `=` value runs to the next whitespace, so only whitespace or `;` can end the number.
 const EQUALS_DIAGNOSTIC_CODE = new RegExp(`^\\d{1,3}(?:$|(?=[\\s;]))${NO_SECOND_DIGIT_GROUP}`)
 // A `:` value runs to the end of the line, so prose can follow the number: `Code: 60. DB::Exception`.
-const COLON_DIAGNOSTIC_CODE = new RegExp(`^\\d{1,3}(?:[,}\\]]|[.;)]?(?:$|(?=\\s)))${NO_SECOND_DIGIT_GROUP}`)
+// A serialized exception carries its line break as the two characters `\n`, which the value pattern does not end on.
+const COLON_DIAGNOSTIC_CODE = new RegExp(`^\\d{1,3}(?:[,}\\]]|[.;)]?(?:$|(?=\\s|\\\\[nrt])))${NO_SECOND_DIGIT_GROUP}`)
 
 function isDiagnosticCodeText(
     name: string,
