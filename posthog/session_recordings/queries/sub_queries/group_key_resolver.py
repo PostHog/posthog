@@ -22,7 +22,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import GROUP_KEY_PROPERTY, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
@@ -98,7 +98,11 @@ def resolved_group_key_expr(
     if prop.operator not in _RESOLVABLE_OPERATORS or prop.group_type_index is None:
         return None
     # An empty value matches every event through the join, groupless ones included, which a key list cannot.
-    if prop.operator != PropertyOperator.IS_SET and prop.value in (None, "", []):
+    # An empty list does so even for is_set, because property_to_expr short-circuits it before the operator.
+    if prop.value == [] or (prop.operator != PropertyOperator.IS_SET and prop.value in (None, "")):
+        return None
+    # The lookup rebuilds the filter as an event property, which reads `$group_key` from JSON instead of the key column.
+    if prop.key == GROUP_KEY_PROPERTY:
         return None
 
     return _resolved_key_in(

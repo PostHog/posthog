@@ -27,10 +27,10 @@ _CH_USER = ClickHouseUser.DEFAULT
 
 
 def _filter(
-    operator: PropertyOperator = PropertyOperator.EXACT, value: Any = ("a@example.com",)
+    operator: PropertyOperator = PropertyOperator.EXACT, value: Any = ("a@example.com",), key: str = "owner"
 ) -> GroupPropertyFilter:
     return GroupPropertyFilter(
-        key="owner", value=list(value) if isinstance(value, tuple) else value, operator=operator, group_type_index=0
+        key=key, value=list(value) if isinstance(value, tuple) else value, operator=operator, group_type_index=0
     )
 
 
@@ -76,13 +76,16 @@ class TestGroupKeyResolver(BaseTest):
             # A half-filled filter matches every event through the join, groupless ones included.
             ("empty_list_value", PropertyOperator.ICONTAINS, []),
             ("no_value", PropertyOperator.EXACT, None),
+            ("is_set_empty_list", PropertyOperator.IS_SET, []),
+            # The lookup would read the key from the property JSON, find nothing, and match no session.
+            ("group_key", PropertyOperator.EXACT, ("acme",), "$group_key"),
         ]
     )
     def test_an_operator_the_key_list_cannot_express_keeps_the_join(
-        self, _name: str, operator: PropertyOperator, value: Any = ("a@example.com",)
+        self, _name: str, operator: PropertyOperator, value: Any = ("a@example.com",), key: str = "owner"
     ) -> None:
         with patch(_RESOLVER, return_value=["org-1"]):
-            assert resolved_group_key_expr(self.team, _filter(operator, value), _CH_USER) is None
+            assert resolved_group_key_expr(self.team, _filter(operator, value, key), _CH_USER) is None
 
     def test_an_over_broad_filter_keeps_the_join(self) -> None:
         keys = [f"org-{i}" for i in range(MAX_RESOLVED_GROUP_KEYS + 1)]
