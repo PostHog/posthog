@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from clickhouse_driver import Client
 from clickhouse_driver.errors import ServerException, SocketTimeoutError
 from parameterized import parameterized
 from redis.exceptions import LockNotOwnedError
@@ -416,6 +417,42 @@ def test_query_failures_do_not_expose_membership_identifiers(stage: str, caplog:
     assert identifier not in "".join(traceback.format_exception(raised.value))
     assert identifier not in caplog.text
     assert store.timings.failed_step == stage
+
+
+@override_settings(CLICKHOUSE_CLUSTER="posthog", CLICKHOUSE_AUX_CLUSTER="auxiliary")
+@pytest.mark.parametrize("stage,elapsed", [("initial", 0), ("sibling", 2), ("expired", 5)])
+def test_topology_discovery_obeys_remaining_batch_deadline(stage: str, elapsed: int) -> None:
+    bootstrap = Client("example.invalid")
+    pool = MagicMock()
+    pool.get_client.return_value.__enter__.return_value.execute.return_value = [(0,)]
+    queried_clusters: list[str] = []
+
+    with (
+        patch("products.customer_analytics.backend.logic.membership.monotonic", return_value=0),
+        patch("posthog.clickhouse.cluster.time.monotonic", return_value=0) as clock,
+        patch("posthog.clickhouse.cluster.default_client", return_value=bootstrap),
+        patch.object(ConnectionInfo, "make_pool", return_value=pool),
+    ):
+
+        def stalled_discovery(query: str, params: dict[str, str]) -> list[tuple[str, int, int, int, str, str]]:
+            queried_clusters.append(params["name"])
+            if params["name"] == "posthog" and stage != "initial":
+                clock.return_value = elapsed
+                return [("main", 9000, 1, 1, "offline", "data")]
+            assert 0 < bootstrap.connection.send_receive_timeout <= 5 - elapsed
+            assert 0 < bootstrap.connection.connect_timeout <= 5 - elapsed
+            assert 0 < bootstrap.connection.sync_request_timeout <= 5 - elapsed
+            assert 0 < float(bootstrap.settings["max_execution_time"]) <= 5 - elapsed
+            raise SocketTimeoutError("topology discovery stalled")
+
+        with (
+            patch.object(bootstrap, "execute", side_effect=stalled_discovery),
+            pytest.raises(TimeoutError if stage == "expired" else SocketTimeoutError),
+        ):
+            MembershipDeletionStore(deadline=5).delete_keys(
+                1, [MembershipKey(group_type_index=0, group_key="example-account", distinct_id="example-person")]
+            )
+    assert queried_clusters == (["posthog", "auxiliary"] if stage == "sibling" else ["posthog"])
 
 
 @override_settings(CLICKHOUSE_CLUSTER="posthog", CLICKHOUSE_AUX_CLUSTER="auxiliary")

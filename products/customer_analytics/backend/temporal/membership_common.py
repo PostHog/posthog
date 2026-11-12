@@ -102,7 +102,7 @@ def get_membership_run_deadline(run_budget: timedelta) -> datetime:
 
 def get_membership_activity_timeout(deadline: datetime) -> timedelta | None:
     remaining = deadline - workflow.now()
-    timeout = (remaining - HEARTBEAT_TIMEOUT - BATCH_RETRY_DELAY * (BATCH_RETRY_ATTEMPTS - 1)) / BATCH_RETRY_ATTEMPTS
+    timeout = (remaining - HEARTBEAT_TIMEOUT - BATCH_RETRY_DELAY * (BATCH_RETRY_ATTEMPTS - 1)) // BATCH_RETRY_ATTEMPTS
     return timeout if timeout > HEARTBEAT_TIMEOUT else None
 
 

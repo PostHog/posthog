@@ -172,6 +172,7 @@ Its coordinator selects teams from overdue candidates and deleted-team scan stat
 The deletion job uses lightweight deletes on storage shards and verifies that no matching membership survives.
 It checks for pending mutations before retrying and skips shards where matching rows are already absent.
 Each deletion resolves fresh shard topology, including sibling clusters.
+Topology discovery caps bootstrap socket waits and query execution by the remaining batch time, including sibling discovery.
 Shard and verification connections use a finite socket timeout of twice the shared query execution limit.
 Query failure logs include the team, stage, and error code, without database exception text or membership keys.
 Candidates are removed only after verified erasure.

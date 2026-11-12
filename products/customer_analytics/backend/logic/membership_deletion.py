@@ -24,7 +24,6 @@ from posthog.models.deletion_targets import DeletionTarget, placement_for
 
 from products.customer_analytics.backend.logic.membership import (
     MEMBERSHIP_LEASE_SECONDS,
-    QUERY_SETTINGS,
     QUERY_TIMEOUT_SECONDS,
     MembershipCleanupBusy,
     MembershipExistence,
@@ -97,12 +96,14 @@ class MembershipDeletionCounts:
     has_more: bool = False
 
 
-def _get_cleanup_cluster(host: str) -> ClickhouseCluster:
+def _get_cleanup_cluster(host: str, deadline: float | None = None) -> ClickhouseCluster:
+    query_settings = get_membership_query_settings(deadline)
     return get_cluster(
         host=host,
         connection_overrides={"send_receive_timeout": SOCKET_TIMEOUT_SECONDS},
+        discovery_deadline=deadline,
         client_settings={
-            **QUERY_SETTINGS,
+            **query_settings,
             "log_comment": '{"product":"customer_analytics","workload":"OFFLINE","name":"membership-deletion"}',
         },
     )
@@ -137,7 +138,9 @@ class MembershipDeletionStore:
             predicate += " AND (group_type_index, group_key, distinct_id) IN %(keys)s"
             parameters["keys"] = [(key.group_type_index, key.group_key, key.distinct_id) for key in keys]
         with self.timings.measure("resolve_storage"):
-            cluster = _get_cleanup_cluster(settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST or settings.CLICKHOUSE_HOST)
+            cluster = _get_cleanup_cluster(
+                settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST or settings.CLICKHOUSE_HOST, self.deadline
+            )
             placement = placement_for(cluster, target)
             if placement is not None and not placement.cluster.shards:
                 raise RuntimeError(
