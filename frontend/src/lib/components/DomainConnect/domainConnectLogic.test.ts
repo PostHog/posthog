@@ -53,7 +53,7 @@ describe('domainConnectLogic', () => {
         expect(window.location.assign).not.toHaveBeenCalled()
     })
 
-    it('still sends the provider tab to the apply URL when the browser refuses to reset its opener', async () => {
+    it('closes the provider tab and uses the current tab when the browser refuses to reset its opener', async () => {
         Object.defineProperty(providerTab, 'opener', {
             get: () => window,
             set: () => {
@@ -64,9 +64,9 @@ describe('domainConnectLogic', () => {
         logic.actions.openDomainConnect()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(providerTab.location.href).toEqual(APPLY_URL)
-        expect(providerTab.close).not.toHaveBeenCalled()
-        expect(window.location.assign).not.toHaveBeenCalled()
+        expect(providerTab.close).toHaveBeenCalled()
+        expect(providerTab.location.href).toEqual('')
+        expect(window.location.assign).toHaveBeenCalledWith(APPLY_URL)
     })
 
     it('falls back to the current tab when the browser refuses to open a new one', async () => {
