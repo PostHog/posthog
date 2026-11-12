@@ -2904,7 +2904,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         try:
             phase = self._phase
             stats = phase.stats
-            refused = getattr(error, "served_from_query_failure_cache", False)
+            # The breaker and the read budget turn the run away on purpose, before ClickHouse runs it.
+            refused = getattr(error, "served_from_query_failure_cache", False) or isinstance(
+                error, APIQueriesBudgetExceeded
+            )
             query_failed_props = {
                 **query_run.event_properties(self.modifiers),
                 "calculation_trigger": query_run.trigger,
