@@ -395,9 +395,9 @@ async function refreshInsightTile(
     } catch (e: any) {
         if (shouldCancelQuery(e)) {
             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
-            const deferred = !refreshSignal.aborted
+            const deferred = signal.aborted && !refreshSignal.aborted
             actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id, deferred })
-            return deferred ? 'deferred' : 'aborted'
+            return refreshSignal.aborted ? 'aborted' : 'deferred'
         }
         actions.setRefreshError(insight.short_id, e)
         return 'errored'

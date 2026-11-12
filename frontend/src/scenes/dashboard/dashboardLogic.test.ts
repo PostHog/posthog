@@ -1459,6 +1459,15 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
             })
 
+            it('keeps "X out of Y" fixed when a tile load times out', async () => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                refreshInsight.mockRejectedValue({ status: 504 })
+                await expectLogic(logic, () => logic.actions.triggerDashboardRefresh()).toFinishAllListeners()
+
+                expect(logic.values.refreshMetrics.total).toEqual(1)
+            })
+
             it('keeps a group waiting when the viewer cancels its load, and loads it on the next open', async () => {
                 groupTiles({ target: { collapsed: true } })
                 await mountDashboard()
