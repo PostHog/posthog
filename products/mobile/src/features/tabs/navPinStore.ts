@@ -16,12 +16,21 @@ export const NAV_PINS: readonly NavPin[] = ['errors', 'replay', 'web_analytics',
 export type NavChrome = 'tab' | 'stack'
 
 /**
- * The pill fits Home, Chats, Views and this many 44pt pin slots next to the labelled Chat button on a 375pt phone.
- * The store keeps a list, so a larger cap needs no change to the saved format.
+ * How many pin slots the pill draws after Views. The store keeps a list, so a larger cap needs no change to the saved
+ * format. The slot was retired when Home became Live, so the cap is 0: the pin code stays, dormant, until the decision
+ * to remove it. A saved list stays on the device and loads as no pins.
  */
-export const MAX_NAV_PINS = 1
+export const MAX_NAV_PINS = 0
+
+/** False while the slot is retired, which hides every "Pin to navigation" and "Unpin from navigation" item. */
+export const NAV_PINS_ENABLED = MAX_NAV_PINS > 0
 
 const NO_PINS: readonly NavPin[] = []
+
+/** The last `MAX_NAV_PINS` entries. `slice(-MAX_NAV_PINS)` would keep every entry when the cap is 0. */
+export function newestNavPins(pins: readonly NavPin[]): readonly NavPin[] {
+    return pins.slice(Math.max(0, pins.length - MAX_NAV_PINS))
+}
 
 export function isNavPin(value: unknown): value is NavPin {
     return typeof value === 'string' && (NAV_PINS as readonly string[]).includes(value)
@@ -35,7 +44,7 @@ export function nextNavPins(pins: readonly NavPin[], pin: NavPin, pinned: boolea
     if (without.length !== pins.length) {
         return pins
     }
-    return [...without, pin].slice(-MAX_NAV_PINS)
+    return newestNavPins([...without, pin])
 }
 
 /** A saved list with unknown or repeated entries, such as one from a later app version, keeps only what fits. */

@@ -31,8 +31,8 @@ function TabBar({ state, navigateToTab }: BottomTabBarProps): ReactElement {
     }, [tab])
 
     // The bar stays mounted across tab switches, so it counts each open once, unlike a focus effect in the screen,
-    // which also fires when a pushed report, Settings or the chat sheet closes. The pinned lists count their own opens,
-    // because the same screens also open pushed from Views.
+    // which also fires when a pushed report, Settings or the chat sheet closes. Home (Live) and the pinned lists count
+    // their own opens, because the same screens also open pushed from Views.
     useEffect(() => {
         if (tab === 'chats') {
             track('mobile_chats_opened')
@@ -77,6 +77,8 @@ function CustomTabsLayout(): ReactElement {
                             sceneStyle: { backgroundColor: colors.background },
                         }}
                     >
+                        {/* Home is first, so Android back from another tab returns to it. */}
+                        <Tabs.Screen name="live" />
                         <Tabs.Screen name="inbox" />
                         <Tabs.Screen name="chats" />
                         <Tabs.Screen name="views" />
@@ -84,7 +86,6 @@ function CustomTabsLayout(): ReactElement {
                         <Tabs.Screen name="errors" />
                         <Tabs.Screen name="replay" />
                         <Tabs.Screen name="web-analytics" />
-                        <Tabs.Screen name="live" />
                     </Tabs>
                     <TabsChrome />
                 </SceneFrame>

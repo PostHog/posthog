@@ -7,6 +7,7 @@ describe('shouldHideSplash', () => {
         ['holds while the index route redirects', {}, false],
         ['holds while the inbox tab loads', { segments: ['(tabs)', 'inbox'] }, false],
         ['hides once the inbox is ready', { segments: ['(tabs)', 'inbox'], firstScreenReady: true }, true],
+        ['hides on the Home tab without waiting', { segments: ['(tabs)', 'live'] }, true],
         ['hides on the chats tab without waiting', { segments: ['(tabs)', 'chats'] }, true],
         ['hides on sign in without waiting', { segments: ['sign-in'] }, true],
         ['hides on a deep link to a report', { segments: ['report', '[id]'] }, true],

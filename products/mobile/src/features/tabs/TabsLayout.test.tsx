@@ -1,16 +1,18 @@
 import { router as navigation, Stack } from 'expo-router'
-import { act, fireEvent, renderRouter, screen, within } from 'expo-router/testing-library'
+import { act, fireEvent, renderRouter, screen, waitFor, within } from 'expo-router/testing-library'
 import { type ReactElement, useState } from 'react'
 import { Button, Dimensions, Platform, Text, View } from 'react-native'
 
-import { ViewsToast } from '@/features/views/ViewsToast'
+import { queryClient } from '@/api/queryClient'
+import { inboxCacheKey, type SavedInbox } from '@/api/readCacheKeys'
+import type { ProjectScope } from '@/api/reports'
 import { setAnalyticsClient } from '@/lib/analytics'
 import { FEATURE_FLAGS, setFeatureFlags } from '@/lib/featureFlags'
+import { inboxFromReports } from '@/model/adapters/inbox'
+import { reportFixture } from '@/model/adapters/testFixtures'
 import { OverlayPortal } from '@/ui/OverlayPortal'
 
-import { changeNavPin } from './navPinActions'
-import { restoreNavPins, setNavPinned, useNavPinStore } from './navPinStore'
-import { useNavToasts } from './navToasts'
+import { restoreNavPins } from './navPinStore'
 import { TabScene } from './TabScene'
 import { TabsLayout } from './TabsLayout'
 import { type TabHeaderSlot, type TabKey, useTabHeader, useTabHeaderStore } from './tabHeaderStore'
@@ -37,7 +39,10 @@ jest.mock('@/features/status/usePostHogStatus', () => ({
         },
     }),
 }))
-jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => null }))
+jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => mockScope }))
+
+let mockScope: ProjectScope | null = null
+const SCOPE: ProjectScope = { host: 'https://app.example.com', projectId: 2 }
 
 function InboxStub(): ReactElement {
     return (
@@ -56,14 +61,9 @@ function ChatsStub(): ReactElement {
 }
 
 function ViewsStub(): ReactElement {
-    const toasts = useNavToasts()
-    const focused = useTabHeaderStore((state) => state.focused === 'views')
     return (
         <TabScene tab="views">
-            <View testID="views-screen">
-                <Button title="Pin errors" onPress={() => changeNavPin('errors', true, 'views_row', toasts.show)} />
-            </View>
-            {focused ? <ViewsToast toast={toasts.toast} onHide={toasts.hide} /> : null}
+            <View testID="views-screen" />
         </TabScene>
     )
 }
@@ -100,7 +100,7 @@ function LiveStub(): ReactElement {
     )
 }
 
-// The layout always registers the pinnable lists' tabs.
+// The layout always registers Home (Live) and the tabs of the lists a pin used to add.
 const LIST_TABS = {
     '(tabs)/errors': ErrorsStub,
     '(tabs)/replay': ReplayStub,
@@ -191,6 +191,8 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         act(() => Dimensions.set({ window: ORIGINAL_WINDOW }))
         setAnalyticsClient(null)
         setFeatureFlags({})
+        mockScope = null
+        queryClient.clear()
     })
 
     test('exposes the regional status update from the main menu', async () => {
@@ -215,13 +217,13 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         async (tab) => {
             useTabHeaderStore.setState({
                 slots: {
+                    live: null,
                     inbox: LIST_SLOT,
                     chats: LIST_SLOT,
                     views: LIST_SLOT,
                     errors: null,
                     replay: null,
                     web_analytics: null,
-                    live: null,
                 },
             })
             await renderRouter(
@@ -248,36 +250,29 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         }
     )
 
-    test.each(['errors', 'replay'] as const)('hides a saved %s pin while its release flag is off', async (pin) => {
-        setNavPinned(pin, true)
-        setFeatureFlags({})
-        await renderRouter(
-            {
-                '(tabs)/_layout': TabsLayout,
-                '(tabs)/inbox': InboxStub,
-                '(tabs)/chats': ChatsStub,
-                '(tabs)/views': ViewsStub,
-                ...LIST_TABS,
-            },
-            { initialUrl: '/inbox' }
-        )
-        expect(screen.queryByTestId(`nav-pin-${pin}`)).toBeNull()
+    test.each(['errors', 'replay', 'web-analytics'])(
+        'resolves the retired /%s tab route without a bar slot',
+        async (route) => {
+            const router = await renderRouter(
+                {
+                    '(tabs)/_layout': TabsLayout,
+                    '(tabs)/inbox': InboxStub,
+                    '(tabs)/chats': ChatsStub,
+                    '(tabs)/views': ViewsStub,
+                    ...LIST_TABS,
+                },
+                { initialUrl: `/${route}` }
+            )
 
-        const flag = pin === 'errors' ? FEATURE_FLAGS.errorTracking : FEATURE_FLAGS.sessionReplay
-        act(() => setFeatureFlags({ [flag]: true }))
-        expect(screen.getByTestId(`nav-pin-${pin}`)).toBeTruthy()
+            // A hidden native tab cannot be selected, so iOS lands on Home. The JS tabs open the list without a slot.
+            expect(router.getSegments()).toEqual(['(tabs)', platform === 'ios' ? 'live' : route])
+            expect(screen.queryAllByTestId(/^nav-pin-/)).toEqual([])
+        }
+    )
 
-        act(() => setFeatureFlags({}))
-        expect(screen.queryByTestId(`nav-pin-${pin}`)).toBeNull()
-        expect(useNavPinStore.getState().pins).toEqual([pin])
-    })
-
-    test.each([
-        { pin: 'web_analytics', route: 'web-analytics', title: 'Web analytics' },
-        { pin: 'live', route: 'live', title: 'Live' },
-    ] as const)('shows a saved $pin pin with no release flag and opens its tab', async ({ pin, route, title }) => {
-        setNavPinned(pin, true)
-        setFeatureFlags({})
+    test('opens Home on Live, and its tabs menu offers Open on web without a pin item', async () => {
+        mockScope = SCOPE
+        useTabHeaderStore.getState().setFocused('inbox')
         const router = await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
@@ -286,16 +281,27 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
                 '(tabs)/views': ViewsStub,
                 ...LIST_TABS,
             },
-            { initialUrl: '/inbox' }
+            { initialUrl: '/live' }
         )
-        fireEvent.press(screen.getByTestId(`nav-pin-${pin}`))
 
-        expect(router.getSegments()).toEqual(['(tabs)', route])
-        expect(screen.getByTestId('tabs-title').props.children).toBe(title)
-        expect(screen.getByTestId(`nav-pin-${pin}`).props.accessibilityState).toEqual({ selected: true })
+        expect(router.getSegments()).toEqual(['(tabs)', 'live'])
+        expect(screen.getByTestId('tabs-title').props.children).toBe('Live')
+        expect(screen.getByTestId('inbox-nav-home').props.accessibilityState).toEqual({ selected: true })
+
+        fireEvent.press(screen.getByTestId('tabs-more'))
+
+        expect(screen.getByTestId('nav-list-open-web')).toBeTruthy()
+        expect(screen.queryByTestId('nav-list-pin')).toBeNull()
+        expect(screen.queryByTestId('nav-list-unpin')).toBeNull()
     })
 
-    test('offers Pin to navigation on an unpinned start page tab and pins it', async () => {
+    test('shows the Inbox dot only while the saved inbox list has an unread report', async () => {
+        mockScope = SCOPE
+        const items = inboxFromReports([reportFixture({ id: 'r1' })])
+        const save = (read: boolean): void => {
+            const saved: SavedInbox = { items: items.map((item) => ({ ...item, read })), sourceUpdatedAt: 1 }
+            act(() => queryClient.setQueryData(inboxCacheKey(SCOPE), saved))
+        }
         await renderRouter(
             {
                 '(tabs)/_layout': TabsLayout,
@@ -306,40 +312,21 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
             },
             { initialUrl: '/live' }
         )
-        fireEvent.press(screen.getByTestId('tabs-more'))
+        expect(screen.queryByTestId('nav-inbox-unread')).toBeNull()
 
-        expect(screen.queryByTestId('nav-list-unpin')).toBeNull()
-        fireEvent.press(screen.getByTestId('nav-list-pin'))
+        save(false)
+        await waitFor(() => expect(screen.getByTestId('nav-inbox-unread')).toBeTruthy())
+        expect(screen.getByTestId('nav-inbox').props.accessibilityValue).toEqual({ text: 'Unread reports' })
 
-        expect(useNavPinStore.getState().pins).toEqual(['live'])
-        expect(screen.getByTestId('views-toast')).toBeTruthy()
-    })
-
-    test.each([
-        { pin: 'web_analytics', route: 'web-analytics' },
-        { pin: 'live', route: 'live' },
-    ] as const)('opens an unpinned $pin route with the initial Inbox header state', async ({ pin, route }) => {
-        useTabHeaderStore.getState().setFocused('inbox')
-        const router = await renderRouter(
-            {
-                '(tabs)/_layout': TabsLayout,
-                '(tabs)/inbox': InboxStub,
-                '(tabs)/chats': ChatsStub,
-                '(tabs)/views': ViewsStub,
-                ...LIST_TABS,
-            },
-            { initialUrl: `/${route}` }
-        )
-        expect(router.getSegments()).toEqual(['(tabs)', route])
-        expect(screen.getByTestId(`${route}-screen`)).toBeTruthy()
-        expect(screen.getByTestId(`nav-pin-${pin}`).props.accessibilityState).toEqual({ selected: true })
+        save(true)
+        expect(screen.queryByTestId('nav-inbox-unread')).toBeNull()
     })
 
     test.each([
         { width: 402, height: 874 },
         { width: 951, height: 669 },
         { width: 669, height: 951 },
-    ])('switches Inbox, Chats and Views under one bar at $width × $height', async ({ width, height }) => {
+    ])('switches Home, Inbox, Chats and Views under one bar at $width × $height', async ({ width, height }) => {
         const previous = Dimensions.get('window')
         Dimensions.set({ window: { ...previous, width, height } })
         const capture = jest.fn()
@@ -354,9 +341,16 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
                 settings: () => <View testID="settings-screen" />,
                 _layout: () => <Stack screenOptions={{ headerShown: false }} />,
             },
-            { initialUrl: '/inbox' }
+            { initialUrl: '/live' }
         )
-        expect(router.getSegments()).toEqual(['(tabs)', 'inbox'])
+        expect(router.getSegments()).toEqual(['(tabs)', 'live'])
+        expect(screen.getByTestId('inbox-nav-home').props.accessibilityState).toEqual({ selected: true })
+
+        fireEvent.press(screen.getByTestId('nav-inbox'))
+
+        expect(router.getPathname()).toBe('/inbox')
+        expect(screen.getByTestId('inbox-screen')).toBeTruthy()
+        expect(screen.getByTestId('nav-inbox').props.accessibilityState).toEqual({ selected: true })
 
         fireEvent.press(screen.getByTestId('inbox-nav-chat'))
 
@@ -373,12 +367,24 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         expect(screen.getByTestId('inbox-nav-views').props.accessibilityState).toEqual({ selected: true })
 
         fireEvent.press(screen.getByTestId('inbox-nav-home'))
+
+        expect(router.getPathname()).toBe('/live')
+        expect(screen.getByTestId('live-screen')).toBeTruthy()
+        expect(screen.getByTestId('inbox-nav-home').props.accessibilityState).toEqual({ selected: true })
+
+        fireEvent.press(screen.getByTestId('nav-inbox'))
+        act(() => navigation.back())
+
+        expect(router.getPathname()).toBe('/live')
+
+        fireEvent.press(screen.getByTestId('nav-inbox'))
         act(() => navigation.push('/settings'))
         act(() => navigation.back())
 
         expect(capture.mock.calls).toEqual([
             ['mobile_inbox_opened', undefined],
             ['mobile_chats_opened', undefined],
+            ['mobile_inbox_opened', undefined],
             ['mobile_inbox_opened', undefined],
         ])
     })
@@ -394,20 +400,17 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
             },
             { initialUrl: '/inbox' }
         )
-        const menuItems = (): { editPins: boolean; inbox: boolean } => {
+        const menuItems = (): { editPins: boolean } => {
             fireEvent.press(screen.getByTestId('tabs-more'))
             const menu = screen.getByTestId('nav-menu')
-            const items = {
-                editPins: within(menu).queryByTestId('views-edit-pins') !== null,
-                inbox: within(menu).queryByTestId('nav-inbox') !== null,
-            }
+            const items = { editPins: within(menu).queryByTestId('views-edit-pins') !== null }
             fireEvent.press(within(menu).getByLabelText('Close', { includeHiddenElements: true }))
             act(() => jest.runOnlyPendingTimers())
             expect(screen.queryByTestId('nav-menu')).toBeNull()
             return items
         }
 
-        expect(menuItems()).toEqual({ editPins: false, inbox: false })
+        expect(menuItems()).toEqual({ editPins: false })
         expect(screen.getByTestId('inbox-filter')).toBeTruthy()
         expect(screen.getByTestId('inbox-filter-active')).toBeTruthy()
 
@@ -415,55 +418,15 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
 
         expect(screen.getByTestId('tabs-title').props.children).toBe('Views')
         expect(screen.getAllByTestId('tabs-more')).toHaveLength(1)
-        expect(menuItems()).toEqual({ editPins: true, inbox: false })
+        expect(menuItems()).toEqual({ editPins: true })
         expect(screen.queryByTestId('inbox-filter')).toBeNull()
 
         fireEvent.press(screen.getByTestId('inbox-nav-chat'))
 
         expect(screen.getByTestId('tabs-title').props.children).toBe('Chats')
         expect(screen.getAllByTestId('tabs-more')).toHaveLength(1)
-        expect(menuItems()).toEqual({ editPins: false, inbox: false })
+        expect(menuItems()).toEqual({ editPins: false })
         expect(screen.queryByTestId('inbox-filter')).toBeNull()
-    })
-
-    test('gives a pinned list a slot after Views, keeps it while unpinned from the tab menu, and leaves its open event to the screen', async () => {
-        const capture = jest.fn()
-        setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
-        const router = await renderRouter(
-            {
-                '(tabs)/_layout': TabsLayout,
-                '(tabs)/inbox': InboxStub,
-                '(tabs)/chats': ChatsStub,
-                '(tabs)/views': ViewsStub,
-                ...LIST_TABS,
-            },
-            { initialUrl: '/inbox' }
-        )
-        expect(screen.queryByTestId('nav-pin-errors')).toBeNull()
-
-        act(() => setNavPinned('errors', true))
-        fireEvent.press(screen.getByTestId('nav-pin-errors'))
-
-        expect(router.getSegments()).toEqual(['(tabs)', 'errors'])
-        expect(screen.getByTestId('tabs-title').props.children).toBe('Errors')
-        expect(screen.getByTestId('nav-pin-errors').props.accessibilityState).toEqual({ selected: true })
-
-        fireEvent.press(screen.getByTestId('tabs-more'))
-        fireEvent.press(screen.getByTestId('nav-list-unpin'))
-
-        expect(screen.getByTestId('views-toast')).toBeTruthy()
-        expect(screen.getByTestId('nav-pin-errors')).toBeTruthy()
-
-        fireEvent.press(screen.getByTestId('inbox-nav-views'))
-
-        expect(screen.queryByTestId('nav-pin-errors')).toBeNull()
-        fireEvent.press(screen.getByTestId('views-toast-undo'))
-        expect(useNavPinStore.getState().pins).toEqual(['errors'])
-        expect(capture.mock.calls).toEqual([
-            ['mobile_inbox_opened', undefined],
-            ['mobile_nav_pin_changed', { pin: 'errors', pinned: false, source: 'list_menu', replaced: false }],
-            ['mobile_nav_pin_changed', { pin: 'errors', pinned: true, source: 'undo', replaced: false }],
-        ])
     })
 
     test('keeps the separate Chat button opening compose from the inbox', async () => {

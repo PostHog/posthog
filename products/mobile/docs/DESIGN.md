@@ -208,9 +208,10 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   It uses a gentle 720ms hop every 1.4 seconds, with 45ms between parts and a smooth start and landing.
   All four parts share one animation clock, and the logo stays still with reduced motion enabled.
   The native launch screen fades into this animation once the animated splash lays out.
-  The splash stays above the app until the session and first screen are ready, with the existing eight-second inbox timeout.
-- **Tabs header** (`features/tabs/TabsHeader.tsx`): Inbox, Chats and Views share one header that the
-  tabs layout draws once, like the bottom bar. The logomark and the tab's title sit at the same spot on
+  The splash stays above the app until the session is ready and, when the app opens on the inbox, until the inbox loads, with an eight-second timeout.
+- **Tabs header** (`features/tabs/TabsHeader.tsx`): Home, Inbox, Chats and Views share one header that the
+  tabs layout draws once, like the bottom bar. Home is titled "Live", after the screen it shows.
+  The logomark and the tab's title sit at the same spot on
   every tab. The pill on the right holds More on every tab, and a filter button left of it on a tab that
   publishes one (the Inbox); Views in Edit pins swaps the pill for Done. Pull to refresh is the only manual
   refresh, so the header has no refresh button. A tab may add a status line under the title (Views does); it
@@ -219,10 +220,9 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   The logomark plays the splash's hop while the focused Inbox, Chats or Views page refreshes, including pull-to-refresh and automatic refreshes.
   It finishes its current hop when refreshing ends and stays still with reduced motion enabled.
 - **Inbox**: rows (source · `#123` PR tag when the report has a PR, green when open, purple when merged, gray otherwise · time),
-  pull to refresh, floating nav pill (Home selected,
-  Chats, Products) and the Chat button. Chats in the pill opens the Chats screen; the Chat button
-  opens a new chat sheet. Products opens the project's product library in the web app, and is
-  dimmed in demo mode or when the session has no project. A long press on a row (or the screen
+  pull to refresh, floating nav pill (Home, Inbox selected, Chats, Views) and the Chat button.
+  The Inbox slot has an 8pt blue dot while the loaded list has an unread report. Chats in the pill opens the Chats
+  screen; the Chat button opens a new chat sheet. A long press on a row (or the screen
   reader's "Show report actions") opens a menu with Hand off to the saved agent (PostHog,
   Claude Code or Codex), Reassign, Resolve, Dismiss, Chat and Mark as read (for an unread report) or Mark as unread.
   A full swipe on a row changes its read state: swipe right past 30% of the row marks the report read (blue),
@@ -246,8 +246,8 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   and an origin label, a status dot and the time under the title. A row opens the chat sheet on that
   task: the agent's thread, its PR card, and a pending decision above the composer. The nav pill
   shows Chats selected. Loading, error, empty and "No matches" are separate screens.
-- **Nav menu** (More in the tabs header): project name (opens the Project card), then on Views a section with
-  Edit pins, then Settings and Sign out.
+- **Nav menu** (More in the tabs header): project name (opens the Project card), then on Home a section with
+  Open on web and on Views a section with Edit pins, then Settings and Sign out.
 - **Report**: top chrome, headline, the byline with the Owner and Priority chips (`ReportMeta`), lede,
   "Read the full report" (only when there is a summary or a signal), evidence (trace, quotes, replay), facts,
   the observation card, impact tiles, charts, activity, and the action bar.
@@ -292,11 +292,11 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   within each organization. It initially shows five projects in total. See more expands the full list,
   and See less collapses it again. Organization labels stay visible for accounts with multiple organizations.
   Appearance is Match system, Light or Dark, saved on the device; screens wait for it to load so they never paint in the wrong scheme.
-  Start page picks the tab the app opens on (Inbox, Chats, Views, Web analytics or Live) and is saved on the device (`defaultPageStore`).
-  Web analytics and Live open as their tabs; an unpinned one keeps its bar slot until the person leaves it.
+  Start page picks the tab the app opens on (Home, Inbox, Chats or Views) and is saved on the device (`defaultPageStore`).
   Sign in also lands there, and so do Back on Settings or a view and closing the chat when there is no screen to go back to.
-  Until the person picks one, the app saves a start page once, on the first launch that knows whether the selected project's organization approved AI data processing: Views if it did not, Inbox if it did.
-  While that status is unknown, the app opens the inbox and saves nothing.
+  Until the person picks one, the app opens Home.
+  A start page that an earlier version saved as Inbox or Web analytics goes back to no choice once, and sends `mobile_default_page_migrated` (`from`, `to`),
+  because that version saved Inbox on its own for every organization that approved AI.
 - **Errors list** (`features/errors/ErrorsListScreen.tsx`): one body in two chromes. Pushed from the Views Browse
   row, it draws the Back chip and More over a 28pt "Errors" title and the "Most users first · updated 5m ago" line; as
   a pinned tab, the tabs header draws the title and that line. Under them sit the 24h and 7d `SegmentedPill` and the New,

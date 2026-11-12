@@ -4,7 +4,7 @@ import { Linking, RefreshControl, ScrollView, type StyleProp, Text, type TextSty
 
 import type { ProjectScope } from '@/api/reports'
 import { changeNavPin } from '@/features/tabs/navPinActions'
-import { type NavChrome, useIsNavPinned } from '@/features/tabs/navPinStore'
+import { NAV_PINS_ENABLED, type NavChrome, useIsNavPinned } from '@/features/tabs/navPinStore'
 import { TabHeaderPublisher } from '@/features/tabs/TabHeaderPublisher'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
@@ -107,12 +107,16 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
                     onClose={() => setMenuOpen(false)}
                     testID="live-menu"
                     items={[
-                        {
-                            key: pinned ? 'unpin' : 'pin',
-                            label: pinned ? 'Unpin from navigation' : 'Pin to navigation',
-                            Icon: PinIcon,
-                            onPress: () => changeNavPin('live', !pinned, 'list_menu', toasts.show),
-                        },
+                        ...(NAV_PINS_ENABLED
+                            ? [
+                                  {
+                                      key: pinned ? 'unpin' : 'pin',
+                                      label: pinned ? 'Unpin from navigation' : 'Pin to navigation',
+                                      Icon: PinIcon,
+                                      onPress: () => changeNavPin('live', !pinned, 'list_menu', toasts.show),
+                                  },
+                              ]
+                            : []),
                         {
                             key: 'web',
                             label: 'Open on web',

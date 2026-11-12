@@ -9,18 +9,19 @@ products/mobile/
                           push registration, notification routing, analytics, error boundary
     +native-intent.tsx    Drops the Android OAuth callback deep link so it never opens a screen, and opens a web
                           link to one issue or recording at /errors/<id> or /replay/<id> (webLinkTarget)
-    index.tsx             Redirect to /inbox (demo mode or signed in) or /sign-in
+    index.tsx             Redirect to the start page (demo mode or signed in; Home at /live by default) or /sign-in
     sign-in.tsx           -> src/auth/SignInScreen
-    (tabs)/               Inbox and Chats share one tab navigator, so the bottom bar stays put when the tab changes
+    (tabs)/               Home, Inbox, Chats and Views share one tab navigator, so the bottom bar stays put when
+                          the tab changes
       _layout.tsx         -> src/features/tabs/TabsLayout
-      inbox.tsx           -> src/features/inbox/InboxScreen
-      chats.tsx           -> src/features/chats/ChatsScreen
-      errors/             -> src/features/errors/ErrorsListScreen chrome="tab" (a slot only while pinned)
-      replay/             -> src/features/replay/ReplayListScreen chrome="tab" (a slot only while pinned)
-      web-analytics/      -> src/features/views/webAnalytics/WebAnalyticsScreen chrome="tab" (a slot while pinned
-                          or focused; `/web-analytics` is also a start page)
-      live/               -> src/features/live/LiveScreen chrome="tab" (a slot while pinned or focused; `/live` is
-                          also a start page)
+      live/               -> src/features/live/LiveScreen chrome="tab" (Home: the first tab and the default start page)
+      inbox/              -> src/features/inbox/InboxScreen
+      chats/              -> src/features/chats/ChatsScreen
+      views/              -> src/features/views/list/ViewsScreen
+      errors/             -> src/features/errors/ErrorsListScreen chrome="tab" (registered, no slot: pins are retired)
+      replay/             -> src/features/replay/ReplayListScreen chrome="tab" (registered, no slot: pins are retired)
+      web-analytics/      -> src/features/views/webAnalytics/WebAnalyticsScreen chrome="tab" (registered, no slot:
+                          pins are retired)
     report/[id]/index.tsx -> src/features/report/ReportScreen (`/report/<id>`, as deep links and notifications open it)
     report/[id]/details.tsx -> src/features/report/details/ReportDetailsScreen (the full report)
     (stack)/errors/index.tsx -> src/features/errors/ErrorsListScreen chrome="stack" (pushed from the Views Browse row)
@@ -52,15 +53,17 @@ products/mobile/
                           demoMode.ts (zustand store), hooks.ts (demo query hooks),
                           sessionThreads.ts (demo session run logs), live.ts (seeded Live traffic)
     features/
-      tabs/               TabsLayout (Inbox, Chats and Views tab navigator), BottomBar and TabsHeader (each
-                          rendered once), tabHeaderStore (each tab's header state), NavMenu (the More menu),
+      tabs/               TabsLayout (Home, Inbox, Chats and Views tab navigator; Home is the Live screen),
+                          BottomBar and TabsHeader (each rendered once), tabHeaderStore (each tab's header state),
+                          tabRoutes (tab keys to route names, BAR_TABS), NavMenu (the More menu),
                           navPinStore (Errors, Sessions, Web analytics or Live pinned to the nav pill, a device
-                          preference), navPinRoutes (openNavTarget: the explicit (tabs) route when pinned, the
-                          pushed screen when not, without selecting a hidden native tab), tabRoutes (tab keys to
-                          route names), navPinActions (pin change with toast and Undo), NavPinMenu (the Views row
-                          menu), TabHeaderPublisher (a pinned screen's status line), useTabVisit (counts tab visits)
+                          preference; dormant while MAX_NAV_PINS is 0), navPinRoutes (openNavTarget: the explicit
+                          (tabs) route when pinned, the pushed screen when not, without selecting a hidden native
+                          tab), navPinActions (pin change with toast and Undo), NavPinMenu (the Views row menu),
+                          TabHeaderPublisher (a pinned screen's status line), useTabVisit (counts tab visits)
       inbox/              InboxScreen, InboxRow, InboxListFooter, hooks,
-                          prefetchPlan (prefetch window and queue), usePrefetchReports
+                          prefetchPlan (prefetch window and queue), usePrefetchReports,
+                          useInboxHasUnread (the Inbox tab's dot, from the saved inbox list)
       report/             ReportScreen, TopChrome, Headline, HeadlineTitle, ReportMeta, ReportByline, TextLinkRow,
                           Evidence*, ReplayRow, Facts, Activity,
                           hooks, queries (query options shared by the screen and the inbox prefetch)
@@ -107,7 +110,7 @@ products/mobile/
                           notificationRouting, taskLookup, useNotificationRouting
       settings/           SettingsScreen, ProjectSwitcher, PushStatusGroup, SignOutSection, appInfo,
                           EnvironmentGroup (internal builds), LegalGroup, SettingsLinkRow, SettingsRadioRow,
-                          DefaultPageGroup, defaultPageStore (the tab the app opens on)
+                          DefaultPageGroup, defaultPageStore (the tab the app opens on, Home by default)
       widgets/            chartWidgetSync (session copy and pin catalog for the Chart home screen widget),
                           chartWidgetCatalog (buildCatalog), useChartWidgetSync, useWidgetOpenedEvent;
                           see modules/chart-widget/README.md

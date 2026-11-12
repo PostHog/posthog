@@ -8,7 +8,7 @@ import { View } from 'react-native'
 import { defaultPageHref } from '@/features/settings/defaultPageStore'
 
 import { openNavTarget } from './navPinRoutes'
-import { NAV_PINS, type NavPin, restoreNavPins, useNavPins } from './navPinStore'
+import { NAV_PINS, type NavPin, restoreNavPins, useNavPinStore, useNavPins } from './navPinStore'
 import { tabRouteName } from './tabRoutes'
 
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
@@ -93,17 +93,15 @@ describe('pinnable list navigation', () => {
             act(() => router.back())
             expect(app.getSegments()).toEqual(['(tabs)', 'views'])
 
-            act(() => restoreNavPins([pin]))
+            // The retired slot keeps the store empty, so set the pin directly to cover the pinned route.
+            act(() => useNavPinStore.setState({ pins: [pin] }))
             act(() => openNavTarget(router, pin, true))
             expect(app.getSegments()).toEqual(['(tabs)', tabRouteName(pin)])
         }
     )
 
-    // The pushed screens live under `/views/`, so a start page path never resolves to one of them.
-    test.each([
-        { page: 'web_analytics', segments: ['(tabs)', 'web-analytics'] },
-        { page: 'live', segments: ['(tabs)', 'live'] },
-    ] as const)('the $page start page opens its tab', async ({ page, segments }) => {
+    // The pushed Live screen lives under `/views/`, so the Home start page path never resolves to it.
+    test('the Home start page opens the Live tab', async () => {
         const app = await renderRouter(
             {
                 _layout: ListStack,
@@ -119,8 +117,8 @@ describe('pinnable list navigation', () => {
                 'views/web-analytics/index': Screen,
                 'views/live': Screen,
             },
-            { initialUrl: defaultPageHref(page) }
+            { initialUrl: defaultPageHref('live') }
         )
-        expect(app.getSegments()).toEqual(segments)
+        expect(app.getSegments()).toEqual(['(tabs)', 'live'])
     })
 })

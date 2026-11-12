@@ -3,32 +3,29 @@ import { useSyncExternalStore } from 'react'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
-import { type AuthState, useAuthStore } from '@/auth/authStore'
-import { type OrgAiStatus, projectOrganization } from '@/features/chat/aiAccess'
-import { track } from '@/lib/analytics'
+import { trackWhenReady } from '@/lib/analytics'
 import { createPersistHydrationGate } from '@/lib/persistHydration'
 
-export type DefaultPage = 'inbox' | 'chats' | 'views' | 'web_analytics' | 'live'
+/** `live` is the Home tab. */
+export type DefaultPage = 'live' | 'inbox' | 'chats' | 'views'
 
-export type DefaultPageHref = '/inbox' | '/chats' | '/views' | '/web-analytics' | '/live'
+export type DefaultPageHref = '/live' | '/inbox' | '/chats' | '/views'
 
-export const DEFAULT_PAGES: readonly DefaultPage[] = ['inbox', 'chats', 'views', 'web_analytics', 'live']
+export const DEFAULT_PAGES: readonly DefaultPage[] = ['live', 'inbox', 'chats', 'views']
 
 const LABELS: Record<DefaultPage, string> = {
+    live: 'Home',
     inbox: 'Inbox',
     chats: 'Chats',
     views: 'Views',
-    web_analytics: 'Web analytics',
-    live: 'Live',
 }
 
-// The public paths of the (tabs) routes. Web analytics and Live open as their navigation tabs, pinned or not.
+// The public paths of the (tabs) routes.
 const HREFS: Record<DefaultPage, DefaultPageHref> = {
+    live: '/live',
     inbox: '/inbox',
     chats: '/chats',
     views: '/views',
-    web_analytics: '/web-analytics',
-    live: '/live',
 }
 
 export function defaultPageLabel(page: DefaultPage): string {
@@ -41,16 +38,36 @@ export function defaultPageHref(page: DefaultPage): DefaultPageHref {
 
 /** The page the app opens on while the person has not chosen one. */
 export function effectiveDefaultPage(page: DefaultPage | null): DefaultPage {
-    return page ?? 'inbox'
+    return page ?? 'live'
 }
 
 function isDefaultPage(value: unknown): value is DefaultPage {
     return typeof value === 'string' && (DEFAULT_PAGES as readonly string[]).includes(value)
 }
 
-interface DefaultPageState {
-    /** Null until the person chooses a page in Settings or the app settles it once from the organization's AI status. */
+interface PersistedDefaultPage {
+    /** Null until the person chooses a page in Settings. */
     page: DefaultPage | null
+}
+
+function savedPage(persisted: unknown): unknown {
+    return typeof persisted === 'object' && persisted !== null && 'page' in persisted ? persisted.page : null
+}
+
+/**
+ * Version 0 opened on the inbox and saved it for every person whose organization approved AI, so a saved inbox is not
+ * a choice the person made. Web analytics is no longer a tab. Both go back to no choice, which opens Home.
+ */
+function migrateDefaultPage(persisted: unknown): PersistedDefaultPage {
+    const from = savedPage(persisted)
+    const page = from === 'inbox' || from === 'web_analytics' || !isDefaultPage(from) ? null : from
+    if (typeof from === 'string' && from !== page) {
+        trackWhenReady('mobile_default_page_migrated', { from, to: effectiveDefaultPage(page) })
+    }
+    return { page }
+}
+
+interface DefaultPageState extends PersistedDefaultPage {
     setPage: (page: DefaultPage) => void
 }
 
@@ -59,19 +76,20 @@ const hydration = createPersistHydrationGate()
 export const useDefaultPageStore = create<DefaultPageState>()(
     persist((set) => ({ page: null, setPage: (page) => set({ page }) }), {
         name: 'posthog-mobile-default-page',
+        version: 1,
+        migrate: migrateDefaultPage,
         storage: createJSONStorage(() => AsyncStorage),
         partialize: (state) => ({ page: state.page }),
-        // A saved page the app no longer has, such as a renamed tab, must not redirect to a missing route.
+        // A saved page the app does not have must not redirect to a missing route.
         merge: (persisted, current) => {
-            const page =
-                typeof persisted === 'object' && persisted !== null && 'page' in persisted ? persisted.page : null
+            const page = savedPage(persisted)
             return isDefaultPage(page) ? { ...current, page } : current
         },
         onRehydrateStorage: () => () => hydration.settle(),
     })
 )
 
-/** True once the saved page has loaded, so the app does not open the inbox before it knows the choice. */
+/** True once the saved page has loaded, so the app does not open Home before it knows the choice. */
 export function useDefaultPageHydrated(): boolean {
     return useSyncExternalStore(hydration.subscribe, hydration.isHydrated, hydration.isHydrated)
 }
@@ -79,39 +97,4 @@ export function useDefaultPageHydrated(): boolean {
 /** The route of the page the app opens on, read at call time by back and close actions that send the person home. */
 export function currentDefaultPageHref(): DefaultPageHref {
     return defaultPageHref(effectiveDefaultPage(useDefaultPageStore.getState().page))
-}
-
-/**
- * A person who never chose a page starts on Views when the organization has not approved AI data processing, and on
- * the inbox when it has. `settle` is true when that result must be saved, which makes it permanent. An unknown status
- * saves nothing, so that a later launch with a known status decides.
- */
-export function resolveStartPage(
-    saved: DefaultPage | null,
-    orgStatus: OrgAiStatus | null
-): { page: DefaultPage; settle: boolean } {
-    if (saved !== null || orgStatus === null || orgStatus === 'unknown') {
-        return { page: effectiveDefaultPage(saved), settle: false }
-    }
-    return { page: orgStatus === 'approved' ? 'inbox' : 'views', settle: true }
-}
-
-/** The AI status of the selected project's organization, or null when no one is signed in. */
-export function sessionOrgAiStatus(
-    auth: Pick<AuthState, 'status' | 'organizations' | 'projects' | 'projectId'>
-): OrgAiStatus | null {
-    return auth.status === 'signed_in'
-        ? projectOrganization(auth.organizations, auth.projects, auth.projectId).status
-        : null
-}
-
-/** Resolves the page to open for a signed-in live session and saves it when the app settles it for the first time. */
-export function settleDefaultPage(): DefaultPage {
-    const orgStatus = sessionOrgAiStatus(useAuthStore.getState())
-    const { page, settle } = resolveStartPage(useDefaultPageStore.getState().page, orgStatus)
-    if (settle) {
-        useDefaultPageStore.getState().setPage(page)
-        track('mobile_default_page_defaulted', { page, org_ai_approved: orgStatus === 'approved' })
-    }
-    return page
 }

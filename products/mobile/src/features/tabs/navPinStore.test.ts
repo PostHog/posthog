@@ -1,8 +1,19 @@
-import { type NavPin, nextNavPins, replacedNavPin, sanitizedNavPins } from './navPinStore'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { waitFor } from '@testing-library/react-native'
+
+import { type NavPin, nextNavPins, replacedNavPin } from './navPinStore'
+
+const STORAGE_KEY = 'nav-pins:v1'
+
+type NavPinModule = typeof import('./navPinStore')
 
 describe('navPinStore', () => {
+    afterEach(async () => {
+        await AsyncStorage.clear()
+    })
+
     test.each<[string, readonly NavPin[], NavPin, boolean, readonly NavPin[]]>([
-        ['pinning the second list replaces the first', ['replay'], 'errors', true, ['errors']],
+        ['pinning adds no slot while the slot is retired', ['replay'], 'errors', true, []],
         ['pinning a pinned list changes nothing', ['errors'], 'errors', true, ['errors']],
         ['unpinning empties the slot', ['errors'], 'errors', false, []],
     ])('%s', (_name, pins, pin, pinned, expected) => {
@@ -15,10 +26,16 @@ describe('navPinStore', () => {
         expect(replacedNavPin([], 'errors')).toBeNull()
     })
 
-    test('a saved list from another app version keeps only known pins, once each', () => {
-        expect(sanitizedNavPins(['pulse', 'replay', 'replay', 'errors'])).toEqual(['replay'])
-        expect(sanitizedNavPins(['pulse', 'web_analytics'])).toEqual(['web_analytics'])
-        expect(sanitizedNavPins(['live'])).toEqual(['live'])
-        expect(sanitizedNavPins('errors')).toEqual([])
+    test('loads a saved list as no pins and leaves it on the device', async () => {
+        const saved = JSON.stringify({ state: { pins: ['errors'] }, version: 0 })
+        await AsyncStorage.setItem(STORAGE_KEY, saved)
+        let store: NavPinModule['useNavPinStore'] | undefined
+        jest.isolateModules(() => {
+            store = jest.requireActual<NavPinModule>('./navPinStore').useNavPinStore
+        })
+        await waitFor(() => expect(store?.persist.hasHydrated()).toBe(true))
+
+        expect(store?.getState().pins).toEqual([])
+        expect(await AsyncStorage.getItem(STORAGE_KEY)).toBe(saved)
     })
 })
