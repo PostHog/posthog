@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    experimental::tasks::utils::select_task, invocation_context::context, utils::raise_for_err,
+    experimental::tasks::utils::select_task,
+    invocation_context::context,
+    utils::{raise_for_err, redact_request_error},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,6 +63,7 @@ fn fetch_progress(task_id: &Uuid) -> Result<TaskProgressResponse> {
     let response = client
         .get(client.project_url(&path)?)
         .send()
+        .map_err(redact_request_error)
         .context("Failed to send request")?;
     let response = raise_for_err(response)?;
 
