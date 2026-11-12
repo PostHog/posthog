@@ -45,7 +45,7 @@ export const MessagingEmailsPartialUpdateBody = /* @__PURE__ */ zod.object({
     scheduled_at: zod.iso
         .datetime({ offset: true })
         .describe(
-            'When to send the email instead, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. At most 30 days after the email was sent. A time that already passed sends it now.'
+            'When to send the email instead, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`, kept to the millisecond. At most 30 days after the email was sent. A time that already passed sends it now.'
         ),
 })
 
@@ -196,7 +196,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .nullish()
         .describe(
-            'When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. PostHog holds the email until then, at most 30 days after the request. A time that already passed sends it now. Leave it out or send null to send now.'
+            'When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. PostHog keeps the time to the millisecond and holds the email until then, at most 30 days after the request. A time that already passed sends it now. Leave it out or send null to send now.'
         ),
     capture_engagement: zod
         .boolean()
