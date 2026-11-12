@@ -143,14 +143,6 @@ impl EmbeddingModel {
         }
     }
 
-    pub fn model_url(&self) -> &'static str {
-        match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall
-            | EmbeddingModel::OpenAITextEmbeddingLarge
-            | EmbeddingModel::OpenAITextEmbeddingSmall256 => "https://api.openai.com/v1/embeddings",
-        }
-    }
-
     pub fn limits_key(&self) -> &'static str {
         // Based on our openai usage limits, these are distinct buckets
         match self {

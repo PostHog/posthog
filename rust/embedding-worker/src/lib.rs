@@ -130,7 +130,7 @@ pub async fn generate_embedding(
     for attempt in 0..MAX_RETRY_ATTEMPTS {
         let api_req = context
             .route
-            .construct_request(&text, model, labels, context.client.clone());
+            .construct_request(&text, model, labels, &context.client);
 
         counter!(REQUESTS_SENT, labels.render()).increment(1);
         let response = match context.client.execute(api_req).await {
