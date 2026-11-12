@@ -102,7 +102,7 @@ describe('buildReleaseRow', () => {
         ).toEqual([
             ['Broadcast sent', undefined],
             ['Broadcast failed', undefined],
-            ['Broadcast', true],
+            ['Broadcast scheduled', true],
         ])
         expect(result.nextDate).toBe(NEXT_SEND)
         expect(result.suggestions.map((suggestion) => suggestion.key)).not.toContain('broadcast')

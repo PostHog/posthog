@@ -64,6 +64,7 @@ export interface ReleaseEvent {
     detail?: string
     href?: string
     upcoming?: boolean
+    flagId?: number
 }
 
 export interface ReleaseSuggestion {
@@ -349,7 +350,7 @@ function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined)
     const denied = hasDeniedApprovalRequest(change as never)
     const expired = !!change.end_date && dayjs(change.end_date).isBefore(dayjs())
     const live = !isSchedulePaused(change as never) && !denied && !expired
-    const base = { kind: 'schedule' as const, href }
+    const base = { kind: 'schedule' as const, href, flagId: Number(change.record_id) }
 
     if (change.is_recurring) {
         const events: ReleaseEvent[] = []
@@ -459,7 +460,7 @@ function upcomingSendEvents(flow: SendCalendarFlowApi, now: dayjs.Dayjs): Releas
                 key: `send-schedule-${schedule.id}-${time.valueOf()}`,
                 date: time.toISOString(),
                 kind: 'broadcast' as const,
-                title: `Broadcast: ${flow.name || 'Untitled broadcast'}`,
+                title: `Broadcast scheduled: ${flow.name || 'Untitled broadcast'}`,
                 detail: 'Scheduled to send',
                 href: urls.broadcast(flow.id),
                 upcoming: true,
