@@ -1,0 +1,72 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+
+import { dataVisualizationLogic } from '../../dataVisualizationLogic'
+import { variableDataLogic } from './variableDataLogic'
+import { variablesLogic } from './variablesLogic'
+
+describe('variablesLogic', () => {
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insight_variables/': {
+                    results: [
+                        {
+                            id: 'region-id',
+                            name: 'Region',
+                            code_name: 'region',
+                            type: 'String',
+                            default_value: 'North',
+                        },
+                    ],
+                },
+            },
+        })
+        initKeaTests()
+    })
+
+    it('retains an unused editor value across saved-query updates and restores it when referenced again', async () => {
+        let savedQuery: VisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT {variables.region}',
+                variables: {
+                    'region-id': { variableId: 'region-id', code_name: 'region', value: 'South' },
+                },
+            },
+        }
+        const parent = dataVisualizationLogic({
+            dataNodeCollectionId: 'variables-test',
+            key: 'variables-test',
+            query: savedQuery,
+            cachedResults: { columns: [], types: [], results: [] },
+        })
+        parent.mount()
+        const props = {
+            key: 'variables-test',
+            readOnly: false,
+            sourceQuery: savedQuery,
+            setQuery: (query: VisualizationNode) => {
+                savedQuery = query
+            },
+        }
+        const logic = variablesLogic(props)
+        logic.mount()
+        await expectLogic(variableDataLogic).toFinishAllListeners()
+        logic.actions.addVariable({ variableId: 'region-id', code_name: 'region', value: 'South' })
+        logic.actions.setEditorQuery('SELECT 1')
+        expect(savedQuery.source.variables).toEqual({})
+        variablesLogic({ ...props, sourceQuery: savedQuery })
+        expect(logic.values.variablesNotInQuery).toEqual([expect.objectContaining({ value: 'South' })])
+        logic.actions.setEditorQuery('SELECT {variables.region}')
+        expect(savedQuery.source.variables).toEqual({
+            'region-id': expect.objectContaining({ value: 'South' }),
+        })
+        logic.unmount()
+        parent.unmount()
+    })
+})

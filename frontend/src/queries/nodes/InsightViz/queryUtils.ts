@@ -74,7 +74,8 @@ export const syncSelectedVariablesToQuery = (
     const queryCodeNames = Array.from(new Set(getVariablesFromQuery(query ?? '')))
     const variablesByCodeName = new Map(variables.map((variable) => [variable.code_name, variable]))
 
-    const syncedVariables = [...selectedVariables]
+    const availableIds = new Set(variables.map((variable) => variable.id))
+    const syncedVariables = selectedVariables.filter((variable) => availableIds.has(variable.variableId))
     const selectedVariableIds = new Set(syncedVariables.map((variable) => variable.variableId))
 
     queryCodeNames.forEach((codeName) => {

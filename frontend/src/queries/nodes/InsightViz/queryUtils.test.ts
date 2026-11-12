@@ -34,6 +34,17 @@ describe('filterVariablesReferencedInQuery', () => {
 })
 
 describe('syncSelectedVariablesToQuery', () => {
+    it.each([
+        [[], []],
+        [[{ id: 'new-region-id', code_name: 'region' }], [{ variableId: 'new-region-id', code_name: 'region' }]],
+    ])('drops deleted definitions before adding replacements', (definitions, expected) => {
+        expect(
+            syncSelectedVariablesToQuery('SELECT {variables.region}', definitions, [
+                { variableId: 'region-id', code_name: 'region', value: 'South' },
+            ])
+        ).toEqual(expected)
+    })
+
     it('preserves selected variables and their values when references are removed', () => {
         expect(
             syncSelectedVariablesToQuery(
