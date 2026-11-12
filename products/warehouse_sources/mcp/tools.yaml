@@ -325,16 +325,17 @@ tools:
             idempotent: true
         title: Get CDC health for a source
         description: >
-            Read the live change data capture (CDC) health of a Postgres source. Use this first when a CDC table is stale, a CDC
-            sync fails, or before choosing between 'external-data-sources-resume-cdc-create' and
-            'external-data-sources-repair-cdc-create'. It connects to the source database, so it fails with a 400 if the source
-            is unreachable. It changes nothing. Returns {enabled: false} when CDC is off. When CDC is on, returns
+            Read the live change data capture (CDC) health of a Postgres source. Use this first when a CDC table is
+            stale, a CDC sync fails, or before choosing between 'external-data-sources-resume-cdc-create' and
+            'external-data-sources-repair-cdc-create'. It connects to the source database, so it fails with a 400 if the
+            source is unreachable. It changes nothing. Returns {enabled: false} when CDC is off. When CDC is on, returns
             management_mode (posthog or self_managed), slot_name, publication_name, lag_warning_threshold_mb,
-            lag_critical_threshold_mb, schedule_paused, slot_exists, publication_exists, lag_bytes, and published_tables. Read
-            the result like this: schedule_paused=true with slot_exists=true and publication_exists=true means a failure paused
-            extraction but nothing was lost, so fix the cause and call resume. slot_exists=false or publication_exists=false
-            means the replication resources were lost, so call repair (it forces a full re-sync). A large and growing lag_bytes
-            means changes are not being consumed and the source database disk can fill up.
+            lag_critical_threshold_mb, schedule_paused, slot_exists, publication_exists, lag_bytes, and
+            published_tables. Read the result like this: schedule_paused=true with slot_exists=true and
+            publication_exists=true means a failure paused extraction but nothing was lost, so fix the cause and call
+            resume. slot_exists=false or publication_exists=false means the replication resources were lost, so call
+            repair (it forces a full re-sync). A large and growing lag_bytes means changes are not being consumed and
+            the source database disk can fill up.
         param_overrides:
             id:
                 aliases:
@@ -541,14 +542,15 @@ tools:
             idempotent: true
         title: Disable CDC on a source
         description: >
-            Turn off change data capture on a source. Destructive: it cancels running CDC jobs, deletes the CDC extraction
-            schedule, drops the replication slot and publication (when PostHog manages them), deletes buffered change data,
-            clears all CDC settings, and soft-deletes the CDC history tables. Every table that synced with sync_type=cdc is
-            reset to no sync type with syncing off, so each one needs a new sync_type and should_sync=true (see
-            'external-data-schemas-partial-update') before it syncs again. Ask the user before calling this. Do not use it to
-            fix a broken CDC sync: use 'external-data-sources-resume-cdc-create' or 'external-data-sources-repair-cdc-create'
-            instead. Needs edit access to every CDC table of the source. Returns {success, already_disabled}; if CDC was already
-            off it changes nothing. If the table syncs cannot be paused it fails with a 503 and CDC stays on, so retry.
+            Turn off change data capture on a source. Destructive: it cancels running CDC jobs, deletes the CDC
+            extraction schedule, drops the replication slot and publication (when PostHog manages them), deletes
+            buffered change data, clears all CDC settings, and soft-deletes the CDC history tables. Every table that
+            synced with sync_type=cdc is reset to no sync type with syncing off, so each one needs a new sync_type and
+            should_sync=true (see 'external-data-schemas-partial-update') before it syncs again. Ask the user before
+            calling this. Do not use it to fix a broken CDC sync: use 'external-data-sources-resume-cdc-create' or
+            'external-data-sources-repair-cdc-create' instead. Needs edit access to every CDC table of the source.
+            Returns {success, already_disabled}; if CDC was already off it changes nothing. If the table syncs cannot be
+            paused it fails with a 503 and CDC stays on, so retry.
         param_overrides:
             id:
                 aliases:
@@ -566,17 +568,18 @@ tools:
         title: Enable CDC on a source
         description: >
             Enable change data capture (CDC) on an existing Postgres source. Safe order: run
-            'external-data-sources-check-cdc-prerequisites-create' first, call this tool, then switch individual tables to
-            sync_type=cdc with 'external-data-schemas-partial-update' (CDC tables need primary_key_columns). This tool starts no
-            table sync by itself. It re-checks the prerequisites on the server, creates the replication slot (and the
-            publication in posthog mode), stores the CDC settings, and creates the extraction and cleanup schedules. Use
-            cdc_management_mode='posthog' (default) when the database user can manage replication, or 'self_managed' when the
-            customer created the publication already and passes its name in cdc_publication_name. Fails with a 400 when the
-            source type has no CDC support, the prerequisites are not met (the errors are listed), or the source is unreachable,
-            and with a 409 if CDC is already on (use 'external-data-sources-update-cdc-settings-create' to tune it). Returns
-            {success, schedules_ready}; schedules_ready=false means CDC is on but scheduling failed, and it recovers when the
-            first table is switched to cdc. Management mode and slot or publication names cannot be changed later: disable and
-            enable again. An unused replication slot makes the source database retain WAL, so do not leave CDC enabled with no
+            'external-data-sources-check-cdc-prerequisites-create' first, call this tool, then switch individual tables
+            to sync_type=cdc with 'external-data-schemas-partial-update' (CDC tables need primary_key_columns). This
+            tool starts no table sync by itself. It re-checks the prerequisites on the server, creates the replication
+            slot (and the publication in posthog mode), stores the CDC settings, and creates the extraction and cleanup
+            schedules. Use cdc_management_mode='posthog' (default) when the database user can manage replication, or
+            'self_managed' when the customer created the publication already and passes its name in
+            cdc_publication_name. Fails with a 400 when the source type has no CDC support, the prerequisites are not
+            met (the errors are listed), or the source is unreachable, and with a 409 if CDC is already on (use
+            'external-data-sources-update-cdc-settings-create' to tune it). Returns {success, schedules_ready};
+            schedules_ready=false means CDC is on but scheduling failed, and it recovers when the first table is
+            switched to cdc. Management mode and slot or publication names cannot be changed later: disable and enable
+            again. An unused replication slot makes the source database retain WAL, so do not leave CDC enabled with no
             cdc tables.
         param_overrides:
             id:
@@ -708,14 +711,14 @@ tools:
         title: Resume a paused CDC source
         description: >
             Restart CDC extraction that a non-retryable failure paused (bad credentials, SSL or host errors) while the
-            replication slot survived. Use it when 'external-data-sources-cdc-status-retrieve' shows schedule_paused=true and
-            slot_exists=true and publication_exists=true, after the cause is fixed (for example the password was updated). It
-            checks the source connection, recreates the extraction schedule if it was deleted, unpauses it, and clears the paused
-            marker. Streaming continues from the saved position, with no re-snapshot, so it is the cheap alternative to
-            'external-data-sources-repair-cdc-create'. The next extraction run starts the sync; table status stays failed until a
-            run succeeds. Refuses with a 400 when CDC is off, no table uses sync_type=cdc with syncing on, the source is still
-            unreachable, or the slot or publication is missing (then use repair, which forces a full re-sync). Returns
-            {success}.
+            replication slot survived. Use it when 'external-data-sources-cdc-status-retrieve' shows
+            schedule_paused=true and slot_exists=true and publication_exists=true, after the cause is fixed (for example
+            the password was updated). It checks the source connection, recreates the extraction schedule if it was
+            deleted, unpauses it, and clears the paused marker. Streaming continues from the saved position, with no
+            re-snapshot, so it is the cheap alternative to 'external-data-sources-repair-cdc-create'. The next
+            extraction run starts the sync; table status stays failed until a run succeeds. Refuses with a 400 when CDC
+            is off, no table uses sync_type=cdc with syncing on, the source is still unreachable, or the slot or
+            publication is missing (then use repair, which forces a full re-sync). Returns {success}.
         param_overrides:
             id:
                 aliases:
@@ -757,11 +760,12 @@ tools:
         title: Update CDC settings on a source
         description: >
             Change the tuning settings of change data capture on a source that has it enabled: cdc_auto_drop_slot,
-            cdc_lag_warning_threshold_mb, and cdc_lag_critical_threshold_mb. Send only the fields to change. Thresholds are
-            whole MB of replication lag, at least 1, and the warning must stay below the critical value (checked against the
-            stored value for a field you omit). It does not touch the replication slot, publication, or schedules. Management
-            mode and slot or publication names cannot be changed here: disable and enable CDC again. Fails with a 400 when CDC is
-            off or a value is invalid. Returns {success}, plus unchanged=true when no field was sent.
+            cdc_lag_warning_threshold_mb, and cdc_lag_critical_threshold_mb. Send only the fields to change. Thresholds
+            are whole MB of replication lag, at least 1, and the warning must stay below the critical value (checked
+            against the stored value for a field you omit). It does not touch the replication slot, publication, or
+            schedules. Management mode and slot or publication names cannot be changed here: disable and enable CDC
+            again. Fails with a 400 when CDC is off or a value is invalid. Returns {success}, plus unchanged=true when
+            no field was sent.
         param_overrides:
             id:
                 aliases:
