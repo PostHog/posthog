@@ -3256,6 +3256,22 @@ snapshots:
         hash: v1.k794b7964.3f134e3ce25e5070006cb36e69e4d2fba535b95516be1287f6571275970002fa.XEAgwRGf86ilBY4t6jX0KgGm6b9BHon8bcQwFzMSUBU
     data-catalog-metric-tests--unsupported-with-checks--light:
         hash: v1.k794b7964.64e9162a5dd7bc47a1667f13d8c77b4d1f00c6e15c70169ab4d4ffc588dd2112.j2HS8sjcKIg0QXaZ9PLel28BVD4vayBEBRzrHVO-dlI
+    data-catalog-usage-tab--narrow--dark:
+        hash: v1.k794b7964.f465c3aa444dcb92528c8d8f3e05340eb9a1c844b2d08df973015b594c1f749f.bb3ptVss8JIYM7qIIgG9mtioefdkVktHfHh4YhrYvvM
+    data-catalog-usage-tab--narrow--light:
+        hash: v1.k794b7964.ac1457f78978881a0d5cf6c7022a46bb1aa1f83ee62a9a3c85a6a8bb4e3040b9.UMXZTG1cbkMwFqKM9fGYmb9SgSB8oQX-L8ib83EAsVI
+    data-catalog-usage-tab--no-scan-yet--dark:
+        hash: v1.k794b7964.b98539abe701a5873d88069c394a5ee31bba40ca4f7d40c30e52558de58ec342.BhJ5cXoCsq3qgLwRuIdK4ffXIvVgUASmkcDV7b5ABLo
+    data-catalog-usage-tab--no-scan-yet--light:
+        hash: v1.k794b7964.bf6764c18ab5d5add2bc65852c883f75590678d8c8c2ce464aa530e03c329ad4.x94XX_5oMiFNhMm7b6NNSvahm8-GQsm8QginGxz9JAI
+    data-catalog-usage-tab--partly-failed--dark:
+        hash: v1.k794b7964.e57dba2311fa89b17e3afd43abd0244b3de71320a7e91ba50ca5738faff4d852.69G25Pz_S-ebXX0UgyzNFWekfz-caxKIPVPTqiCvTH8
+    data-catalog-usage-tab--partly-failed--light:
+        hash: v1.k794b7964.b2bb66c4769dbf81a5a76db18a73a2390134628de44b41503470ea7936a0adda.0KqQLEM5sYJvURZoKDADPsOBeMqIogtb2CJyvQq2OfA
+    data-catalog-usage-tab--with-scan--dark:
+        hash: v1.k794b7964.e0471a7d784ac1a9bf5ea3a341c4db9760ad148c083fa726c25496b77e91a958.2WqahedG3odqF2yKpjuIVYd87oRBMYyoYMkaNJQBi4o
+    data-catalog-usage-tab--with-scan--light:
+        hash: v1.k794b7964.781571da04cfb5fb335cc47500b1387d1b057035d7aeb7f328d41653a51e738b.Kj3V4l9F0Z_eQuF4ohiE6h2LJk3G6GZ75KP9DcxEIH8
     data-quality-check-runs-table--every-check-type--dark:
         hash: v1.k794b7964.58b1a7ef739ee0fbd3e32caf4cb28f8c81711efde8c25e99078e3b50cae46bc8.gIoFuHrcjiy-DhCsfa6kuyW36xY3EwX5EqxNTkQFZq8
     data-quality-check-runs-table--every-check-type--light:
