@@ -168,17 +168,18 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("event", "properties", "value", "properties.value", False),
-            ("event_after_grouping", "properties", "value", "properties.value", True),
-            ("person", "person_properties", "value", "poe.properties.value", False),
-            ("flag", "properties", "$feature/value", "properties.`$feature/value`", False),
+            ("event", "properties", "value", "properties.value", False, True),
+            ("event_after_grouping", "properties", "value", "properties.value", True, True),
+            ("person", "person_properties", "value", "poe.properties.value", False, True),
+            ("flag", "properties", "$feature/value", "properties.`$feature/value`", False, True),
+            ("legacy_event", "properties", "value", "properties.value", False, False),
         ]
     )
     def test_boolean_constants_compare_with_untyped_properties_as_text(
-        self, _name: str, column: str, key: str, property_expr: str, grouped: bool
+        self, _name: str, column: str, key: str, property_expr: str, grouped: bool, native: bool
     ) -> None:
         context = HogQLContext(
-            use_new_events_schema=True,
+            use_new_events_schema=native,
             property_metadata=PropertyMetadata(),
             database=Database(),
             apply_events_retention_floor=False,
@@ -187,7 +188,8 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
         prepared = prepare_ast_for_printing(
             parse_select(
                 f"SELECT tuple({property_expr} = true, true = {property_expr}, {property_expr} = false, "
-                f"{property_expr} != true) FROM events" + (f" GROUP BY {property_expr}" if grouped else "")
+                f"{property_expr} != true, lower({property_expr}) = true) FROM events"
+                + (f" GROUP BY {property_expr}" if grouped else "")
             ),
             context,
             "clickhouse",
@@ -205,21 +207,22 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
             return {"$feature_flags": {key.removeprefix("$feature/"): stored}}
 
         values: list[object] = [True, "true", False, "false", "TRUE", None]
+        json_type = EVENTS_PROPERTIES_JSON_TYPE() if column == "properties" else PERSON_PROPERTIES_JSON_TYPE()
         rows = sync_execute(
-            f"SELECT {printed} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS {column}) AS events",
+            f"SELECT {printed} FROM (SELECT CAST(arrayJoin(%(documents)s), %(column_type)s) AS {column}) AS events",
             {
                 **context.values,
                 "documents": [json.dumps(document(value)) for value in values],
-                "json_type": EVENTS_PROPERTIES_JSON_TYPE() if column == "properties" else PERSON_PROPERTIES_JSON_TYPE(),
+                "column_type": json_type if native else "String",
             },
         )
         assert [row[0] for row in rows] == [
-            (1, 1, 0, 0),
-            (1, 1, 0, 0),
-            (0, 0, 1, 1),
-            (0, 0, 1, 1),
-            (0, 0, 0, 1),
-            (0, 0, 0, 1),
+            (1, 1, 0, 0, 1),
+            (1, 1, 0, 0, 1),
+            (0, 0, 1, 1, 0),
+            (0, 0, 1, 1, 0),
+            (0, 0, 0, 1, 1),
+            (0, 0, 0, 1, 0),
         ]
 
     @parameterized.expand(
