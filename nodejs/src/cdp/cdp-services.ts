@@ -46,6 +46,10 @@ import { MessageAssetsService } from './services/messaging/message-assets.servic
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import { SandboxEmailRuntime } from './services/messaging/sandbox/sandbox-email-runtime'
+import { SandboxEmailSendStep } from './services/messaging/sandbox/sandbox-email-step'
+import { SandboxEmailTester } from './services/messaging/sandbox/sandbox-email-tester'
+import { deliveredAddressReader } from './services/messaging/sandbox/sandbox-render'
 import {
     HogFunctionMonitoringService,
     parseInternalLogsSources,
@@ -177,6 +181,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
         | 'CDP_HOGFLOW_AWAITED_STEPS_ENABLED'
         | 'WORKFLOWS_SANDBOX_SENDER_ENABLED'
+        | 'WORKFLOWS_SANDBOX_EMAIL_TEST_URL'
+        | 'WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET'
         | 'CDP_INTERNAL_LOGS_SOURCES'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
@@ -198,6 +204,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
+        | 'CDP_EMAIL_TEMPLATE_TAGS_TEAMS'
         | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
@@ -252,6 +259,7 @@ export interface CdpCoreServicesDeps {
      * `null` elsewhere, and when no host is configured, which turns the cap off.
      */
     frequencyCapValkey: RedisV2 | null
+    sandboxEmail?: SandboxEmailRuntime | null
 }
 
 /**
@@ -505,6 +513,7 @@ export function createCdpCoreServices(
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
             workflowRunLinkTagTeams: config.CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS,
+            templateTagsTeams: config.CDP_EMAIL_TEMPLATE_TAGS_TEAMS,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
@@ -596,6 +605,7 @@ export function createCdpCoreServices(
         createUsageIngestionClient(config, 'cdp'),
         usageReportTeamMatcher(config)
     )
+    const sandboxDeliveredAddress = deliveredAddressReader(deps.postgres)
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
@@ -607,7 +617,30 @@ export function createCdpCoreServices(
         cdpUsageReporter,
         {
             awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED,
-            sandboxEmail: { enabled: config.WORKFLOWS_SANDBOX_SENDER_ENABLED },
+            sandboxEmail: {
+                enabled: config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
+                send: deps.sandboxEmail
+                    ? new SandboxEmailSendStep({
+                          service: deps.sandboxEmail.service,
+                          events: deps.sandboxEmail.events,
+                          hogInputsService,
+                          deliveredAddress: sandboxDeliveredAddress,
+                          siteUrl: config.SITE_URL,
+                          recipientPreferences: recipientPreferencesService,
+                          sesBucket: deps.sandboxEmail.sesBucket,
+                      })
+                    : null,
+                testClient: new SandboxEmailTester({
+                    hogInputsService,
+                    deliveredAddress: sandboxDeliveredAddress,
+                    siteUrl: config.SITE_URL,
+                    endpoint: config.WORKFLOWS_SANDBOX_EMAIL_TEST_URL,
+                    jwt: new ScopedServiceJwt(
+                        PosthogJwtAudience.WORKFLOWS_SANDBOX_EMAIL_TEST,
+                        config.WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET
+                    ),
+                }),
+            },
         }
     )
 

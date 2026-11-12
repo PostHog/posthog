@@ -521,7 +521,7 @@ export const FEATURE_FLAGS = {
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     REVIEW_HOG: 'review-hog', // owner: #team-devex, gates the Code review menu entry, scene, and API access
-    SCENE_MENU_BAR: 'scene-menu-bar', // owner: @adamleithp #team-platform-ux, gates the per-scene MenuBar above SceneTitleSection
+    SCENE_MENU_BAR: 'scene-menu-bar', // owner: @adamleithp #team-platform-ux, gates the per-scene MenuBar above SceneTitleSection; on with today-rail-nav too
     SCHEMA_ENFORCEMENT_REJECT: 'schema-enforcement-reject', // owner: @aspicer, gates the ability to set schema enforcement mode to "reject"
     SCHEMA_MANAGEMENT: 'schema-management', // owner: @aspicer
     SEARCH_DEBOUNCE_ALL: 'search-debounce-all', // owner: @adamleithp #team-platform-ux
@@ -630,6 +630,7 @@ export const FEATURE_FLAGS = {
     WORKFLOW_CLASSIFY_ACTION: 'workflow-classify-action', // owner: #team-workflows
     WORKFLOW_OPT_OUT_OF_MESSAGES_ACTION: 'workflow-opt-out-of-messages-action', // owner: #team-workflows
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
+    WORKFLOWS_CODE_EMAIL_SOURCE_DETECTION: 'workflows-code-email-source-detection', // owner: @silthus #team-workflows, links code emails to their source file on GitHub and offers a picker
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
     WORKFLOWS_CUSTOMERIO_IMPORT: 'workflows-customerio-import', // owner: @dmarchuk #team-workflows, import Customer.io automations as draft workflows
     WORKFLOWS_DESTINATION_SUGGESTION: 'workflows-destination-suggestion', // owner: #team-workflows, offers workflows instead of a new email tool destination

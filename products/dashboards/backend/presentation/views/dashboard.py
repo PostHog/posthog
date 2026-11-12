@@ -421,9 +421,9 @@ def _run_widget_query(
                 "result": result,
                 "error": None,
             }
-        except Exception:
+        except Exception as exc:
             logger.exception("dashboard_run_widgets_failed", tile_id=tile_id, widget_type=widget_type)
-            slo.fail()
+            slo.fail_with_error(exc)
             return {
                 "tile_id": tile_id,
                 "widget_type": widget_type,

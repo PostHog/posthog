@@ -27449,6 +27449,70 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `manual` - Manual
+     * * `detected` - Detected from GitHub
+     */
+    export type CodeEmailSourceOriginEnum = typeof CodeEmailSourceOriginEnum[keyof typeof CodeEmailSourceOriginEnum];
+
+
+    export const CodeEmailSourceOriginEnum = {
+      Manual: 'manual',
+      Detected: 'detected',
+    } as const;
+
+    export interface CodeEmail {
+      /** The code email's ID. */
+      id: string;
+      /** The `template_key` your code sends under. Each key is one email. */
+      key: string;
+      /** The hidden workflow that sends this key's emails. */
+      hog_flow_id: string;
+      /** What the email is for. Empty when nobody added one. */
+      description: string;
+      /** Tags for organizing transactional emails. */
+      tags: string[];
+      /** True when PostHog keeps no copy of each sent email's body and doesn't track link clicks. */
+      sensitive: boolean;
+      /**
+         * A link to the file in your repository that sends this email. Null when unlinked.
+         * @nullable
+         */
+      source_url: string | null;
+      /** How `source_url` was set: `manual` when a person linked or unlinked it, `detected` when PostHog found the file in a connected GitHub repository. Setting `source_url` makes it `manual`. Null when no link was ever set or cleared.
+       *
+       * * `manual` - Manual
+       * * `detected` - Detected from GitHub */
+      readonly source_origin: CodeEmailSourceOriginEnum | null;
+      /** When your code first sent under this key. */
+      created_at: string;
+      /**
+         * Your access level to this email's workflow, such as `viewer` or `editor`. Editing the description, the tags or the source file needs `editor`.
+         * @nullable
+         */
+      user_access_level: string | null;
+    }
+
+    export interface CodeEmailSourceCandidate {
+      /** The repository that holds the file, as `owner/name`. */
+      repository: string;
+      /** The file's path in the repository. */
+      path: string;
+      /** The line that holds the key: the first one next to an email send call, otherwise the first match. */
+      line: number;
+      /** A link to that line on the repository's default branch. Send it as `source_url` to link the file. */
+      url: string;
+      /** True when the key is within five lines of an email send call, so the file most likely sends it. */
+      call_site: boolean;
+    }
+
+    export interface CodeEmailSourceCandidates {
+      /** One entry per file in the project's connected GitHub repositories that holds the key exactly, files with a send call first. Test, fixture and build files are left out. Empty when nothing matched or the project has no GitHub integration. */
+      candidates: CodeEmailSourceCandidate[];
+      /** False when part of the search did not finish, such as a repository GitHub could not search or a file it could not read, so a file may be missing from `candidates`. */
+      complete: boolean;
+    }
+
+    /**
      * * `dataset_archived` - dataset_archived
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
@@ -32069,12 +32133,17 @@ export namespace Schemas {
     }
 
     export interface CustomerioSegment {
-      /** The segment's id. */
+      /**
+         * The segment's id.
+         * @maxLength 200
+         */
       id: string;
       /** The segment's name. */
       name: string;
       /** The segment's type: `dynamic`, or `static` for a hand-made list. */
       type: string;
+      /** The segment's rules: the `conditions` object from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations check into a realtime cohort when every rule has an exact cohort condition, and uses that cohort. */
+      conditions?: unknown;
     }
 
     export interface CustomerioSenderIdentity {
@@ -33065,6 +33134,11 @@ export namespace Schemas {
       readonly status: string;
       /** True when the definition has drifted from its linked source insight (or the insight is gone). */
       readonly is_drifted: boolean;
+      /**
+         * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+         * @nullable
+         */
+      readonly match_reason: string | null;
       /** @nullable */
       readonly approved_at: string | null;
       /** User who approved this metric as canonical, or null. */
@@ -33231,6 +33305,11 @@ export namespace Schemas {
       readonly status: string;
       /** True when the definition has drifted from its linked source insight (or the insight is gone). */
       readonly is_drifted: boolean;
+      /**
+         * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+         * @nullable
+         */
+      readonly match_reason: string | null;
       /** @nullable */
       readonly approved_at: string | null;
       /** User who approved this metric as canonical, or null. */
@@ -37007,7 +37086,7 @@ export namespace Schemas {
       /** Tokens minted in the last 30 days that were revoked. */
       revoked_30d: number;
       /**
-         * Token caps minted in the last 24 hours, in USD.
+         * Budget counted for tokens minted in the last 24 hours, in USD.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       reserved_usd_24h: string;
@@ -37121,6 +37200,12 @@ export namespace Schemas {
          * @nullable
          */
       revoked_at: string | null;
+      /**
+         * What a revoked token spent, in USD. Null when it is not revoked or the amount is unknown.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spent_usd: string | null;
       /** Whether the token still works: live, revoked or expired.
        *
        * * `live` - Live
@@ -37165,20 +37250,25 @@ export namespace Schemas {
 
     export interface DevTokenUsage {
       /**
-         * Most token caps one user can mint in 24 hours, in USD.
+         * Most budget one user can use in 24 hours, in USD.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       daily_cap_usd: string;
       /**
-         * Token caps the user minted in the last 24 hours, in USD.
+         * Budget used in the last 24 hours, in USD: spend for revoked tokens, the full cap otherwise.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       used_usd: string;
       /**
-         * Cap of each new token, in USD.
+         * Largest cap of a new token, in USD.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       token_cap_usd: string;
+      /**
+         * Budget that must be left to create a token, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      token_cap_min_usd: string;
       /** Lifetime of each new token, in seconds. */
       ttl_seconds: number;
       /** Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones. */
@@ -43511,7 +43601,7 @@ export namespace Schemas {
          */
       trigger_threshold?: number | null;
       /**
-         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
          * @minimum 60
          * @maximum 1440
          */
@@ -43828,7 +43918,7 @@ export namespace Schemas {
          */
       trigger_threshold?: number | null;
       /**
-         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
          * @minimum 60
          * @maximum 1440
          */
@@ -45691,6 +45781,7 @@ export namespace Schemas {
      * * `edit_release_conditions` - Edit Release Conditions
      * * `end_experiment` - End Experiment
      * * `freeze_exposure` - Freeze Exposure
+     * * `move_start_date` - Move Start Date
      */
     export type ExperimentHealthFindingActionKindEnum = typeof ExperimentHealthFindingActionKindEnum[keyof typeof ExperimentHealthFindingActionKindEnum];
 
@@ -45706,6 +45797,7 @@ export namespace Schemas {
       EditReleaseConditions: 'edit_release_conditions',
       EndExperiment: 'end_experiment',
       FreezeExposure: 'freeze_exposure',
+      MoveStartDate: 'move_start_date',
     } as const;
 
     /**
@@ -45900,6 +45992,27 @@ export namespace Schemas {
      * * `flag_deleted` - Whether the feature flag is deleted
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
      * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+     * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `metric_name` - The name of a metric
+     * * `metric_role` - Whether a metric is primary or secondary
+     * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+     * * `sample_count` - Users or groups in a metric's results, across the variants
+     * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+     * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+     * * `variant` - The key of a variant
+     * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+     * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+     * * `significant` - Whether a variant's difference from the control is significant
+     * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+     * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+     * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+     * * `forced_count` - Users or groups that a release condition with a variant override served
+     * * `forced_percentage` - forced_count as a share of variant_matched_count
+     * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `changed_at` - When a change of the feature flag was saved
+     * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
      */
     export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
@@ -45927,6 +46040,27 @@ export namespace Schemas {
       FlagDeleted: 'flag_deleted',
       FlagRolledOut: 'flag_rolled_out',
       ShippedVariant: 'shipped_variant',
+      FlagLastCalledAt: 'flag_last_called_at',
+      SinceStartHours: 'since_start_hours',
+      DailyCalculationEndsAt: 'daily_calculation_ends_at',
+      MetricName: 'metric_name',
+      MetricRole: 'metric_role',
+      RatioSide: 'ratio_side',
+      SampleCount: 'sample_count',
+      PlannedSampleCount: 'planned_sample_count',
+      DataHours: 'data_hours',
+      Variant: 'variant',
+      DifferencePercentage: 'difference_percentage',
+      DetectableDifferencePercentage: 'detectable_difference_percentage',
+      Significant: 'significant',
+      ForcedConditionCount: 'forced_condition_count',
+      MatchedCount: 'matched_count',
+      VariantMatchedCount: 'variant_matched_count',
+      ForcedCount: 'forced_count',
+      ForcedPercentage: 'forced_percentage',
+      TrafficSinceAt: 'traffic_since_at',
+      ChangedAt: 'changed_at',
+      BeforeExposure: 'before_exposure',
     } as const;
 
     /**
@@ -45975,7 +46109,28 @@ export namespace Schemas {
        * * `flag_active` - Whether the feature flag is enabled
        * * `flag_deleted` - Whether the feature flag is deleted
        * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+       * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+       * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+       * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+       * * `metric_name` - The name of a metric
+       * * `metric_role` - Whether a metric is primary or secondary
+       * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+       * * `sample_count` - Users or groups in a metric's results, across the variants
+       * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+       * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+       * * `variant` - The key of a variant
+       * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+       * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+       * * `significant` - Whether a variant's difference from the control is significant
+       * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+       * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+       * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+       * * `forced_count` - Users or groups that a release condition with a variant override served
+       * * `forced_percentage` - forced_count as a share of variant_matched_count
+       * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+       * * `changed_at` - When a change of the feature flag was saved
+       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
       value: ExperimentHealthValueKeyEnum;
       /** The value that the key must reach. Below it, the check reports no finding. */
       threshold: number;
@@ -46005,7 +46160,28 @@ export namespace Schemas {
        * * `flag_active` - Whether the feature flag is enabled
        * * `flag_deleted` - Whether the feature flag is deleted
        * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+       * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+       * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+       * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+       * * `metric_name` - The name of a metric
+       * * `metric_role` - Whether a metric is primary or secondary
+       * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+       * * `sample_count` - Users or groups in a metric's results, across the variants
+       * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+       * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+       * * `variant` - The key of a variant
+       * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+       * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+       * * `significant` - Whether a variant's difference from the control is significant
+       * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+       * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+       * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+       * * `forced_count` - Users or groups that a release condition with a variant override served
+       * * `forced_percentage` - forced_count as a share of variant_matched_count
+       * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+       * * `changed_at` - When a change of the feature flag was saved
+       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
       value: ExperimentHealthValueKeyEnum;
       /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
@@ -46026,6 +46202,8 @@ export namespace Schemas {
      * What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides.
      */
     export type ExperimentHealthCheckResultValues = {[key: string]: string | number | boolean | null};
+
+    export type ExperimentHealthCheckResultRowsItem = {[key: string]: string | number | boolean | null};
 
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -46076,6 +46254,8 @@ export namespace Schemas {
       values: ExperimentHealthCheckResultValues;
       /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
       rule: ExperimentHealthCheckRule | null;
+      /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list. */
+      rows: ExperimentHealthCheckResultRowsItem[];
     }
 
     export interface ExperimentHealthReleaseCondition {
@@ -46154,6 +46334,11 @@ export namespace Schemas {
       /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key: string;
       readonly feature_flag: MinimalFeatureFlag;
+      /**
+         * The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.
+         * @nullable
+         */
+      feature_flag_rule_id?: string | null;
       readonly holdout: ExperimentHoldout;
       /**
          * ID of a holdout group to exclude from the experiment.
@@ -49254,6 +49439,11 @@ export namespace Schemas {
       feature_flag_key: string;
       /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
       feature_flag?: ExperimentFeatureFlagInput;
+      /**
+         * The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.
+         * @nullable
+         */
+      feature_flag_rule_id?: string | null;
       readonly holdout: ExperimentHoldout;
       /**
          * ID of a holdout group to exclude from the experiment.
@@ -53384,6 +53574,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `posthog-js` - posthog-js
+     * * `none` - None
+     */
+    export type TypeScriptSDKEnum = typeof TypeScriptSDKEnum[keyof typeof TypeScriptSDKEnum];
+
+
+    export const TypeScriptSDKEnum = {
+      PosthogJs: 'posthog-js',
+      None: 'none',
+    } as const;
+
+    export interface GeneratedDefinitions {
+      /** The generated module, ready to write to a file. */
+      content: string;
+      /** How many events the module types. */
+      event_count: number;
+      /** A hash of the event schemas and generator version. It changes when the module would change. */
+      schema_hash: string;
+      /** The version of the generator that wrote the module. */
+      generator_version: string;
+      /** TypeScript only: the SDK the module wraps. Clients check it to detect a PostHog that ignores `sdk`.
+       *
+       * * `posthog-js` - posthog-js
+       * * `none` - None */
+      sdk?: TypeScriptSDKEnum;
+    }
+
+    /**
      * * `initial` - initial
      * * `regenerate` - regenerate
      * * `improve` - improve
@@ -55074,7 +55292,7 @@ export namespace Schemas {
       value_format: HighlightValueFormat | null;
       /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
       period_starts: string[];
-      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently, `experiment` for a running experiment the person created, `agent` for an insight the person's AI agents read on several days, `evaluation` for the pass rate of an evaluation the person created. Null for metrics computed before this field existed.
+      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, shown only when the person has no numbers of their own, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently, `experiment` for a running experiment the person created, `agent` for an insight the person's AI agents read on several days, `evaluation` for the pass rate of an evaluation the person created. Null for metrics computed before this field existed.
        *
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
@@ -65263,6 +65481,11 @@ export namespace Schemas {
      */
     export type LogsAlertConfigurationLabels = {[key: string]: string};
 
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+     */
+    export type LogsAlertConfigurationAnnotations = {[key: string]: string};
+
     export interface LogsAlertFilters {
       filterGroup?: PropertyGroupFilter | null;
       serviceNames?: string[] | null;
@@ -65447,7 +65670,9 @@ export namespace Schemas {
       grouping?: LogsAlertGrouping;
       /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
       labels?: LogsAlertConfigurationLabels;
-      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+      annotations?: LogsAlertConfigurationAnnotations;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
       readonly platform_owned: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
@@ -65468,6 +65693,11 @@ export namespace Schemas {
      * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
      */
     export type LogsAlertConfigurationDetailLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+     */
+    export type LogsAlertConfigurationDetailAnnotations = {[key: string]: string};
 
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
@@ -65595,7 +65825,9 @@ export namespace Schemas {
       grouping?: LogsAlertGrouping;
       /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
       labels?: LogsAlertConfigurationDetailLabels;
-      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+      annotations?: LogsAlertConfigurationDetailAnnotations;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
       readonly platform_owned: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
@@ -69485,6 +69717,8 @@ export namespace Schemas {
       readonly transactional_hog_flow_id: string | null;
       /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
       draft_content?: MessageTemplateContent | null;
+      /** Whether the template has unpublished edits in `draft_content`. */
+      readonly has_draft: boolean;
     }
 
     export interface MessagingError {
@@ -84316,6 +84550,22 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedCodeEmailUpdate {
+      /**
+         * What the email is for.
+         * @maxLength 1000
+         */
+      description?: string;
+      /**
+         * Tags for organizing transactional emails. Replaces the current tags. Send an empty list to remove them all.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      tags?: string[];
+      /** A link to the file in your repository that sends this email, such as a GitHub or GitLab file link. Must start with http:// or https://. Send null or an empty string to unlink it. */
+      source_url?: string | null;
+    }
+
     export interface PatchedCohort {
       readonly id?: number;
       /**
@@ -84853,6 +85103,11 @@ export namespace Schemas {
       readonly status?: string;
       /** True when the definition has drifted from its linked source insight (or the insight is gone). */
       readonly is_drifted?: boolean;
+      /**
+         * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+         * @nullable
+         */
+      readonly match_reason?: string | null;
       /** @nullable */
       readonly approved_at?: string | null;
       /** User who approved this metric as canonical, or null. */
@@ -86082,7 +86337,7 @@ export namespace Schemas {
          */
       trigger_threshold?: number | null;
       /**
-         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
          * @minimum 60
          * @maximum 1440
          */
@@ -86233,6 +86488,11 @@ export namespace Schemas {
       feature_flag_key?: string;
       /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
       feature_flag?: ExperimentFeatureFlagInput;
+      /**
+         * The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.
+         * @nullable
+         */
+      feature_flag_rule_id?: string | null;
       readonly holdout?: ExperimentHoldout;
       /**
          * ID of a holdout group to exclude from the experiment.
@@ -87972,6 +88232,11 @@ export namespace Schemas {
      */
     export type PatchedLogsAlertConfigurationLabels = {[key: string]: string};
 
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+     */
+    export type PatchedLogsAlertConfigurationAnnotations = {[key: string]: string};
+
     export interface PatchedLogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id?: string;
@@ -88061,7 +88326,9 @@ export namespace Schemas {
       grouping?: LogsAlertGrouping;
       /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
       labels?: PatchedLogsAlertConfigurationLabels;
-      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+      annotations?: PatchedLogsAlertConfigurationAnnotations;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
       readonly platform_owned?: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
@@ -88479,6 +88746,8 @@ export namespace Schemas {
       readonly transactional_hog_flow_id?: string | null;
       /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
       draft_content?: MessageTemplateContent | null;
+      /** Whether the template has unpublished edits in `draft_content`. */
+      readonly has_draft?: boolean;
     }
 
     /**
@@ -91549,8 +91818,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 15
+         * Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 16
          */
       write_scopes?: string[];
       /**
@@ -107836,8 +108105,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 15
+         * Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 16
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -108155,8 +108424,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 15
+         * Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 16
          */
       readonly write_scopes: readonly string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -110421,8 +110690,8 @@ export namespace Schemas {
       /** ID of the email template to send. The template must be made transactional first. Send either `template_id` or `template_key`. */
       template_id?: string;
       /**
-         * Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.
-         * @maxLength 400
+         * Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most 256 characters. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.
+         * @maxLength 256
          * @pattern ^[a-zA-Z0-9_-]+$
          */
       template_key?: string;
@@ -112142,8 +112411,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 15
+         * Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 16
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -119902,6 +120171,16 @@ export namespace Schemas {
       color?: string | null;
     }
 
+    /**
+     * Webhook input values keyed by the source's declared webhook field names, for example `{"signing_secret": "..."}`. Only keys the source type declares as webhook fields are accepted, and a required field cannot be blank.
+     */
+    export type UpdateWebhookInputsRequestInputs = {[key: string]: string};
+
+    export interface UpdateWebhookInputsRequest {
+      /** Webhook input values keyed by the source's declared webhook field names, for example `{"signing_secret": "..."}`. Only keys the source type declares as webhook fields are accepted, and a required field cannot be blank. */
+      inputs: UpdateWebhookInputsRequestInputs;
+    }
+
     export interface UpdateWebhookInputsResponse {
       /** Whether the inputs were saved and pushed to the external service. */
       success: boolean;
@@ -122629,7 +122908,7 @@ export namespace Schemas {
       layouts?: WorkflowImportRequestLayouts;
       /** Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. Each email gets the PostHog sender with the same address. */
       sender_identities?: CustomerioSenderIdentity[];
-      /** Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones. */
+      /** Customer.io segments, without members: ids, names and types, so the notes can name each segment and flag static ones, and the rules of each segment the automations check, so the import can turn it into a realtime cohort. */
       segments?: CustomerioSegment[];
       /** When true, translate and check the automations but save nothing, to preview the import. */
       dry_run?: boolean;
@@ -122677,11 +122956,53 @@ export namespace Schemas {
       validation_errors: string[];
     }
 
+    /**
+     * * `created` - Created
+     * * `reused` - Reused
+     * * `would_create` - Would create
+     * * `not_converted` - Not converted
+     */
+    export type WorkflowImportSegmentCohortStatusEnum = typeof WorkflowImportSegmentCohortStatusEnum[keyof typeof WorkflowImportSegmentCohortStatusEnum];
+
+
+    export const WorkflowImportSegmentCohortStatusEnum = {
+      Created: 'created',
+      Reused: 'reused',
+      WouldCreate: 'would_create',
+      NotConverted: 'not_converted',
+    } as const;
+
+    export interface WorkflowImportSegmentCohort {
+      /** The Customer.io segment's id. */
+      segment_id: string;
+      /** The segment's name. */
+      segment_name: string;
+      /** `created`: the import made a realtime cohort from the segment's rules. `reused`: an earlier import made it. `would_create`: a real import makes one, in a preview. `not_converted`: no cohort is used, see `reason`.
+       *
+       * * `created` - Created
+       * * `reused` - Reused
+       * * `would_create` - Would create
+       * * `not_converted` - Not converted */
+      status: WorkflowImportSegmentCohortStatusEnum;
+      /**
+         * The cohort's id, when there is one.
+         * @nullable
+         */
+      cohort_id: number | null;
+      /**
+         * Why the segment was not turned into a cohort.
+         * @nullable
+         */
+      reason: string | null;
+    }
+
     export interface WorkflowImportResponse {
       /** One result per automation, in request order. */
       results: WorkflowImportResult[];
       /** True when PostHog read message content from Customer.io with the project's stored App API key. */
       content_fetched: boolean;
+      /** One entry per dynamic segment the automations check that was passed with its rules and had no cohort in segment_cohorts. */
+      segment_cohorts: WorkflowImportSegmentCohort[];
     }
 
     export interface WorkflowJobStep {
@@ -124505,6 +124826,11 @@ export namespace Schemas {
          * @nullable
          */
       histogram_bounds?: number[] | null;
+      /**
+         * Most distinct bucket layouts merged into one point of a histogram_quantile series. Above 1, series with different buckets were merged by bucket width. Null for other aggregations.
+         * @nullable
+         */
+      histogram_layout_count?: number | null;
     }
 
     export interface _MetricAnomalyReport {
@@ -124889,7 +125215,7 @@ export namespace Schemas {
     export interface _MetricQueryResponse {
       /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
       results: _MetricSeries[];
-      /** Set only when the query returned no points: what to check before querying again. */
+      /** Set when the query returned no points, with what to check before querying again, or when a histogram_quantile merged different bucket layouts, with how to read the result. */
       hint?: string;
       /** Number of series left out because every point was zero or null. Set only when dropEmptySeries left some out. */
       omitted_empty_series?: number;
@@ -130971,7 +131297,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string;
     /**
@@ -133609,6 +133935,25 @@ export namespace Schemas {
      */
     names?: string[];
     };
+
+    export type EventDefinitionsTypescriptRetrieveParams = {
+    /**
+     * The SDK the module wraps. `posthog-js` exports a typed posthog-js instance. `none` exports only the event types, with no imports, for any other SDK.
+     *
+     * * `posthog-js` - posthog-js
+     * * `none` - None
+     * @minLength 1
+     */
+    sdk?: EventDefinitionsTypescriptRetrieveSdk;
+    };
+
+    export type EventDefinitionsTypescriptRetrieveSdk = typeof EventDefinitionsTypescriptRetrieveSdk[keyof typeof EventDefinitionsTypescriptRetrieveSdk];
+
+
+    export const EventDefinitionsTypescriptRetrieveSdk = {
+      PosthogJs: 'posthog-js',
+      None: 'none',
+    } as const;
 
     export type EventSchemasListParams = {
     /**
@@ -137976,6 +138321,10 @@ export namespace Schemas {
 
     export type MessagingTemplatesListParams = {
     /**
+     * With true, leave out `content` and `draft_content` from each template, for lists that show names and metadata only. `has_draft` still says whether a draft exists.
+     */
+    basic?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -137983,6 +138332,11 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.
+     * @nullable
+     */
+    transactional?: boolean | null;
     };
 
     export type MetricsAttributeValuesRetrieveParams = {

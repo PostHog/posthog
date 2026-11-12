@@ -36,6 +36,7 @@ import {
 import { getBillingLimitConfig } from './billingLimitConfig'
 import type { BillingLimitConfig } from './billingLimitConfig'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
+import { legacyInboxPricingNotice } from './inboxPricing'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
@@ -165,6 +166,7 @@ export interface billingProductLogicValues {
     isProductWithVariants: boolean
     isProrated: boolean
     isSubscribedToAnotherAddon: boolean
+    legacyInboxPricingNotice: string | null
     noLimitCompanionAmounts: {
         companion: BillingProductV2Type
         currentAmount: number
@@ -458,6 +460,7 @@ export interface billingProductLogicMeta {
         ) => BillingProductV2AddonType[]
         hasCustomLimitSet: (customLimitUsd: number | null) => boolean
         isDataPipelinesDeprecated: (product: BillingProductV2AddonType | BillingProductV2Type) => boolean
+        legacyInboxPricingNotice: (product: BillingProductV2AddonType | BillingProductV2Type) => string | null
         currentAndUpgradePlans: (product: BillingProductV2AddonType | BillingProductV2Type) => {
             currentPlan: BillingPlanType | null
             upgradePlan: BillingPlanType
@@ -959,6 +962,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (_s, p) => [p.product],
             (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
                 return product.type === 'data_pipelines' && dayjs().isAfter(dayjs(DATA_PIPELINES_CUTOFF_DATE))
+            },
+        ],
+        legacyInboxPricingNotice: [
+            (_s, p) => [p.product],
+            (product: BillingProductV2Type | BillingProductV2AddonType): string | null => {
+                return legacyInboxPricingNotice(product.type, dayjs())
             },
         ],
         currentAndUpgradePlans: [
