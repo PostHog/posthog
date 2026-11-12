@@ -690,6 +690,12 @@ export const BatchExportsCreateBody = () => zod
                         .describe(
                             'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
                         ),
+                    useWebAnalyticsDimensionalTables: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Serve web analytics overview and stats tiles from the dimensional pre-aggregated tables by default, and precompute those tables for the project. A query falls back to the other paths when the tables do not cover it. Staff set this per project; the project settings API ignores it.'
+                        ),
                     useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
                     webAnalyticsFirstPageviewFilters: zod
                         .union([zod.boolean(), zod.null()])
@@ -1427,6 +1433,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                         .describe(
                             'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
                         ),
+                    useWebAnalyticsDimensionalTables: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Serve web analytics overview and stats tiles from the dimensional pre-aggregated tables by default, and precompute those tables for the project. A query falls back to the other paths when the tables do not cover it. Staff set this per project; the project settings API ignores it.'
+                        ),
                     useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
                     webAnalyticsFirstPageviewFilters: zod
                         .union([zod.boolean(), zod.null()])
@@ -1907,6 +1919,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .describe(
                             'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
                         ),
+                    useWebAnalyticsDimensionalTables: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Serve web analytics overview and stats tiles from the dimensional pre-aggregated tables by default, and precompute those tables for the project. A query falls back to the other paths when the tables do not cover it. Staff set this per project; the project settings API ignores it.'
+                        ),
                     useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
                     webAnalyticsFirstPageviewFilters: zod
                         .union([zod.boolean(), zod.null()])
@@ -2212,6 +2230,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                     .optional()
                     .describe(
                         'Try to automatically convert HogQL queries to use preaggregated tables at the AST level \*'
+                    ),
+                useWebAnalyticsDimensionalTables: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Serve web analytics overview and stats tiles from the dimensional pre-aggregated tables by default, and precompute those tables for the project. A query falls back to the other paths when the tables do not cover it. Staff set this per project; the project settings API ignores it.'
                     ),
                 useWebAnalyticsPreAggregatedTables: zod.union([zod.boolean(), zod.null()]).optional(),
                 webAnalyticsFirstPageviewFilters: zod

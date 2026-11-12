@@ -1761,6 +1761,8 @@ export interface HogQLQueryModifiersApi {
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
     usePreaggregatedTableTransforms?: boolean | null
+    /** Serve web analytics overview and stats tiles from the dimensional pre-aggregated tables by default, and precompute those tables for the project. A query falls back to the other paths when the tables do not cover it. Staff set this per project; the project settings API ignores it. */
+    useWebAnalyticsDimensionalTables?: boolean | null
     useWebAnalyticsPreAggregatedTables?: boolean | null
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean | null
