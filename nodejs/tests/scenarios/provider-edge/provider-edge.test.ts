@@ -1,4 +1,4 @@
-import { CardFault, ProviderEdge, TruthPage, startProviderEdge } from '.'
+import { CardFault, ProviderEdge, TruthHead, TruthPage, startProviderEdge } from '.'
 import { Destination, SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { createHash } from 'crypto'
 import http from 'http'
@@ -330,7 +330,7 @@ describe('provider edge', () => {
         }
     })
 
-    it.each<[string, string, TruthPage]>([
+    it.each<[string, string, TruthPage | TruthHead]>([
         [
             'after a sequence number up to the limit',
             '?after=1&limit=1',
@@ -342,6 +342,7 @@ describe('provider edge', () => {
             '?after=1&limit=0',
             { records: [expect.objectContaining({ seq: 2 }), expect.objectContaining({ seq: 3 })], next: 3 },
         ],
+        ['as only its head', '/head', { head: 3 }],
     ])('pages the truth %s', async (_name, query, page) => {
         await sendEach([ALICE, BOB, ALICE])
 

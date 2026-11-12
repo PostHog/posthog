@@ -48,7 +48,7 @@ import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { SlackAppLookup, TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
-import { buildConversionWatcher } from './conversion-watcher'
+import { buildConversionWatcher, runStartedAt } from './conversion-watcher'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import { hasSensitiveMessageStep } from './hogflow-sensitivity'
@@ -437,7 +437,7 @@ export class HogFlowExecutorService {
      */
     private async conversionAtEnrollment(
         invocation: CyclotronJobInvocationHogFlow
-    ): Promise<{ metric: MinimalAppMetric; event: HogFunctionCapturedEvent | null } | null> {
+    ): Promise<{ metrics: MinimalAppMetric[]; event: HogFunctionCapturedEvent | null } | null> {
         const { hogFlow } = invocation
         if (!invocation.person || !hogFlow.conversion?.filters?.length || !hogFlow.conversion.bytecode?.length) {
             return null
@@ -452,15 +452,16 @@ export class HogFlowExecutorService {
             return null
         }
         const distinctId = invocation.state.event?.distinct_id
+        const metric: MinimalAppMetric = {
+            team_id: hogFlow.team_id,
+            app_source_id: invocation.parentRunId ?? hogFlow.id,
+            instance_id: hogFlow.id,
+            metric_kind: 'other',
+            metric_name: 'conversion',
+            count: 1,
+        }
         return {
-            metric: {
-                team_id: hogFlow.team_id,
-                app_source_id: invocation.parentRunId ?? hogFlow.id,
-                instance_id: hogFlow.id,
-                metric_kind: 'other',
-                metric_name: 'conversion',
-                count: 1,
-            },
+            metrics: [metric, { ...metric, metric_name: 'conversion_by_start', timestamp: runStartedAt(invocation) }],
             // Mirrors the matcher's payload so both paths produce the same billable event. A run with
             // no distinct_id has nothing to attribute the capture to; the metric still counts.
             event: distinctId
@@ -481,14 +482,14 @@ export class HogFlowExecutorService {
     }
 
     private recordEnrollment(
-        enrollmentConversion: { metric: MinimalAppMetric; event: HogFunctionCapturedEvent | null } | null,
+        enrollmentConversion: { metrics: MinimalAppMetric[]; event: HogFunctionCapturedEvent | null } | null,
         watcher: ConversionWatcherRow | null,
         metrics: MinimalAppMetric[],
         capturedPostHogEvents: HogFunctionCapturedEvent[],
         conversionWatchers: ConversionWatcherRow[]
     ): void {
         if (enrollmentConversion) {
-            metrics.push(enrollmentConversion.metric)
+            metrics.push(...enrollmentConversion.metrics)
             if (enrollmentConversion.event) {
                 capturedPostHogEvents.push(enrollmentConversion.event)
             }

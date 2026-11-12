@@ -124,6 +124,9 @@ async function write(
                 }
                 captured = true
             }
+            if (signal.aborted) {
+                return { recorded: false, captured: true }
+            }
             const refused = await readBack(properties, target)
             return refused === undefined ? { recorded: true } : { recorded: false, problem: refused }
         } catch (error) {

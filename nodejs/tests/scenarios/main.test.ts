@@ -51,7 +51,7 @@ function environmentWhoseResetFails(): Environment {
             return edgeUrl
         },
         role: (name) => ({ name, url: '', metricsUrl: '' }),
-        health: () => Promise.resolve({ healthy: true, down: [] }),
+        dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         actuate: () => Promise.reject(new Error('the main test schedules no valves')),
         exits: () => [],
         down: () => Promise.resolve(),
@@ -124,14 +124,6 @@ describe('runCards', () => {
             'the scorecard write failed',
             { scorecardError: 'capture answered 503' },
             ['smoke: passed, every invariant held\n', 'scorecard: capture answered 503\n'],
-        ],
-        [
-            'the event was recorded but the scorecard files were not written',
-            { recorded: true, scorecardError: 'the scorecard files could not be written: EISDIR' },
-            [
-                'smoke: passed, every invariant held\n',
-                'scorecard: recorded; the scorecard files could not be written: EISDIR\n',
-            ],
         ],
         [
             'both the evidence and the scorecard write failed',

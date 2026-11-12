@@ -2406,6 +2406,7 @@ describe('experimentLogic', () => {
             reason,
             values: {},
             rule: null,
+            rows: [],
         })
 
         const flag = (

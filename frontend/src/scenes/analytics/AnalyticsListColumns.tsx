@@ -395,7 +395,7 @@ export function analyticsListColumns({
             ? ([
                   {
                       id: 'last_viewed_at',
-                      header: 'Last viewed',
+                      header: 'Last viewed by me',
                       accessorFn: (row) => (row.kind === 'item' ? (row.item.entry?.last_viewed_at ?? null) : null),
                       sortDescFirst: true,
                       enableMultiSort: false,
