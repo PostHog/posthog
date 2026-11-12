@@ -728,8 +728,8 @@ depends_on = [
     # Facade-only: the recipient preferences page reads EmailTrackingConsentMode through
     # products.workflows.backend.facade.enums.
     "products.workflows",
-    # Presentation-only: the template design action wraps HTML through
-    # products.cdp.backend.presentation.hog_functions.
+    # Design helpers only: the template design action and imported templates wrap HTML through
+    # products.cdp.backend.presentation.hog_functions and products.cdp.backend.validation.
     "products.cdp",
 ]
 layer = "modules"

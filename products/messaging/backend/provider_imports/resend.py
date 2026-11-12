@@ -50,7 +50,7 @@ from products.messaging.backend.services.imported_data import (
     import_opt_outs,
     import_suppressions,
 )
-from products.messaging.backend.services.message_templates import create_template
+from products.messaging.backend.services.message_templates import create_template, with_editor_design
 from products.messaging.backend.services.resend_client import (
     ResendAPIError,
     ResendClient,
@@ -72,7 +72,8 @@ SENDING_ONLY_KEY_MESSAGE = (
 )
 RATE_LIMITED_MESSAGE = "Resend kept asking PostHog to slow down. Import again later."
 TOPIC_KEY_PREFIX = "resend_"
-TEMPLATE_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,400}")
+# Sending by key caps it at 256 characters, the longest tag value SES takes.
+TEMPLATE_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,256}")
 IMPORT_TAG = "imported-from-resend"
 # The label PostHog uses for a sender's MAIL FROM subdomain unless the person picks another.
 MAIL_FROM_DEFAULT = "feedback"
@@ -455,17 +456,19 @@ def _fetch_templates(
 def _template_key(template: dict[str, Any]) -> str:
     alias = str(template.get("alias") or "").strip()
     if alias and TEMPLATE_KEY_PATTERN.fullmatch(alias):
-        return alias[:400]
-    return f"resend-{template.get('id')}"[:400]
+        return alias
+    return f"resend-{template.get('id')}"[:256]
 
 
 def _save_templates(context: ImportContext, templates: list[dict[str, Any]]) -> SavedPage:
     senders = _senders(context.team_id)
     # A deleted template counts too: importing again must not bring back one someone deleted.
     keys = [_template_key(t) for t in templates]
-    taken = set(
+    template_keys = set(
         MessageTemplate.objects.filter(team_id=context.team_id, key__in=keys).values_list("key", flat=True)
-    ) | code_email_keys(context.team_id, keys)
+    )
+    code_keys = code_email_keys(context.team_id, keys)
+    taken = template_keys | code_keys
     items: list[ImportItem] = []
     counts: Counter[str] = Counter()
     for template in templates:
@@ -478,7 +481,9 @@ def _save_templates(context: ImportContext, templates: list[dict[str, Any]]) -> 
                     label=name,
                     status="skipped",
                     notes=(
-                        f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
+                        f"Your app already sends email under the key {key}, so this template wasn't imported."
+                        if key in code_keys
+                        else f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
                     ),
                 )
             )
@@ -516,26 +521,46 @@ def _senders(team_id: int) -> dict[str, IntegrationRecord]:
 def _email_content(
     template: dict[str, Any], converted: ConvertedTemplate, senders: Mapping[str, IntegrationRecord]
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
-    email: dict[str, Any] = {"subject": converted.subject, "html": converted.html}
+    email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": converted.html})
     if converted.text:
         email["text"] = converted.text
     reply_to = template.get("reply_to")
     if reply_to:
         email["replyTo"] = literal_liquid(", ".join(reply_to) if isinstance(reply_to, list) else str(reply_to))
+    subject_notes = (
+        () if converted.subject.strip() else ("Resend has no subject for this template. Add one before you send it.",)
+    )
     display_name, address = parseaddr(str(template.get("from") or ""))
     if not address:
-        return email, ("Resend has no sender for this template. Choose one before you send it.",)
-    sender = senders.get(address.lower())
+        return email, (*subject_notes, "Resend has no sender for this template. Choose one before you send it.")
+    sender = senders.get(address.lower()) or _domain_sender(address, senders)
     if sender is None:
-        return email, (f"{address} isn't a PostHog sender yet. Add it, then choose it on this template.",)
+        return email, (
+            *subject_notes,
+            f"{address} isn't a PostHog sender yet. Add it, then choose it on this template.",
+        )
     email["from"] = {
         "integrationId": sender.id,
         "email": address,
         "name": literal_liquid(display_name) or str(sender.config.get("name") or ""),
     }
     if not sender.config.get("verified"):
-        return email, (f"{address} isn't verified in PostHog yet, so this template can't send until it is.",)
-    return email, ()
+        return email, (
+            *subject_notes,
+            f"{address} isn't verified in PostHog yet, so this template can't send until it is.",
+        )
+    return email, subject_notes
+
+
+def _domain_sender(address: str, senders: Mapping[str, IntegrationRecord]) -> IntegrationRecord | None:
+    """A sender can send from any address on its domain, so one on the same domain stands in. Verified ones first."""
+    domain = address.rpartition("@")[2].lower()
+    matches = [
+        sender
+        for sender in senders.values()
+        if str(sender.config.get("domain") or str(sender.config.get("email", "")).rpartition("@")[2]).lower() == domain
+    ]
+    return next((sender for sender in matches if sender.config.get("verified")), matches[0] if matches else None)
 
 
 def _fetch_domains(
