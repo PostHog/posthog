@@ -142,8 +142,9 @@ export class Telemetry {
     }
 
     // Sends one event a person asked hog to send, such as feedback, at once and outside the usage
-    // queue. Unless it belongs to the person's PostHog user, it goes out under this run's random ID
-    // with no install ID, because an earlier login can have linked the install ID to that user.
+    // queue. Unless it belongs to the person's PostHog user, it goes out under an ID of its own, with
+    // no install ID or invocation ID: an earlier login can have linked the install ID to that user,
+    // and this run's usage event pairs the invocation ID with the install ID.
     async send(event: string, properties: Record<string, unknown>, debug = false): Promise<SentEvent> {
         if (this.runtime.telemetryToken === undefined) {
             return { sent: false, identified: false }
@@ -153,10 +154,10 @@ export class Telemetry {
         const sender: Sender = known?.identified
             ? known
             : {
-                  distinctId: this.invocationId,
-                  installId: this.invocationId,
+                  distinctId: randomUUID(),
+                  installId: '',
                   identified: false,
-                  properties: { ...this.commonProperties(), $process_person_profile: false },
+                  properties: { ...this.commonProperties(), invocation_id: undefined, $process_person_profile: false },
               }
         const sent = await this.post(
             [

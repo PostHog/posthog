@@ -100,7 +100,10 @@ export default defineCommand({
         }
 
         // Loads a stored login, so feedback from a logged-in person belongs to their PostHog user.
-        await ctx.credentials().catch(() => undefined)
+        // With telemetry off the feedback is anonymous, so the keychain is never opened.
+        if (ctx.telemetry.isEnabled) {
+            await ctx.credentials().catch(() => undefined)
+        }
         const { sent, identified } = await ctx.telemetry.send(FEEDBACK_EVENT, properties, ctx.globals.debug === true)
         if (!sent) {
             throw new HogError(

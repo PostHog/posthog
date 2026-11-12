@@ -74,7 +74,7 @@ describe('hog feedback', () => {
     test.each([
         ['telemetry on', []],
         ['telemetry off', ['--no-telemetry']],
-    ])('anonymous feedback with %s never carries the install ID an earlier login linked', async (_name, flags) => {
+    ])('anonymous feedback with %s shares no ID with the install or the usage event', async (_name, flags) => {
         const result = await runHog(['feedback', 'hog is slow to start', ...flags], {
             ...ON,
             env: AGENT,
@@ -84,9 +84,45 @@ describe('hog feedback', () => {
 
         expect(result.exitCode).toBe(0)
         expect(result.json()).toMatchObject({ sent: true, identified: false })
-        const [event] = feedbackEvents(result)
-        expect(event?.distinct_id).not.toBe('linked-install-id')
-        expect(event?.properties).not.toHaveProperty('install_id')
+        const events = result.requests.filter((request) => request.url === TELEMETRY).flatMap((r: any) => r.body.batch)
+        const [feedback] = feedbackEvents(result)
+        const usage = events.filter((event: any) => event.event !== 'cli feedback submitted')
+        expect(feedback?.distinct_id).not.toBe('linked-install-id')
+        expect(feedback?.properties).not.toHaveProperty('install_id')
+        expect(feedback?.properties).not.toHaveProperty('invocation_id')
+        for (const event of usage) {
+            expect(event.distinct_id).not.toBe(feedback?.distinct_id)
+            expect(event.properties.invocation_id).not.toBe(feedback?.distinct_id)
+        }
+    })
+
+    test('feedback with telemetry off never opens the keychain', async () => {
+        const host = 'https://us.posthog.com'
+        let keychainReads = 0
+        const result = await runHog(['feedback', 'hog is slow to start', '--no-telemetry'], {
+            ...ON,
+            env: AGENT,
+            files: {
+                '/home/test/.config/hog/settings.json': JSON.stringify({
+                    logins: {
+                        [host]: { '42': { store: 'keychain', type: 'personal_api_key', projectId: '42', host } },
+                    },
+                    host,
+                }),
+            },
+            secrets: () => ({
+                get: async () => {
+                    keychainReads++
+                    return null
+                },
+                set: async () => {},
+                delete: async () => true,
+            }),
+            respond: () => ({ status: 200, body: {} }),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(keychainReads).toBe(0)
     })
 
     test('feedback from a stored login belongs to that PostHog user', async () => {
