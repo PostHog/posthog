@@ -198,6 +198,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
+        | 'CDP_EMAIL_TEMPLATE_TAGS_TEAMS'
         | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
@@ -505,6 +506,7 @@ export function createCdpCoreServices(
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
             workflowRunLinkTagTeams: config.CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS,
+            templateTagsTeams: config.CDP_EMAIL_TEMPLATE_TAGS_TEAMS,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
