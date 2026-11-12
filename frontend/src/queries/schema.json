@@ -33704,6 +33704,7 @@
                 "stripe",
                 "intercom",
                 "email",
+                "email_sandbox",
                 "twilio",
                 "linear",
                 "github",
