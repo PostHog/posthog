@@ -434,8 +434,8 @@ export const bulkToggledShouldSync = (schema: ExternalDataSourceSyncSchema, sele
     return selectAll
 }
 
-// The recommendations endpoint's limit on tables per request.
-const MAX_RECOMMENDATION_TABLES = 512
+// The tables one recommendations request asks the model about, which the endpoint also enforces.
+const MAX_RECOMMENDATION_TABLES = 128
 // The decision model's option limit per table, which the endpoint also enforces.
 const MAX_RECOMMENDATION_CANDIDATES = 16
 
@@ -476,33 +476,26 @@ export function defaultPollingSyncSettings(
 const recommendationCandidates = (schema: ExternalDataSourceSyncSchema): IncrementalField[] =>
     schema.incremental_fields.filter((field) => field.recommended !== undefined)
 
+/** The model's picks for one batch of tables, or none when the request fails. */
 async function fetchIncrementalFieldPicks(
     teamId: number,
-    tables: ExternalDataSourceSyncSchema[],
-    stillApplies: () => boolean
+    batch: ExternalDataSourceSyncSchema[]
 ): Promise<Map<string, IncrementalField[]>> {
-    // One batch at a time keeps a large discovery from sending a burst of requests, and a failed
-    // batch drops only its own tables.
     const picked = new Map<string, IncrementalField[]>()
-    for (const batch of chunk(tables, MAX_RECOMMENDATION_TABLES)) {
-        // An obsolete discovery would spend the team's model budget on answers nobody reads.
-        if (!stillApplies()) {
-            break
+    try {
+        const response = await externalDataSourcesIncrementalFieldRecommendationsCreate(String(teamId), {
+            tables: batch.map((schema) => ({
+                table: schema.table,
+                // The model reads only the leading ranked candidates, so the rest stay local.
+                incremental_fields: recommendationCandidates(schema).slice(0, MAX_RECOMMENDATION_CANDIDATES),
+            })),
+        })
+        for (const table of response.tables) {
+            picked.set(table.table, table.incremental_fields as IncrementalField[])
         }
-        try {
-            const response = await externalDataSourcesIncrementalFieldRecommendationsCreate(String(teamId), {
-                tables: batch.map((schema) => ({
-                    table: schema.table,
-                    // The model reads only the leading ranked candidates, so the rest stay local.
-                    incremental_fields: recommendationCandidates(schema).slice(0, MAX_RECOMMENDATION_CANDIDATES),
-                })),
-            })
-            for (const table of response.tables) {
-                picked.set(table.table, table.incremental_fields as IncrementalField[])
-            }
-        } catch {
-            continue
-        }
+    } catch (error) {
+        // The picks are optional, but a rejected batch can mean the wizard and endpoint limits drifted.
+        posthog.captureException(error)
     }
     return picked
 }
@@ -2076,16 +2069,23 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 cache.schemaDiscovery === discovery &&
                 cache.recommendationsFrozenFor !== discovery &&
                 values.connectorSelectionCount === selection
-            const picked = await fetchIncrementalFieldPicks(teamId, tables, stillApplies)
-            if (picked.size === 0 || !stillApplies()) {
-                return
+            // One batch at a time keeps a large discovery from sending a burst of requests. Each batch's
+            // picks land as soon as it answers, and a failed batch drops only its own tables.
+            for (const batch of chunk(tables, MAX_RECOMMENDATION_TABLES)) {
+                // An obsolete discovery would spend the team's model budget on answers nobody reads.
+                if (!stillApplies()) {
+                    return
+                }
+                const picked = await fetchIncrementalFieldPicks(teamId, batch)
+                if (picked.size > 0 && stillApplies()) {
+                    actions.setDatabaseSchemas(
+                        values.databaseSchema.map((schema) => {
+                            const reordered = picked.get(schema.table)
+                            return reordered ? applyIncrementalFieldPick(schema, reordered, connectorName) : schema
+                        })
+                    )
+                }
             }
-            actions.setDatabaseSchemas(
-                values.databaseSchema.map((schema) => {
-                    const reordered = picked.get(schema.table)
-                    return reordered ? applyIncrementalFieldPick(schema, reordered, connectorName) : schema
-                })
-            )
         },
         verifyCdcSelfManagedSetupSuccess: ({ cdcSelfManagedVerifyResult }) => {
             if (cdcSelfManagedVerifyResult?.valid) {

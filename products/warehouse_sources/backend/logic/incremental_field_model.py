@@ -40,7 +40,11 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 
 from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema, tracks_updates
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    name_is_silent,
+    tracks_updates,
+)
 from products.warehouse_sources.backend.types import IncrementalField
 
 if TYPE_CHECKING:
@@ -52,10 +56,12 @@ FEATURE_FLAG = "warehouse-incremental-field-model"
 AI_PRODUCT = "warehouse_sources"
 MODEL = DEFAULT_DECISION_MODEL
 PROMPT_VERSION = 1
-# Both endpoints block a person's screen, so _ask_all gives every request together this long.
+# The sync settings form waits for the answer, so _ask_all gives every request together this long.
 TIMEOUT_SECONDS = 3.0
 MIN_CONFIDENCE = 0.6
 MAX_REQUESTS = 4
+# The open tables one call asks about, so a caller sending more gets no answer for the rest.
+MAX_TABLES_PER_CALL = MAX_REQUESTS * GATEWAY_MAX_QUESTIONS
 CACHE_TTL_SECONDS = 24 * 60 * 60
 PENDING_TTL_SECONDS = 10 * 60
 # Keyed per team: one team's table names must never answer for another team.
@@ -93,8 +99,14 @@ def recommend_for_candidates(
     For callers that already hold the ranked candidates, such as the source wizard after discovery,
     so the model call needs no second discovery.
     """
+    # A caller's `picked_by_model` is dropped, so an earlier answer sent back cannot pass as a new pick.
     schemas = [
-        SourceSchema(name=name, supports_incremental=True, supports_append=True, incremental_fields=list(fields))
+        SourceSchema(
+            name=name,
+            supports_incremental=True,
+            supports_append=True,
+            incremental_fields=[_without_model_pick(field) for field in fields],
+        )
         for name, fields in tables
     ]
     recommend_incremental_fields(schemas, team=team)
@@ -180,15 +192,21 @@ def _candidates_key_for(fields: Sequence[IncrementalField]) -> str:
     return hashlib.sha256(json.dumps([MODEL, PROMPT_VERSION, shape]).encode()).hexdigest()
 
 
+def _without_model_pick(field: IncrementalField) -> IncrementalField:
+    cleaned: IncrementalField = {**field}
+    cleaned.pop("picked_by_model", None)
+    return cleaned
+
+
 def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
-    pending = [schema for schema in schemas if _is_open(schema)][: MAX_REQUESTS * GATEWAY_MAX_QUESTIONS]
+    pending = [schema for schema in schemas if _is_open(schema)]
     if not pending or not _model_allowed(team):
         return
 
     keys = {index: _cache_key(team.pk, schema) for index, schema in enumerate(pending)}
     cached = _cache_get_many(list(keys.values()))
     picks = {index: cached[key] for index, key in keys.items() if cached.get(key)}
-    uncached = [index for index, key in keys.items() if key not in cached]
+    uncached = [index for index, key in keys.items() if key not in cached][:MAX_TABLES_PER_CALL]
     batches = [
         uncached[start : start + GATEWAY_MAX_QUESTIONS] for start in range(0, len(uncached), GATEWAY_MAX_QUESTIONS)
     ]
@@ -225,7 +243,8 @@ def _candidates(schema: SourceSchema) -> list[IncrementalField]:
 
 def _is_open(schema: SourceSchema) -> bool:
     candidates = _candidates(schema)
-    return len(candidates) >= 2 and not tracks_updates(candidates[0])
+    # With every name saying "created" or "updated", the rules already know the answer.
+    return len(candidates) >= 2 and not tracks_updates(candidates[0]) and any(map(name_is_silent, candidates))
 
 
 def _model_allowed(team: "Team") -> bool:
@@ -334,7 +353,7 @@ def _apply_pick(schema: SourceSchema, field_name: str) -> bool:
             **chosen,
             "recommended": True,
             "picked_by_model": True,
-            "notes": [MODEL_PICK_NOTE, *chosen.get("notes", [])],
+            "notes": [MODEL_PICK_NOTE, *(note for note in chosen.get("notes", []) if note != MODEL_PICK_NOTE)],
         },
         *rest,
     ]

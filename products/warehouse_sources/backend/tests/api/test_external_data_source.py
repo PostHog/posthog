@@ -6275,6 +6275,30 @@ class TestExternalDataSource(APIBaseTest):
         )
         self.assertEqual(len(model_calls), 1)
 
+    @parameterized.expand(
+        [
+            ("unusable_answer", True, "c9", {}),
+            ("forged_pick_without_consent", False, "c1", {"picked_by_model": True}),
+        ]
+    )
+    def test_incremental_field_recommendations_return_only_model_picks(self, name, ai_approved, choice, forged):
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+        # A table name per case keeps the per-team answer cache from answering for another case.
+        table = f"public.{name}"
+        candidates = open_orders_schema(table).incremental_fields
+        sent = [{**candidates[0], **forged}, *candidates[1:]]
+
+        with fake_decision_model(choice=choice):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/incremental_field_recommendations/",
+                data={"tables": [{"table": table, "incremental_fields": sent}]},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["tables"], [])
+
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_database_schema_postgres_requires_ssl_while_setting_the_source_up(self, mock_get_source):
         source = PostgresSource()

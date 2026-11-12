@@ -1979,7 +1979,7 @@ describe('sourceWizardLogic', () => {
                 { ...eventTs, recommended: false },
             ]
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
-                Array.from({ length: 513 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
+                Array.from({ length: 129 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
             )
             const recommend = jest
                 .mocked(externalDataSourcesIncrementalFieldRecommendationsCreate)
@@ -1989,7 +1989,7 @@ describe('sourceWizardLogic', () => {
             const { unmount } = await mountAndLoadSchemas(postgresSource)
 
             try {
-                expect(recommend.mock.calls.map(([, body]) => body.tables.length)).toEqual([512, 1])
+                expect(recommend.mock.calls.map(([, body]) => body.tables.length)).toEqual([128, 1])
             } finally {
                 unmount()
             }
@@ -2013,7 +2013,7 @@ describe('sourceWizardLogic', () => {
                 { ...eventTs, recommended: false },
             ]
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
-                Array.from({ length: 513 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
+                Array.from({ length: 129 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
             )
             let resolveFirst: (value: RecommendationsResponse) => void = () => {}
             const recommend = jest
@@ -2053,29 +2053,44 @@ describe('sourceWizardLogic', () => {
             }
         })
 
-        it('keeps the picks of the batches that answered when another batch fails', async () => {
+        it('applies each batch as it answers, and a failed batch drops only its own tables', async () => {
             const fields = [
                 { ...createdAt, recommended: true },
                 { ...modelPick, recommended: false, picked_by_model: undefined },
             ]
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
-                Array.from({ length: 513 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
+                Array.from({ length: 129 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
             )
+            let rejectSecond: (error: Error) => void = () => {}
             jest.mocked(externalDataSourcesIncrementalFieldRecommendationsCreate)
                 .mockReset()
-                .mockRejectedValueOnce(new Error('gateway timeout'))
                 .mockResolvedValueOnce({
                     tables: [
-                        { table: 'public.t512', incremental_fields: [modelPick, { ...createdAt, recommended: false }] },
+                        { table: 'public.t0', incremental_fields: [modelPick, { ...createdAt, recommended: false }] },
                     ],
                 } as unknown as RecommendationsResponse)
+                .mockReturnValueOnce(
+                    new Promise((_, reject) => {
+                        rejectSecond = reject
+                    })
+                )
+            const field = (logic: ReturnType<typeof sourceWizardLogic.build>, table: string): string | null =>
+                logic.values.databaseSchema.find((schema) => schema.table === table)?.incremental_field ?? null
 
-            const { logic, unmount } = await mountAndLoadSchemas(postgresSource)
+            const logic = sourceWizardLogic({ availableSources: { [postgresSource.name]: postgresSource } })
+            const unmount = logic.mount()
 
             try {
-                const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
-                expect(byTable['public.t0'].incremental_field).toBe('created_at')
-                expect(byTable['public.t512'].incremental_field).toBe('fecha_actualizacion')
+                logic.actions.selectConnector(postgresSource)
+                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toDispatchActions([
+                    'loadIncrementalFieldRecommendations',
+                    'setDatabaseSchemas',
+                ])
+                expect(field(logic, 'public.t0')).toBe('fecha_actualizacion')
+
+                await expectLogic(logic, () => rejectSecond(new Error('gateway timeout'))).toFinishAllListeners()
+                expect(field(logic, 'public.t0')).toBe('fecha_actualizacion')
+                expect(field(logic, 'public.t128')).toBe('created_at')
             } finally {
                 unmount()
             }

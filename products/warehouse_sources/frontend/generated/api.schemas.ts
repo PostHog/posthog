@@ -1868,7 +1868,7 @@ export interface IncrementalFieldCandidateApi {
     is_indexed?: boolean
     /** Whether this is the field the source recommends as the incremental cursor. */
     recommended?: boolean
-    /** Whether the decision model, not the name rules, picked this field. */
+    /** Whether the decision model, not the name rules, picked this field. Ignored on input. */
     picked_by_model?: boolean
     /**
      * Trade-offs of picking this field.
@@ -1894,7 +1894,7 @@ export interface IncrementalFieldTableApi {
 export interface IncrementalFieldRecommendationsRequestApi {
     /**
      * Tables from database_schema to get a recommended incremental field for.
-     * @maxItems 512
+     * @maxItems 128
      */
     tables: IncrementalFieldTableApi[]
 }
