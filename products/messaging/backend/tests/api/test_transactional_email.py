@@ -2142,14 +2142,15 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("left_out", {}, None),
-            ("its_own_category", {"category": NEWSLETTER}, None),
-            ("transactional", {"category": "transactional"}, "category_mismatch"),
-            ("another_key", {"category": {**NEWSLETTER, "key": "promos"}}, "category_mismatch"),
+            ("left_out", {}, None, [True]),
+            ("its_own_category", {"category": NEWSLETTER}, None, [True]),
+            ("its_own_category_while_categories_turn_off", {"category": NEWSLETTER}, None, [True, False]),
+            ("transactional", {"category": "transactional"}, "category_mismatch", [True]),
+            ("another_key", {"category": {**NEWSLETTER, "key": "promos"}}, "category_mismatch", [True]),
         ]
     )
     def test_a_marketing_template_sends_as_marketing_in_its_category(
-        self, cdp_post, _flag, capture, _name, fields, expected_code
+        self, cdp_post, flag, capture, _name, fields, expected_code, categories_answers
     ):
         self._use_fakes(cdp_post, capture)
         newsletter = self._category()
@@ -2166,6 +2167,10 @@ class TestTransactionalEmail(APIBaseTest):
             "marketing",
             str(newsletter.id),
             True,
+        )
+        flag.side_effect = lambda key, *_args, **_kwargs: (
+            key != CODE_SEND_CATEGORIES_FLAG
+            or (categories_answers.pop(0) if len(categories_answers) > 1 else categories_answers[0])
         )
 
         response = self.client.post(

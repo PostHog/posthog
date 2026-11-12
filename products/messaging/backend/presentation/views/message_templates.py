@@ -989,9 +989,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             if template.transactional_hog_flow_id:
                 self._require_workflow_editor(template.transactional_hog_flow_id)
         data = request.validated_data
-        categories_enabled = isinstance(data.get("category"), SendCategoryDefinition) and _flag_enabled(
-            self.team, CODE_SEND_CATEGORIES_FLAG
-        )
+        categories_enabled = _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG)
         return self._queue_send(
             request,
             lambda idempotency_key: send_transactional_email(
@@ -1002,6 +1000,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
                 category=_enabled_category(data.get("category"), categories_enabled),
+                categories_enabled=categories_enabled,
             ),
             addressed={"template_id": str(template.id)},
         )
@@ -1522,6 +1521,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 to=data["to"],
                 distinct_id=_distinct_id(data),
                 idempotency_key=idempotency_key,
+                categories_enabled=categories_enabled,
             ),
             addressed={"addressed_by": "template_key"},
             unavailable=unconfirmed_email_send,
