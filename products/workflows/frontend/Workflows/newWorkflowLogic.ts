@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { retryImport } from 'lib/utils/retryImport'
 import {
     AI_COMPOSER_MODE_VALUE,
     EDITOR_MODE_PARAM,
@@ -18,37 +17,23 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowTemplate } from './hogflows/types'
 import { newWorkflowFolder, newWorkflowFolderParam } from './newWorkflowFolder'
+import { parseFacetQuery } from './WorkflowsListV2/FacetSearchBar/facetQuery'
+import { workflowFolderFacet } from './WorkflowsListV2/workflowListFacets'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
-// The facet parser ships with the lazy v2 list, and every chunk that imports this logic would otherwise carry it.
-// A failed load creates the workflow in the default folder rather than blocking the create.
-async function folderFromQuery(query: string): Promise<string | undefined> {
-    try {
-        const [{ parseFacetQuery }, { workflowFolderFacet }] = await Promise.all([
-            retryImport(() => import('./WorkflowsListV2/FacetSearchBar/facetQuery')),
-            retryImport(() => import('./WorkflowsListV2/workflowListFacets')),
-        ])
-        return parseFacetQuery(query, [workflowFolderFacet(null, false)]).find(
-            (filter) => filter.facet === 'in' && !filter.negated
-        )?.value
-    } catch {
-        return undefined
-    }
-}
-
-/** Calls `go` with the folder params for a new workflow. Only a folder read from the list's query waits for a load. */
-function withNewWorkflowFolder(
+function newWorkflowFolderParams(
     searchParams: Record<string, unknown>,
-    projectBrowser: boolean,
-    go: (folderParams: Record<string, string>) => void
-): Promise<void> | void {
-    const folder = projectBrowser ? newWorkflowFolder() : null
-    const query = projectBrowser && !folder && typeof searchParams.q === 'string' ? searchParams.q : ''
-    if (!query) {
-        go(newWorkflowFolderParam(folder))
-        return
+    projectBrowser: boolean
+): Record<string, string> {
+    if (!projectBrowser) {
+        return {}
     }
-    return folderFromQuery(query).then((queried) => go(newWorkflowFolderParam(queried)))
+    return newWorkflowFolderParam(
+        newWorkflowFolder() ??
+            parseFacetQuery(typeof searchParams.q === 'string' ? searchParams.q : '', [
+                workflowFolderFacet(null, false),
+            ]).find((filter) => filter.facet === 'in' && !filter.negated)?.value
+    )
 }
 
 /** The new-workflow URL for an entry that means "start from nothing", the only kind the composer answers. */
@@ -202,43 +187,41 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
                 posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW)
             }
             if (values.aiFirstNewEnabled) {
-                return withNewWorkflowFolder(
-                    values.searchParams,
-                    !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2],
-                    (folderParams) =>
-                        router.actions.push(urls.workflowNew(), {
-                            ...folderParams,
-                            [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE,
-                        })
-                )
+                router.actions.push(urls.workflowNew(), {
+                    ...newWorkflowFolderParams(
+                        values.searchParams,
+                        !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
+                    ),
+                    [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE,
+                })
+            } else {
+                actions.showNewWorkflowModal()
             }
-            actions.showNewWorkflowModal()
         },
         openEditorFromAiComposer: () => {
             actions.showNewWorkflowModal()
         },
-        createWorkflowFromTemplate: ({ template }) =>
-            withNewWorkflowFolder(
+        createWorkflowFromTemplate: ({ template }) => {
+            const folderParams = newWorkflowFolderParams(
                 values.searchParams,
-                !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2],
-                (folderParams) => {
-                    actions.hideNewWorkflowModal()
-                    router.actions.push(urls.workflowNew(), {
-                        ...folderParams,
-                        templateId: template.id,
-                    })
-                }
-            ),
-        createEmptyWorkflow: () => {
-            const editorMode = values.aiFirstNewEnabled ? { [EDITOR_MODE_PARAM]: EDITOR_MODE_VALUE } : {}
-            return withNewWorkflowFolder(
-                values.searchParams,
-                !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2],
-                (folderParams) => {
-                    actions.hideNewWorkflowModal()
-                    router.actions.push(urls.workflowNew(), { ...folderParams, ...editorMode })
-                }
+                !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
             )
+            actions.hideNewWorkflowModal()
+            router.actions.push(urls.workflowNew(), {
+                ...folderParams,
+                templateId: template.id,
+            })
+        },
+        createEmptyWorkflow: () => {
+            const folderParams = newWorkflowFolderParams(
+                values.searchParams,
+                !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
+            )
+            actions.hideNewWorkflowModal()
+            router.actions.push(urls.workflowNew(), {
+                ...folderParams,
+                ...(values.aiFirstNewEnabled ? { [EDITOR_MODE_PARAM]: EDITOR_MODE_VALUE } : {}),
+            })
         },
     })),
     urlToAction(({ actions }) => ({
