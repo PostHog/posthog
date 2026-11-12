@@ -151,6 +151,7 @@ class TestRecommendIncrementalFields(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("agrees_with_the_rules", lambda: _FakeClient(_pick("c0"))),
             ("low_confidence", lambda: _FakeClient(_pick("c1", confidence=0.4))),
             ("refusal", lambda: _FakeClient(RefusalAnswer())),
             ("option_out_of_range", lambda: _FakeClient(_pick("c9"))),

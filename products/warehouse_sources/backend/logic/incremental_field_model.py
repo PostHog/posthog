@@ -264,7 +264,9 @@ async def _ask(client: GatewaySystemOneClient, tables: list[tuple[int, SourceSch
 def _apply_pick(schema: SourceSchema, field_name: str) -> bool:
     fields = schema.incremental_fields
     chosen = next((field for field in fields if field["field"] == field_name and "recommended" in field), None)
-    if chosen is None:
+    # Agreeing with the rules adds nothing. Marking it would also make append skip a column that may
+    # never change, such as `created_at`.
+    if chosen is None or chosen is fields[0]:
         return False
     rest: list[IncrementalField] = [
         {**field, "recommended": False} if "recommended" in field else field for field in fields if field is not chosen
@@ -278,7 +280,7 @@ def _apply_pick(schema: SourceSchema, field_name: str) -> bool:
         },
         *rest,
     ]
-    return chosen is not fields[0]
+    return True
 
 
 def _cache_key(team_id: int, schema: SourceSchema) -> str:
