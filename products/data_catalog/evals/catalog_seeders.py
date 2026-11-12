@@ -10,20 +10,16 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from unittest.mock import patch
-
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.data_catalog.backend.facade.api import (
-    accept_proposal,
     approve_metric,
     certify,
     deprecate,
     propose_certification,
-    propose_relationship,
     upsert_metric,
 )
 from products.data_catalog.evals.catalog_synthesizer import (
@@ -62,7 +58,15 @@ from products.data_catalog.evals.catalog_synthesizer import (
     WAREHOUSE_SIGNUPS_METRIC,
     CatalogMetric,
 )
-from products.data_catalog.evals.seeders import _FLOAT_COLUMN, _INTEGER_COLUMN, _STRING_COLUMN, _synced_table
+from products.data_catalog.evals.seeders import (
+    FLOAT_COLUMN,
+    INTEGER_COLUMN,
+    STRING_COLUMN,
+    accept_seeded_relationship,
+    require_warehouse_tables,
+    synced_table,
+    team_and_user,
+)
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.api import record_table_row_count
 from products.warehouse_sources.backend.facade.types import (
@@ -74,27 +78,25 @@ if TYPE_CHECKING:
     from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 _DEALS_COLUMN_TYPES = {
-    "deal_id": _INTEGER_COLUMN,
-    "account_id": _INTEGER_COLUMN,
-    "stage": _STRING_COLUMN,
-    "amount_usd": _FLOAT_COLUMN,
+    "deal_id": INTEGER_COLUMN,
+    "account_id": INTEGER_COLUMN,
+    "stage": STRING_COLUMN,
+    "amount_usd": FLOAT_COLUMN,
 }
-_AMOUNT_COLUMN_TYPES = {"deal_id": _INTEGER_COLUMN, "currency": _STRING_COLUMN, "amount": _FLOAT_COLUMN}
-_ACCOUNTS_COLUMN_TYPES = {"account_id": _INTEGER_COLUMN, "industry": _STRING_COLUMN}
+_AMOUNT_COLUMN_TYPES = {"deal_id": INTEGER_COLUMN, "currency": STRING_COLUMN, "amount": FLOAT_COLUMN}
+_ACCOUNTS_COLUMN_TYPES = {"account_id": INTEGER_COLUMN, "industry": STRING_COLUMN}
 # The Hedgebox demo data ships this table; a node metric over it needs it to be queryable in the case team.
 _WAREHOUSE_SIGNUPS_CHECK = "SELECT count() FROM signups"
+# The paying customers metric reads this Hedgebox warehouse table.
+_PAYING_CUSTOMERS_TABLE = "paid_bills"
 
 assert tuple(_DEALS_COLUMN_TYPES) == DEALS_COLUMNS
 assert tuple(_AMOUNT_COLUMN_TYPES) == AMOUNT_COLUMNS
 assert tuple(_ACCOUNTS_COLUMN_TYPES) == ACCOUNTS_COLUMNS
 
 
-def _team_and_user(context: CustomPromptSandboxContext) -> tuple[Team, User]:
-    return Team.objects.get(pk=context.team_id), User.objects.get(pk=context.user_id)
-
-
 def _install(context: CustomPromptSandboxContext, metrics: Iterable[CatalogMetric]) -> list[dict[str, str]]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     installed = []
     for spec in metrics:
         metric = upsert_metric(
@@ -127,7 +129,12 @@ def seed_catalog_with_account_engagement(context: CustomPromptSandboxContext) ->
     return _catalog(context, ACCOUNT_ENGAGEMENT_METRIC)
 
 
+def _require_paid_bills(context: CustomPromptSandboxContext) -> None:
+    require_warehouse_tables(*team_and_user(context), names=(_PAYING_CUSTOMERS_TABLE,))
+
+
 def seed_catalog_for_board_update(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    _require_paid_bills(context)
     # The case grades that the agent runs only the needles, so no noise metric may fit a growth update.
     return _catalog(
         context, MRR_METRIC, PAYING_CUSTOMERS_METRIC, ACCOUNT_ENGAGEMENT_METRIC, noise=OPERATIONS_NOISE_METRICS
@@ -139,6 +146,7 @@ def seed_mrr_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
 
 
 def seed_pricing_metrics(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    _require_paid_bills(context)
     return {"metrics": _install(context, [MRR_METRIC, PAYING_CUSTOMERS_METRIC])}
 
 
@@ -163,7 +171,7 @@ def seed_churn_risk_injected_metric(context: CustomPromptSandboxContext) -> dict
 
 
 def seed_warehouse_signups_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     # A table the case cannot read would score the agent 0 for an infrastructure fault, so fail the seed instead.
     response = execute_hogql_query(_WAREHOUSE_SIGNUPS_CHECK, team=team, user=user)
     if getattr(response, "error", None) or not response.results:
@@ -172,7 +180,7 @@ def seed_warehouse_signups_metric(context: CustomPromptSandboxContext) -> dict[s
 
 
 def _deals_table(team: Team, user: User, *, name: str, description: str, rows: tuple[tuple[Any, ...], ...]) -> UUID:
-    synced = _synced_table(
+    synced = synced_table(
         team,
         user,
         source_type=ExternalDataSourceType.POSTGRES,
@@ -190,7 +198,7 @@ def _deals_table(team: Team, user: User, *, name: str, description: str, rows: t
 
 
 def seed_deal_tables(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     current = _deals_table(team, user, name=DEALS_TABLE, description=DEALS_TABLE_DESCRIPTION, rows=DEALS_ROWS)
     legacy = _deals_table(
         team, user, name=DEALS_LEGACY_TABLE, description=DEALS_LEGACY_TABLE_DESCRIPTION, rows=DEALS_LEGACY_ROWS
@@ -202,12 +210,12 @@ def seed_deal_tables(context: CustomPromptSandboxContext) -> dict[str, Any]:
 
 
 def seed_amount_currency_tables(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     for name, rows, description in (
         (USD_AMOUNT_TABLE, USD_AMOUNT_ROWS, USD_AMOUNT_DESCRIPTION),
         (LOCAL_AMOUNT_TABLE, LOCAL_AMOUNT_ROWS, LOCAL_AMOUNT_DESCRIPTION),
     ):
-        _synced_table(
+        synced_table(
             team,
             user,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -222,10 +230,10 @@ def seed_amount_currency_tables(context: CustomPromptSandboxContext) -> dict[str
 
 
 def seed_deal_account_relationship(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
+    team, user = team_and_user(context)
     _deals_table(team, user, name=DEALS_TABLE, description=DEALS_TABLE_DESCRIPTION, rows=DEALS_ROWS)
     for name, rows in ((ACCOUNTS_TABLE, ACCOUNTS_ROWS), (ACCOUNTS_DECOY_TABLE, ACCOUNTS_DECOY_ROWS)):
-        _synced_table(
+        synced_table(
             team,
             user,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -243,18 +251,15 @@ def seed_deal_account_relationship(context: CustomPromptSandboxContext) -> dict[
         joining_table_key="account_id",
         field_name="account_import",
     )
-    proposal = propose_relationship(
+    accept_seeded_relationship(
         team=team,
         user=user,
         source_table_name=DEALS_TABLE,
-        source_table_key="account_id",
-        joining_table_name=ACCOUNTS_TABLE,
-        joining_table_key="account_id",
+        target_table_name=ACCOUNTS_TABLE,
         field_name=DEALS_ACCOUNT_RELATIONSHIP_FIELD,
         confidence=0.97,
         reasoning=DEALS_ACCOUNT_RELATIONSHIP_REASONING,
+        source_key="account_id",
+        target_key="account_id",
     )
-    # Acceptance validates the join with a live query; the seeded tables are already proven readable above.
-    with patch("products.data_catalog.backend.logic.relationships.execute_hogql_query"):
-        accept_proposal(proposal, user)
     return {"relationship": {"source": DEALS_TABLE, "target": ACCOUNTS_TABLE, "decoy": ACCOUNTS_DECOY_TABLE}}

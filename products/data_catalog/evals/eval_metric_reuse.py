@@ -2,8 +2,8 @@
 
 Run it once per surface:
 
-    EVAL_SURFACE=app ./bin/hogli evals eval_metric_reuse --skill-delivery bundled --provider modal
-    EVAL_SURFACE=mcp ./bin/hogli evals eval_metric_reuse --skill-delivery exec --provider modal
+    ./bin/hogli evals eval_metric_reuse --surface app --skill-delivery bundled --provider modal
+    ./bin/hogli evals eval_metric_reuse --surface mcp --skill-delivery exec --provider modal
 """
 
 from __future__ import annotations
@@ -117,7 +117,10 @@ async def eval_metric_reuse(ctx: EvalContext) -> None:
             name="adjust_time_window",
             prompt="Show me weekly active accounts for the last 12 weeks instead of the usual 4.",
             expected={
-                "run_override_used": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name, "overrides": {"date_from": None}},
+                "run_override_used": {
+                    "metric_name": ACCOUNT_ENGAGEMENT_METRIC.name,
+                    "overrides": {"date_from": ["-12w", "-84d", "-3m"]},
+                },
                 "no_data_sql_run": {},
                 "semantic_layer_answer": {
                     "expected_behavior": (
@@ -142,10 +145,15 @@ async def eval_metric_reuse(ctx: EvalContext) -> None:
             name="adjust_filter",
             prompt="What's our MRR from business plans only?",
             expected={
-                **_ADAPTED_MRR,
+                "metric_describe_before_adapted_sql": {},
+                # A business-only filter already leaves out personal/free, so the query need not name it.
+                "query_terms_used": {"terms": ["paid_bill", "business/"]},
                 "semantic_layer_answer": {
-                    "expected_behavior": _adapted_mrr_behavior(
-                        "keep only business/standard and business/enterprise bills"
+                    "expected_behavior": (
+                        f"Find {MRR_METRIC.name} in the catalog and read its definition with metric-describe. Adapt "
+                        "that stored query to keep only business/standard and business/enterprise bills, and keep "
+                        "the paid_bill event and the 30-day window. Label the result as an adaptation of the "
+                        "governed MRR metric, not as the approved number itself."
                     )
                 },
             },

@@ -56,20 +56,21 @@ from products.data_catalog.evals.seeders import (
     seed_subscription_snapshot_tables,
     seed_synced_invoices_table,
     seed_synced_time_off_table,
+    synced_table_names,
 )
 from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 
 
-def _synced_postgres_names(schema_name: str) -> list[str]:
-    """A synced table answers to its stored name and to the dotted name HogQL builds from the source."""
-    return [f"postgres_{schema_name}", f"postgres.{schema_name}"]
-
-
 def _table_choice(target_schema: str, candidates: tuple[tuple[str, str, Any], ...]) -> dict[str, list[str]]:
-    decoys = [name for schema, _, _ in candidates if schema != target_schema for name in _synced_postgres_names(schema)]
-    return {"tables": _synced_postgres_names(target_schema), "decoys": decoys}
+    decoys = [
+        name
+        for schema, _, _ in candidates
+        if schema != target_schema
+        for name in synced_table_names(f"postgres_{schema}")
+    ]
+    return {"tables": synced_table_names(f"postgres_{target_schema}"), "decoys": decoys}
 
 
 async def eval_semantic_discovery(ctx: EvalContext) -> None:
