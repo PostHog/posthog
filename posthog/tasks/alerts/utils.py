@@ -584,23 +584,25 @@ def _threshold_lines(thresholds: Collection[_DrawnThreshold]) -> list[dict[str, 
 
 
 def _thresholds_drawn_on_chart(alert: AlertConfiguration) -> list[_DrawnThreshold]:
-    """The threshold of every enabled alert on the alert's insight, rows first and then those with no
-    insight row, each oldest first, and the alert's own."""
+    """The threshold of every enabled alert on the alert's insight, the insight stack's first and then the
+    platform's, each oldest first, and the alert's own."""
     rows = (
         AlertConfiguration.objects.filter(team_id=alert.team_id, insight_id=alert.insight_id, enabled=True)
+        .exclude(owner=PlatformAlertOwner.PLATFORM)
         .select_related("threshold")
         .order_by("created_at", "id")
     )
     drawn = {row.id: _DrawnThreshold.of_alert(row) for row in rows}
-    native = enabled_native_configurations(
+    platform = enabled_native_configurations(
         team_ids=[alert.team_id],
         source_kind=SourceKind.INSIGHT,
         source_config_key="insight_id",
         values=[alert.insight_id],
+        owned_copies=True,
     )
-    for configuration in reversed(native):
+    for configuration in reversed(platform):
         condition = configuration.source_config.get(SOURCE_CONDITION_KEY) or {}
-        drawn[configuration.id] = _DrawnThreshold(
+        drawn[configuration.public_id] = _DrawnThreshold(
             name=configuration.name, condition=condition.get("comparison") or {}, threshold=condition.get("threshold")
         )
     # A disabled alert is in neither read, but still draws the line it fired on.

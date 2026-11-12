@@ -153,6 +153,16 @@ class EnabledAlert:
 
 
 @frozen
+class ErroredAlert:
+    id: UUID
+    name: str
+    insight_name: str | None
+    insight_short_id: str
+    # None for an alert the platform owns, whose checks it keeps in ClickHouse.
+    last_checked_at: datetime | None
+
+
+@frozen
 class AlertInternalEvent:
     """One internal event that makes an alert's HogFunction destinations fire."""
 
