@@ -234,9 +234,13 @@ def strip_content_secrets(content: dict, template_cache: Optional[TemplateCache]
     return normalized
 
 
-def rehydrate_flow_secrets(actions: list[dict], secrets_by_action: dict[str, dict]) -> list[dict]:
+def rehydrate_flow_secrets(
+    actions: list[dict], secrets_by_action: dict[str, dict], template_cache: Optional[TemplateCache] = None
+) -> list[dict]:
     # Fold decrypted secrets back into each action's config.inputs. Used for inline test runs that
     # ship a config to the executor directly, bypassing the worker's manager (which decrypts normally).
+    # Only the keys the action's template declares secret come back: the live map can still hold a secret
+    # of a step that the content being run moved to another template, and that template's code must not read it.
     result: list[dict] = []
     for original in actions:
         action = deepcopy(original)
@@ -244,6 +248,10 @@ def rehydrate_flow_secrets(actions: list[dict], secrets_by_action: dict[str, dic
         action_secrets = secrets_by_action.get(action_id) if isinstance(action_id, str) else None
         config = action.get("config")
         if action_secrets and isinstance(config, dict) and isinstance(config.get("inputs"), dict):
-            config["inputs"] = {**config["inputs"], **action_secrets}
+            declared = secret_keys_for_action(action, template_cache)
+            config["inputs"] = {
+                **config["inputs"],
+                **{key: value for key, value in action_secrets.items() if key in declared},
+            }
         result.append(action)
     return result

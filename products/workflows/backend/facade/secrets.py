@@ -1,11 +1,15 @@
 """Secret function-action inputs: split out of a workflow's actions for encryption, masked on read,
-folded back in for inline test runs, and typed again when a save changes their step."""
+folded back in for inline test runs, and typed again when a save or run changes what their workflow runs."""
 
 from products.cdp.backend.secret_reentry import SECRET_REENTRY_CODE
 from products.workflows.backend.services.hog_flow_secret_reentry import (
     TypedSecrets,
+    draft_workflow_content,
+    drop_client_compiled_fields,
+    live_workflow_content,
     refused_secret_inputs,
     secrets_to_type_again,
+    supplies_variables,
     typed_secrets,
 )
 from products.workflows.backend.services.hog_flow_secrets import (
@@ -27,6 +31,9 @@ __all__ = [
     "SECRET_REENTRY_CODE",
     "TemplateCache",
     "TypedSecrets",
+    "draft_workflow_content",
+    "drop_client_compiled_fields",
+    "live_workflow_content",
     "mask_derived_trigger",
     "mask_secret_action_inputs",
     "mask_workflow_fields",
@@ -40,5 +47,6 @@ __all__ = [
     "secrets_to_type_again",
     "strip_content_secrets",
     "strip_secrets_from_content",
+    "supplies_variables",
     "typed_secrets",
 ]

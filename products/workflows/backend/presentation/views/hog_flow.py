@@ -291,6 +291,10 @@ from products.workflows.backend.facade.secrets import (
     SECRET_REENTRY_CODE,
     TemplateCache,
     TypedSecrets,
+    draft_workflow_content,
+    drop_client_compiled_fields,
+    live_workflow_content,
+    mask_secret_action_inputs,
     mask_workflow_fields,
     merge_secret_maps,
     plaintext_secret_map,
@@ -300,6 +304,7 @@ from products.workflows.backend.facade.secrets import (
     secret_keys_for_action,
     secrets_to_type_again,
     strip_content_secrets,
+    supplies_variables,
     typed_secrets,
 )
 from products.workflows.backend.facade.send_calendar import SEND_CALENDAR_MAX_RANGE_DAYS, list_send_calendar_flows
@@ -622,6 +627,12 @@ def existing_secret_map(instance: WorkflowEditState, template_cache: Optional[Te
     return merge_secret_maps(result, instance.draft_encrypted_inputs)
 
 
+RUN_VARIABLES_SECRET_MESSAGE = (
+    "This workflow has a saved secret, so a run can't set its own variable values. Run it with the default "
+    "values, or change the defaults in the workflow and enter its secrets again."
+)
+
+
 def require_secret_reentry(context: dict, to_type_again: dict[str, list[str]]) -> None:
     view = context.get("view")
     errors = refused_secret_inputs(
@@ -629,34 +640,6 @@ def require_secret_reentry(context: dict, to_type_again: dict[str, list[str]]) -
     )
     if errors:
         raise serializers.ValidationError({"actions": errors}, code=SECRET_REENTRY_CODE)
-
-
-def _typed_by_graph_operations(operations: list[dict], new_actions: list[dict]) -> dict[str, TypedSecrets]:
-    # The graph is rebuilt from the stored steps, which can hold a legacy plaintext secret, so a key counts as typed
-    # only when an operation sent it. A later operation can drop what an earlier one typed, so the rebuilt step must
-    # still hold a typed value too.
-    sent: dict[str, dict] = {}
-    for operation in operations:
-        if operation["op"] == "update_action":
-            step_id, step = operation.get("id"), operation.get("patch")
-        elif operation["op"] == "add_action":
-            step = operation.get("action")
-            step_id = step.get("id") if isinstance(step, dict) else None
-        else:
-            continue
-        config = step.get("config") if isinstance(step, dict) else None
-        inputs = config.get("inputs") if isinstance(config, dict) else None
-        if step_id and isinstance(inputs, dict):
-            sent.setdefault(str(step_id), {}).update(inputs)
-    by_operations = typed_secrets([{"id": step_id, "config": {"inputs": inputs}} for step_id, inputs in sent.items()])
-    in_result = typed_secrets(new_actions)
-    return {
-        step_id: TypedSecrets(
-            entered=typed.entered & (in_result[step_id].entered if step_id in in_result else frozenset()),
-            supplied=typed.supplied,
-        )
-        for step_id, typed in by_operations.items()
-    }
 
 
 def snapshot_flow_content(flow: WorkflowEditState) -> dict:
@@ -2296,6 +2279,7 @@ class HogFlowActionSerializer(serializers.Serializer):
 
         if "function" in data.get("type", "") or trigger_is_function:
             config = data.setdefault("config", {})
+            drop_client_compiled_fields(config)
             template_id = config.get("template_id", "")
             fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
             if fixed_template_id:
@@ -4092,16 +4076,24 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                         event_serializer.is_valid(raise_exception=True)
                         event_config["filters"] = event_serializer.validated_data
 
-        if "actions" in data:
+        variables_supplied = bool(self.context.get("supplies_variables"))
+        if variables_supplied or any(field in data for field in DRAFT_CONTENT_FIELDS):
             stored = cast(Optional[WorkflowEditState], self.instance) or self.context.get("instance")
-            to_type_again = secrets_to_type_again(
-                data["actions"],
-                stored,
-                getattr(self, "_typed_secrets", {}),
-                live_secrets_only=bool(self.context.get("live_secrets_only")),
-                template_cache=self.context.setdefault("_hogflow_template_cache", {}),
-            )
-            require_secret_reentry(self.context, to_type_again)
+            if stored is not None:
+                base = (
+                    draft_workflow_content(stored)
+                    if self.context.get("saves_to_draft")
+                    else live_workflow_content(stored)
+                )
+                to_type_again = secrets_to_type_again(
+                    {**base, **{field: data[field] for field in DRAFT_CONTENT_FIELDS if field in data}},
+                    stored,
+                    getattr(self, "_typed_secrets", {}),
+                    live_secrets_only=bool(self.context.get("live_secrets_only")),
+                    template_cache=self.context.setdefault("_hogflow_template_cache", {}),
+                    supplies_variables=variables_supplied,
+                )
+                require_secret_reentry(self.context, to_type_again)
         return data
 
 
@@ -5809,7 +5801,6 @@ class HogFlowViewSet(
         # unaffected). We check the raw request payload, not serializer.validated_data — HogFlowSerializer.validate
         # injects derived fields like 'trigger' and 'billable_action_types' which would otherwise make every
         # status-only PATCH look like a mixed edit.
-        route_to_draft = False
         if self._is_mcp_request(self.request):
             keys = set(self.request.data.keys())
             has_status = "status" in keys
@@ -5833,15 +5824,7 @@ class HogFlowViewSet(
                     "changes steps by id and leaves the rest of the graph untouched."
                 )
 
-            # Content edits on an active workflow stage a draft rather than landing live. Status-only
-            # PATCHes (the lifecycle tools) and metadata-only edits apply straight to the live row.
-            if serializer.instance.status == HogFlowState.ACTIVE and has_non_status:
-                route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
-        elif serializer.instance.status == HogFlowState.ACTIVE and self.request.data.get("stage_draft"):
-            # The web builder opts into the same draft routing per request ("stage_draft" rides the
-            # raw body like "base_updated_at"). Callers that don't send it keep deploy-on-save, so
-            # existing raw-API automation is unaffected.
-            route_to_draft = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
+        route_to_draft = self._routes_to_draft(serializer.instance.status)
 
         try:
             result = update_workflow(
@@ -5889,9 +5872,41 @@ class HogFlowViewSet(
                 },
             )
 
+    def _require_no_variables_for_stored_secrets(self, variables: Any) -> None:
+        # A step's inputs can read a variable, so a run that sets one can send a stored secret elsewhere. A run
+        # request cannot type the secrets again, unlike a test run, so it keeps the workflow's own defaults.
+        state = self._edit_state()
+        if not supplies_variables(variables, state.variables):
+            return
+        to_type_again = secrets_to_type_again(
+            live_workflow_content(state),
+            state,
+            {},
+            live_secrets_only=True,
+            template_cache={},
+            supplies_variables=True,
+        )
+        if refused_secret_inputs(self.team, to_type_again, f"workflow_{self.action}"):
+            raise exceptions.ValidationError({"variables": RUN_VARIABLES_SECRET_MESSAGE}, code=SECRET_REENTRY_CODE)
+
+    def _routes_to_draft(self, status: str) -> bool:
+        if status != HogFlowState.ACTIVE:
+            return False
+        keys = set(self.request.data.keys())
+        if self._is_mcp_request(self.request):
+            # Content edits on an active workflow stage a draft rather than landing live. Status-only
+            # PATCHes (the lifecycle tools) and metadata-only edits apply straight to the live row.
+            return bool(keys - {"status"}) and bool(keys & set(DRAFT_CONTENT_FIELDS))
+        # The web builder opts into the same draft routing per request ("stage_draft" rides the
+        # raw body like "base_updated_at"). Callers that don't send it keep deploy-on-save, so
+        # existing raw-API automation is unaffected.
+        return bool(self.request.data.get("stage_draft")) and bool(keys & set(DRAFT_CONTENT_FIELDS))
+
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)
-        serializer = self.get_serializer(self._edit_state(), data=request.data, partial=partial)
+        state = self._edit_state()
+        serializer = self.get_serializer(state, data=request.data, partial=partial)
+        serializer.context["saves_to_draft"] = self._routes_to_draft(state.status)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
         return Response(serializer.data)
@@ -5959,11 +5974,13 @@ class HogFlowViewSet(
         data: dict,
         enforce_graph_structure: bool = False,
         typed: Optional[dict[str, TypedSecrets]] = None,
+        saves_to_draft: bool = False,
     ) -> dict:
         # Runs inside the write's row lock, against the locked row the service passes in.
         serializer = self.get_serializer(state, data=data, partial=True)
         # The content is built from the stored row, so a secret counts as typed only when the caller says so.
         serializer.context["typed_secrets"] = typed or {}
+        serializer.context["saves_to_draft"] = saves_to_draft
         if enforce_graph_structure:
             # The surgical endpoints are the paths where structural corruption would be newly introduced,
             # so they enforce graph validation as a hard error (unlike the lenient full-save path).
@@ -5985,12 +6002,17 @@ class HogFlowViewSet(
         workflow_ref = self._workflow_ref()
 
         def edit(state: WorkflowEditState, base_actions: list[dict], base_edges: list[dict]) -> dict:
-            new_actions, new_edges = apply_graph_operations(base_actions, base_edges, operations)
+            # A legacy step keeps its secret in plaintext in the stored actions. Masked, it is recovered only by its
+            # own step id, so an operation that renames the step cannot carry it to other content, and an operation
+            # that sends a secret is the only way one counts as typed.
+            masked_actions = mask_secret_action_inputs(deepcopy(base_actions), {}, {})
+            new_actions, new_edges = apply_graph_operations(masked_actions, base_edges, operations)
             return self._validate_locked_content(
                 state,
                 {"actions": new_actions, "edges": new_edges},
                 enforce_graph_structure=True,
-                typed=_typed_by_graph_operations(operations, new_actions),
+                typed=typed_secrets(new_actions),
+                saves_to_draft=self._is_mcp_request(request) and state.status == HogFlowState.ACTIVE,
             )
 
         try:
@@ -6058,7 +6080,12 @@ class HogFlowViewSet(
 
         def edit(state: WorkflowEditState, base_actions: list[dict], base_edges: list[dict]) -> dict:
             new_actions = _apply_action_email_edit(base_actions, action_id, email_patch, rendered)
-            return self._validate_locked_content(state, {"actions": new_actions}, enforce_graph_structure=True)
+            return self._validate_locked_content(
+                state,
+                {"actions": new_actions},
+                enforce_graph_structure=True,
+                saves_to_draft=self._is_mcp_request(request) and state.status == HogFlowState.ACTIVE,
+            )
 
         # Same staleness and draft contract as /graph, but no action-redirect refresh or timing
         # reschedule: an email edit can't delete steps or change timing config.
@@ -6788,13 +6815,34 @@ class HogFlowViewSet(
             # PermissionDenied from the lookup is deliberately not caught, so it surfaces as a 403.
             hog_flow = None
 
+        run_globals = request.data.get("globals") if isinstance(request.data, dict) else None
+        variables_supplied = hog_flow is not None and supplies_variables(
+            run_globals.get("variables") if isinstance(run_globals, dict) else None, hog_flow.variables
+        )
         serializer = HogFlowInvocationSerializer(
-            data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
+            data=request.data,
+            context={
+                **self.get_serializer_context(),
+                "instance": hog_flow,
+                "supplies_variables": variables_supplied,
+            },
         )
         serializer.is_valid(raise_exception=True)
 
         payload = dict(serializer.validated_data)
-        if payload.pop("use_draft", False):
+        template_cache: TemplateCache = {}
+        uses_draft = payload.pop("use_draft", False)
+        if hog_flow is not None and variables_supplied and not uses_draft and "configuration" not in payload:
+            to_type_again = secrets_to_type_again(
+                live_workflow_content(hog_flow),
+                hog_flow,
+                {},
+                live_secrets_only=True,
+                template_cache=template_cache,
+                supplies_variables=True,
+            )
+            require_secret_reentry(self.get_serializer_context(), to_type_again)
+        if uses_draft:
             # The staged draft was validated when written, so it goes to the executor inline exactly
             # like an explicit configuration override — workers never read (or cache) the draft column.
             if payload.get("configuration"):
@@ -6814,14 +6862,19 @@ class HogFlowViewSet(
             # manager (which normally decrypts), so fold the draft's secrets back in before dispatch.
             draft = dict(hog_flow.draft)
             draft_secrets = merge_secret_maps(hog_flow.encrypted_inputs, hog_flow.draft_encrypted_inputs)
+            # A restored version or an approved suggestion stages no secrets, so the live ones would run with the
+            # draft's content. The run gets the check publish makes.
+            to_type_again = secrets_to_type_again(
+                draft_workflow_content(hog_flow),
+                hog_flow,
+                {},
+                live_secrets_only=False,
+                template_cache=template_cache,
+                supplies_variables=variables_supplied,
+            )
+            require_secret_reentry(self.get_serializer_context(), to_type_again)
             if isinstance(draft.get("actions"), list):
-                # A restored version or an approved suggestion stages no secrets, so the live ones would run with the
-                # draft's steps. The run gets the check publish makes.
-                to_type_again = secrets_to_type_again(
-                    draft["actions"], hog_flow, {}, live_secrets_only=False, template_cache={}
-                )
-                require_secret_reentry(self.get_serializer_context(), to_type_again)
-                draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)
+                draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets, template_cache)
             payload["configuration"] = draft
 
         configuration = payload.get("configuration") or {}
@@ -7675,6 +7728,7 @@ class HogFlowViewSet(
             if audience_cohort is not None and not audience_cohort.can_finish:
                 raise exceptions.ValidationError(realtime_cohort_cant_finish_error(audience_cohort))
             self._require_replay_vision_caller_access(request, self._edit_state().actions)
+            self._require_no_variables_for_stored_secrets(serializer.validated_data.get("variables"))
 
             batch_job = create_batch_job(
                 team_id=self.team_id,
@@ -7800,6 +7854,7 @@ class HogFlowViewSet(
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
             self._require_replay_vision_caller_access(request, self._edit_state().actions)
+            self._require_no_variables_for_stored_secrets(serializer.validated_data.get("variables"))
             schedule = create_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, fields=serializer.validated_data)
             self._log_schedule_activity(hog_flow, before=None, after=schedule)
             self._report_workflow_action("hog_flow_schedule_created", hog_flow, {"schedule_id": str(schedule.id)})
@@ -7841,6 +7896,7 @@ class HogFlowViewSet(
         serializer.is_valid(raise_exception=True)
         if "variables" in serializer.validated_data:
             self._require_replay_vision_caller_access(request, self._edit_state().actions)
+            self._require_no_variables_for_stored_secrets(serializer.validated_data["variables"])
         previous = schedule
         schedule = update_schedule(
             team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule.id, fields=serializer.validated_data
@@ -7898,6 +7954,7 @@ class HogFlowViewSet(
         serializer = HogFlowRunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self._require_replay_vision_caller_access(request, self._edit_state().actions)
+        self._require_no_variables_for_stored_secrets(serializer.validated_data["variables"])
 
         variables = cast(dict[str, object], {var.get("key"): var.get("default") for var in hog_flow.variables or []})
         variables.update(serializer.validated_data["variables"])

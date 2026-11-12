@@ -576,7 +576,7 @@ def apply_email_utm_defaults(
             unstage_workflow_proposals(team_id=team_id, hog_flow_id=locked.pk)
         if plan.actions is not None:
             # Stored actions carry no secrets, and a lenient validation would save them without any.
-            actions = rehydrate_flow_secrets(plan.actions, locked.encrypted_inputs or {})
+            actions = rehydrate_flow_secrets(plan.actions, locked.encrypted_inputs or {}, template_cache)
             validated_data = validate_live(to_edit_state(locked), actions)
             bump = _stage_revision_bump(locked, before_update, validated_data, template_cache)
             _save_live(locked, validated_data, template_cache)
