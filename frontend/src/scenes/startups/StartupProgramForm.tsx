@@ -89,7 +89,7 @@ export function StartupProgramForm(): JSX.Element {
                             <LemonField
                                 name="referrer"
                                 label="How did you hear about PostHog for Startups?"
-                                help="For example, a partner perk platform, an accelerator, an investor, or a friend"
+                                help="For example, an investor, a friend, or a Google search?"
                             >
                                 <LemonInput placeholder="Where you found us" className="bg-bg-light" />
                             </LemonField>
