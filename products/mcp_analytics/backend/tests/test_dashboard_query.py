@@ -39,6 +39,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.warehouse_warnings import record_warnings
@@ -48,6 +49,7 @@ from posthog.clickhouse.query_tagging import tag_queries, tags_context
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
+from posthog.models.instance_setting import override_instance_config
 from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWait, QuerySingleFlight
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 
@@ -328,6 +330,35 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         assert list(batch.results) == [section.value for section in sections]
         for section in sections:
             assert self._rows(batch, section) == self._rows(self._run([section]), section), section
+
+    @parameterized.expand(
+        [
+            *(
+                (f"{entry_point}_{name}", entry_point, sections, True)
+                for entry_point in ("run", "calculate")
+                for name, sections in (
+                    ("hogql_section", [MCPDashboardSection.KPIS]),
+                    ("typed_section", [MCPDashboardSection.HARNESS_ROWS]),
+                    ("batch", list(MCPDashboardSection)),
+                )
+            ),
+            ("unshared_typed_section", "run", [MCPDashboardSection.HARNESS_ROWS], False),
+        ]
+    )
+    def test_a_query_builds_one_database_for_all_its_sections(
+        self, _name: str, entry_point: str, sections: list[MCPDashboardSection], shared: bool
+    ) -> None:
+        self._seed()
+        create_for = Database.create_for
+        runner = self._runner(sections)
+
+        with (
+            override_instance_config("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", shared),
+            patch.object(Database, "create_for", side_effect=create_for) as build,
+        ):
+            self._run(sections, runner) if entry_point == "run" else runner.calculate()
+
+        assert build.call_count == 1
 
     def test_a_failed_section_leaves_the_others_and_stays_uncached(self) -> None:
         self._seed()

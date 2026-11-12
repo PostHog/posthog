@@ -1,4 +1,4 @@
-import { BindLogic } from 'kea'
+import { BindLogic, useActions } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
@@ -35,6 +35,7 @@ import {
     RecommendationSection,
     RecommendationTotal,
 } from './recommendations'
+import { recommendationsLogic } from './recommendationsLogic'
 import { RecommendationSteps } from './RecommendationSteps'
 
 const DIRECTION_TAG: Record<MarketingAnalyticsRecommendation['impactDirection'], LemonTagType> = {
@@ -80,8 +81,12 @@ function rowKey(row: MarketingAnalyticsRecommendation, index: number): string {
 }
 
 function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[] }): JSX.Element {
+    const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
     const [expanded, setExpanded] = useState<Set<string>>(new Set())
-    const toggle = (key: string): void =>
+    const toggle = (key: string, rule: MarketingAnalyticsRecommendation['rule']): void => {
+        if (!expanded.has(key)) {
+            reportRecommendationsActionClicked('view_instructions', 'instructions', rule)
+        }
         setExpanded((current) => {
             const next = new Set(current)
             if (!next.delete(key)) {
@@ -89,13 +94,14 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
             }
             return next
         })
+    }
     return (
         <LemonTable<MarketingAnalyticsRecommendation>
             size="small"
             dataSource={rows}
             rowKey={rowKey}
             expandable={{
-                expandedRowRender: (row) => <RecommendationSteps steps={row.steps ?? []} />,
+                expandedRowRender: (row) => <RecommendationSteps steps={row.steps ?? []} rule={row.rule} />,
                 rowExpandable: (row) => (row.steps?.length ? 1 : 0),
                 isRowExpanded: (row, index) => expanded.has(rowKey(row, index)),
                 showRowExpansionToggle: false,
@@ -128,7 +134,7 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
                                         type="tertiary"
                                         className="-ml-1 mt-0.5"
                                         sideIcon={expanded.has(key) ? <IconChevronDown /> : <IconChevronRight />}
-                                        onClick={() => toggle(key)}
+                                        onClick={() => toggle(key, row.rule)}
                                         data-attr="marketing-recommendations-view-instructions"
                                     >
                                         {expanded.has(key) ? 'Hide instructions' : 'View instructions'}
@@ -182,15 +188,16 @@ export function RecommendationsModal({
     totals: RecommendationTotal[]
     sections: RecommendationSection[]
     selectedGroup: RecommendationGroup | undefined
-    onSelect: (rule: string) => void
+    onSelect: (group: RecommendationGroup) => void
     dataNodeProps: DataNodeLogicProps
     dataGaps: RecommendationDataGap[]
     disclaimer: string | undefined
 }): JSX.Element {
+    const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
     const navRef = useRef<HTMLElement>(null)
     const detailRef = useRef<HTMLElement>(null)
-    const selectRule = (rule: string): void => {
-        onSelect(rule)
+    const selectGroup = (group: RecommendationGroup): void => {
+        onSelect(group)
         // In a narrow modal the rule list sits above the table, so the table has to come into view.
         if ((detailRef.current?.offsetTop ?? 0) > (navRef.current?.offsetTop ?? 0) + 8) {
             requestAnimationFrame(() => detailRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
@@ -210,6 +217,7 @@ export function RecommendationsModal({
                                 <RecommendationDataGapButton
                                     gaps={dataGaps}
                                     dataAttr="marketing-recommendations-modal-data-gaps"
+                                    location="modal_data_gaps"
                                 />
                             )}
                             <ElapsedTime />
@@ -250,7 +258,7 @@ export function RecommendationsModal({
                                         size="small"
                                         fullWidth
                                         active={group.rule === selectedGroup?.rule}
-                                        onClick={() => selectRule(group.rule)}
+                                        onClick={() => selectGroup(group)}
                                         sideIcon={
                                             <LemonBadge.Number
                                                 count={group.recommendations.length}
@@ -292,6 +300,12 @@ export function RecommendationsModal({
                                             children: 'Manage source',
                                             to: urls.dataWarehouseSource(`managed-${gap.sourceId}`),
                                             'data-attr': 'marketing-recommendations-rule-data-gap-manage-source',
+                                            onClick: () =>
+                                                reportRecommendationsActionClicked(
+                                                    'manage_source',
+                                                    'rule_banner',
+                                                    selectedGroup.rule
+                                                ),
                                         }}
                                     >
                                         <div className="font-semibold">{gap.sourceName}</div>

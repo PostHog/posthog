@@ -182,21 +182,21 @@ export function InboxUsageWidget(): JSX.Element | null {
         return (
             <>
                 {trialEnabled && trial?.enabled && paidContinuation && <SelfDrivingTrialUsage />}
-                <div className="flex flex-col gap-2">
-                    <span className="text-[13px] font-semibold">AI credits used</span>
+                <div className="flex flex-col items-start gap-2">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <span className="text-[13px] font-semibold">AI credits used</span>
+                        {quotaLimited && <LemonTag type="warning">Spending limit reached</LemonTag>}
+                    </div>
                     {spendCredits != null && (
                         <span className="text-xs tabular-nums" translate="no">
                             {formatCredits(spendCredits)}
                         </span>
                     )}
                     {quotaLimited && (
-                        <>
-                            <LemonTag type="warning">Spending limit reached</LemonTag>
-                            <span className="text-xs text-secondary">
-                                New work is paused. Work already underway will finish.
-                                {!canAccessBilling && ' Ask an organization admin to change the limit.'}
-                            </span>
-                        </>
+                        <span className="text-xs text-secondary">
+                            New work is paused. Work already underway will finish.
+                            {!canAccessBilling && ' Ask an organization admin to change the limit.'}
+                        </span>
                     )}
                     {canAccessBilling && (
                         <LemonButton size="small" type="secondary" to={urls.organizationBilling()}>

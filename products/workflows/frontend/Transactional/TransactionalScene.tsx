@@ -8,7 +8,6 @@ import { Button } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -18,13 +17,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
-import { MessagingSetup } from '../MessagingSetup'
 import { MessagingTabActions } from '../MessagingTabActions'
-import { MESSAGING_TAB_CONTENT, isMessagingSetupTab } from '../messagingTabs'
-import { TransactionalEmailLog } from './log/TransactionalEmailLog'
-import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
-import { TransactionalEmailsTable } from './TransactionalEmailsTable'
-import { TransactionalRoute, TransactionalTab, transactionalRouteFor } from './transactionalRoute'
+import { TransactionalRoute, transactionalRouteFor } from './transactionalRoute'
+import { TransactionalTabs } from './TransactionalTabs'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
 
 export const scene: SceneExport = {
@@ -35,13 +30,12 @@ export const scene: SceneExport = {
 export function TransactionalScene(): JSX.Element {
     const { location } = useValues(router)
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const showWebhooks = useFeatureFlag('WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS')
     // Leaving for another scene changes the URL before that scene has loaded, so this one keeps showing its last view.
     const route = transactionalRouteFor(location.pathname)
     const lastRoute = useRef<TransactionalRoute>(route ?? 'transactional')
     lastRoute.current = route ?? lastRoute.current
-    const currentTab = lastRoute.current
-    const isTransactionalTab = currentTab === 'transactional' || currentTab === 'log' || currentTab === 'metrics'
+    const currentTab = lastRoute.current === 'webhooks' && !showWebhooks ? 'transactional' : lastRoute.current
 
     if (!showTransactional) {
         return <NotFound object="page" />
@@ -57,78 +51,45 @@ export function TransactionalScene(): JSX.Element {
                 name="Transactional"
                 description="Send emails from your code with one API call"
                 resourceType={{ type: 'transactional' }}
-                actions={
-                    isTransactionalTab ? (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Workflow}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            {todayRailNav ? (
-                                <Button
-                                    data-attr="new-transactional-email"
-                                    onClick={() => router.actions.push(urls.transactionalNew())}
-                                    variant="primary"
-                                >
-                                    New transactional email
-                                </Button>
-                            ) : (
-                                <LemonButton
-                                    data-attr="new-transactional-email"
-                                    to={urls.transactionalNew()}
-                                    type="primary"
-                                    size="small"
-                                >
-                                    New transactional email
-                                </LemonButton>
-                            )}
-                        </AccessControlAction>
-                    ) : (
-                        <MessagingTabActions tab={currentTab} channelsUrl={urls.transactional('channels')} />
-                    )
-                }
+                actions={<TransactionalSceneActions tab={currentTab} />}
             />
             <EmailSuspensionBanner />
-            <LemonTabs<TransactionalTab | 'library' | 'messaging-setup'>
-                activeKey={isTransactionalTab || currentTab === 'library' ? currentTab : 'messaging-setup'}
-                tabs={[
-                    {
-                        label: 'Transactional emails',
-                        key: 'transactional',
-                        link: urls.transactional(),
-                        content: <TransactionalEmailsTable />,
-                    },
-                    {
-                        label: 'Log',
-                        key: 'log',
-                        link: urls.transactionalLog(),
-                        content: <TransactionalEmailLog />,
-                    },
-                    {
-                        label: 'Metrics',
-                        key: 'metrics',
-                        link: urls.transactionalMetrics(),
-                        content: <TransactionalEmailMetrics />,
-                    },
-                    {
-                        label: 'Templates',
-                        key: 'library',
-                        link: urls.transactional('library'),
-                        content: MESSAGING_TAB_CONTENT.library,
-                    },
-                    {
-                        label: 'Messaging',
-                        key: 'messaging-setup',
-                        link: urls.transactional('channels'),
-                        content: (
-                            <MessagingSetup
-                                tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
-                                linkFor={(tab) => urls.transactional(tab)}
-                            />
-                        ),
-                    },
-                ]}
-                sceneInset
-            />
+            <TransactionalTabs currentTab={currentTab} showWebhooks={showWebhooks} />
         </SceneContent>
+    )
+}
+
+function TransactionalSceneActions({ tab }: { tab: Exclude<TransactionalRoute, 'new'> }): JSX.Element | null {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (tab === 'webhooks') {
+        return null
+    }
+    if (tab !== 'transactional' && tab !== 'log' && tab !== 'metrics') {
+        return <MessagingTabActions tab={tab} channelsUrl={urls.transactional('channels')} />
+    }
+    return (
+        <AccessControlAction
+            resourceType={AccessControlResourceType.Workflow}
+            minAccessLevel={AccessControlLevel.Editor}
+        >
+            {todayRailNav ? (
+                <Button
+                    data-attr="new-transactional-email"
+                    onClick={() => router.actions.push(urls.transactionalNew())}
+                    variant="primary"
+                >
+                    New transactional email
+                </Button>
+            ) : (
+                <LemonButton
+                    data-attr="new-transactional-email"
+                    to={urls.transactionalNew()}
+                    type="primary"
+                    size="small"
+                >
+                    New transactional email
+                </LemonButton>
+            )}
+        </AccessControlAction>
     )
 }

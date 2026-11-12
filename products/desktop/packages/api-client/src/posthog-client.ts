@@ -6151,6 +6151,36 @@ export class PostHogAPIClient {
   }
 
   /**
+   * Take over the claim another person holds on a report. `claimId` names the
+   * claim the user confirmed, so the server refuses when a newer claim replaced
+   * it, and it notifies the person who held it.
+   */
+  async takeOverSignalReportClaim(
+    reportId: string,
+    claimId: string | null,
+  ): Promise<SignalReport> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/claim/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: {
+        body: JSON.stringify(
+          claimId
+            ? { takeover: true, takeover_claim_id: claimId }
+            : { takeover: true },
+        ),
+      },
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || "Failed to take over the report");
+    }
+    return (await response.json()) as SignalReport;
+  }
+
+  /**
    * Refund a report's billed PR. The server freezes the billing path, archives
    * the report, and kicks off the billing credit when one is due; it also
    * enforces eligibility, so callers only gate for display.

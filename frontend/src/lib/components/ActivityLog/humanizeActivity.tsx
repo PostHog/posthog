@@ -243,6 +243,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
     [ActivityScope.CANVAS]: { singular: 'Canvas', plural: 'Canvases' },
+    [ActivityScope.PLATFORM_ALERT_CONFIGURATION]: { singular: 'Platform alert', plural: 'Platform alerts' },
     [ActivityScope.WORKLOAD_TRUST_POLICY]: { singular: 'Trusted workload', plural: 'Trusted workloads' },
     [ActivityScope.WORKLOAD_TRUST_POLICY_REQUEST]: {
         singular: 'Trusted workload request',

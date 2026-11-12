@@ -408,7 +408,8 @@ class TestNotebookRunEndpoints(APIBaseTest):
 
         mock_dispatch.assert_not_called()
 
-    def test_interrupt_stops_the_run_and_is_idempotent(self, _start) -> None:
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_interrupt_stops_the_run_and_is_idempotent(self, mock_report, _start) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
 
         first = self.client.post(f"{self.runs_url}{run_id}/interrupt/")
@@ -416,6 +417,12 @@ class TestNotebookRunEndpoints(APIBaseTest):
 
         assert first.json() == {"interrupted": True, "status": "interrupted"}
         assert second.json() == {"interrupted": False, "status": "interrupted"}
+        mock_report.assert_called_once()
+        event, properties = mock_report.call_args.args
+        assert event == "notebook run completed"
+        assert properties["$update_person_last_seen_at"] is False
+        assert properties["outcome"] == "interrupted"
+        assert mock_report.call_args.kwargs["user"] == self.user
 
     @parameterized.expand(
         [

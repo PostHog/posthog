@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import {
@@ -176,6 +177,9 @@ export class IngestionApiServer implements NodeServer {
     // Kafka consumer's contract of crashing and rebuilding rather than serving
     // a wedged pipeline forever.
     private fatalError?: Error
+    // Set when a sub-batch is stuck: readiness fails so consumers stop routing
+    // here, while liveness passes so the drain is not cut short by a restart.
+    private stuckError?: Error
 
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
         this.config = {
@@ -251,7 +255,10 @@ export class IngestionApiServer implements NodeServer {
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub,
+            new PostgresIntegrationSource(this.postgres, encryptedFields)
+        )
 
         // 3. Ingestion-specific services
         logger.info('🤔', 'Connecting to cookieless Redis...')
@@ -313,6 +320,7 @@ export class IngestionApiServer implements NodeServer {
             overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                localCacheMaxSize: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE,
                 strategies: createAnalyticsOverflowStrategies({
                     eventBucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                     eventReplenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
@@ -499,18 +507,19 @@ export class IngestionApiServer implements NodeServer {
                 sessionIdleTimeoutMs: this.config.INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS,
                 readMaxBytes: this.config.INGESTION_API_GRPC_READ_MAX_BYTES,
                 drainTimeoutMs: this.config.INGESTION_API_GRPC_DRAIN_TIMEOUT_MS,
+                stuckBatchTimeoutMs: this.config.INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS,
+                stuckDrainTimeoutMs: this.config.INGESTION_API_GRPC_STUCK_DRAIN_TIMEOUT_MS,
             },
             {
                 driver: new GrpcStreamIngestDriver(grpcPipeline, this.promiseScheduler),
                 feedOrderSentinel: this.feedOrderSentinel,
-                onFatal: (error) => {
-                    // A poisoned pipeline is rebuilt by the supervisor, not
-                    // served: latch unhealthy and shut down once.
-                    if (!this.fatalError) {
-                        this.fatalError = error
-                        void this.stop(error)
-                    }
+                // A poisoned pipeline is rebuilt by the supervisor, not
+                // served: latch unhealthy and shut down once.
+                onFatal: (error) => this.crash(error),
+                onStuck: (error) => {
+                    this.stuckError = error
                 },
+                onStuckDrained: (error) => this.crash(error),
             }
         )
         await this.grpcServer.start()
@@ -530,6 +539,7 @@ export class IngestionApiServer implements NodeServer {
                 }
             },
             healthcheck: () => this.isHealthy(),
+            readinessCheck: () => this.isReady(),
         }
         this.lifecycle.services.push(service)
     }
@@ -538,6 +548,29 @@ export class IngestionApiServer implements NodeServer {
         // TODO: add output producer health checks
         if (this.fatalError) {
             return new HealthCheckResultError('Ingestion pipeline crashed', { error: this.fatalError.message })
+        }
+        return new HealthCheckResultOk()
+    }
+
+    private crash(error: Error): void {
+        if (this.fatalError) {
+            return
+        }
+        this.fatalError = error
+        if (this.stuckError) {
+            setTimeout(() => {
+                logger.error('🧊', 'Stuck-batch shutdown cleanup timed out, exiting')
+                process.exit(1)
+            }, this.config.INGESTION_API_GRPC_STUCK_CLEANUP_TIMEOUT_MS)
+        }
+        void this.stop(error)
+    }
+
+    private isReady(): HealthCheckResult {
+        if (this.stuckError) {
+            return new HealthCheckResultError('Sub-batch stuck, draining before exit', {
+                error: this.stuckError.message,
+            })
         }
         return new HealthCheckResultOk()
     }

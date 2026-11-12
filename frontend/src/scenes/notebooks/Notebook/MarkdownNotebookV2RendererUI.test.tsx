@@ -53,7 +53,7 @@ describe('MarkdownNotebookV2Renderer UI', () => {
     beforeEach(async () => {
         localStorage.clear()
         initKeaTests()
-        jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
 
         const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
         logic = notebookLogic(logicProps)

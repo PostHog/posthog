@@ -13,14 +13,15 @@ import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { workflowStepDispatchKeyFromInvocation } from '~/cdp/utils/workflow-step-dispatch-key'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
-import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
-import { HogExecutorAsyncService } from '../../hog-executor-async.service'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, DBHogFunctionTemplate } from '../../../types'
+import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
@@ -94,7 +95,7 @@ describe('HogFunctionHandler', () => {
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
             null,
-            { report: jest.fn() }
+            { report: jest.fn(), reportEmailSent: jest.fn() }
         )
         mockHogFunctionExecutor = new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
@@ -639,6 +640,27 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.metrics).toMatchObject([{ metric_name: 'message_frequency_capped', count: 1 }])
     })
 
+    it('should not drop a held send that the email queue delays past the hold deadline', async () => {
+        ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({ capped: false })
+        invocation.state.currentAction!.frequencyCapHoldDeadlineAt = DateTime.now().minus({ hours: 1 }).toISO()!
+        invocation.state.currentAction!.hogFunctionState = {
+            globals: { ...createExampleHogFlowInvocation(invocation.hogFlow).state.event, inputs: {} } as any,
+            timings: [],
+            attempts: 0,
+        } as any
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'email',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(mockRecipientPreferencesService.checkFrequencyCap).toHaveBeenCalledTimes(1)
+        expect(invocationResult.metrics).not.toContainEqual(
+            expect.objectContaining({ metric_name: 'message_frequency_capped' })
+        )
+    })
+
     it('should skip, not hold, a capped send that resumes on the email queue', async () => {
         // A hold here would drop the pending send that the email queue continuation carries.
         ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({
@@ -799,6 +821,62 @@ describe('HogFunctionHandler', () => {
         )
     })
 
+    const useEmailStep = async (): Promise<void> => {
+        const senderId = uniqueTestId()
+        await insertIntegration(hub.postgres, team.id, {
+            id: senderId,
+            kind: 'email',
+            config: {
+                email: 'sender@posthog.com',
+                name: 'Sender',
+                domain: 'posthog.com',
+                verified: true,
+                provider: 'maildev',
+            },
+        })
+        const emailTemplate = await insertHogFunctionTemplate(hub.postgres, {
+            id: `template-test-hogflow-send-email-${team.id}`,
+            name: 'Test Send Email Template',
+            code: `sendEmail(inputs.email)`,
+            inputs_schema: [{ key: 'email', type: 'native_email', integration: 'email', required: true }],
+        })
+        action.config.template_id = emailTemplate.template_id
+        action.config.inputs = {
+            email: {
+                value: {
+                    to: { email: 'person@example.com', name: 'Person' },
+                    from: { integrationId: senderId },
+                    subject: 'Subject',
+                    text: 'Text',
+                    html: 'HTML',
+                },
+            },
+        }
+    }
+
+    const executeStep = async (
+        handler: HogFunctionHandler,
+        flowInvocation: CyclotronJobInvocationHogFlow,
+        hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> => {
+        let current = flowInvocation
+        const metrics: CyclotronJobInvocationResult['metrics'] = []
+        for (;;) {
+            const result = createInvocationResult<CyclotronJobInvocationHogFlow>(current, {
+                queue: current.queue,
+                queuePriority: current.queuePriority,
+                queueParameters: current.queueParameters,
+                queueMetadata: current.queueMetadata,
+            })
+            const handlerResult = await handler.execute({ invocation: current, action, result, hogExecutorOptions })
+            metrics.push(...result.metrics)
+            if (!handlerResult.scheduledAt || result.invocation.queue === current.queue) {
+                return { ...result, metrics }
+            }
+            current = result.invocation
+        }
+    }
+
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
     // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
     // carrying the handler's billing type — never fall back to another channel's kind.
@@ -820,9 +898,14 @@ describe('HogFunctionHandler', () => {
     )(
         'emits $billingType metrics and only excludes mocked usage in $mode mode',
         async ({ billingType, usageKey, isTest, mockFunctions }) => {
-            const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
-                reportBillableInvocation: jest.fn(),
-            }
+            const ingested: UsageRecordInput[] = []
+            const usageIngestion = {
+                ingest: (records: UsageRecordInput[]) => {
+                    ingested.push(...records)
+                    return Promise.resolve()
+                },
+            } as unknown as UsageIngestionClient
+            const usageReporter = new CdpUsageReporterService(usageIngestion, () => true)
             const handler = new HogFunctionHandler(
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,
@@ -831,28 +914,30 @@ describe('HogFunctionHandler', () => {
                 null,
                 usageReporter
             )
+            if (billingType === 'email') {
+                await useEmailStep()
+            }
 
-            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-                queue: 'hog',
-                queuePriority: 0,
+            const invocationResult = await executeStep(handler, invocation, {
+                isTest,
+                ...(mockFunctions
+                    ? {
+                          asyncFunctionsNames: [],
+                          functions: { fetch: () => ({ status: 200, body: {} }), sendEmail: () => ({ success: true }) },
+                      }
+                    : {}),
             })
 
-            await handler.execute({
-                invocation,
-                action,
-                result: invocationResult,
-                hogExecutorOptions: {
-                    isTest,
-                    ...(mockFunctions
-                        ? { asyncFunctionsNames: [], functions: { fetch: () => ({ status: 200, body: {} }) } }
-                        : {}),
-                },
-            })
-
+            await usageReporter.flush()
             const billableMetrics = invocationResult.metrics.filter(
                 (metric) => metric.metric_name === 'billable_invocation'
             )
 
+            if (billingType === 'email' && mockFunctions) {
+                expect(billableMetrics).toEqual([])
+                expect(ingested).toEqual([])
+                return
+            }
             expect(billableMetrics).toHaveLength(1)
 
             expect(billableMetrics[0]).toMatchObject({
@@ -863,14 +948,15 @@ describe('HogFunctionHandler', () => {
                 metric_name: 'billable_invocation',
                 count: 1,
             })
-            if (isTest && mockFunctions) {
-                expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
-            } else {
-                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(billingType === 'push' ? 2 : 1)
-                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
-                    expect.objectContaining({ teamId: team.id, usageKey })
-                )
-            }
+            const expectedUsageKeys =
+                isTest && mockFunctions
+                    ? []
+                    : billingType === 'push'
+                      ? [usageKey, 'workflow_billable_invocations']
+                      : [usageKey]
+            expect(ingested.map((record) => ({ teamId: record.teamId, usageKey: record.usageKey }))).toEqual(
+                expectedUsageKeys.map((key) => ({ teamId: team.id, usageKey: key }))
+            )
         }
     )
 
@@ -946,6 +1032,9 @@ describe('HogFunctionHandler', () => {
                 billingType,
                 null
             )
+            if (billingType === 'email') {
+                await useEmailStep()
+            }
             // The run entered on v1; v3 is what is live now and what this step executes under.
             const republished = {
                 ...invocation,
@@ -960,12 +1049,7 @@ describe('HogFunctionHandler', () => {
                 }
             )
 
-            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(republished, {
-                queue: 'hog',
-                queuePriority: 0,
-            })
-
-            await handler.execute({ invocation: republished, action, result: invocationResult })
+            const invocationResult = await executeStep(handler, republished)
 
             expect(invocationResult.invocation.state.flowVersion).toBe(expected)
             expect(

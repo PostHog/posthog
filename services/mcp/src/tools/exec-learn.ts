@@ -2,6 +2,8 @@ import type { ProjectSkillCatalog, ProjectSkillList } from '@/skills/project-ski
 import {
     fitLearnOutput,
     formatLearnSearchResults,
+    learnCommands,
+    LearnLookupError,
     type LearnSearchResult,
     MAX_GLOBAL_SKILLS,
     type SkillCatalog,
@@ -29,17 +31,21 @@ export class SkillsUnavailableError extends Error {
     }
 }
 
-const SKILL_COMMANDS = [
-    'learn skills',
-    'learn -s "<up to 8 keywords>"',
-    'learn -d <source>:<skill> [...]',
-    'learn posthog:<skill> [path]',
-    'learn project:<skill> [path]',
-    'learn <source>:<skill> <path> [path...]',
-    'learn <source>:<skill> [<source>:<skill>...]',
-    'learn <source>:<skill> <path> -s "<up to 8 keywords>"',
-    'learn <source>:<skill> <path> --lines <start>:<end>',
+const SKILL_COMMAND_ARGUMENTS = [
+    'skills',
+    '-s "<up to 8 keywords>"',
+    '-d <source>:<skill> [...]',
+    'posthog:<skill> [path]',
+    'project:<skill> [path]',
+    '<source>:<skill> <path> [path...]',
+    '<source>:<skill> [<source>:<skill>...]',
+    '<source>:<skill> <path> -s "<up to 8 keywords>"',
+    '<source>:<skill> <path> --lines <start>:<end>',
 ] as const
+
+export function learnSkillCommands(command = 'learn'): string[] {
+    return SKILL_COMMAND_ARGUMENTS.map((args) => `${command} ${args}`)
+}
 const MAX_SEARCH_QUERY_LENGTH = 200
 const POSTHOG_SKILL_LIST_LIMIT = 300
 // Bounds on batch fan-out to keep worst-case project-side API calls per command in check.
@@ -49,8 +55,9 @@ const MAX_BATCH_READS = 10
 const ZERO_HIT_INLINE_LIMIT = 25
 export const QUALIFIED_IDENTIFIER = /^(posthog|project):/
 // A path that itself starts with `posthog:`/`project:` parses as a multi-skill read, not a file read.
-const SKILL_READ_USAGE =
-    'Usage: learn <source>:<skill> [path...], learn <source>:<skill> <path> -s <query>, or learn <source>:<skill> <path> --lines <start>:<end>. Reads with several qualified names load several skills.'
+function skillReadUsage(command: string): string {
+    return `Usage: ${command} <source>:<skill> [path...], ${command} <source>:<skill> <path> -s <query>, or ${command} <source>:<skill> <path> --lines <start>:<end>. Reads with several qualified names load several skills.`
+}
 
 type SkillSource = 'posthog' | 'project'
 
@@ -81,7 +88,8 @@ export class ExecLearnCatalog {
     constructor(
         guides: readonly ExecLearnGuide[],
         private readonly skillSources?: ExecLearnSkillSources,
-        private readonly onSkillInvoked?: (invocation: SkillInvocation) => void
+        private readonly onSkillInvoked?: (invocation: SkillInvocation) => void,
+        private readonly command = 'learn'
     ) {
         this.guidesById = new Map()
         for (const guide of guides) {
@@ -105,7 +113,7 @@ export class ExecLearnCatalog {
                 result.skills = {
                     posthogAvailable: this.skillSources.posthog !== undefined,
                     projectAvailable: this.skillSources.project !== undefined,
-                    commands: SKILL_COMMANDS,
+                    commands: learnSkillCommands(this.command),
                 }
             }
             return JSON.stringify(result)
@@ -127,7 +135,7 @@ export class ExecLearnCatalog {
 
         if (tokens[0] === '-s') {
             const query = tokens.slice(1).join(' ')
-            this.validateSearchQuery(query, 'learn -s "<task keywords>"')
+            this.validateSearchQuery(query, `${this.command} -s "<task keywords>"`)
             return await this.searchSkills(query)
         }
 
@@ -145,7 +153,7 @@ export class ExecLearnCatalog {
         }
 
         const [identifier, ...args] = tokens
-        const skill = parseQualifiedSkill(identifier!)
+        const skill = parseQualifiedSkill(identifier!, this.command)
         if (args.length === 0) {
             return await this.readSkill(skill)
         }
@@ -153,7 +161,7 @@ export class ExecLearnCatalog {
         const paths = flagIndex === -1 ? args : args.slice(0, flagIndex)
         if (paths.includes('--file')) {
             throw new Error(
-                '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.'
+                `\`${this.command}\` does not support --file. Pass the file path directly: \`${this.command} <source>:<skill> <path>\`.`
             )
         }
 
@@ -165,31 +173,31 @@ export class ExecLearnCatalog {
         }
 
         if (paths.length !== 1) {
-            throw new Error(SKILL_READ_USAGE)
+            throw new Error(skillReadUsage(this.command))
         }
         const path = paths[0]!
         const flag = args[flagIndex]
         const flagArgs = args.slice(flagIndex + 1)
         if (flag === '-s') {
             const query = flagArgs.join(' ')
-            this.validateSearchQuery(query, 'learn <source>:<skill> <path> -s "<keywords>"')
+            this.validateSearchQuery(query, `${this.command} <source>:<skill> <path> -s "<keywords>"`)
             return await this.searchSkillFile(skill, path, query)
         }
         if (flag === '--lines' && flagArgs.length === 1) {
             const range = flagArgs[0]!.match(/^(\d+):(\d+)$/)
             if (!range) {
-                throw new Error('Usage: learn <source>:<skill> <path> --lines <start>:<end>')
+                throw new Error(`Usage: ${this.command} <source>:<skill> <path> --lines <start>:<end>`)
             }
             return await this.readSkillLines(skill, path, Number(range[1]), Number(range[2]))
         }
-        throw new Error(SKILL_READ_USAGE)
+        throw new Error(skillReadUsage(this.command))
     }
 
     private async batchReadSkills(identifiers: string[]): Promise<string> {
         if (identifiers.length > MAX_BATCH_READS) {
-            throw new Error(`learn reads at most ${MAX_BATCH_READS} skills at once. Split the batch.`)
+            throw new Error(`${this.command} reads at most ${MAX_BATCH_READS} skills at once. Split the batch.`)
         }
-        const skills = identifiers.map((identifier) => parseQualifiedSkill(identifier))
+        const skills = identifiers.map((identifier) => parseQualifiedSkill(identifier, this.command))
         // Fetch all before reporting any: a mid-batch failure rejects the whole
         // command, so no already-read sibling should fire an invocation.
         const reads = await Promise.all(skills.map((skill) => this.readSkillContent(skill)))
@@ -201,7 +209,7 @@ export class ExecLearnCatalog {
 
     private async batchReadFiles(skill: QualifiedSkill, paths: string[]): Promise<string> {
         if (paths.length > MAX_BATCH_READS) {
-            throw new Error(`learn reads at most ${MAX_BATCH_READS} files at once. Split the batch.`)
+            throw new Error(`${this.command} reads at most ${MAX_BATCH_READS} files at once. Split the batch.`)
         }
         // See batchReadSkills: report only after every read resolves.
         const reads = await Promise.all(paths.map((path) => this.readSkillContent(skill, path)))
@@ -213,10 +221,12 @@ export class ExecLearnCatalog {
 
     private async describeSkills(identifiers: string[]): Promise<string> {
         if (identifiers.length === 0) {
-            throw new Error('Usage: learn -d <source>:<skill> [<source>:<skill>...]')
+            throw new Error(`Usage: ${this.command} -d <source>:<skill> [<source>:<skill>...]`)
         }
         if (identifiers.length > MAX_DESCRIBE_SKILLS) {
-            throw new Error(`learn -d describes at most ${MAX_DESCRIBE_SKILLS} skills at once. Split the batch.`)
+            throw new Error(
+                `${this.command} -d describes at most ${MAX_DESCRIBE_SKILLS} skills at once. Split the batch.`
+            )
         }
 
         const parsed = identifiers.map((identifier) => ({ identifier, skill: tryParseQualifiedSkill(identifier) }))
@@ -370,7 +380,7 @@ export class ExecLearnCatalog {
         return (
             `${header}\n\n` +
             `${counts} — ` +
-            'run `learn skills` to list names, or `learn -d <source>:<skill>` to describe specific ones.'
+            `run \`${this.command} skills\` to list names, or \`${this.command} -d <source>:<skill>\` to describe specific ones.`
         )
     }
 
@@ -389,7 +399,7 @@ export class ExecLearnCatalog {
     ): Promise<{ content: string; invocation: SkillInvocation }> {
         const content =
             skill.source === 'posthog'
-                ? this.requirePostHogSkills().read(skill.name, path, skill.identifier)
+                ? this.requirePostHogSkills().read(skill.name, path, skill.identifier, learnCommands(this.command))
                 : await this.requireProjectSkills().read(skill.name, path)
         return {
             content,
@@ -400,7 +410,13 @@ export class ExecLearnCatalog {
     private async searchSkillFile(skill: QualifiedSkill, path: string, query: string): Promise<string> {
         const content =
             skill.source === 'posthog'
-                ? this.requirePostHogSkills().searchFile(skill.name, path, query, skill.identifier)
+                ? this.requirePostHogSkills().searchFile(
+                      skill.name,
+                      path,
+                      query,
+                      skill.identifier,
+                      learnCommands(this.command)
+                  )
                 : await this.requireProjectSkills().searchFile(skill.name, path, query)
         this.reportInvocation({ source: skill.source, skill: skill.name, path, readKind: 'file_search' })
         return content
@@ -409,7 +425,14 @@ export class ExecLearnCatalog {
     private async readSkillLines(skill: QualifiedSkill, path: string, start: number, end: number): Promise<string> {
         const content =
             skill.source === 'posthog'
-                ? this.requirePostHogSkills().readLines(skill.name, path, start, end, skill.identifier)
+                ? this.requirePostHogSkills().readLines(
+                      skill.name,
+                      path,
+                      start,
+                      end,
+                      skill.identifier,
+                      learnCommands(this.command)
+                  )
                 : await this.requireProjectSkills().readLines(skill.name, path, start, end)
         this.reportInvocation({ source: skill.source, skill: skill.name, path, readKind: 'file_lines' })
         return content
@@ -447,10 +470,12 @@ export class ExecLearnCatalog {
                 .join(', ')
             const unknown = unknownGuideIds.map((guideId) => `"${guideId}"`).join(', ')
             const availableHint = available ? ` Available: ${available}.` : ''
+            const command = this.command
             const recovery = this.skillSources
-                ? ' To load a skill, run `learn -s "<task keywords>"`, then `learn posthog:<skill>` or `learn project:<skill>` using the exact qualified name from the results.'
-                : ' Run `learn` to list available topics.'
-            throw new Error(
+                ? ` To load a skill, run \`${command} -s "<task keywords>"\`, then \`${command} posthog:<skill>\` or \`${command} project:<skill>\` using the exact qualified name from the results.`
+                : ` Run \`${command}\` to list available topics.`
+            throw new LearnLookupError(
+                'unknown_topic',
                 `Unknown learning ${unknownGuideIds.length === 1 ? 'topic' : 'topics'}: ${unknown}.${availableHint}${recovery}`
             )
         }
@@ -483,16 +508,17 @@ export class ExecLearnCatalog {
     }
 }
 
-function parseQualifiedSkill(identifier: string): QualifiedSkill {
+function parseQualifiedSkill(identifier: string, command: string): QualifiedSkill {
     const skill = tryParseQualifiedSkill(identifier)
     if (!skill) {
-        throw new Error(
-            `Unknown guide or unqualified skill: "${identifier}". Use \`learn posthog:<skill>\` or \`learn project:<skill>\`.`
+        throw new LearnLookupError(
+            'unknown_topic',
+            `Unknown guide or unqualified skill: "${identifier}". Use \`${command} posthog:<skill>\` or \`${command} project:<skill>\`.`
         )
     }
     if (skill.name.includes('/')) {
         throw new Error(
-            `Invalid skill identifier: "${identifier}". Separate the skill name and file path with a space: \`learn <source>:<skill> <path>\`.`
+            `Invalid skill identifier: "${identifier}". Separate the skill name and file path with a space: \`${command} <source>:<skill> <path>\`.`
         )
     }
     return skill

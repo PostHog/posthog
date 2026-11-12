@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
@@ -8,17 +9,21 @@ import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
+import { QUEUE_DEPTH_SQL } from './due-rows-sql'
+import { JobRow, withReschedule } from './job-codec'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
     CyclotronV2CancelJobsResult,
+    CyclotronV2CancelUnclaimedResult,
     CyclotronV2InFlightCounts,
     CyclotronV2JobInit,
     CyclotronV2JobInitSchema,
     CyclotronV2ManagerConfig,
     CyclotronV2RescheduleParkedOptions,
     CyclotronV2RescheduleParkedResult,
+    CyclotronV2RescheduleUnclaimedResult,
 } from './types'
 
 /**
@@ -34,52 +39,106 @@ import {
  */
 export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
 
-/**
- * Atomically bump the per-team email counter and return the formatted
- * `dequeue_seq` string for one new email job. Exported because the worker's
- * `reschedule()` path also needs to assign `dequeue_seq` when a hog/hogflow
- * job is re-routed into the email queue — without this, those rows land with
- * `NULL dequeue_seq` and bypass the per-team interleave (`NULLS FIRST` would
- * drain them ahead of any fair-ordered rows).
- *
- * A team's *first ever* email starts at `MAX(counter) + 1` across the table
- * (Hatchet's `p_max_assigned` pattern), so a brand-new tenant can't enqueue a
- * burst that gets free priority over established tenants' in-flight emails.
- * Continuing tenants just increment their own counter as before. `COALESCE`
- * handles the empty-table cold-start (`MAX = NULL` → starting point of 0).
- *
- * The plain UPDATE runs first because Postgres evaluates the `MAX` subquery in
- * the INSERT's VALUES before it checks for a conflict, which means a full scan
- * of the table for every job even though only a team's first email uses the
- * result. Do not add an index on `counter` to make `MAX` cheap: every call
- * changes `counter`, so the index would block HOT updates on this hot row.
- * When two first emails for one team race, both UPDATEs find no row and the
- * INSERT's `ON CONFLICT` branch gives the second one the next counter value.
- *
- * For bulk inserts of multiple email jobs at once, `bulkCreateJobs` uses its
- * own batched UPSERT for efficiency rather than calling this in a loop.
- */
-export async function assignEmailDequeueSeq(pool: Pool, teamId: number): Promise<string> {
-    let result = await pool.query<{ counter: string }>(
+export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[]): Promise<string[]> {
+    const indicesByTeam = new Map<number, number[]>()
+    jobTeamIds.forEach((teamId, i) => {
+        const indices = indicesByTeam.get(teamId)
+        if (indices) {
+            indices.push(i)
+        } else {
+            indicesByTeam.set(teamId, [i])
+        }
+    })
+    if (indicesByTeam.size === 0) {
+        return []
+    }
+
+    const teamIds = [...indicesByTeam.keys()]
+    const increments = teamIds.map((id) => indicesByTeam.get(id)!.length)
+
+    const upsertResult = await pool.query<{ team_id: number; counter: string }>(
+        `WITH max_counter AS (
+             SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
+         )
+         INSERT INTO cyclotron_email_team_seq (team_id, counter)
+         SELECT team_id, increment + (SELECT m FROM max_counter)
+         FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
+         ORDER BY team_id
+         ON CONFLICT (team_id) DO UPDATE
+            SET counter = cyclotron_email_team_seq.counter
+                        + (EXCLUDED.counter - (SELECT m FROM max_counter))
+         RETURNING team_id, counter`,
+        [teamIds, increments]
+    )
+
+    const newCounters = new Map<number, bigint>(upsertResult.rows.map((r) => [r.team_id, BigInt(r.counter)]))
+    const dequeueSeqs: string[] = new Array(jobTeamIds.length)
+    for (const [teamId, indices] of indicesByTeam) {
+        const newCounter = newCounters.get(teamId)
+        if (newCounter === undefined) {
+            throw new Error(`No email counter for team ${teamId} after the UPSERT`)
+        }
+        teamDequeueSeqs(teamId, newCounter, indices.length).forEach((dequeueSeq, k) => {
+            dequeueSeqs[indices[k]] = dequeueSeq
+        })
+    }
+    return dequeueSeqs
+}
+
+function teamDequeueSeqs(teamId: number, newCounter: bigint, count: number): string[] {
+    const startCounter = newCounter - BigInt(count) + 1n
+    const teamIdBigInt = BigInt(teamId)
+    return Array.from({ length: count }, (_, k) =>
+        ((startCounter + BigInt(k)) * EMAIL_DEQUEUE_BLOCK_SIZE + teamIdBigInt).toString()
+    )
+}
+
+async function allocateTeamEmailDequeueSeqs(pool: Pool, teamId: number, count: number): Promise<string[]> {
+    const updated = await pool.query<{ counter: string }>(
         `UPDATE cyclotron_email_team_seq
-         SET counter = counter + 1
+         SET counter = counter + $2
          WHERE team_id = $1
          RETURNING counter`,
-        [teamId]
+        [teamId, count]
     )
-    if (result.rows.length === 0) {
-        result = await pool.query<{ counter: string }>(
-            `INSERT INTO cyclotron_email_team_seq (team_id, counter)
-             VALUES ($1, COALESCE((SELECT MAX(counter) FROM cyclotron_email_team_seq), 0) + 1)
-             ON CONFLICT (team_id) DO UPDATE
-                SET counter = cyclotron_email_team_seq.counter + 1
-             RETURNING counter`,
-            [teamId]
-        )
+    if (updated.rows.length === 0) {
+        return allocateEmailDequeueSeqs(pool, new Array(count).fill(teamId))
     }
-    const counter = BigInt(result.rows[0].counter)
-    // pg accepts BIGINT as string to avoid JS number precision loss
-    return (counter * EMAIL_DEQUEUE_BLOCK_SIZE + BigInt(teamId)).toString()
+    return teamDequeueSeqs(teamId, BigInt(updated.rows[0].counter), count)
+}
+
+export function batchEmailDequeueSeqs(pool: Pool): (teamId: number) => Promise<string> {
+    type Waiter = { resolve: (dequeueSeq: string) => void; reject: (error: unknown) => void }
+    let waitersByTeam = new Map<number, Waiter[]>()
+    const allocateForTeam = async (teamId: number, waiters: Waiter[]): Promise<void> => {
+        try {
+            const dequeueSeqs = await timeEnqueuePhase('sequence_reserve', 'worker', () =>
+                allocateTeamEmailDequeueSeqs(pool, teamId, waiters.length)
+            )
+            waiters.forEach(({ resolve }, i) => resolve(dequeueSeqs[i]))
+        } catch (error) {
+            waiters.forEach(({ reject }) => reject(error))
+        }
+    }
+    const flush = (): void => {
+        const batch = waitersByTeam
+        waitersByTeam = new Map()
+        for (const [teamId, waiters] of batch) {
+            void allocateForTeam(teamId, waiters)
+        }
+    }
+    return (teamId) =>
+        new Promise((resolve, reject) => {
+            if (waitersByTeam.size === 0) {
+                setImmediate(flush)
+            }
+            const waiters = waitersByTeam.get(teamId)
+            if (waiters) {
+                waiters.push({ resolve, reject })
+            } else {
+                waitersByTeam.set(teamId, [{ resolve, reject }])
+            }
+        })
 }
 
 // Counts Postgres write failures from createJob / bulkCreateJobs *after* input
@@ -88,7 +147,7 @@ export async function assignEmailDequeueSeq(pool: Pool, teamId: number): Promise
 //   - "logical": schema drift, constraint violation, anything that won't fix
 //     itself. Any non-zero rate is page-worthy.
 //   - "transient": PG / pgbouncer connection issues (matched against
-//     POSTGRES_UNAVAILABLE_ERROR_MESSAGES). Brief blips are noise; sustained
+//     isTransientPgError). Brief blips are noise; sustained
 //     rate indicates the database is unhealthy.
 const dbWriteFailureCounter = new Counter({
     name: 'cdp_cyclotron_v2_db_write_failure',
@@ -113,15 +172,73 @@ const rescheduleFailureCounter = new Counter({
     labelNames: ['kind'] as const,
 })
 
+type EnqueuePhase = 'depth_check' | 'sequence_reserve' | 'insert'
+type EnqueueCaller = 'manager' | 'worker'
+
+const enqueuePhaseHistogram = new Histogram({
+    name: 'cdp_cyclotron_v2_enqueue_phase_duration_seconds',
+    help: 'Time spent in each awaited step of enqueuing cyclotron jobs: the queue depth check, the email dequeue sequence reserve, and the insert.',
+    labelNames: ['phase', 'caller'] as const,
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60],
+})
+
+export async function timeEnqueuePhase<T>(
+    phase: EnqueuePhase,
+    caller: EnqueueCaller,
+    step: () => Promise<T>
+): Promise<T> {
+    const end = enqueuePhaseHistogram.startTimer({ phase, caller })
+    try {
+        return await step()
+    } finally {
+        end()
+    }
+}
+
 const cancelMarkedCounter = new Counter({
     name: 'cdp_cyclotron_v2_cancel_marked',
     help: 'In-flight cyclotron jobs flagged for cancellation, split by the job status at marking time.',
     labelNames: ['status'] as const,
 })
 
+const CANCELED_BEFORE_CLAIM = `(cyclotron_jobs.status = 'canceled' AND cyclotron_jobs.transition_count = 0)`
+
+const UNCLAIMED_EMAIL_JOB = `id = $1 AND team_id = $2 AND queue_name = 'email' AND status = 'available' AND transition_count = 0`
+
+type UnclaimedJobRow = {
+    id: string
+    team_id: number
+    function_id: string | null
+    queue_name: string
+    priority: number
+    scheduled: string | Date
+    created: string | Date
+    parent_run_id: string | null
+    state: Buffer | null
+}
+
+const toDateTime = (value: string | Date): DateTime =>
+    typeof value === 'string' ? DateTime.fromISO(value, { zone: 'utc' }) : DateTime.fromJSDate(value, { zone: 'utc' })
+
+const UNCLAIMED_JOB_COLUMNS = 'id, team_id, function_id, queue_name, priority, scheduled, created, parent_run_id, state'
+
+const unclaimedJob = (row: UnclaimedJobRow): JobRow => ({
+    id: row.id,
+    teamId: row.team_id,
+    functionId: row.function_id,
+    queueName: row.queue_name,
+    priority: row.priority,
+    scheduled: toDateTime(row.scheduled),
+    created: toDateTime(row.created),
+    parentRunId: row.parent_run_id,
+    state: row.state,
+    cancelRequestedAt: null,
+})
+
 /**
  * Thrown when an `overwriteExisting` createJob / bulkCreateJobs hits a row
- * that's still in an active state ('available' or 'running'). Callers should
+ * that's still in an active state ('available' or 'running'), or one that was
+ * canceled before any worker claimed it. Callers should
  * treat this as a "skip and warn" rather than a hard failure — the user is
  * trying to rerun an invocation that's still mid-flight, which the safer
  * default is to refuse.
@@ -131,7 +248,7 @@ export class CyclotronJobConflictError extends Error {
         super(
             `Cyclotron job overwrite refused: existing row(s) ${
                 Array.isArray(conflictingIds) ? conflictingIds.join(', ') : conflictingIds
-            } are in an active state`
+            } are in an active state or canceled before it ran`
         )
         this.name = 'CyclotronJobConflictError'
     }
@@ -207,12 +324,14 @@ export class CyclotronV2Manager {
                  action_id = EXCLUDED.action_id,
                  cancel_requested_at = NULL
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
+                 AND NOT ${CANCELED_BEFORE_CLAIM}
                RETURNING id`
             : 'RETURNING id'
         let result: { rows: { id: string }[] }
         try {
-            result = await this.pool.query<{ id: string }>(
-                `INSERT INTO cyclotron_jobs
+            result = await timeEnqueuePhase('insert', 'manager', () =>
+                this.pool.query<{ id: string }>(
+                    `INSERT INTO cyclotron_jobs
                  (id, team_id, function_id, queue_name, status, priority, scheduled, created,
                   lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
                   parent_run_id, state, distinct_id, person_id, action_id)
@@ -220,20 +339,21 @@ export class CyclotronV2Manager {
                          NULL, NULL, 0, 0, $7,
                          $8, $9, $10, $11, $12)
                  ${upsertClause}`,
-                [
-                    id,
-                    job.teamId,
-                    job.functionId ?? null,
-                    job.queueName,
-                    job.priority ?? 0,
-                    job.scheduled ?? now,
-                    now,
-                    job.parentRunId ?? null,
-                    job.state ?? null,
-                    job.distinctId ?? null,
-                    job.personId ?? null,
-                    job.actionId ?? null,
-                ]
+                    [
+                        id,
+                        job.teamId,
+                        job.functionId ?? null,
+                        job.queueName,
+                        job.priority ?? 0,
+                        job.scheduled ?? now,
+                        now,
+                        job.parentRunId ?? null,
+                        job.state ?? null,
+                        job.distinctId ?? null,
+                        job.personId ?? null,
+                        job.actionId ?? null,
+                    ]
+                )
             )
         } catch (err) {
             dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
@@ -316,12 +436,14 @@ export class CyclotronV2Manager {
                  dequeue_seq = EXCLUDED.dequeue_seq,
                  cancel_requested_at = NULL
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
+                 AND NOT ${CANCELED_BEFORE_CLAIM}
                RETURNING id`
             : 'RETURNING id'
         let result: { rows: { id: string }[] }
         try {
-            result = await this.pool.query<{ id: string }>(
-                `INSERT INTO cyclotron_jobs
+            result = await timeEnqueuePhase('insert', 'manager', () =>
+                this.pool.query<{ id: string }>(
+                    `INSERT INTO cyclotron_jobs
                  (id, team_id, function_id, queue_name, status, priority, scheduled, created,
                   lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
                   parent_run_id, state, distinct_id, person_id, action_id, dequeue_seq)
@@ -346,21 +468,22 @@ export class CyclotronV2Manager {
                     unnest($11::text[]),
                     unnest($13::bigint[])
                  ${upsertClause}`,
-                [
-                    ids,
-                    teamIds,
-                    functionIds,
-                    queueNames,
-                    priorities,
-                    scheduleds,
-                    parentRunIds,
-                    states,
-                    distinctIds,
-                    personIds,
-                    actionIds,
-                    now,
-                    dequeueSeqs,
-                ]
+                    [
+                        ids,
+                        teamIds,
+                        functionIds,
+                        queueNames,
+                        priorities,
+                        scheduleds,
+                        parentRunIds,
+                        states,
+                        distinctIds,
+                        personIds,
+                        actionIds,
+                        now,
+                        dequeueSeqs,
+                    ]
+                )
             )
         } catch (err) {
             dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
@@ -378,90 +501,21 @@ export class CyclotronV2Manager {
         return ids
     }
 
-    /**
-     * Compute the per-job `dequeue_seq` array for a batch of jobs.
-     *
-     * Email-queue jobs get `counter * BLOCK_SIZE + team_id` where `counter`
-     * is the team's monotonic per-team sequence number. Sorting ascending by
-     * dequeue_seq interleaves teams: each team's first job sorts together,
-     * then each team's second job, etc.
-     *
-     * Non-email jobs get NULL (leaves the existing FIFO ordering untouched).
-     *
-     * One UPSERT for the whole batch regardless of job count — per-team
-     * counters bump by the count of email jobs from that team in this batch,
-     * and we derive each job's individual counter value in memory.
-     *
-     * A team's first-ever email starts at `MAX(counter) + 1` across the table
-     * (Hatchet's `p_max_assigned` pattern), so a new tenant joining the
-     * system can't enqueue a burst that gets free priority over established
-     * tenants — established tenants are already at `MAX`, so a new tenant's
-     * batch slots in at the same level and the round-robin interleaves them
-     * by team_id from there. Continuing teams just keep incrementing.
-     */
     private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {
-        const indicesByTeam = new Map<number, number[]>()
-        for (let i = 0; i < jobs.length; i++) {
-            if (jobs[i].queueName !== 'email') {
-                continue
-            }
-            const indices = indicesByTeam.get(jobs[i].teamId)
-            if (indices) {
-                indices.push(i)
-            } else {
-                indicesByTeam.set(jobs[i].teamId, [i])
-            }
-        }
-
+        const emailIndices = jobs.flatMap((job, i) => (job.queueName === 'email' ? [i] : []))
         const dequeueSeqs: (string | null)[] = new Array(jobs.length).fill(null)
-        if (indicesByTeam.size === 0) {
+        if (emailIndices.length === 0) {
             return dequeueSeqs
         }
-
-        const teamIds = [...indicesByTeam.keys()]
-        const increments = teamIds.map((id) => indicesByTeam.get(id)!.length)
-
-        // Atomic per-team UPSERT. Concurrent inserts for different teams don't
-        // contend; same-team inserts serialize briefly on the row. Returns the
-        // new counter value per team — we then derive individual job counters
-        // by subtracting back through the batch.
-        //
-        // Hatchet `p_max_assigned`: new-team rows insert at `MAX + increment`
-        // so they slot in next to established teams. Existing-team rows still
-        // add just `increment` (we subtract the MAX shift back out in the ON
-        // CONFLICT branch). MAX is computed once per batch via the CTE.
-        const upsertResult = await this.pool.query<{ team_id: number; counter: string }>(
-            `WITH max_counter AS (
-                 SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
-             )
-             INSERT INTO cyclotron_email_team_seq (team_id, counter)
-             SELECT team_id, increment + (SELECT m FROM max_counter)
-             FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
-             ON CONFLICT (team_id) DO UPDATE
-                SET counter = cyclotron_email_team_seq.counter
-                            + (EXCLUDED.counter - (SELECT m FROM max_counter))
-             RETURNING team_id, counter`,
-            [teamIds, increments]
+        const emailSeqs = await timeEnqueuePhase('sequence_reserve', 'manager', () =>
+            allocateEmailDequeueSeqs(
+                this.pool,
+                emailIndices.map((i) => jobs[i].teamId)
+            )
         )
-
-        const newCounters = new Map<number, bigint>(upsertResult.rows.map((r) => [r.team_id, BigInt(r.counter)]))
-
-        for (const [teamId, indices] of indicesByTeam) {
-            const newCounter = newCounters.get(teamId)
-            if (newCounter === undefined) {
-                // Should never happen — every team in indicesByTeam was UPSERTed.
-                logger.error('Missing counter after UPSERT in computeEmailDequeueSeqs', { teamId })
-                continue
-            }
-            const startCounter = newCounter - BigInt(indices.length) + 1n
-            const teamIdBigInt = BigInt(teamId)
-            for (let k = 0; k < indices.length; k++) {
-                const counterForThisJob = startCounter + BigInt(k)
-                // pg accepts BIGINT as string to avoid JS number precision loss
-                dequeueSeqs[indices[k]] = (counterForThisJob * EMAIL_DEQUEUE_BLOCK_SIZE + teamIdBigInt).toString()
-            }
-        }
-
+        emailIndices.forEach((jobIndex, k) => {
+            dequeueSeqs[jobIndex] = emailSeqs[k]
+        })
         return dequeueSeqs
     }
 
@@ -733,6 +787,89 @@ export class CyclotronV2Manager {
         return { marked, remaining, done: remaining === 0 }
     }
 
+    async cancelUnclaimed(teamId: number, id: string): Promise<CyclotronV2CancelUnclaimedResult> {
+        const result = await this.pool.query<UnclaimedJobRow>(
+            `UPDATE cyclotron_jobs
+             SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL, last_transition = NOW(),
+                 janitor_touch_count = 0
+             WHERE ${UNCLAIMED_EMAIL_JOB}
+             RETURNING ${UNCLAIMED_JOB_COLUMNS}`,
+            [id, teamId]
+        )
+        const row = result.rows[0]
+        if (row) {
+            return { outcome: 'canceled', job: unclaimedJob(row) }
+        }
+        const existing = await this.pool.query<UnclaimedJobRow & { status: string; transition_count: number }>(
+            `SELECT status, transition_count, ${UNCLAIMED_JOB_COLUMNS} FROM cyclotron_jobs
+             WHERE id = $1 AND team_id = $2 AND queue_name = 'email'`,
+            [id, teamId]
+        )
+        const found = existing.rows[0]
+        if (!found) {
+            return { outcome: 'not_found' }
+        }
+        if (found.status !== 'canceled') {
+            return { outcome: 'claimed' }
+        }
+        return { outcome: 'already_canceled', job: found.transition_count === 0 ? unclaimedJob(found) : null }
+    }
+
+    async rescheduleUnclaimed(
+        teamId: number,
+        id: string,
+        scheduled: Date
+    ): Promise<CyclotronV2RescheduleUnclaimedResult> {
+        const client = await this.pool.connect()
+        try {
+            await client.query('BEGIN')
+            const locked = await client.query<UnclaimedJobRow>(
+                `SELECT ${UNCLAIMED_JOB_COLUMNS} FROM cyclotron_jobs
+                 WHERE ${UNCLAIMED_EMAIL_JOB} AND cancel_requested_at IS NULL
+                 FOR UPDATE`,
+                [id, teamId]
+            )
+            const row = locked.rows[0]
+            if (!row) {
+                await client.query('ROLLBACK')
+            } else {
+                const clock = await client.query<{ now: string }>('SELECT clock_timestamp() AS now')
+                const { state, rescheduledAt } = withReschedule(
+                    row.state,
+                    scheduled.toISOString(),
+                    new Date(clock.rows[0].now)
+                )
+                await client.query(`UPDATE cyclotron_jobs SET scheduled = $2, state = $3 WHERE id = $1`, [
+                    id,
+                    scheduled,
+                    state,
+                ])
+                await client.query('COMMIT')
+                return { outcome: 'rescheduled', job: unclaimedJob({ ...row, scheduled, state }), rescheduledAt }
+            }
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => undefined)
+            throw err
+        } finally {
+            client.release()
+        }
+        const existing = await this.findJob(teamId, id)
+        if (!existing) {
+            return { outcome: 'not_found' }
+        }
+        return { outcome: existing.status === 'canceled' || existing.cancelRequested ? 'canceled' : 'claimed' }
+    }
+
+    private async findJob(teamId: number, id: string): Promise<{ status: string; cancelRequested: boolean } | null> {
+        const result = await this.pool.query<{ status: string; cancel_requested: boolean }>(
+            `SELECT status, cancel_requested_at IS NOT NULL AS cancel_requested FROM cyclotron_jobs
+             WHERE id = $1 AND team_id = $2 AND queue_name = 'email'`,
+            [id, teamId]
+        )
+        const row = result.rows[0]
+        return row ? { status: row.status, cancelRequested: row.cancel_requested } : null
+    }
+
     /**
      * Size the sweep window for the current parked backlog: floor at
      * `now + floorSeconds`, width `count / wakeRatePerSecond` clamped to
@@ -774,7 +911,7 @@ export class CyclotronV2Manager {
     }
 
     private async insertGuard(): Promise<void> {
-        if (await this.isFull()) {
+        if (await timeEnqueuePhase('depth_check', 'manager', () => this.isFull())) {
             throw new Error(`Cyclotron V2 queue is full (depth limit: ${this.depthLimit})`)
         }
     }
@@ -791,10 +928,7 @@ export class CyclotronV2Manager {
 
     private async queryDepth(): Promise<boolean> {
         try {
-            const result = await this.pool.query(
-                `SELECT COUNT(*) AS count FROM cyclotron_jobs
-                 WHERE status = 'available' AND scheduled <= NOW()`
-            )
+            const result = await this.pool.query(QUEUE_DEPTH_SQL)
             const count = parseInt(result.rows[0].count, 10)
             const full = count >= this.depthLimit
 

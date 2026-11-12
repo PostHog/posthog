@@ -363,6 +363,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         [
             ("SELECT tiemstamp FROM events", "tiemstamp", "timestamp"),
             ("SELECT distnct_id FROM events", "distnct_id", "distinct_id"),
+            ("SELECT today FROM events", "today", "today()"),
         ]
     )
     def test_metadata_offers_a_quick_fix_for_a_misspelled_field(self, query: str, misspelling: str, expected_fix: str):
@@ -552,7 +553,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    # Mode 1 keeps reading events on the native-JSON events table.
+    # A query on the native JSON events table reads flag calls from flag_evaluations on every mode.
+    # Only the legacy table lets mode 1 leave some flag-call reads on events, so these cases pin it.
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_metadata_warns_for_flag_called_read_from_events(
         self,

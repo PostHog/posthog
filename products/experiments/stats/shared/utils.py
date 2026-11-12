@@ -209,6 +209,10 @@ def _validate_quantile(stat: QuantileStatistic) -> list[str]:
 
     if stat.has_zero_variance:
         errors.append("Quantile has zero variance - not enough events or too many tied values")
+    if stat.has_tied_bound:
+        errors.append("Quantile variance is unreliable - too many events tie with the quantile value")
+    if stat.has_few_effective_clusters:
+        errors.append("Quantile variance is unreliable - a few users produce most of the events")
 
     return errors
 

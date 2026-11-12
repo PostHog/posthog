@@ -21,6 +21,7 @@ jest.mock('scenes/notebooks/NotebookPanel/notebookPanelLogic', () => ({
 }))
 jest.mock('../AccountNotes/AccountNotesViewSelector', () => ({ AccountNotesViewSelector: () => null }))
 jest.mock('../AccountNotes/NotesCreatedByFilter', () => ({ NotesCreatedByFilter: () => null }))
+jest.mock('../AccountNotes/NotesTagsFilter', () => ({ NotesTagsFilter: () => null }))
 jest.mock('../CustomerTasks/CustomerTasksTabContent', () => ({ CustomerTasksTabContent: () => null }))
 jest.mock('../CustomerTasks/customerTasksLogic', () => ({ customerTasksLogic: () => ({ kind: 'tasks' }) }))
 jest.mock('./AccountBillingExpansion', () => ({ AccountBillingExpansion: () => null }))

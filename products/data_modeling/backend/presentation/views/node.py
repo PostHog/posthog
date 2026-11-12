@@ -13,6 +13,8 @@ from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 
 from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import SessionAuthentication
+from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -20,6 +22,7 @@ from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.data_modeling.backend.facade.api import (
     SCHEDULABLE_BUCKETS,
+    MaterializationAlreadyRunningError,
     MaterializationForbiddenError,
     MaterializationRanRecentlyError,
     MaterializationRunDirection,
@@ -344,14 +347,7 @@ class NodeSerializer(serializers.ModelSerializer):
         return node.properties.get("user", {}).get("tag")
 
     def get_sync_interval(self, node: Node) -> str | None:
-        # The node's freshness target is authoritative on tiered v2 teams (where the saved
-        # query's interval is NULL); the saved-query interval covers v1 teams.
-        target = get_declared_target(node)
-        if target is not None:
-            return sync_frequency_interval_to_sync_frequency(target)
-        if node.saved_query:
-            return sync_frequency_interval_to_sync_frequency(node.saved_query.sync_frequency_interval)
-        return None
+        return sync_frequency_interval_to_sync_frequency(get_declared_target(node))
 
     def get_effective_sync_interval(self, node: Node) -> str | None:
         # Built once per DAG for the whole response, not once per listed node.
@@ -794,8 +790,11 @@ class NodeViewSet(
         request=NodeRunSerializer,
         responses={
             200: NodeRunResponseSerializer,
+            409: OpenApiResponse(
+                description="The run started from the PostHog app and a view it would build is still running."
+            ),
             429: OpenApiResponse(
-                description="Every view this run would build ran too recently and has not changed since. The Retry-After header gives the wait in seconds."
+                description="Every view this run would build ran too recently and has not changed since. Runs started from the PostHog app have no such limit. The Retry-After header gives the wait in seconds."
             ),
         },
     )
@@ -823,10 +822,13 @@ class NodeViewSet(
                 node.id,
                 direction=body.validated_data["direction"],
                 user=cast(User, req.user),
+                from_browser_session=isinstance(req.successful_authenticator, SessionAuthentication),
                 hidden_types=self._hidden_node_types(),
             )
         except MaterializationForbiddenError as error:
             raise PermissionDenied(str(error))
+        except MaterializationAlreadyRunningError as error:
+            raise Conflict(str(error))
         except MaterializationRanRecentlyError as error:
             raise Throttled(wait=error.retry_after_seconds, detail=str(error))
         return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
@@ -911,15 +913,16 @@ class NodeViewSet(
         responses={
             200: OpenApiResponse(description="Materialization started. The response has no body."),
             400: OpenApiResponse(description="The node is not a view, materialized view or endpoint node."),
+            409: OpenApiResponse(description="The run started from the PostHog app and the view is still running."),
             429: OpenApiResponse(
-                description="The view's latest run started too recently and the query has not changed since. The Retry-After header gives the wait in seconds."
+                description="The view's latest run started too recently and the query has not changed since. Runs started from the PostHog app have no such limit. The Retry-After header gives the wait in seconds."
             ),
         },
     )
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Materialize just this single node."""
-        from products.data_modeling.backend.facade.api import raise_if_ran_recently, start_node_materialization
+        from products.data_modeling.backend.facade.api import raise_if_manual_run_is_refused, start_node_materialization
 
         node = self.get_object()
 
@@ -936,7 +939,13 @@ class NodeViewSet(
         if node.saved_query is not None:
             assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
             try:
-                raise_if_ran_recently(self.team_id, node.saved_query.id)
+                raise_if_manual_run_is_refused(
+                    self.team_id,
+                    node.saved_query.id,
+                    from_browser_session=isinstance(req.successful_authenticator, SessionAuthentication),
+                )
+            except MaterializationAlreadyRunningError as error:
+                raise Conflict(str(error))
             except MaterializationRanRecentlyError as error:
                 raise Throttled(wait=error.retry_after_seconds, detail=str(error))
 

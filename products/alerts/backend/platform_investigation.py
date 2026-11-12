@@ -41,6 +41,7 @@ from products.alerts.backend.investigation_release import (
 )
 from products.alerts.backend.models.alert import AlertConfiguration, InvestigationStatus
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
+from products.alerts.backend.platform_insight_alert import evaluation_alert, investigated_alert, is_built_from_platform
 from products.alerts.backend.platform_investigation_detail import (
     INVESTIGATION_REQUESTED_KEY,
     METRICS_INVESTIGATION_REQUESTED_KEY,
@@ -144,7 +145,7 @@ def claim_investigation(
         refused = rows.filter(refusing_investigations(alert, datetime.now(UTC), status_field="status")).exists()
         investigation = InsightAlertInvestigation.objects.for_team(alert.team_id).create(
             team_id=alert.team_id,
-            alert_configuration=alert,
+            alert_configuration=None if is_built_from_platform(alert, configuration_id) else alert,
             configuration_id=configuration_id,
             evaluation_key=evaluation_key,
             episode_started_at=episode_started_at,
@@ -163,17 +164,13 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
     verdict suppresses it. A metrics alert's firing asks for its metrics investigation, which holds
     nothing. Only an owned check, because a parallel run must never pay for an agent run.
     """
-    if not check.owned_by_platform or check.legacy_configuration_id is None or len(evaluation.outcomes) != 1:
+    if not check.owned_by_platform or len(evaluation.outcomes) != 1:
         return evaluation
     outcome = evaluation.outcomes[0]
     # A skipped check keeps a firing alert's state without evaluating it, so it has nothing to investigate.
     if outcome.skipped or len(outcome.groups) != 1 or outcome.groups[0].new_state != AlertState.FIRING.value:
         return evaluation
-    alert = (
-        AlertConfiguration.objects.select_related("insight")
-        .filter(team_id=check.team_id, id=check.legacy_configuration_id)
-        .first()
-    )
+    alert = evaluation_alert(check)
     if alert is None:
         return evaluation
     group = outcome.groups[0]
@@ -247,7 +244,7 @@ def claim_requested_investigations(team_id: int, outcomes: tuple[PlatformAlertOu
         requested = requested_investigation(outcome)
         if requested is None:
             continue
-        alert = AlertConfiguration.objects.filter(team_id=team_id, id=requested.alert_id).first()
+        alert = investigated_alert(team_id, UUID(requested.alert_id))
         if alert is None:
             # The safety net sends the held firing at its deadline.
             continue
@@ -359,7 +356,10 @@ def run_metrics_investigation(
     if not rows.filter(status=InvestigationStatus.PENDING).update(status=InvestigationStatus.RUNNING):
         return
     investigation = rows.select_related("alert_configuration__insight", "alert_configuration__team").get()
-    alert = investigation.alert_configuration
+    alert = investigation.alert_configuration or investigated_alert(run.team_id, investigation.configuration_id)
+    if alert is None:
+        rows.update(status=InvestigationStatus.FAILED, error={"message": "The alert was deleted."})
+        return
     running = rows.filter(status=InvestigationStatus.RUNNING)
     try:
         # The firing's start, because a metrics alert investigates only the check that started firing.

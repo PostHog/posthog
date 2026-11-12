@@ -5,8 +5,9 @@ and a holdout flag for each of `open`, `action` and `fixed`. Each head's moments
 `example_moments` over the `report_embeddings` set and are capped by `cap_examples`, so every head's
 cohort, horizon, row budget and holdout are the ones its `report_embeddings` champion is graded on.
 
-The examples object holds the rows, labels and holdout flags only, and each row's `priority` as of
-its own snapshot. One object serves both `nn` families. The vectors are rebuilt from the dt=D
+The examples object holds the rows, labels and holdout flags only, and each row's `priority` and
+`CARRIED_STATE_COLUMNS` as of its own snapshot, nullable, so a row from a snapshot without a column
+reads as not recorded. One object serves every `nn` family. The vectors are rebuilt from the dt=D
 embeddings and labels snapshots by each asset that reads the object: the report vectors carry 1536
 floats per row and the project vectors four times that per (team, day), and both are a pure function
 of those two snapshots.
@@ -23,8 +24,10 @@ import pyarrow as pa
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import PRIORITY_COLUMN, PROJECT_VECTOR_KINDS, Extras, FeatureSet
+from products.signals.dags.inbox_ranking.dataset.dag import STATE_SCHEMA
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkInputs
 from products.signals.dags.inbox_ranking.multihead.prototype import (
+    CARRIED_STATE_COLUMNS,
     FEATURE_SET,
     PROTOTYPE_HEADS,
     ExampleTable,
@@ -94,16 +97,26 @@ def examples_arrow(examples: NNExamples) -> pa.Table:
         arrow = arrow.append_column(
             pa.field(PRIORITY_COLUMN, pa.string()), pa.array(table.rows[PRIORITY_COLUMN].tolist(), type=pa.string())
         )
+    for column in CARRIED_STATE_COLUMNS:
+        if column in table.rows:
+            # Typed as the state snapshot stores it, for the same reason.
+            field = STATE_SCHEMA.field(column)
+            arrow = arrow.append_column(
+                pa.field(column, field.type), pa.Array.from_pandas(table.rows[column], type=field.type)
+            )
     return arrow.replace_schema_metadata(
         {**(arrow.schema.metadata or {}), EXAMPLE_WINDOWS_METADATA_KEY: json.dumps(examples.windows).encode()}
     )
 
 
 def examples_from_arrow(arrow: pa.Table) -> NNExamples:
-    """The examples an `examples_arrow` table holds. An object written before the `priority` column
-    existed gives rows without it, so a family that reads priority can tell and skip."""
+    """The examples an `examples_arrow` table holds. An object written before a state column existed
+    gives rows without it, so a family that needs the column can tell and skip."""
     frame = arrow.to_pandas()
-    row_columns = [*_ROW_COLUMNS, *([PRIORITY_COLUMN] if PRIORITY_COLUMN in frame else [])]
+    row_columns = [
+        *_ROW_COLUMNS,
+        *(column for column in (PRIORITY_COLUMN, *CARRIED_STATE_COLUMNS) if column in frame),
+    ]
     rows = frame[row_columns].reset_index(drop=True)
     labels = np.column_stack([frame[f"{name}_label"].to_numpy(dtype=np.float32) for name in NN_HEAD_NAMES])
     holdout = np.column_stack([frame[f"{name}_holdout"].to_numpy(dtype=bool) for name in NN_HEAD_NAMES])

@@ -496,7 +496,8 @@ The description covers the backend, frontend, and Rust workflows. The diff chang
 The PR did not merge, and no person reviewed it. The stale bot closed it. Thus there is no recorded reason for the result.
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
-The backend timing collector keeps the full `products/` tree because its optimizer uses product directory presence to retain timings for skipped products.
+The backend timing collector uses a full checkout because its optimizer uses product directory presence to retain timings for skipped products.
+Sparse checkout enables a blobless fetch by default, which adds on-demand fetching when the collector still needs the broad `products/` tree.
 The bot IP updater needs only `bin/update-bots-list` and `nodejs/assets/bot-ips.txt`; its sparse checkout retains the tracked output so Git can detect and commit updates.
 `ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
 The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
@@ -505,6 +506,9 @@ The large Python and frontend test jobs do not use it. Their checkout is complet
 
 Desktop agent release verification keeps the standalone `packages/agent/` workspace, its build action, `.nvmrc`, and the desktop lockfile used for caching.
 Validate its frozen install, workspace build, and agent tests from the sparse tree when changing those inputs.
+
+Desktop Quality keeps `products/desktop/`, `packages/agent/`, and the root `.gitignore` for Biome's VCS ignore rules.
+Compare both Biome passes and the host-boundary check against a full checkout when changing these inputs.
 
 The HCL schema guard checks out `posthog/clickhouse/hcl/`, which contains its scripts, manifest, layers, golden dumps, and generated SQL.
 Keep the full directory so every environment and role remains available to validation and drift checks.

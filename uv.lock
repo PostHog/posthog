@@ -1920,19 +1920,21 @@ wheels = [
 
 [[package]]
 name = "deltalake"
-version = "1.6.1"
+version = "1.6.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "arro3-core" },
     { name = "deprecated" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/08/ca/62354ebb384806b3496b25708ac605af54c5ed11cb2a8111ea1892aec9c9/deltalake-1.6.3.tar.gz", hash = "sha256:b7176c9d2a48b3ad339902e6216cdde813857b9628ef53e972889c71d2836fc4", size = 5556567, upload-time = "2026-08-21T19:07:33.7Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/9b/cb8c10528466901112d37f7afa67646263a229277983e70e5d780d58c2b2/deltalake-1.6.1-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:f5f22371ed5ac3977839d7a09c0a9ccdbbdac79437bbb977f6b57c7c35d7fa34", size = 48475216, upload-time = "2026-06-24T14:34:48.557Z" },
-    { url = "https://files.pythonhosted.org/packages/8c/92/8cda3756b12f4b5879ec8a9be9101a55f280c5fcd6426be17f401d470df0/deltalake-1.6.1-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:e0bd4f3bbc9a53e53c103d6733f09b1538a75e7e69b5ecbca9a865f68bd70656", size = 44765839, upload-time = "2026-06-24T14:31:07.226Z" },
-    { url = "https://files.pythonhosted.org/packages/ba/50/0c7fd4779f1492da3c86cfcfa2ad25322355ea7c6eb3e7feeb16c7de6f07/deltalake-1.6.1-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:46a13abc2d7abc072375faeb718443be61ec1162d1708b1c67a76aff4e0187a5", size = 49541493, upload-time = "2026-06-24T13:49:56.143Z" },
-    { url = "https://files.pythonhosted.org/packages/b7/52/8387621a228d3b3df1c251acfef50fa7e34be05b058d316ab2c69bf8d0f1/deltalake-1.6.1-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:d5ba7bbea9d61948ba7caaaa1562bb9997bdf2398ba30d60e99006451098fb01", size = 48804908, upload-time = "2026-06-24T13:36:02.508Z" },
-    { url = "https://files.pythonhosted.org/packages/1f/fc/c6abee2eb3d6a2729ff81cc4c8502342a9f0fcf3fccfec9decbd5780b010/deltalake-1.6.1-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:89c68fef155215a2e8cd7d93762cadc3be99d6aa42486a30e88a236b4edc7140", size = 48817739, upload-time = "2026-06-24T13:35:28.359Z" },
-    { url = "https://files.pythonhosted.org/packages/34/76/6723168656063c5cfd37b9941df4d3d68e8b57b93641c026e345c22f5c29/deltalake-1.6.1-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:91d8c064ce04cdd06bbdd66614df7050c1082871ca60054cc5b5074d0e3fc345", size = 49571850, upload-time = "2026-06-24T13:48:32.232Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/26/048812e37921a88935fc75811905dab15a97fc76570a7f6716e68b855cce/deltalake-1.6.3-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:c25928df2a30a19dec3f86ffd931fd59b7f175b5781ba998b34001eb4d49e1f7", size = 50660228, upload-time = "2026-08-21T20:17:39.96Z" },
+    { url = "https://files.pythonhosted.org/packages/50/54/56c21b2c7dcee35ad84fcd4aeb73043440320e7ed0114185610a4dd96e14/deltalake-1.6.3-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:8cec745b5dff6581c0b26c5136e3f9eea7ac715a684fe4459b5c37c66407ae02", size = 46966574, upload-time = "2026-08-21T20:16:22.369Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/d8/68505832d7fdf3cae5f4bcf5bb1d7fb31a8e07f909515bf845b09b3ec58c/deltalake-1.6.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1a5163ed5550f5b83ba6f9a95b5e3dff09934a3165fb80ee0ab8e5919782ac6c", size = 51885971, upload-time = "2026-08-21T19:40:39.213Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/5a/18a21ca1b75228e2a5655616e2493f7dfe7c75397c5b7a616299342feeae/deltalake-1.6.3-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:d5aa5f89367deca941ed5e8496b6f6521b42ff0380609ff7a02f771ae9ae7abe", size = 50801364, upload-time = "2026-08-21T19:26:16.964Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/e0/038b81370988e47e80e8e243355a49c3f58c20624375df6c5140f922dfd1/deltalake-1.6.3-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:8f2de230b5cd979b3b984db3b9a24bf14722d4b46a4d062b41fe3fd2e5bfbd68", size = 50802730, upload-time = "2026-08-21T19:26:21.044Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/c2/5cf8b65d6ddb2a3b0b0b1f4359ddbfba1afa93764bb6e19fc4d31dd8dba8/deltalake-1.6.3-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:b51d0109b0a86b336c7254a01495536d69c72593663d8de0bc320aa4523c0502", size = 51904607, upload-time = "2026-08-21T19:39:05.074Z" },
+    { url = "https://files.pythonhosted.org/packages/63/91/28cb7e0edf10f05f1025e2b4bb0085a1b23aa11472c06e43f1c5897c183e/deltalake-1.6.3-cp310-abi3-win_amd64.whl", hash = "sha256:7920a60510376f3c90feb62d182063b0202f117411e73ff9f23ffe969b800dce", size = 55409423, upload-time = "2026-08-21T20:04:36.967Z" },
 ]
 
 [package.optional-dependencies]
@@ -6017,6 +6019,7 @@ dependencies = [
     { name = "azure-ai-inference" },
     { name = "azure-ai-projects" },
     { name = "azure-storage-blob" },
+    { name = "babel" },
     { name = "beautifulsoup4" },
     { name = "bingads" },
     { name = "blake3" },
@@ -6179,6 +6182,7 @@ dependencies = [
     { name = "requests" },
     { name = "requests-oauthlib" },
     { name = "retry" },
+    { name = "ruamel-yaml" },
     { name = "s3fs" },
     { name = "scikit-learn" },
     { name = "scipy" },
@@ -6319,6 +6323,7 @@ requires-dist = [
     { name = "azure-ai-inference", specifier = "~=1.0.0b9" },
     { name = "azure-ai-projects", specifier = "~=1.0.0" },
     { name = "azure-storage-blob", specifier = "~=12.27.1" },
+    { name = "babel", specifier = "==2.18.0" },
     { name = "beautifulsoup4", specifier = "==4.12.3" },
     { name = "bingads", specifier = "~=13.0.30" },
     { name = "blake3", specifier = ">=1.0.8,<2" },
@@ -6354,7 +6359,7 @@ requires-dist = [
     { name = "databricks-sdk", specifier = "~=0.118.0" },
     { name = "databricks-sql-connector", specifier = "~=4.8.0" },
     { name = "defusedxml", specifier = "~=0.7.1" },
-    { name = "deltalake", extras = ["pyarrow"], specifier = "==1.6.1" },
+    { name = "deltalake", extras = ["pyarrow"], specifier = "==1.6.3" },
     { name = "deltalite", specifier = "==0.1.16" },
     { name = "disposable-email-domains", specifier = "~=0.0.287" },
     { name = "dj-database-url", specifier = "~=3.1.2" },
@@ -6454,7 +6459,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.44.2" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthoganalytics", specifier = "==7.84.1" },
+    { name = "posthoganalytics", specifier = "==7.87.1" },
     { name = "protobuf", specifier = "~=6.33.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.13" },
     { name = "psycopg2-binary", specifier = "==2.9.13" },
@@ -6481,6 +6486,7 @@ requires-dist = [
     { name = "requests", specifier = "~=2.33.1" },
     { name = "requests-oauthlib", specifier = "~=2.0.0" },
     { name = "retry", specifier = "==0.9.2" },
+    { name = "ruamel-yaml", specifier = "~=0.18.12" },
     { name = "s3fs", specifier = "==2025.12.0" },
     { name = "scikit-learn", specifier = "~=1.9.1" },
     { name = "scipy", specifier = "~=1.18.1" },
@@ -6622,7 +6628,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.84.1"
+version = "7.87.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6630,9 +6636,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9c/db/ab07dc8614e8d40e8a82c272edc736dc7f57e0160154e1d081b9bc24401e/posthoganalytics-7.84.1.tar.gz", hash = "sha256:9da7469f712052b207c0bfa10f66befcbc6a083de865f8137da79a7888af3e73", size = 904432, upload-time = "2026-11-05T23:49:38.273Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8e/e1/b9471c1dd5a45e28e4f3aa3266ec48879d4e68a8508f62656683ed0d112b/posthoganalytics-7.87.1.tar.gz", hash = "sha256:9662418fc9970b16c280e9999c08db379616b469d726da77c63613ac86e14d8b", size = 936644, upload-time = "2026-11-11T18:12:27.691Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/40/91/4ac2305a2f8719abadc935aa9ccc53806db8de3b1a6d2e1e9de78cbcf6a4/posthoganalytics-7.84.1-py3-none-any.whl", hash = "sha256:86879f9144cc488a600cd0005717ce289bac179dd537a79d09c0fbbc53e5e0b5", size = 1053068, upload-time = "2026-11-05T23:49:36.19Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/ae/954ed732bb096c4526c376faf180f016304f1cab246f68c91942197ab8bd/posthoganalytics-7.87.1-py3-none-any.whl", hash = "sha256:4c3d06a57409924b2e0fbbfd6cc57c4cf4bb03e0149eed0273fca57204cb774b", size = 1087667, upload-time = "2026-11-11T18:12:25.324Z" },
 ]
 
 [[package]]

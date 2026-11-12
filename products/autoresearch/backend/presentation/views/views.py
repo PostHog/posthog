@@ -345,7 +345,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         summary="Read the project's limits",
         description=(
             "Return the project's autoresearch limits and how much of each it is using: sandbox training runs "
-            "in the last 24 hours against the daily limit, with when the next run can start at the limit, the "
+            "against the daily limit, with when the next run can start at the limit, the "
             "most experiments per training run, and live pipelines against the live pipeline limit. "
             "Read-only; it runs no queries."
         ),
@@ -464,7 +464,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             429: OpenApiResponse(
                 response=TrainingRunCapReachedSerializer,
                 description=(
-                    "The project started its limit of training runs in the last 24 hours (this body), "
+                    "The project used its daily limit of training runs (this body), "
                     "or the team is over its PostHog Desktop usage limit."
                 ),
             ),

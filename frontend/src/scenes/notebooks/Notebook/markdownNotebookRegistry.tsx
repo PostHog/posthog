@@ -875,13 +875,16 @@ export function MountedRealNotebookNodeComponent({
     const showSettings = forceEditing && Settings
     const showContent = !editOnly
     const isNotebookEditable = (notebookMode ?? mode) === 'edit'
+    const isInsightEditorView = notebookNodeType === NotebookNodeType.Query && attributes.view === 'editor'
     const isResizeable =
         isNotebookEditable &&
+        !isInsightEditorView &&
         (typeof options.resizeable === 'function' ? options.resizeable(attributes) : (options.resizeable ?? true))
-    const contentStyle: CSSProperties | undefined =
-        isResizeable || attributes.height
-            ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
-            : undefined
+    const contentStyle: CSSProperties | undefined = isInsightEditorView
+        ? { height: 'auto' }
+        : isResizeable || attributes.height
+          ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
+          : undefined
     // Nodes that declare their own minHeight (e.g. LaTeX) size to their content instead of the 8rem default
     const nodeStyle: CSSProperties | undefined =
         options.minHeight !== undefined

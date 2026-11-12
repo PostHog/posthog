@@ -104,16 +104,36 @@ class TestTrialPolicy(BaseTest):
         assert self.policy.flag_decision().enabled is False
         assert self.admit().funding == "existing"
 
+    @parameterized.expand([("starts_later", 2, False), ("starts_today", 0, True), ("no_cutover", None, True)])
+    def test_pricing_stays_off_until_the_billing_cutover(
+        self, _name: str, cutover_in_days: int | None, enabled: bool
+    ) -> None:
+        if cutover_in_days is not None:
+            cutover = timezone.now().date() + timedelta(days=cutover_in_days)
+            self.organization.usage = {"signals_spend_credits": {"billing_start_date": cutover.isoformat()}}
+            self.organization.save(update_fields=["usage"])
+        decision = self.policy.flag_decision()
+        assert (decision.enabled, decision.confirmed) == (enabled, True)
+
     @parameterized.expand(
-        [("missing", False, False), ("flag_unavailable", True, False), ("cache_unavailable", False, True)]
+        [
+            ("missing", False, False, False),
+            ("flag_unavailable", True, False, False),
+            ("cache_unavailable", False, True, False),
+            ("cutover_unreadable", False, False, True),
+        ]
     )
     def test_unknown_flag_rejects_new_work_and_preserves_accepted_funding(
-        self, _name: str, flag_unavailable: bool, cache_unavailable: bool
+        self, _name: str, flag_unavailable: bool, cache_unavailable: bool, cutover_unreadable: bool
     ) -> None:
         grant = self.claim()
         funding = self.admit()
         self.exhaust(grant, "cost_limit")
-        self.flag_mock.return_value = None
+        if cutover_unreadable:
+            self.organization.usage = {"signals_spend_credits": {"billing_start_date": "soon"}}
+            self.organization.save(update_fields=["usage"])
+        else:
+            self.flag_mock.return_value = None
         self.flag_mock.side_effect = RuntimeError("flag unavailable") if flag_unavailable else None
         with patch(
             "products.signals.backend.trial.policy.cache.get",
@@ -220,6 +240,30 @@ class TestTrialPolicy(BaseTest):
         assert [scout.enabled for scout in scouts] == [True, True, True, False, False]
         assert scouts[-1].pause_reason == SignalScoutConfig.PauseReason.TRIAL_SCOUT_LIMIT
         assert paused.status == SignalScoutConfig.Status.PAUSED_BY_USER
+
+    @parameterized.expand([("enabled_before_claim", 3), ("enabled_after_claim", 2)])
+    def test_operational_scout_takes_no_trial_slot(self, _name: str, enabled_before_claim: int) -> None:
+        operational = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-inbox-validation")
+        chosen = [
+            SignalScoutConfig.objects.create(
+                team=self.team, skill_name=f"scout-{index}", enabled=index < enabled_before_claim
+            )
+            for index in range(3)
+        ]
+        extra = SignalScoutConfig.objects.create(team=self.team, skill_name="scout-extra", enabled=False)
+        self.claim()
+        for scout in chosen[enabled_before_claim:]:
+            scout.enabled = True
+            scout.save()
+
+        for scout in [operational, *chosen]:
+            scout.refresh_from_db()
+        assert [scout.enabled for scout in [operational, *chosen]] == [True, True, True, True]
+        extra.enabled = True
+        with self.assertRaisesMessage(ValidationError, "The free trial allows three enabled scouts"):
+            extra.save()
+        with patch("products.signals.backend.scout_harness.team_limits._read_flag_payload", return_value={}):
+            assert max_enabled_scouts_for_team(self.team.id) == 4
 
     @parameterized.expand([(None, 3), (2, 2), (10, 3)])
     def test_scout_metadata_matches_the_enforced_trial_limit(self, configured_limit: int | None, expected: int) -> None:

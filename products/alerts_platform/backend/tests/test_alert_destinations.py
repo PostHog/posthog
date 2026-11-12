@@ -12,6 +12,8 @@ from products.alerts_platform.backend.facade.api import (
     create_alert_destinations,
     delete_alert_destinations,
     list_alert_destinations,
+    set_subscriber_destinations,
+    subscriber_user_ids_by_public_id,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -105,13 +107,50 @@ class TestAlertDestinations(BaseTest):
         assert error.value.field == field
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
 
-    def test_an_alert_whose_product_holds_its_destinations_takes_none_here(self) -> None:
+    def test_subscribers_replace_only_the_destinations_that_name_users(self) -> None:
+        addresses = cast(AlertDestinationData, {"type": DestinationType.EMAIL, "email_addresses": ["a@example.com"]})
+        self._create(
+            NewAlertDestination(data=WEBHOOK, event_kinds=FIRING),
+            NewAlertDestination(data=addresses, event_kinds=FIRING),
+        )
+        public_id = self.configuration.id
+
+        def subscribe(*user_ids: int) -> None:
+            assert set_subscriber_destinations(
+                team_id=self.team.id,
+                public_id=public_id,
+                user_ids=user_ids,
+                event_kinds=FIRING,
+                in_app_resource_type="insight",
+                in_app_resource_id="abc123",
+            )
+
+        subscribe(3, 1, 3)
+        subscribe(2)
+        assert subscriber_user_ids_by_public_id(team_id=self.team.id, public_ids=[public_id]) == {public_id: (2,)}
+        subscribe()
+        assert subscriber_user_ids_by_public_id(team_id=self.team.id, public_ids=[public_id]) == {}
+        assert [d.data for d in list_alert_destinations(team_id=self.team.id, configuration_id=public_id)] == [
+            WEBHOOK,
+            addresses,
+        ]
+        assert not set_subscriber_destinations(
+            team_id=self.team.id,
+            public_id=uuid4(),
+            user_ids=[1],
+            event_kinds=FIRING,
+            in_app_resource_type="insight",
+            in_app_resource_id="abc123",
+        )
+
+    def test_an_alert_whose_product_keeps_hog_functions_takes_rows_beside_them(self) -> None:
         configuration = self._configuration(destinations_owner=PlatformAlertOwner.SOURCE)
 
-        with pytest.raises(AlertDestinationValidationError):
-            self._create(NewAlertDestination(data=WEBHOOK, event_kinds=FIRING), configuration=configuration)
+        self._create(NewAlertDestination(data=WEBHOOK, event_kinds=FIRING), configuration=configuration)
 
-        assert list_alert_destinations(team_id=self.team.id, configuration_id=configuration.id) == ()
+        assert [d.data for d in list_alert_destinations(team_id=self.team.id, configuration_id=configuration.id)] == [
+            WEBHOOK
+        ]
 
     @parameterized.expand(
         [

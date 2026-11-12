@@ -11,7 +11,6 @@ import {
 } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -26,6 +25,7 @@ import { urlForSubscriptions } from 'products/subscriptions/frontend/components/
 
 import { InsightShareMenu, useInsightShareItems } from './InsightShareMenu'
 import { openInsightEditor } from './openInsightEditor'
+import { QuillInsightMonitorButton } from './QuillInsightMonitorButton'
 import { QuillInsightSaveButton } from './QuillInsightSaveButton'
 
 export function QuillInsightPageHeaderActions({
@@ -137,7 +137,7 @@ export function QuillInsightPageHeaderActions({
                         <IconPlus />
                         Add to dashboard
                     </Button>
-                    <InsightSubscribeProminentButton
+                    <QuillInsightMonitorButton
                         insightShortId={insight.short_id!}
                         canCreateAlert={canCreateAlertForInsight}
                     />

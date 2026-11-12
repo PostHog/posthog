@@ -25,6 +25,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
 from products.experiments.backend.health.inputs_payload import health_inputs_payload
@@ -318,6 +319,37 @@ def list_running_experiments(
         for id, name, started_at, flag_key, exposure_criteria in rows
         if _exposes_on_flag_calls(id, exposure_criteria)
     ]
+
+
+def list_own_running_experiments(*, team_id: int, user_id: int, limit: int) -> list[RunningExperiment]:
+    rows = (
+        ExperimentModel.objects.filter(
+            team_id=team_id, created_by_id=user_id, start_date__isnull=False, end_date__isnull=True, archived=False
+        )
+        .exclude(deleted=True)
+        .order_by("-start_date")
+        .values_list("id", "name", "start_date", "feature_flag__key")[:limit]
+    )
+    return [
+        RunningExperiment(id=id, name=name, started_at=started_at, flag_key=flag_key)
+        for id, name, started_at, flag_key in rows
+    ]
+
+
+def viewable_experiment_names(*, team: Team, user: User, experiment_ids: Collection[int]) -> dict[int, str]:
+    rows = list(
+        ExperimentModel.objects.filter(team_id=team.id, id__in=experiment_ids)
+        .exclude(deleted=True)
+        .values_list("id", "name", "team_id", "created_by_id")
+    )
+    denied = set(
+        UserAccessControl(user=user, team=team, organization_id=str(team.organization_id)).denied_object_ids(
+            "experiment",
+            ((str(id), team_id, created_by_id) for id, _name, team_id, created_by_id in rows),
+            "viewer",
+        )
+    )
+    return {id: name for id, name, _team_id, _created_by_id in rows if str(id) not in denied}
 
 
 def count_enrolled_people(*, team: Team, user: User, flag_keys: list[str]) -> dict[str, int]:

@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
@@ -152,8 +152,9 @@ class IssuesTable:
         return execute_hogql_query(query=query, **kwargs)
 
 
-@pytest.mark.django_db
-class TestPgAnalyzeIssueRecordFetcher(ClickhouseTestMixin, BaseTest):
+@pytest.mark.django_db(transaction=True)
+class TestPgAnalyzeIssueRecordFetcher(ClickhouseTestMixin, NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
     context: dict[str, str | None] = {"table_name": "pganalyze.issues", "last_synced_at": "2026-04-20T06:00:00+00:00"}
 
     def _fetch(self, table: IssuesTable, max_records: int = 200) -> list[dict[str, Any]]:

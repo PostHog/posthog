@@ -10,7 +10,6 @@ from typing import Protocol
 
 from django.core.cache import cache
 from django.db.models import Model, QuerySet
-from django.db.models.fields.json import KT
 
 from posthog.schema import RecordingOrder, RecordingsQuery
 
@@ -199,10 +198,6 @@ class ExportedPlaylistSource(SyntheticPlaylistSource):
 
     def count_session_ids(self, team: Team, user: User) -> int:
         return self._session_exports(team).values("export_context__session_recording_id").distinct().count()
-
-    def count_viewed_session_ids(self, team: Team, user: User) -> int:
-        session_ids = self._session_exports(team).values_list(KT("export_context__session_recording_id"), flat=True)
-        return self._count_viewed(team, user, session_ids)
 
     def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
         return SyntheticPlaylistDefinition(
