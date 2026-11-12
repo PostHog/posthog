@@ -179,7 +179,15 @@ export const BusinessKnowledgeNeedsSetup: ProductEmptyStateStory = productEmptyS
     businessKnowledgeEmptyState,
     'needs-setup',
     {
-        mocks: { get: { '/api/projects/:team_id/business_knowledge/sources/': [200, emptyEntityList] } },
+        mocks: {
+            get: {
+                '/api/projects/:team_id/business_knowledge/sources/': [200, emptyEntityList],
+                '/api/projects/:team_id/business_knowledge/repositories/status/': [
+                    200,
+                    { connected: false, integration_id: null, integration_name: '', repos: [] },
+                ],
+            },
+        },
     }
 )
 

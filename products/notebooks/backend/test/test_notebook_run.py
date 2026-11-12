@@ -86,7 +86,6 @@ class TestRunPlanCellShapes(APIBaseTest):
         assert plan_notebook_cells(notebook)[0]["code"] == "select 2"
 
 
-@patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
 @patch("products.notebooks.backend.presentation.views.notebook.start_notebook_run_workflow")
 class TestNotebookRunEndpoints(APIBaseTest):
     def setUp(self) -> None:
@@ -96,7 +95,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
         )
         self.runs_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/runs/"
 
-    def test_a_run_plans_only_the_runnable_cells_and_starts_the_workflow(self, mock_start, _flag) -> None:
+    def test_a_run_plans_only_the_runnable_cells_and_starts_the_workflow(self, mock_start) -> None:
         response = self.client.post(self.runs_url, data={}, format="json")
 
         assert response.status_code == 200, response.json()
@@ -109,7 +108,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
 
     @parameterized.expand([(False, 400), (True, 200)])
     def test_prepared_insights_require_explicit_opt_in(
-        self, mock_start: MagicMock, _flag: MagicMock, enabled: bool, expected_status: int
+        self, mock_start: MagicMock, enabled: bool, expected_status: int
     ) -> None:
         self.notebook.content = markdown_content('<Query nodeId="insight" dataframeQuery="select 1" />')
         self.notebook.save(update_fields=["content"])
@@ -121,7 +120,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
         else:
             mock_start.assert_not_called()
 
-    def test_a_notebook_with_nothing_to_run_is_refused(self, mock_start, _flag) -> None:
+    def test_a_notebook_with_nothing_to_run_is_refused(self, mock_start) -> None:
         notebook = Notebook.objects.create(
             team=self.team, short_id="nbrunemp", content=markdown_content("# Just prose\n")
         )
@@ -135,7 +134,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
 
     @parameterized.expand([("at_limit", MAX_NOTEBOOK_CELLS, 200), ("over_limit", MAX_NOTEBOOK_CELLS + 1, 400)])
     def test_prepared_insights_obey_the_run_limit(
-        self, mock_start: MagicMock, _flag: MagicMock, _name: str, count: int, status: int
+        self, mock_start: MagicMock, _name: str, count: int, status: int
     ) -> None:
         self.notebook.content = markdown_content(
             "\n\n".join(
@@ -167,14 +166,14 @@ class TestNotebookRunEndpoints(APIBaseTest):
             self.notebook.refresh_from_db()
             assert self.notebook.variables is None
 
-    def test_a_second_run_while_one_is_active_is_refused(self, _start, _flag) -> None:
+    def test_a_second_run_while_one_is_active_is_refused(self, _start) -> None:
         assert self.client.post(self.runs_url, data={}, format="json").status_code == 200
 
         response = self.client.post(self.runs_url, data={}, format="json")
 
         assert response.status_code == 409, response.json()
 
-    def test_variables_are_saved_before_the_run_snapshots_them(self, _start, _flag) -> None:
+    def test_variables_are_saved_before_the_run_snapshots_them(self, _start) -> None:
         response = self.client.post(
             self.runs_url,
             data={"variables": [{"name": "country", "type": "string", "value": "US"}]},
@@ -188,7 +187,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
             notebook_run = NotebookRun.objects.get(id=response.json()["run_id"])
         assert notebook_run.variables == self.notebook.variables
 
-    def test_a_refused_run_leaves_the_variables_alone(self, _start, _flag) -> None:
+    def test_a_refused_run_leaves_the_variables_alone(self, _start) -> None:
         # Saving them first is what lets the plan bind the caller's values, but a 409 must not
         # rewrite the notebook underneath the run already in flight.
         self.client.post(self.runs_url, data={}, format="json")
@@ -203,7 +202,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
         self.notebook.refresh_from_db()
         assert self.notebook.variables is None
 
-    def test_the_plan_freezes_the_code_and_the_connection(self, _start, _flag) -> None:
+    def test_the_plan_freezes_the_code_and_the_connection(self, _start) -> None:
         # The plan is the run's authority, so a cell edited after the run starts must not
         # change what it executes — notebook write and query access are separate grants.
         notebook = Notebook.objects.create(
@@ -233,7 +232,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert str(request.connection_id) == "018e0e7a-9999-8888-7777-666666666666"
         assert request.send_raw_query is True
 
-    def test_status_reports_every_planned_cell_and_the_one_in_flight(self, _start, _flag) -> None:
+    def test_status_reports_every_planned_cell_and_the_one_in_flight(self, _start) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
         with team_scope(self.team.id):
             notebook_run = NotebookRun.objects.get(id=run_id)
@@ -254,7 +253,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert [(cell["node_id"], cell["status"]) for cell in payload["cells"]] == [("s1", "done"), ("p1", None)]
         assert payload["cells"][0]["run_id"] == str(node_run.id)
 
-    def test_the_status_read_never_fetches_a_cell_result(self, _start, _flag) -> None:
+    def test_the_status_read_never_fetches_a_cell_result(self, _start) -> None:
         # The response carries no result envelopes, and must not pay for them either: a client
         # polls this every two seconds while the last cell runs, and a notebook may hold fifty
         # cells whose envelopes each run to megabytes.
@@ -279,7 +278,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
         for sql in node_run_reads:
             assert "envelope" not in sql, sql
 
-    def test_a_cell_error_from_an_unreachable_source_is_withheld(self, _start, _flag) -> None:
+    def test_a_cell_error_from_an_unreachable_source_is_withheld(self, _start) -> None:
         # Notebook plus query access does not imply source access, and an engine error can
         # carry its own detail. The cell-result endpoint refuses outright; this one serves
         # many cells, so it drops the error and keeps the rest readable.
@@ -314,7 +313,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert allowed["cells"][0]["error"] == 'relation "secret_table" does not exist'
 
     @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
-    def test_a_retried_dispatch_reuses_the_cell_it_already_started(self, mock_enqueue, _start, _flag) -> None:
+    def test_a_retried_dispatch_reuses_the_cell_it_already_started(self, mock_enqueue, _start) -> None:
         # The worker can die between handing the cell off and Temporal recording the result, so
         # the activity runs again. It must recover the run it already started rather than
         # execute the cell a second time, which for a Python cell repeats its side effects.
@@ -332,7 +331,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert NotebookNodeRun.objects.for_team(self.team.id).filter(notebook_run_id=run_id).count() == 1
 
     @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
-    def test_a_retry_finishes_a_dispatch_that_never_reached_its_lane(self, mock_enqueue, _start, _flag) -> None:
+    def test_a_retry_finishes_a_dispatch_that_never_reached_its_lane(self, mock_enqueue, _start) -> None:
         # The row is committed before the lane is told about it, so a worker that dies in
         # between leaves a row nothing drives. Finding that row is not proof the cell started:
         # the retry has to complete the handoff, or the orchestrator polls it until the cell
@@ -359,7 +358,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert NotebookNodeRun.objects.for_team(self.team.id).filter(notebook_run_id=run_id).count() == 1
 
     @patch("products.notebooks.backend.notebook_run.interrupt_sql_v2_run", return_value=False)
-    def test_stopping_a_cell_the_kernel_never_received_still_cancels_it(self, _interrupt, _start, _flag) -> None:
+    def test_stopping_a_cell_the_kernel_never_received_still_cancels_it(self, _interrupt, _start) -> None:
         # The interrupt returns False when the dispatch is still queued: there is nothing at
         # the kernel to stop. Left RUNNING the cell would start after the user was told the
         # run had stopped, and a second Stop returns early because the parent is terminal.
@@ -380,7 +379,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
         cell.refresh_from_db()
         assert cell.status == NotebookNodeRun.Status.INTERRUPTED
 
-    def test_a_queued_dispatch_refuses_a_cell_that_was_stopped(self, _start, _flag) -> None:
+    def test_a_queued_dispatch_refuses_a_cell_that_was_stopped(self, _start) -> None:
         # The other half: the row's status is the cancellation, and the sandbox dispatch is
         # the last point before the code leaves for the kernel, so it has to read it. It also
         # provisions a kernel when none is up, so running on would bill for the stopped cell.
@@ -410,7 +409,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
         mock_dispatch.assert_not_called()
 
     @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
-    def test_interrupt_stops_the_run_and_is_idempotent(self, mock_report, _start, _flag) -> None:
+    def test_interrupt_stops_the_run_and_is_idempotent(self, mock_report, _start) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
 
         first = self.client.post(f"{self.runs_url}{run_id}/interrupt/")
@@ -434,7 +433,7 @@ class TestNotebookRunEndpoints(APIBaseTest):
         ]
     )
     def test_deleting_the_notebook_stops_its_run_and_child(
-        self, _name: str, phase: str, node_type: str, _start: MagicMock, _flag: MagicMock
+        self, _name: str, phase: str, node_type: str, _start: MagicMock
     ) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
         cell = NotebookNodeRun.objects.for_team(self.team.id).create(
@@ -471,21 +470,8 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert run.finished_at is not None
         assert run.error == "The notebook was deleted."
 
-    def test_a_stopped_run_leaves_the_notebook_free_to_run_again(self, _start, _flag) -> None:
+    def test_a_stopped_run_leaves_the_notebook_free_to_run_again(self, _start) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
         self.client.post(f"{self.runs_url}{run_id}/interrupt/")
 
         assert self.client.post(self.runs_url, data={}, format="json").status_code == 200
-
-
-class TestNotebookRunEndpointsBehindTheFlag(APIBaseTest):
-    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=False)
-    def test_the_run_endpoint_is_invisible_without_the_flag(self, _flag) -> None:
-        notebook = Notebook.objects.create(team=self.team, short_id="nbrunoff", content=markdown_content(_RUN_CELLS))
-
-        with self.settings(DEBUG=False):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/runs/", data={}, format="json"
-            )
-
-        assert response.status_code == 404

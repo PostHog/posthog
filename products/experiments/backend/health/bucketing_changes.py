@@ -3,7 +3,7 @@ Changes of the flag settings besides the split that decide a person's variant dr
 log. Pure functions, no I/O. The flags facade (`facade/edits.py`) owns how the flag service reads each setting.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
@@ -18,6 +18,11 @@ class BucketingChangeShape(StrEnum):
     BUCKETING_IDENTIFIER_CHANGED = "bucketing_identifier_changed"
     EXPERIENCE_CONTINUITY_CHANGED = "experience_continuity_changed"
     REVERTED = "reverted"
+
+
+# The plural names of the project's group types by index. The history reads them only when a change of the flag's
+# "Match by" setting names a group type, so they are empty otherwise.
+GroupTypeNames = Mapping[int, str]
 
 
 _SHAPES = {
@@ -71,14 +76,23 @@ def bucketing_net_effect(changes: Sequence[BucketingChange]) -> BucketingNetEffe
     )
 
 
-def describe_bucketing_value(setting: BucketingSetting, value: str | int | bool | None) -> str:
+def describe_bucketing_value(
+    setting: BucketingSetting, value: str | int | bool | None, *, group_type_names: GroupTypeNames
+) -> str:
     """The value as the flag page names it."""
     match setting:
         case BucketingSetting.KEY:
-            return f'"{value}"' if isinstance(value, str) else "an unreadable key"
+            return describe_flag_key(value)
         case BucketingSetting.AGGREGATION:
-            return "users" if value is None else "groups"
+            if not isinstance(value, int):
+                return "users"
+            # A group type without a name was deleted, or its lookup failed.
+            return group_type_names.get(value, f"group type {value}")
         case BucketingSetting.BUCKETING_IDENTIFIER:
             return "device ID" if value == "device_id" else "user ID"
         case BucketingSetting.EXPERIENCE_CONTINUITY:
             return "on" if value else "off"
+
+
+def describe_flag_key(value: str | int | bool | None) -> str:
+    return f'"{value}"' if isinstance(value, str) else "an unreadable key"

@@ -8,7 +8,7 @@ FROM python:3.14.7-slim-trixie@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234
 
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-ENV NODE_VERSION=26.13.0 \
+ENV NODE_VERSION=26.13.1 \
     NODE_ENV=development \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \

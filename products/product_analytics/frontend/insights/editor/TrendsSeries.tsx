@@ -95,7 +95,7 @@ export function TrendsSeries(): JSX.Element | null {
         />
     )
 
-    return (
+    const content = (
         <>
             {isLifecycle && <LifecycleSeriesHeader />}
             <SeriesActionFilter
@@ -138,4 +138,6 @@ export function TrendsSeries(): JSX.Element | null {
             {hasFormula && <TrendsFormula insightProps={insightProps} />}
         </>
     )
+
+    return quillSurface ? <div className="flex flex-col gap-2">{content}</div> : content
 }

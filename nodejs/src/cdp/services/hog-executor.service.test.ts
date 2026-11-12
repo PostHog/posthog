@@ -95,7 +95,7 @@ describe('Hog Executor', () => {
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
             null,
-            { report: jest.fn() }
+            { report: jest.fn(), reportEmailSent: jest.fn() }
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         return new HogExecutorAsyncService(
