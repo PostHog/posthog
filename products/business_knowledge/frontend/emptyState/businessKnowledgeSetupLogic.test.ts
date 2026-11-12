@@ -12,22 +12,37 @@ import { businessKnowledgeSetupLogic } from './businessKnowledgeSetupLogic'
 // empty-state gate strands on its spinner or shows the wrong surface.
 describe('businessKnowledgeSetupLogic', () => {
     let listSpy: jest.SpyInstance
+    let reposSpy: jest.SpyInstance
 
     beforeEach(() => {
         listSpy = jest.spyOn(generatedApi, 'businessKnowledgeSourcesList')
+        reposSpy = jest.spyOn(generatedApi, 'businessKnowledgeRepositoriesStatusRetrieve')
         initKeaTests()
     })
 
     afterEach(() => {
         listSpy.mockRestore()
+        reposSpy.mockRestore()
     })
 
     it.each([
-        [0, 'needs-setup'],
-        [1, 'has-data'],
-        [9, 'has-data'],
-    ])('pushes a source count of %i as status %s', async (count, expected) => {
+        [0, [], 'needs-setup'],
+        [1, [], 'has-data'],
+        [9, [], 'has-data'],
+        [0, ['example/docs'], 'has-data'],
+        [0, null, 'needs-setup'],
+    ])('pushes %i sources and repositories %j as status %s', async (count, repos, expected) => {
         listSpy.mockResolvedValue({ count, next: null, previous: null, results: [] })
+        if (repos) {
+            reposSpy.mockResolvedValue({
+                connected: repos.length > 0,
+                integration_id: repos.length > 0 ? 1 : null,
+                integration_name: '',
+                repos,
+            })
+        } else {
+            reposSpy.mockRejectedValue(new Error('repository status failed'))
+        }
         const logic = businessKnowledgeSetupLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
