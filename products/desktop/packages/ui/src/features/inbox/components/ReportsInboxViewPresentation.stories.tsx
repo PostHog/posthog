@@ -107,7 +107,6 @@ const meta: Meta<typeof ReportsInboxViewPresentation> = {
     isEmpty: false,
     hasActiveFilters: false,
     showConfigureAgentsEmptyState: false,
-    triageEnabled: true,
     filterControl: <InboxReportFilters />,
     scopeControl: <InboxScopeSelect />,
     renderReport: reportRow,

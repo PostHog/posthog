@@ -82,6 +82,16 @@ Because this channel can't be enumerated, it is closed by construction rather th
    A model is reachable with no import: `apps.get_model("label", "Class")`, migrations, admin, fixtures.
    tach cannot see that, so a model or migration change always re-runs the full suite.
    `hogli product:lint` blocks a narrowing that leaves the surface out.
+4. Keep in the inputs every module that outside suites run without an import:
+   - a module with a signal receiver on a sender of core or another product;
+   - a module that a test outside the product names by dotted path, as a patch target does;
+   - a module that core loads by name through `load_product_modules`;
+   - `backend/apps.py` and every product module it imports, because Django runs the AppConfig in every process;
+   - a module that registers into a `register_*` hook of core or another product, and the module that defines what it registers;
+   - a module that core settings name by dotted path, such as a middleware.
+
+   `hogli product:lint` finds each of them and fails until each module is in the inputs.
+   It watches the entry module, not everything that module calls: code behind it is tested in the product, like code behind the facade.
 
 A product whose views still hold business logic is not soundly skippable even if nothing imports it.
 This is also why "no in-process callers, so we don't need a facade" is the wrong test: a product whose only consumers are over HTTP (node services, the generated TS/MCP types) is _not_ facade-optional — there the facade's whole job is sealing its own presentation.

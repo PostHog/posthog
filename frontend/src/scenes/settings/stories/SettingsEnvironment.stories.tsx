@@ -135,6 +135,9 @@ export const SettingsEnvironmentMarketingAnalytics: Story = {
     args: { sectionId: 'environment-marketing-analytics' },
     parameters: {
         featureFlags: [...STORYBOOK_FEATURE_FLAGS, 'advance-marketing-analytics-settings'],
+        msw: {
+            mocks: { post: { '/api/environments/:team_id/query/DatabaseSchemaQuery/': { tables: {}, joins: [] } } },
+        },
     },
 }
 
@@ -398,6 +401,34 @@ export const SettingsEnvironmentAgentInstructions: Story = {
                     resolved_ai_run_defaults: null,
                     agent_instructions: '',
                 },
+            },
+        }),
+    ],
+}
+
+export const SettingsMcpAnalyticsCustomHarnesses: Story = {
+    args: { sectionId: 'mcp-analytics' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/mcp_analytics/custom_harnesses/': [
+                    {
+                        id: '0193f2a1-0000-7000-8000-000000000001',
+                        name: 'Acme agent',
+                        match_pattern: 'acme-agent',
+                        icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApUlEQVR42tWX3Q2AMAiEW+IaOpDOqwPpIPXVmGJpQX54VXrcV6K5lIwrYw/mtRRJoevImTSAtHBrENAUr2mApnhNC6yXELTdvymwCZy7AAGuOGcIHzsggX6UQkwCmNsRCvEItFz2UohFgOquh0IcAr13S30/BoHRrxylzz8B7u+21e+bANc95Zzpq3HZlAhgoUEjH/jZAU0KTy2g5Lc/o5l5ODWvGwdJQtrvVp3WAAAAAElFTkSuQmCC',
+                        created_at: '2023-05-20T10:00:00Z',
+                        updated_at: '2023-05-20T10:00:00Z',
+                    },
+                    {
+                        id: '0193f2a1-0000-7000-8000-000000000002',
+                        name: 'Support bot',
+                        match_pattern: 'support-bot',
+                        icon: '',
+                        created_at: '2023-05-21T10:00:00Z',
+                        updated_at: '2023-05-21T10:00:00Z',
+                    },
+                ],
             },
         }),
     ],

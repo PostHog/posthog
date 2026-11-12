@@ -5,6 +5,7 @@ import { loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { getEdgeId } from '../../edgeId'
@@ -463,6 +464,87 @@ describe('tileCanvasLogic', () => {
         })
     })
 
+    describe('view access', () => {
+        const delayStep = { type: 'delay', name: 'Delay', description: '', config: { delay_duration: '1h' } } as const
+        const edge = (from: string, to: string): HogFlowEdge =>
+            logic.values.workflow.edges.find((candidate) => candidate.from === from && candidate.to === to)!
+
+        const workflowFor = (userAccessLevel: AccessControlLevel): Parameters<typeof useMocks>[0] => ({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': { ...savedWorkflow, user_access_level: userAccessLevel },
+            },
+        })
+
+        const mountLaidOutCanvas = async (): Promise<void> => {
+            jest.mocked(loadAppMetricsTotals).mockResolvedValue({})
+            logic = await mountSavedCanvas()
+            await expectLogic(hogFlowEditorLogic({ id: WORKFLOW_ID }))
+                .toFinishAllListeners()
+                .toMatchValues({ nodes: expect.arrayContaining([expect.objectContaining({ id: 'b2' })]) })
+        }
+
+        it.each([
+            {
+                edit: 'adds a step from the command bar',
+                run: (): void => {
+                    logic.actions.openCommandPalette()
+                    logic.actions.startPlacing(delayStep)
+                    logic.actions.placeAt(edge('split', 'b1'))
+                },
+            },
+            { edit: 'adds a step from a +', run: (): void => logic.actions.addStepAt(delayStep, edge('split', 'b1')) },
+            {
+                edit: 'drags a new step onto a +',
+                run: (): void => {
+                    logic.actions.startDraggingNewStep(delayStep)
+                    logic.actions.dropAt(edge('split', 'b1'))
+                },
+            },
+            {
+                edit: 'drags a step onto another +',
+                run: (): void => {
+                    logic.actions.startDraggingStep('b2')
+                    logic.actions.dropAt(edge('split', 'b1'))
+                },
+            },
+            ...(['copy', 'move'] as const).map((choice) => ({
+                edit: `picks ${choice} in the step menu`,
+                run: (): void => {
+                    logic.actions.openStepMenu('b2')
+                    logic.actions.chooseStepMenuItem(choice)
+                    logic.actions.placeAt(edge('split', 'b1'))
+                },
+            })),
+            {
+                edit: 'picks delete in the step menu',
+                run: (): void => {
+                    logic.actions.openStepMenu('b2')
+                    logic.actions.chooseStepMenuItem('delete')
+                },
+            },
+        ])('ignores a viewer who $edit', async ({ run }) => {
+            useMocks(workflowFor(AccessControlLevel.Viewer))
+            await mountLaidOutCanvas()
+            const loaded = logic.values.workflow
+
+            run()
+
+            expect(logic.values.workflow).toEqual(loaded)
+            expect(logic.values).toMatchObject({ isPlacing: false, isMovingNode: false, isCopyingNode: false })
+            expect([null, ...loaded.actions.map((action) => action.id)]).toContain(logic.values.selectedNodeId)
+        })
+
+        it('lets an editor add a step from a +', async () => {
+            useMocks(workflowFor(AccessControlLevel.Editor))
+            await mountLaidOutCanvas()
+            const stepsBefore = logic.values.workflow.actions.length
+
+            logic.actions.addStepAt(delayStep, edge('split', 'b1'))
+
+            expect(logic.values.workflow.actions).toHaveLength(stepsBefore + 1)
+        })
+    })
+
     describe('paths', () => {
         let layoutSpy: jest.SpyInstance
 
@@ -604,18 +686,6 @@ describe('tileCanvasLogic', () => {
         })
 
         it('counts the people a step filtered out', () => {
-            expect(stepCount(logic.values.stepMetrics, 'pause')).toBe(48)
-        })
-
-        it('keeps the canvas counts when the Metrics panel loads another date range', async () => {
-            const editorLogic = hogFlowEditorLogic({ id: WORKFLOW_ID })
-
-            await expectLogic(logic, () =>
-                editorLogic.actions.loadActionMetricsByIdSuccess({
-                    pause: { actionId: 'pause', succeeded: 3, failed: 0, filtered: 0 },
-                })
-            )
-
             expect(stepCount(logic.values.stepMetrics, 'pause')).toBe(48)
         })
     })

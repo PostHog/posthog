@@ -46,7 +46,7 @@ class SendowlSource(ResumableSource[SendowlSourceConfig, SendowlResumeConfig]):
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your SendOwl API credentials to pull your SendOwl data into the PostHog Data warehouse.
 
-You can create an API key and secret under **Settings → API credentials** in the [SendOwl dashboard](https://dashboard.sendowl.com/settings/api_keys). Grant the key the **Manager** permission for read access to products, orders, subscriptions, and discount codes.
+You can create an API key and secret under **Settings → API credentials** in the [SendOwl dashboard](https://dashboard.sendowl.com/settings/api_keys). Grant the key the **Manager** permission for read access to products, bundles, orders, subscriptions, discount codes, and licenses.
 """,
             iconPath="/static/services/sendowl.png",
             docsUrl="https://posthog.com/docs/cdp/sources/sendowl",

@@ -1354,14 +1354,22 @@ class TestHogQLModel:
 
     @pytest_asyncio.fixture
     async def hogql_model_test_data(
-        self, clickhouse_client, ateam, data_interval_start, data_interval_end, truncate_clickhouse_tables
+        self,
+        clickhouse_client,
+        ateam,
+        another_ateam,
+        data_interval_start,
+        data_interval_end,
+        truncate_clickhouse_tables,
     ):
         """Insert persons and events linked by person and distinct ID for HogQL model tests.
 
         All of this team's events share one session, which is also backfilled into
         `raw_sessions` so queries can read the sessions table. Events and persons are also
         inserted for another team, sharing that session ID, so tests verify the HogQL
-        printer's team scoping.
+        printer's team scoping. `another_ateam` does the same for system tables, which read
+        Postgres: it is a second team in the user's organization, so only the team filter
+        keeps its rows out.
         """
         session_id = str(uuid7())
         persons, _ = await generate_test_persons_in_clickhouse(
@@ -1492,6 +1500,12 @@ class TestHogQLModel:
                     [(e["event"], "first") for e in events] + [(e["event"], "second") for e in events]
                 ),
                 id="union",
+            ),
+            pytest.param(
+                "SELECT count() AS team_count FROM system.teams",
+                ["team_count"],
+                lambda events, persons: [(1,)],
+                id="system-table-scoped-to-team",
             ),
         ],
     )

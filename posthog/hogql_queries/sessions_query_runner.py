@@ -30,7 +30,8 @@ from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import relative_date_parse
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 COLUMN_COMMENT_SEPARATOR = " -- "
 SUPPORTED_PERSON_PROPERTY_OPERATORS = frozenset(
@@ -434,10 +435,8 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                                 )
                             elif self.query.actionId:
                                 try:
-                                    action = Action.objects.get(
-                                        pk=self.query.actionId, team__project_id=self.team.project_id
-                                    )
-                                except Action.DoesNotExist:
+                                    action = get_action(action_id=self.query.actionId, project_id=self.team.project_id)
+                                except ActionNotFound:
                                     raise Exception("Action does not exist")
                                 if not action.steps:
                                     raise Exception("Action does not have any match groups")

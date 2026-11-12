@@ -1,10 +1,12 @@
 from typing import Any
 
 import pytest
+from unittest.mock import MagicMock
 
 from products.warehouse_sources.sources.google_cloud_storage.source import GoogleCloudStorageSource
 from products.warehouse_sources.sources.sdk import SelfManagedCredential, SourceFieldSelectConfig
 from products.warehouse_sources.sources.sdk.testing import (
+    ACCESS_DENIED_ERROR,
     INVALID_CONFIG_ERROR,
     open_store,
     parse_self_managed_url,
@@ -103,3 +105,19 @@ def test_a_self_managed_table_maps_to_its_bucket_and_credential() -> None:
 
     assert job_inputs["url_pattern"] == "https://storage.googleapis.com/exports/"
     assert (job_inputs["access_key_id"], job_inputs["secret_access_key"]) == ("AKIAEXAMPLE", "c2VjcmV0")
+
+
+def test_access_denied_names_the_role_to_grant(resolvable_hosts: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = GoogleCloudStorageSource()
+    store = MagicMock()
+    store.list_objects.side_effect = PermissionError("Access Denied")
+    monkeypatch.setattr(source, "open_store", lambda _config: store)
+
+    valid, message = source.validate_credentials(source.parse_config(VALUES), 1)
+
+    assert not valid
+    assert message is not None
+    assert "Storage Object Viewer" in message
+    assert "access key and secret" in message
+    assert "customer_data" not in message
+    assert source.get_non_retryable_errors()[ACCESS_DENIED_ERROR] == message

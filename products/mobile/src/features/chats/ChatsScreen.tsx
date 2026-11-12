@@ -1,8 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { RefreshControl, SectionList, View } from 'react-native'
-
+import { RefreshControl, SectionList, Text, View } from 'react-native'
 import { useProjectScope } from '@/auth/useProjectScope'
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
@@ -13,12 +12,14 @@ import { Eyebrow } from '@/ui/Eyebrow'
 import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
+import { Pressable44 } from '@/ui/Pressable44'
 import { SearchField } from '@/ui/SearchField'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
-import { iconSizes, layout } from '@/ui/tokens'
+import { iconSizes, layout, type } from '@/ui/tokens'
 import { topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 
+import { ChatErrorNotice } from '../chat/ChatErrorNotice'
 import { toChatError } from '../chat/chatErrors'
 import type { ChatSheetEntry } from '../chat/chatSheetEvents'
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
@@ -26,7 +27,7 @@ import { useTabHeader } from '../tabs/tabHeaderStore'
 import { ChatRow } from './ChatRow'
 import { ChatRowMenu, type ChatRowMenuTarget } from './ChatRowMenu'
 import { filterChats, groupChats } from './chatGroups'
-import { sessionListKeys, useArchiveChat, useChatList } from './hooks'
+import { conversationListKeys, sessionListKeys, useArchiveChat, useChatList } from './hooks'
 
 interface ChatSection {
     label: string
@@ -80,6 +81,7 @@ export function ChatsScreen(): ReactElement {
             }
             if (scope) {
                 void queryClient.invalidateQueries({ queryKey: sessionListKeys.all(scope) })
+                void queryClient.invalidateQueries({ queryKey: conversationListKeys.all(scope) })
             }
         }, [queryClient, scope])
     )
@@ -92,7 +94,15 @@ export function ChatsScreen(): ReactElement {
     const openChat = useCallback(
         (item: ChatListItem) => {
             const entry: ChatSheetEntry = searching ? 'chats_search' : 'chats_list'
-            router.push({ pathname: '/chat', params: { taskId: item.sourceId, entry, origin: item.origin } })
+            router.push({
+                pathname: '/chat',
+                params: {
+                    [item.conversationId || item.kind === 'conversation' ? 'conversationId' : 'taskId']:
+                        item.conversationId ?? item.sourceId,
+                    entry,
+                    origin: item.origin,
+                },
+            })
         },
         [router, searching]
     )
@@ -204,6 +214,21 @@ export function ChatsScreen(): ReactElement {
     // An element, not a component, so typing does not remount the field and drop the keyboard.
     const listHeader = hasItems ? (
         <View style={styles.search}>
+            {query.isError ? (
+                <ChatErrorNotice
+                    message="Some chats couldn't load. Try again to load the rest."
+                    actions={
+                        <Pressable44
+                            disabled={query.isRefetching}
+                            accessibilityRole="button"
+                            accessibilityLabel="Retry loading chats"
+                            onPress={() => refresh('retry')}
+                        >
+                            <Text style={styles.retry}>Try again</Text>
+                        </Pressable44>
+                    }
+                />
+            ) : null}
             <SearchField value={search} onChangeText={setSearch} placeholder="Search chats" testID="chats-search" />
         </View>
     ) : null
@@ -247,6 +272,7 @@ const useStyles = createStyles(({ colors }) => ({
         flexGrow: 1,
         paddingHorizontal: layout.inboxGutter,
     },
+    retry: { ...type.meta, color: colors.ink, padding: 8 },
     search: {
         marginTop: 4,
         marginBottom: 4,

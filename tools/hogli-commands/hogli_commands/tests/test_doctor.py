@@ -55,6 +55,7 @@ from hogli_commands.doctor import (
     _scan_port_holders,
     _scan_unheld_via_lsof,
     _select_flox_logs_to_remove,
+    _sweepable_cargo_targets,
     _tail,
     doctor_git,
     doctor_migrate_volumes,
@@ -2008,6 +2009,24 @@ def test_estimate_sccache_accepts_a_directory_of_its_own(monkeypatch: pytest.Mon
 
     assert [item.path for item in estimate.items] == [cache]
     assert estimate.total_size == 2048
+
+
+@pytest.mark.parametrize("ignored", [True, False], ids=["ignored_by_its_checkout", "not_ignored"])
+def test_cargo_units_area_sweeps_a_target_inside_a_checkout_only_when_git_ignores_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, ignored: bool
+) -> None:
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=checkout, check=True)
+    if ignored:
+        (checkout / ".gitignore").write_text(".build-cache/\n")
+    target = checkout / ".build-cache"
+    (target / "debug" / ".fingerprint").mkdir(parents=True)
+    (target / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55\n")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    monkeypatch.setenv("CARGO_TARGET_DIR", str(target))
+
+    assert _sweepable_cargo_targets(tmp_path / "elsewhere") == ([target.resolve()] if ignored else [])
 
 
 def test_collect_rust_target_dirs_includes_the_shared_cargo_target_dir(

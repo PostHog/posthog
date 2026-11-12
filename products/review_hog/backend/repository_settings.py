@@ -31,6 +31,7 @@ from products.review_hog.backend.automatic_review_rules import (
 )
 from products.review_hog.backend.facade.contracts import (
     UNSET,
+    AdminOnlyChangeError,
     AutomaticReviewDecision,
     GitHubRepositoryListError,
     OwnershipConflict,
@@ -39,9 +40,15 @@ from products.review_hog.backend.facade.contracts import (
     RepositorySettingsError,
     Unset,
 )
-from products.review_hog.backend.facade.enums import AutomaticReviewReason, RepositoryOverviewView, RepositoryOwnerKind
+from products.review_hog.backend.facade.enums import (
+    AutomaticFlashFor,
+    AutomaticReviewReason,
+    RepositoryOverviewView,
+    RepositoryOwnerKind,
+)
 from products.review_hog.backend.models import (
     ReviewInstallationClaim,
+    ReviewProjectSettings,
     ReviewRepository,
     ReviewRepositoryPerson,
     ReviewUserRepositoryChoice,
@@ -50,6 +57,8 @@ from products.review_hog.backend.ownership import RepositoryOwnership, Repositor
 from products.review_hog.backend.preferences import DefaultReviewMode
 
 logger = logging.getLogger(__name__)
+
+FLASH_FOR_RANK = {AutomaticFlashFor.OFF: 0, AutomaticFlashFor.LISTED: 1, AutomaticFlashFor.EVERYONE: 2}
 
 
 def load_project_ref(team_id: int, *, viewer_organization_id: Any) -> ProjectRef:
@@ -274,6 +283,53 @@ class ProjectRepositories:
             self._delete_rows(claim.installation_id, only_unselected=False)
             claim.delete()
 
+    def _listed_people_get_excepted(self, row: ReviewRepository | None, old_flash_for: str | None) -> bool:
+        """Whether someone reviewed under "listed" today would be on the except list once the repository is at "everyone".
+
+        Both lists stay stored across mode changes, so one person can be on the listed list and the except list.
+        """
+        if row is None:
+            return False
+        people = ReviewRepositoryPerson.objects.for_team(self.team_id)
+        listed_source = people.filter(repository=row) if old_flash_for else people.filter(repository__isnull=True)
+        listed = listed_source.filter(kind=ReviewRepositoryPerson.Kind.LISTED).values("user_id")
+        return people.filter(repository=row, kind=ReviewRepositoryPerson.Kind.EXCEPTED, user_id__in=listed).exists()
+
+    def _check_raise_only(
+        self,
+        ref: RepositoryRef,
+        row: ReviewRepository | None,
+        claim: ReviewInstallationClaim | None,
+        new_selected: bool,
+        new_flash_for: str | None,
+        new_review_drafts: bool,
+    ) -> None:
+        """Refuse a write that turns the repository's reviews down or reaches past this project."""
+        if claim is None:
+            raise AdminOnlyChangeError("Only project admins can start reviewing a new GitHub installation.")
+        old_selected = row is not None and row.selected
+        old_flash_for = row.flash_for if row is not None else None
+        old_review_drafts = row is not None and row.review_drafts
+        if new_selected != old_selected:
+            if not new_selected:
+                raise AdminOnlyChangeError("Only project admins can remove a repository from the project.")
+            all_claim = RepositoryOwnership.all_claim(ref.installation_id)
+            if all_claim is not None and all_claim.team_id != self.team_id:
+                raise AdminOnlyChangeError("Only project admins can take a repository from another project.")
+        if new_flash_for != old_flash_for:
+            current = AutomaticFlashFor(old_flash_for or ReviewProjectSettings.load(self.team_id).flash_for)
+            goes_up = new_flash_for is not None and (
+                FLASH_FOR_RANK[AutomaticFlashFor(new_flash_for)] > FLASH_FOR_RANK[current]
+            )
+            if not goes_up:
+                raise AdminOnlyChangeError("Only project admins can turn automatic reviews down for a repository.")
+            if current == AutomaticFlashFor.LISTED and self._listed_people_get_excepted(row, old_flash_for):
+                raise AdminOnlyChangeError(
+                    "Only project admins can raise this repository to everyone, because it would stop reviews for someone on its list."
+                )
+        if old_review_drafts and not new_review_drafts:
+            raise AdminOnlyChangeError("Only project admins can turn off draft reviews.")
+
     def save_repository(
         self,
         ref: RepositoryRef,
@@ -281,10 +337,11 @@ class ProjectRepositories:
         selected: bool | None = None,
         flash_for: str | None | Unset = UNSET,
         review_drafts: bool | None = None,
+        raise_only: bool = False,
     ) -> RepositoryWriteResult:
         """Include or remove a repository, set or clear its exception, or turn its draft reviews on or off.
 
-        Omitted fields keep their value.
+        Omitted fields keep their value. With `raise_only`, the write may only turn the repository's reviews up.
         """
         ref = self.verified_ref(ref)
         with transaction.atomic():
@@ -292,6 +349,9 @@ class ProjectRepositories:
             if row is not None and row.team_id != self.team_id:
                 project = self._project(row.team_id)
                 raise OwnershipConflict(f"{ref.full_name} is already reviewed in {project.label}.", project)
+            if row is not None:
+                # Every write saves the whole row, so two writes in flight would each restore the other's old fields.
+                row = ReviewRepository.objects.for_team(self.team_id).select_for_update().filter(pk=row.pk).first()
             claim = self.claim_for(ref.installation_id)
             takes_all = claim is not None and claim.scope == ReviewInstallationClaim.Scope.ALL
             was_selected = row is not None and row.selected
@@ -301,6 +361,8 @@ class ProjectRepositories:
             else:
                 new_flash_for = flash_for
             new_review_drafts = review_drafts if review_drafts is not None else row is not None and row.review_drafts
+            if raise_only:
+                self._check_raise_only(ref, row, claim, new_selected, new_flash_for, new_review_drafts)
 
             if not new_selected and not takes_all:
                 if isinstance(flash_for, str):

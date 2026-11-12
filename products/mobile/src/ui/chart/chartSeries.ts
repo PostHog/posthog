@@ -85,6 +85,7 @@ export function tooltipPoint(
             label: s.label,
             color: s.color,
             value,
+            ...(s.formatValue ? { formattedValue: s.formatValue(value) } : {}),
             ...(compare && Number.isFinite(compare.value)
                 ? { previous: { value: compare.value, at: compare.at } }
                 : {}),
@@ -94,7 +95,15 @@ export function tooltipPoint(
         return null
     }
     rows.sort((a, b) => b.value - a.value)
-    return { index, at, interval, rows, incomplete: isIncompleteBucket(series, index) }
+    const label = (series.find((s) => !isCompareSeries(s)) ?? series[0])?.points[index]?.label
+    return {
+        index,
+        at,
+        interval,
+        rows,
+        incomplete: isIncompleteBucket(series, index),
+        ...(label === undefined ? {} : { label }),
+    }
 }
 
 export interface TooltipContent {
@@ -120,7 +129,7 @@ export function tooltipContent(point: ChartTooltipPoint, format: TooltipFormat):
     const only = point.rows.length === 1 ? point.rows[0] : undefined
     const previous = only?.previous
     return {
-        header: formatTooltipDate(point.at, point.interval, compact),
+        header: point.label ?? formatTooltipDate(point.at, point.interval, compact),
         rows: point.rows.slice(0, maxRows),
         more: Math.max(0, point.rows.length - maxRows),
         compare:
@@ -180,14 +189,16 @@ export function rangeContent(
         if (!Number.isFinite(start) || !Number.isFinite(end)) {
             continue
         }
+        const format = s.formatValue ?? formatValue
         rows.push({
             key: s.key,
             label: s.label,
             color: s.color,
-            values: `${formatValue(start)} → ${formatValue(end)}`,
-            change: formatChange(end, start, formatValue),
+            values: `${format(start)} → ${format(end)}`,
+            change: formatChange(end, start, format),
         })
     }
-    const header = `${formatAxisDate(from, interval)} → ${formatAxisDate(to, interval)}`
+    const points = (series.find((s) => !isCompareSeries(s)) ?? series[0])?.points
+    const header = `${points?.[lo]?.label ?? formatAxisDate(from, interval)} → ${points?.[hi]?.label ?? formatAxisDate(to, interval)}`
     return { header, rows }
 }

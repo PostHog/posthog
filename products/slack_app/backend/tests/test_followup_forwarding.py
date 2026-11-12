@@ -1,4 +1,5 @@
 from contextlib import AbstractContextManager, nullcontext
+from dataclasses import replace
 from types import SimpleNamespace
 
 from unittest import TestCase as UnitTestCase
@@ -10,12 +11,14 @@ from django.test import SimpleTestCase, TestCase
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
+from posthog.integrations import IntegrationNotFound
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
+from products.signals.backend.facade import report_tasks
 from products.slack_app.backend.api import SlackUserContext
 from products.slack_app.backend.models import SlackSettings, SlackThreadJoin, SlackThreadTaskMapping, ThreadJoinMode
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
@@ -25,11 +28,15 @@ from products.slack_app.backend.services.slack_messages import (
     encode_slack_file_refs,
     parse_slack_file_refs,
 )
+from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 from products.slack_app.backend.temporal import (
     PostHogCodeSlackMentionWorkflowInputs,
     create_posthog_code_task_for_repo_activity,
     enforce_posthog_code_billing_quota_activity,
     forward_posthog_code_followup_activity,
+)
+from products.slack_app.backend.temporal.activities.report_implementation import (
+    prepare_slack_report_implementation_activity,
 )
 from products.slack_app.backend.temporal.activities.task_creation import _build_terminal_recovery_prompt
 from products.slack_app.backend.temporal.helpers import safe_react
@@ -119,6 +126,29 @@ class TestSlackThreadTaskMapping(TestCase):
             team=self.team,
             status=self.TaskRun.Status.IN_PROGRESS,
         )
+
+    def test_context_without_team_id_resolves_the_team_from_the_mapping(self):
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=self.integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=self.task,
+            task_run=self.task_run,
+        )
+        old_payload = {"integration_id": self.integration.id, "channel": "C123", "thread_ts": "1234.5678"}
+
+        handler = SlackThreadHandler(SlackThreadContext.from_dict(old_payload))
+
+        assert handler.team_id == self.team.id
+        assert handler._get_integration().id == self.integration.id
+
+    def test_context_without_team_id_and_mapping_fails_cleanly(self):
+        old_payload = {"integration_id": self.integration.id, "channel": "C123", "thread_ts": "9.9"}
+
+        with self.assertRaises(IntegrationNotFound):
+            SlackThreadHandler(SlackThreadContext.from_dict(old_payload))._get_integration()
 
     def test_create_mapping(self):
         mapping = SlackThreadTaskMapping.objects.create(
@@ -309,16 +339,27 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
 
     @parameterized.expand(
         [
-            ("report_notification_thread", True, None),
-            ("mapping_failure", True, "mapping"),
-            ("association_failure", True, "association"),
-            ("ordinary_thread", False, None),
+            ("report_notification_thread", True, False, None, False),
+            ("report_implementation", True, True, None, False),
+            ("implementation_mapping_failure", True, True, "mapping", False),
+            ("implementation_registration_failure", True, True, "registration", False),
+            ("mapping_failure", True, False, "mapping", False),
+            ("association_failure", True, False, "association", False),
+            ("ordinary_thread", False, False, None, False),
+            ("implementation_repository_refresh", True, True, None, True),
         ]
     )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_task_from_a_report_notification_thread_lands_on_the_report(
-        self, _name, from_report_thread, failure_stage, mock_slack_cls, _mock_execute_workflow
+        self,
+        _name,
+        from_report_thread,
+        implementation,
+        failure_stage,
+        refresh_repository,
+        mock_slack_cls,
+        _mock_execute_workflow,
     ):
         from products.signals.backend.models import (
             SignalReport,
@@ -349,6 +390,17 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             )
 
         inputs = _make_inputs(self.integration.id, self.user.id)
+        if implementation:
+            inputs = replace(inputs, report_implementation_message_ts="1234.5678")
+        if refresh_repository:
+            UserIntegration.objects.create(
+                user=self.user,
+                kind="github",
+                integration_id="12345",
+                config={"installation_id": "12345"},
+                sensitive_config={"user_access_token": "fake-user-token", "user_refresh_token": "fake-refresh-token"},
+                repository_cache=[],
+            )
         args = (
             inputs,
             "C123",
@@ -357,29 +409,58 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             self.user.id,
             inputs.event,
             [SlackThreadMessage(user="U_ALICE", text="look into this")],
-            None,
+            "example/project" if refresh_repository else None,
         )
         if failure_stage:
-            failure_target = (
-                patch.object(
+            if failure_stage == "mapping":
+                failure_target = patch.object(
                     SlackThreadTaskMapping.objects, "update_or_create", side_effect=RuntimeError("mapping unavailable")
                 )
-                if failure_stage == "mapping"
-                else patch.object(SignalReportAction, "record", side_effect=RuntimeError("action unavailable"))
-            )
+            elif failure_stage == "registration":
+                failure_target = patch(
+                    "products.signals.backend.facade.report_tasks.record_report_task",
+                    side_effect=RuntimeError("registration unavailable"),
+                )
+            else:
+                failure_target = patch.object(
+                    SignalReportAction, "record", side_effect=RuntimeError("action unavailable")
+                )
             with failure_target:
-                with self.assertRaises(RuntimeError):
-                    create_posthog_code_task_for_repo_activity(*args)
-            orphan = self.Task.objects.get(team=self.team)
-            assert orphan.signal_report_id is None
+                if failure_stage == "association":
+                    with self.assertRaises(RuntimeError):
+                        create_posthog_code_task_for_repo_activity(*args)
+                else:
+                    assert create_posthog_code_task_for_repo_activity(*args) is False
+            if failure_stage == "association":
+                orphan = self.Task.objects.get(team=self.team)
+                assert orphan.signal_report_id is None
+            else:
+                assert not self.Task.objects.filter(team=self.team).exists()
+                assert not SlackThreadTaskMapping.objects.filter(integration=self.integration).exists()
             assert not SignalReportArtefact.objects.filter(report_id=report.id).exists()
-        create_posthog_code_task_for_repo_activity(*args)
+        with patch(
+            "products.signals.backend.facade.report_tasks.enforce_report_task_cap",
+            wraps=report_tasks.enforce_report_task_cap,
+        ) as admission:
+
+            def refresh_repositories() -> list[dict[str, str]]:
+                admission.assert_not_called()
+                return [{"full_name": "example/project"}]
+
+            with patch(
+                "posthog.models.user_integration.UserGitHubIntegration.list_all_cached_repositories",
+                side_effect=refresh_repositories,
+            ) as refresh:
+                assert create_posthog_code_task_for_repo_activity(*args) is True
+            if refresh_repository:
+                refresh.assert_called_once()
         create_posthog_code_task_for_repo_activity(*args)
 
         mapping = SlackThreadTaskMapping.objects.get(
             integration=self.integration, channel="C123", thread_ts="1234.5678"
         )
         task = mapping.task
+        assert task.runs.count() == 1
         assert task.origin_product == self.Task.OriginProduct.SLACK
         assert task.signal_report_id == (report.id if from_report_thread else None)
         work_log = SignalReportArtefact.objects.filter(
@@ -391,11 +472,65 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert (
             str(report.id) in _engaged_report_ids(self.team.id, {str(report.id)}, report.created_at)
         ) is from_report_thread
-        if from_report_thread:
+        if implementation:
+            from products.signals.backend.models import SignalReportTask
+
+            assert task.profile == "slack.report_implementation"
+            assert not task.internal
+            assert task.source_kind == "signal_report"
+            assert task.source_id == str(report.id)
+            association = SignalReportTask.objects.get(report_id=report.id)
+            assert association.task_id == task.id
+            assert association.relationship == "implementation"
+            assert not SignalReportAction.objects.for_team(self.team.id).filter(report_id=report.id).exists()
+            from products.signals.backend.billing import first_billable_pr_run
+
+            run = task.latest_run
+            assert run is not None
+            assert run.state["billing_product"] == "posthog_ai"
+            assert run.state["initial_permission_mode"] == "bypassPermissions"
+            assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == "full"
+            run.output = {"pr_url": "https://github.com/example/project/pull/1"}
+            run.save(update_fields=["output"])
+            assert first_billable_pr_run(str(report.id), team_id=self.team.id) is None
+            SignalReportSlackThread.objects.for_team(self.team.id).create(
+                team=self.team,
+                report=report,
+                integration=self.integration,
+                slack_workspace_id=self.integration.integration_id,
+                channel="D123",
+                thread_ts="1234.5678",
+                kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
+            )
+            duplicate_inputs = replace(inputs, event={**inputs.event, "channel": "D123"})
+            assert not create_posthog_code_task_for_repo_activity(
+                duplicate_inputs, "D123", "1234.5678", "U_ALICE", self.user.id, duplicate_inputs.event, [], None
+            )
+            assert self.Task.objects.filter(team=self.team).count() == 1
+        elif from_report_thread:
             action = SignalReportAction.objects.for_team(self.team.id).get(report_id=report.id)
             assert action.user_id == self.user.id
             assert action.count == 1
             assert work_log.get().created_by_id is None
+            if failure_stage is None:
+                from products.signals.backend.billing import first_billable_pr_run
+                from products.signals.backend.models import SignalReportTask
+
+                run = task.latest_run
+                assert run is not None
+                run.state.pop("billing_product", None)
+                run.output = {"pr_url": "https://github.com/example/project/pull/2"}
+                run.save(update_fields=["state", "output"])
+                restarted_run = task.create_run()
+                assert restarted_run.state["billing_product"] == "posthog_ai"
+                OrganizationMembership.objects.create(organization=self.org, user=self.user)
+                assert prepare_slack_report_implementation_activity(
+                    replace(inputs, report_implementation_message_ts="1234.5678")
+                )
+                assert SignalReportTask.objects.get(report_id=report.id).task_id == task.id
+                run.refresh_from_db()
+                assert run.state["billing_product"] == "posthog_ai"
+                assert first_billable_pr_run(str(report.id), team_id=self.team.id) is None
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -945,12 +1080,41 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert result is True
         _assert_quota_denial_posted(mock_slack_instance, "C123", "1234.5678")
 
+    @parameterized.expand(
+        [
+            ("ordinary", None, False),
+            ("implementation_slot_free", "implementation", False),
+            ("implementation_slot_taken", "implementation", True),
+            ("discussion_slot_taken", "discussion", True),
+        ]
+    )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_terminal_run_resumes_same_task(self, mock_slack_cls, mock_execute_workflow):
+    def test_terminal_run_resumes_same_task(
+        self, _name, relationship, slot_taken, mock_slack_cls, mock_execute_workflow
+    ):
+        from products.signals.backend.facade import report_tasks
+        from products.signals.backend.models import SignalReport
+
         self.task_run.status = self.TaskRun.Status.COMPLETED
         self.task_run.save()
+        if relationship:
+            report = SignalReport.objects.create(team=self.team, title="Report", summary="Summary", total_weight=1.0)
+            self.task.signal_report_id = report.id
+            self.task.save(update_fields=["signal_report_id"])
+            report_tasks.record_report_task(
+                team_id=self.team.id, report_id=str(report.id), task_id=str(self.task.id), relationship=relationship
+            )
+            if slot_taken:
+                competing_task = self.Task.objects.create(
+                    team=self.team, title="Other implementation", description="Implement report", created_by=self.user
+                )
+                self.TaskRun.objects.create(task=competing_task, team=self.team, status=self.TaskRun.Status.IN_PROGRESS)
+                report_tasks.record_report_task(
+                    team_id=self.team.id, report_id=str(report.id), task_id=str(competing_task.id)
+                )
         self._create_mapping()
+        type(self.task).objects.filter(id=self.task.id).update(last_client="posthog_desktop")
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
@@ -960,6 +1124,12 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
         assert result is True
+        if relationship == "implementation" and slot_taken:
+            mock_execute_workflow.assert_not_called()
+            assert self.TaskRun.objects.filter(task=self.task).count() == 1
+            mock_slack_instance.client.chat_postMessage.assert_called_once()
+            assert "already in progress" in mock_slack_instance.client.chat_postMessage.call_args.kwargs["text"]
+            return
         mock_execute_workflow.assert_called_once()
         call_kwargs = mock_execute_workflow.call_args.kwargs
         assert call_kwargs["task_id"] == str(self.task.id)
@@ -975,6 +1145,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
         assert str(mapping.task_run_id) == new_run_id
         assert mapping.task_id == self.task.id
+        self.task.refresh_from_db()
+        assert self.task.last_client == "slack"
 
         new_run = self.TaskRun.objects.get(id=new_run_id)
         assert new_run.state.get("pending_user_message") == "do something"
@@ -988,6 +1160,48 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             channel="C123", timestamp="1234.5679", name="eyes"
         )
         mock_slack_instance.client.chat_postMessage.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("owner", "U_ALICE", ThreadJoinMode.NEVER, True, False),
+            ("allowed", "U_BOB", ThreadJoinMode.ALLOW, True, False),
+            ("denied", "U_BOB", ThreadJoinMode.NEVER, False, False),
+            ("ask_per_person", "U_BOB", ThreadJoinMode.ASK_PER_PERSON, False, True),
+            ("ask_per_thread", "U_BOB", ThreadJoinMode.ASK_PER_THREAD, False, True),
+        ]
+    )
+    @patch("products.slack_app.backend.api.post_thread_join_prompt")
+    def test_implementation_conversion_requires_thread_join_access(
+        self, _name, slack_user_id, mode, allowed, prompted, mock_prompt
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalReportTask
+        from products.signals.backend.slack_report_threads import record_report_slack_thread
+
+        report = SignalReport.objects.create(team=self.team, title="Report", summary="Summary", total_weight=1.0)
+        record_report_slack_thread(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            integration_id=self.integration.id,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
+        )
+        self._create_mapping()
+        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", thread_join_mode=mode)
+        clicker = self.user if slack_user_id == "U_ALICE" else User.objects.create(email="clicker@example.com")
+        OrganizationMembership.objects.create(organization=self.org, user=clicker)
+        inputs = _make_inputs(self.integration.id, clicker.id)
+        inputs = replace(
+            inputs, event={**inputs.event, "user": slack_user_id}, report_implementation_message_ts="1234.5678"
+        )
+
+        assert prepare_slack_report_implementation_activity(inputs) is allowed
+
+        self.task_run.refresh_from_db()
+        assert (self.task_run.state.get("billing_product") == "posthog_ai") is allowed
+        assert SignalReportTask.objects.filter(report=report, task=self.task).exists() is allowed
+        assert mock_prompt.called is prompted
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -1194,6 +1408,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         # on the thread; their message is queued under their own PostHog identity
         # and their name is prepended so the agent knows who actually spoke.
         self._create_mapping(mentioning_user="U_ALICE")
+        type(self.task).objects.filter(id=self.task.id).update(last_client="posthog_desktop")
         bob = User.objects.create(email="bob@test.com", first_name="Bob")
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
@@ -1213,6 +1428,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert signal_kwargs["person_message"] == "please retry the build"
         assert signal_kwargs["actor_user_id"] == bob.id
         assert signal_kwargs["message_id"] is not None
+        self.task.refresh_from_db()
+        assert self.task.last_client == "slack"
         # No "Only the person who started" denial; the message went through.
         post_calls = [
             call

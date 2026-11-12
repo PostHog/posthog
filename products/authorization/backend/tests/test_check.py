@@ -1,3 +1,4 @@
+import itertools
 from collections.abc import Callable
 from typing import Any
 from uuid import UUID
@@ -5,8 +6,10 @@ from uuid import UUID
 import pytest
 from posthog.test.base import BaseTest
 
+from django.apps import apps
 from django.contrib.auth.models import AnonymousUser
 from django.db import transaction
+from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory
 
@@ -14,11 +17,16 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
 from products.access_control.backend.facade.testing import create_access_control, create_role
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import (
+    AccessControlLevel,
+    UserAccessControl,
+    model_to_resource,
+)
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import CheckRequest, Context, Parent, Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
@@ -31,6 +39,32 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 V1_LEVELS = {Action.VIEW: "viewer", Action.CREATE: "editor", Action.EDIT: "editor", Action.DELETE: "editor"}
 OBJECT_ACTIONS = [Action.VIEW, Action.EDIT, Action.DELETE, Action.MANAGE_ACCESS]
 CATEGORY_ACTIONS = [Action.VIEW, Action.CREATE, Action.MANAGE_ACCESS]
+
+MEMBERSHIP_SCOPES: frozenset[APIScopeObject] = frozenset({"project", "organization"})
+MATRIX_LEVELS: dict[Action, tuple[AccessControlLevel, AccessControlLevel]] = {
+    Action.VIEW: ("viewer", "member"),
+    Action.EDIT: ("editor", "admin"),
+}
+# Rule states on every scope that give view and edit different answers. The rule semantics
+# themselves are checked against an oracle in access_control's property tests.
+SCOPE_RULES = {"no_rules": None, "closed": "none", "member_viewer": "viewer"}
+MATRIX_CASES = [
+    (f"{'rbac' if rbac else 'no_rbac'}_org_{org_level.name.lower()}_{rules}", rbac, org_level, member_level)
+    for rbac, org_level, (rules, member_level) in itertools.product(
+        (True, False),
+        (OrganizationMembership.Level.MEMBER, OrganizationMembership.Level.ADMIN),
+        SCOPE_RULES.items(),
+    )
+]
+
+
+def _model_for_each_scope() -> dict[APIScopeObject, type[Model]]:
+    models: dict[APIScopeObject, type[Model]] = {}
+    for model in apps.get_models():
+        scope = model_to_resource(model)
+        if scope is not None and scope not in MEMBERSHIP_SCOPES:
+            models.setdefault(scope, model)
+    return models
 
 
 class TestCheckMatchesCurrentRules(BaseTest):
@@ -364,6 +398,116 @@ class TestCheckMatchesCurrentRules(BaseTest):
 
     @parameterized.expand(
         [
+            ("project_member", ResourceType.PROJECT, OrganizationMembership.Level.MEMBER, None, [True, True]),
+            ("project_admin", ResourceType.PROJECT, OrganizationMembership.Level.ADMIN, None, [True, True]),
+            (
+                "organization_member",
+                ResourceType.ORGANIZATION,
+                OrganizationMembership.Level.MEMBER,
+                None,
+                [True, False],
+            ),
+            ("organization_owner", ResourceType.ORGANIZATION, OrganizationMembership.Level.OWNER, None, [True, False]),
+            ("scope_without_rules", ResourceType.PERSON, OrganizationMembership.Level.MEMBER, None, [True, True]),
+            (
+                "scope_closed_by_a_rule",
+                ResourceType.PERSON,
+                OrganizationMembership.Level.MEMBER,
+                "none",
+                [False, False],
+            ),
+            (
+                "scope_read_only_by_a_rule",
+                ResourceType.COHORT,
+                OrganizationMembership.Level.MEMBER,
+                "viewer",
+                [True, False],
+            ),
+        ]
+    )
+    def test_type_check_matches_v1(
+        self,
+        _name: str,
+        resource_type: ResourceType,
+        org_level: OrganizationMembership.Level,
+        rule: str | None,
+        expected: list[bool],
+    ) -> None:
+        self.organization_membership.level = org_level
+        self.organization_membership.save()
+        if rule:
+            self._rule(resource_type.value, rule)
+        membership_type = resource_type in (ResourceType.PROJECT, ResourceType.ORGANIZATION)
+        v1_levels = ("member", "admin") if membership_type else ("viewer", "editor")
+        resource = Resource(type=resource_type, project_id=self.team.id)
+
+        results = [
+            authorization.check(resource=resource, action=action, subject=Subject(user_id=self.user.id))
+            for action in (Action.VIEW, Action.EDIT)
+        ]
+
+        access = UserAccessControl(self.user, self.team)
+        assert results == expected
+        assert results == [access.check_access_level_for_resource(resource_type.value, level) for level in v1_levels]  # type: ignore[arg-type]
+
+    def _unsaved_object(self, model: type[Model]) -> Model:
+        pk = model._meta.pk
+        assert pk is not None
+        values: dict[str, Any] = {
+            "pk": pk.to_python(str(UUID(int=424242)) if pk.get_internal_type() == "UUIDField" else "424242")
+        }
+        if any(field.attname == "team_id" for field in model._meta.concrete_fields):
+            values["team_id"] = self.team.id
+        # Base init, because some models derive fields in their own __init__ from values a bare instance lacks.
+        obj = model.__new__(model)
+        Model.__init__(obj, **values)
+        return obj
+
+    @parameterized.expand(MATRIX_CASES)
+    def test_every_scope_matches_v1(
+        self, _name: str, rbac: bool, org_level: OrganizationMembership.Level, member_level: str | None
+    ) -> None:
+        if not rbac:
+            self.organization.available_product_features = []
+            self.organization.save()
+        self.organization_membership.level = org_level
+        self.organization_membership.save()
+        if member_level is not None:
+            for scope in API_SCOPE_OBJECTS:
+                self._rule(scope, "none")
+                self._rule(scope, member_level, member=True)
+        models = _model_for_each_scope()
+        subject = Subject(user_id=self.user.id)
+        access = UserAccessControl(self.user, self.team)
+
+        mismatches: list[str] = []
+        with authorization.authorization_session():
+            for scope in API_SCOPE_OBJECTS:
+                model = models.get(scope)
+                obj = self._unsaved_object(model) if model is not None else None
+                for action, (resource_level, member_level) in MATRIX_LEVELS.items():
+                    level = member_level if scope in MEMBERSHIP_SCOPES else resource_level
+                    sdk = authorization.check(
+                        resource=Resource(type=ResourceType(scope), project_id=self.team.id),
+                        action=action,
+                        subject=subject,
+                    )
+                    v1 = access.check_access_level_for_resource(scope, level)
+                    if sdk != v1:
+                        mismatches.append(f"{scope} type check at {level}: sdk={sdk} v1={v1}")
+                    if obj is None:
+                        continue
+                    sdk = authorization.check(
+                        resource=resource_for_object(obj, team=self.team), action=action, subject=subject
+                    )
+                    v1 = access.check_access_level_for_object(obj, level)
+                    if sdk != v1:
+                        mismatches.append(f"{type(obj).__name__} object check at {level}: sdk={sdk} v1={v1}")
+
+        assert mismatches == []
+
+    @parameterized.expand(
+        [
             ("member", OrganizationMembership.Level.MEMBER, {Action.VIEW}),
             (
                 "admin",
@@ -405,6 +549,9 @@ class TestCheckMatchesCurrentRules(BaseTest):
             authorization.permissions(resource=resource_for_object(self.organization), subject=subject) == frozenset()
         )
         assert authorization.permissions(resource=resource_for_object(self.team), subject=subject) == frozenset()
+        for resource_type in (ResourceType.PROJECT, ResourceType.ORGANIZATION):
+            type_resource = Resource(type=resource_type, project_id=self.team.id)
+            assert authorization.check(resource=type_resource, action=Action.VIEW, subject=subject) is False
 
     def test_role_check_needs_the_role_in_that_organization(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -493,7 +640,7 @@ class TestCheckMatchesCurrentRules(BaseTest):
                 ValueError,
             ),
             ("organization_without_an_id", {"resource": Resource(type=ResourceType.ORGANIZATION)}, ValueError),
-            ("project_without_an_id", {"resource": Resource(type=ResourceType.PROJECT, project_id=1)}, ValueError),
+            ("project_without_an_id_or_a_project", {"resource": Resource(type=ResourceType.PROJECT)}, ValueError),
             (
                 "role_without_an_organization",
                 {"resource": Resource(type=ResourceType.ROLE, id=str(UUID(int=1)))},

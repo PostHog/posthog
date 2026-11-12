@@ -37,6 +37,7 @@ from products.tasks.backend.facade import (
     api as tasks_facade,
     usage as tasks_usage,
 )
+from products.tasks.backend.facade.profiles import get_task_profile
 
 from . import follow_ups
 from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef, SubjectRef
@@ -240,7 +241,7 @@ def handle_qa(context: CommandContext, args: QaArgs) -> CommandOutcome:
         team=team,
         title=f"QA {pull_request.repository}#{pull_request.number}",
         description=build_qa_instructions(context, args.focus),
-        origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
+        profile=get_task_profile("user"),
         user_id=member.user_id,
         repository=pull_request.repository,
         branch=pull_request.head_branch,

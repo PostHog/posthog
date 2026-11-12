@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconPlusSmall, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -20,8 +20,10 @@ import {
     CertificationStatusFilter,
     certificationsLogic,
 } from '../certificationsLogic'
+import { certificationStatusTag } from '../certificationStatusTag'
 import { compareText, reportCatalogTableSorted } from '../common'
 import { NewCertificationModal } from '../components/NewCertificationModal'
+import { confirmRevokeCertification } from '../confirmRevokeCertification'
 import type { DataCatalogCertificationApi } from '../generated/api.schemas'
 
 const STATUS_FILTER_OPTIONS: { value: CertificationStatusFilter; label: string }[] = [
@@ -30,12 +32,6 @@ const STATUS_FILTER_OPTIONS: { value: CertificationStatusFilter; label: string }
     { value: 'certified', label: 'Certified' },
     { value: 'deprecated', label: 'Deprecated' },
 ]
-
-const STATUS_TAG: Record<string, { label: string; type: 'warning' | 'success' | 'muted' }> = {
-    proposed: { label: 'Proposed', type: 'warning' },
-    certified: { label: 'Certified', type: 'success' },
-    deprecated: { label: 'Deprecated', type: 'muted' },
-}
 
 export function CertificationsTab(): JSX.Element {
     const {
@@ -67,23 +63,6 @@ export function CertificationsTab(): JSX.Element {
             ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     }, [highlightedCertificationId, highlightPending])
 
-    const confirmRevoke = (certification: DataCatalogCertificationApi): void => {
-        LemonDialog.open({
-            title: 'Revoke this certification?',
-            content: (
-                <div className="text-sm text-secondary">
-                    Revoking deletes the trust mark on {certification.target_name}. This cannot be undone.
-                </div>
-            ),
-            primaryButton: {
-                children: 'Revoke',
-                status: 'danger',
-                onClick: () => revokeCertification(certification.id),
-            },
-            secondaryButton: { children: 'Cancel' },
-        })
-    }
-
     const columns: LemonTableColumns<DataCatalogCertificationApi> = [
         {
             title: 'Target',
@@ -101,10 +80,7 @@ export function CertificationsTab(): JSX.Element {
             title: 'Status',
             key: 'status',
             render: (_, certification) => {
-                const tag =
-                    certification.status === 'proposed' && certification.proposed_status === 'deprecated'
-                        ? { label: 'Deprecation proposed', type: 'warning' as const }
-                        : (STATUS_TAG[certification.status] ?? { label: certification.status, type: 'muted' as const })
+                const tag = certificationStatusTag(certification)
                 return <LemonTag type={tag.type}>{tag.label}</LemonTag>
             },
             sorter: (a, b) => compareText(a.status, b.status) || compareText(a.proposed_status, b.proposed_status),
@@ -153,7 +129,11 @@ export function CertificationsTab(): JSX.Element {
                                     fullWidth
                                     status="danger"
                                     disabledReason={inFlight ? 'Working' : undefined}
-                                    onClick={() => confirmRevoke(certification)}
+                                    onClick={() =>
+                                        confirmRevokeCertification(certification, () =>
+                                            revokeCertification(certification.id)
+                                        )
+                                    }
                                 >
                                     Revoke
                                 </LemonButton>

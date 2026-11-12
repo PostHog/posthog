@@ -83,7 +83,7 @@ const LegacyEmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =>
                         <LemonField
                             name="mail_from_subdomain"
                             label="MAIL FROM subdomain"
-                            help="The subdomain used for your emails' Return-Path header. Setting a MAIL FROM domain helps improve email deliverability."
+                            help="The subdomain used for your emails' Return-Path header. Every sender on a domain uses the same one, so changing it here changes it for all of them. Setting a MAIL FROM domain helps improve email deliverability."
                         >
                             <LemonInput
                                 className="w-fit"

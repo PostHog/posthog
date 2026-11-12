@@ -29,7 +29,7 @@ function priority(metric: DataCatalogMetricApi, user: Pick<UserType, 'uuid' | 'e
 
 /**
  * Orders the review queue: your drifted metrics, other drifted metrics, your proposals,
- * AI proposals by confidence, then the rest. Newer metrics come first inside a group.
+ * AI proposals, then the rest. Newer metrics come first inside a group.
  */
 export function compareReviewQueue(
     user: Pick<UserType, 'uuid' | 'email'> | null
@@ -38,12 +38,6 @@ export function compareReviewQueue(
         const byPriority = priority(a, user) - priority(b, user)
         if (byPriority !== 0) {
             return byPriority
-        }
-        if (priority(a, user) === 3) {
-            const byConfidence = (b.confidence ?? 0) - (a.confidence ?? 0)
-            if (byConfidence !== 0) {
-                return byConfidence
-            }
         }
         return (b.created_at ?? '').localeCompare(a.created_at ?? '')
     }

@@ -61,6 +61,10 @@ const meta: Meta<typeof AddIntegrationButton> = {
                             AmazonAds: 'amazon_ads.png',
                             TwitterAds: 'twitter_ads.png',
                             BigQuery: 'bigquery.png',
+                            AmazonS3: 'aws-s3.png',
+                            GoogleCloudStorage: 'google-cloud-storage.png',
+                            AzureBlob: 'azure_blob.png',
+                            CloudflareR2: 'cloudflare.png',
                         }).map(([name, icon]) => [
                             name,
                             { name, caption: name, iconPath: `/static/services/${icon}`, fields: [] },

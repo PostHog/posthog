@@ -209,6 +209,10 @@ class PersonNotActiveMemberError(Exception):
     """The user to add to a people list is not an active member of the project's organization."""
 
 
+class AdminOnlyChangeError(Exception):
+    """A project member asked for a change that only project admins can make. The API answers 403."""
+
+
 @frozen
 class ProjectRef:
     """Another project, named only inside its own organization."""

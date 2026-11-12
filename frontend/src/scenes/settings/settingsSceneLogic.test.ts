@@ -1,5 +1,5 @@
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
+import { expectLogic, partial } from 'kea-test-utils'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
@@ -234,6 +234,34 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).toHaveProperty('members')
     })
 
+    it.each([
+        ['environment-details', 'project-details'],
+        ['environment-danger-zone', 'project-danger-zone'],
+        ['project-general', 'project-details'],
+        ['environment-general', 'project-details'],
+        ['privacy', 'project-privacy'],
+        ['organization-ai', 'organization-details'],
+    ])('opens /settings/%s on the %s section and keeps its hash params', async (section, expectedSectionId) => {
+        router.actions.push(`/settings/${section}`, {}, { 'some-setting': true })
+
+        await expectLogic(logic).toMatchValues({
+            selectedSectionId: expectedSectionId,
+            selectedSection: partial({ id: expectedSectionId }),
+        })
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(`/settings/${expectedSectionId}`)
+        expect(router.values.hashParams).toHaveProperty('some-setting')
+    })
+
+    it('opens /settings/organization-rbac on the roles section', async () => {
+        router.actions.push('/settings/organization-rbac')
+
+        await expectLogic(logic).toMatchValues({
+            selectedSectionId: 'organization-roles',
+            selectedSection: partial({ id: 'organization-roles' }),
+        })
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/settings/organization-roles')
+    })
+
     it('leaves an unmapped section id on the not-found path', async () => {
         // Aliases are added one at a time on purpose. A catch-all redirect for anything unrecognized
         // would shadow the app-level redirects in scenes.ts and would drop the `not_found_shown`
@@ -245,6 +273,17 @@ describe('settingsSceneLogic', () => {
             selectedSection: null,
         })
         expect(router.values.location.pathname).toContain('/settings/organization-teapot')
+    })
+
+    it.each([
+        ['/settings/organization-billing', '/organization/billing'],
+        ['/settings/environment-exports', '/exports'],
+        ['/settings/project-exports', '/exports'],
+    ])('redirects %s to its own page', async (settingsUrl, page) => {
+        router.actions.push(settingsUrl)
+        await expectLogic(logic).delay(10)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(page)
     })
 
     it('does not bounce a level-only URL when already on a section at that level', async () => {
@@ -269,16 +308,34 @@ describe('settingsSceneLogic on a cold page load', () => {
     // The tests above navigate after mounting, which only covers clicks inside the app. A URL that
     // arrives from outside (pasted, opened in a new tab, followed from an old bookmark) is already
     // set before the logic mounts, and that is the path a broken settings link actually takes.
-    it('applies a section alias when the URL is set before the logic mounts', async () => {
+    it.each([
+        ['project-members', 'organization-members'],
+        ['environment-details', 'project-details'],
+    ])(
+        'opens /settings/%s on the %s section when the URL is set before the logic mounts',
+        async (section, expected) => {
+            initKeaTests()
+            router.actions.push(`/settings/${section}`)
+
+            const logic = settingsSceneLogic()
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                selectedSectionId: expected,
+                selectedSection: partial({ id: expected }),
+            })
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(`/settings/${expected}`)
+        }
+    )
+
+    it('redirects a section with its own page', async () => {
         initKeaTests()
-        router.actions.push('/settings/project-members')
+        router.actions.push('/settings/organization-billing')
 
         const logic = settingsSceneLogic()
         logic.mount()
+        await expectLogic(logic).delay(10)
 
-        await expectLogic(logic).toMatchValues({
-            selectedSectionId: 'organization-members',
-        })
-        expect(router.values.location.pathname).toContain('/settings/organization-members')
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/organization/billing')
     })
 })

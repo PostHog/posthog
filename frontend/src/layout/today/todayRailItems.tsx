@@ -1,10 +1,20 @@
-import { IconApps, IconChat, IconGear, IconHome, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
+import {
+    IconApps,
+    IconChat,
+    IconFlag,
+    IconGear,
+    IconHome,
+    IconPeople,
+    IconSidebarClose,
+    IconSidebarOpen,
+} from '@posthog/icons'
 
 import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils/dom'
 
 import { TodayNewAnalyticsButton } from './TodayNewAnalyticsButton'
 import { TodayNewChatButton } from './TodayNewChatButton'
+import { TodayNewPeopleButton } from './TodayNewPeopleButton'
 import type { TodayRailPane } from './todayShellLogic'
 
 export interface TodayPane {
@@ -24,11 +34,12 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
         action: TodayNewChatButton,
     },
     analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
+    people: { label: 'People', title: 'People', icon: <IconPeople />, action: TodayNewPeopleButton },
+    release: { label: 'Releases', title: 'Releases', icon: <IconFlag /> },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
 }
 
-export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'analytics', 'products']
 export const TODAY_RAIL_FOOTER_PANES: TodayRailPane[] = ['settings']
 
 export function todaySidebarShortcutLabel(): string {

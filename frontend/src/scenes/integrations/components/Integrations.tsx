@@ -1,10 +1,12 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ReactNode, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import type { IntegrationConnectSurface } from 'lib/integrations/utils'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -15,11 +17,25 @@ import { Integration } from './Integration'
 
 export { GithubIntegration, GitHubInstallationLink } from './GithubIntegration'
 
-export function GitLabIntegration({ centered }: { centered?: boolean } = {}): JSX.Element {
+export function GitLabIntegration({
+    centered,
+    connectSurface,
+}: { centered?: boolean; connectSurface?: IntegrationConnectSurface } = {}): JSX.Element {
     const [isOpen, setIsOpen] = useState<boolean>(false)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+
     return (
         <Integration kind="gitlab" centered={centered}>
-            <LemonButton type="secondary" onClick={() => setIsOpen(true)}>
+            <LemonButton
+                type="secondary"
+                data-attr="gitlab-connect-project"
+                onClick={() => {
+                    if (connectSurface) {
+                        reportIntegrationConnectClicked('gitlab', 'gitlab', connectSurface)
+                    }
+                    setIsOpen(true)
+                }}
+            >
                 Connect project
             </LemonButton>
             <GitLabSetupModal isOpen={isOpen} onComplete={() => setIsOpen(false)} />

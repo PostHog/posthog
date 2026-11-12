@@ -1,10 +1,10 @@
 """Stage 1 of the taxonomy: turn each session's opening tool calls into a facet.
 
-Reads the pipe-delimited corpus dumped from HogQL, asks gpt-4.1-mini to recover
+Reads the pipe-delimited corpus dumped from HogQL, asks gpt-6-luna to recover
 the user's starting intention, and writes JSONL. Clustering happens downstream.
 
 Model choice matches `products/mcp_analytics/backend/intent_generation.py`,
-which already uses gpt-4.1-mini for the closest existing job (summarizing a
+which uses the same model for the closest existing job (summarizing a
 session's intents), so the two stay comparable.
 
 PostHog employees only: the key comes from the repo's .env.local, which holds
@@ -36,7 +36,7 @@ from typing import Any
 from openai import OpenAI
 from pydantic import BaseModel, Field, create_model
 
-MODEL = "gpt-4.1-mini"
+MODEL = "gpt-6-luna"
 WORKERS = 8
 
 SYSTEM = """You are analyzing telemetry from PostHog's MCP server: sequences of tool calls an AI agent made on a user's behalf. Each session ended with the agent calling {tool}.
@@ -111,7 +111,8 @@ def extract(client: OpenAI, schema: type[BaseModel], system: str, row: CorpusRow
     try:
         response = client.beta.chat.completions.parse(
             model=MODEL,
-            max_tokens=256,
+            reasoning_effort="low",
+            max_completion_tokens=2048,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": f"Session tool-call sequence:\n\n{row.opening}"},

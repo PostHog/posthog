@@ -14,12 +14,14 @@ import {
     makeEvaluationResult,
     makeEvaluationResults,
     makeNodeDetail,
+    makeRawNode,
     makeTraceResource,
-} from './adapter/testFixtures'
+} from './testFixtures'
 import { traceViewLogic } from './traceViewLogic'
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
+const RAW_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/raw/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const answered = makeEvaluationResults({ results: [makeEvaluationResult()] })
 const EXPIRED_ROW: TraceTimelineRowApi = {
@@ -44,6 +46,8 @@ describe('traceViewLogic', () => {
     let requestedHint: string | null = null
     let requestedPath: string | null = null
     let nodeRequests: string[] = []
+    let rawRequests: string[] = []
+    let rawStatus = 200
     let nodeHints: (string | null)[] = []
     let nodeStatus = 200
     let nodeGate: Promise<void> = Promise.resolve()
@@ -53,6 +57,8 @@ describe('traceViewLogic', () => {
         requestedHint = null
         requestedPath = null
         nodeRequests = []
+        rawRequests = []
+        rawStatus = 200
         nodeHints = []
         nodeStatus = 200
         nodeGate = Promise.resolve()
@@ -72,6 +78,13 @@ describe('traceViewLogic', () => {
                         return [404, { detail: 'Node not found.' }]
                     }
                     return nodeStatus === 200 ? [200, makeNodeDetail({ id: nodeId })] : [nodeStatus, { detail: 'nope' }]
+                },
+                [RAW_URL]: ({ params }) => {
+                    const nodeId = decodeIdSegment(String(params.node_id))
+                    rawRequests.push(nodeId)
+                    return rawStatus === 200
+                        ? [200, makeRawNode({ id: nodeId, properties: { $ai_model: 'gpt-4o' } })]
+                        : [rawStatus, { detail: 'nope' }]
                 },
                 [TRACE_URL]: ({ request }) => {
                     const url = new URL(request.url)
@@ -97,33 +110,26 @@ describe('traceViewLogic', () => {
         return logic
     }
 
-    it('loads the trace by its encoded id with the link timestamp as the hint and derives the summary', async () => {
+    it('loads the trace by its encoded id with the link timestamp as the hint', async () => {
         const logic = traceViewLogic({ traceId: 'a/b', timestampHint: '2026-09-01T10:15:00Z' })
         logic.mount()
 
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready', traceName: 'Untitled trace' })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready' })
         expect(requestedPath).toMatch(/\/traces\/YS9i\/$/)
         expect(requestedHint).toEqual('2026-09-01T10:15:00Z')
-        expect(logic.values.personLabel).toBe('ada@example.com')
-        expect(logic.values.summary?.person).toEqual({
-            label: 'ada@example.com',
-            href: expect.stringContaining('user-1'),
-        })
-        expect(logic.values.tree[0].children.map((child) => child.id)).toEqual(['span-1', 'gen-1', 'gen-2'])
+        expect(logic.values.trace?.tree[0].children.map((child) => child.id)).toEqual(['span-1', 'gen-1', 'gen-2'])
     })
 
     it.each([
-        ['the trace is not found', 404, 'It may have been deleted, or it is outside the retention period.'],
-        ['the request fails', 500, 'Something went wrong while loading it. Try again in a moment.'],
-    ])('status is error when %s', async (_description, statusCode, expectedMessage) => {
+        ['the trace is not found', 404, 'not_found'],
+        ['the request fails', 500, 'failed'],
+    ])('status is error when %s', async (_description, statusCode, expectedFailure) => {
         silenceKeaLoadersErrors()
         useMocks({ get: { [TRACE_URL]: () => [statusCode, { detail: 'nope' }] } })
         const logic = traceViewLogic({ traceId: 'trace-1', timestampHint: null })
         logic.mount()
 
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({ status: 'error', errorMessage: expectedMessage })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'error', loadFailure: expectedFailure })
     })
 
     it.each([
@@ -169,19 +175,19 @@ describe('traceViewLogic', () => {
         const logic = await mountedLogic()
 
         expect(nodeRequests).toEqual(['gen-2'])
-        expect(logic.values.nodes['gen-2']).toMatchObject({ status: 'ready' })
+        expect(logic.values.nodes.get('gen-2')).toMatchObject({ status: 'ready' })
     })
 
-    it('reads each node once, however many times it is asked for', async () => {
+    it.each(['span-1', 'constructor'])('reads node %s once, however many times it is asked for', async (nodeId) => {
         const logic = await mountedLogic()
 
-        logic.actions.loadNode('span-1', 'prefetch')
-        logic.actions.loadNode('span-1', 'selection')
+        logic.actions.loadNode(nodeId, 'prefetch')
+        logic.actions.loadNode(nodeId, 'selection')
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.loadNode('span-1', 'selection')
+        logic.actions.loadNode(nodeId, 'selection')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(nodeRequests.filter((id) => id === 'span-1')).toHaveLength(1)
+        expect(nodeRequests.filter((id) => id === nodeId)).toHaveLength(1)
     })
 
     it.each([
@@ -199,7 +205,7 @@ describe('traceViewLogic', () => {
 
             logic.actions.loadNode('span-1', 'prefetch')
             logic.actions.loadNode('gen-1', 'prefetch')
-            expect(logic.values.nodes['gen-1']).toBeUndefined()
+            expect(logic.values.nodes.get('gen-1')).toBeUndefined()
 
             if (trigger === 'prefetch') {
                 firstPrefetch.resolve()
@@ -214,17 +220,23 @@ describe('traceViewLogic', () => {
     )
 
     it.each([
-        [404, 'not_found'],
-        [500, 'failed'],
-    ])('a node read answered with %s fails as %s', async (status, failure) => {
-        const logic = await mountedLogic()
-        nodeStatus = status
+        [404, 'not_found', false],
+        [500, 'failed', true],
+        [503, 'failed', false],
+    ])(
+        'a node read answered with %s fails as %s, reported to error tracking: %s',
+        async (status, failure, reported) => {
+            const report = jest.spyOn(posthog, 'captureException')
+            const logic = await mountedLogic()
+            nodeStatus = status
 
-        logic.actions.loadNode('span-1', 'selection')
-        await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadNode('span-1', 'selection')
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.nodes['span-1']).toEqual({ status: 'error', failure })
-    })
+            expect(logic.values.nodes.get('span-1')).toEqual({ status: 'error', failure })
+            expect(report).toHaveBeenCalledTimes(reported ? 1 : 0)
+        }
+    )
 
     it.each(['selection', 'navigation'] as const)(
         'retries a failed node on a %s but not on a prefetch',
@@ -237,11 +249,11 @@ describe('traceViewLogic', () => {
 
             logic.actions.loadNode('span-1', 'prefetch')
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.nodes['span-1']).toMatchObject({ status: 'error' })
+            expect(logic.values.nodes.get('span-1')).toMatchObject({ status: 'error' })
 
             logic.actions.loadNode('span-1', trigger)
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.nodes['span-1']).toMatchObject({ status: 'ready' })
+            expect(logic.values.nodes.get('span-1')).toMatchObject({ status: 'ready' })
         }
     )
 
@@ -277,7 +289,7 @@ describe('traceViewLogic', () => {
 
         expect(capture).toHaveBeenCalledWith('llma trace view loaded', {
             trace_load_ms: expect.any(Number),
-            node_count: 0,
+            node_count: 4,
         })
         expect(capture).toHaveBeenCalledWith('llma trace node loaded', {
             load_ms: expect.any(Number),
@@ -316,7 +328,7 @@ describe('traceViewLogic', () => {
         await expectLogic(reopened).toFinishAllListeners()
 
         expect(nodeRequests.filter((id) => id === nodeId)).toHaveLength(1)
-        expect(reopened.values.nodes[nodeId]).toBeUndefined()
+        expect(reopened.values.nodes.get(nodeId)).toBeUndefined()
     })
 
     describe('nodes of a trace past the ai_events retention', () => {
@@ -352,7 +364,7 @@ describe('traceViewLogic', () => {
 
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(logic.values.nodes[nodeId]).toMatchObject({ status: expectedStatus })
+                expect(logic.values.nodes.get(nodeId)).toMatchObject({ status: expectedStatus })
                 expect(nodeHints.filter((_, index) => nodeRequests[index] === nodeId)).toEqual(expectedHints)
             }
         )
@@ -390,5 +402,88 @@ describe('traceViewLogic', () => {
                 waited_ms: 6000,
             })
         })
+    })
+
+    describe('raw reads', () => {
+        it('reads a step raw event once, however many times it is asked for', async () => {
+            const logic = await mountedLogic()
+
+            logic.actions.loadRawNode('span-1')
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(rawRequests).toEqual(['span-1'])
+        })
+
+        it('stores the raw event once it arrives', async () => {
+            const logic = await mountedLogic()
+
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.rawNodes.get('span-1')).toMatchObject({
+                status: 'ready',
+                raw: { id: 'span-1', event: { properties: { $ai_model: 'gpt-4o' } } },
+            })
+        })
+
+        it('stores not_found for a missing step and reads it again on the next request', async () => {
+            silenceKeaLoadersErrors()
+            const logic = await mountedLogic()
+            rawStatus = 404
+
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.rawNodes.get('span-1')).toEqual({ status: 'error', failure: 'not_found' })
+
+            rawStatus = 200
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.rawNodes.get('span-1')).toMatchObject({ status: 'ready' })
+        })
+    })
+
+    it('has no evaluation outcomes when the evaluations read fails', async () => {
+        silenceKeaLoadersErrors()
+        useMocks({ get: { [EVALUATIONS_URL]: () => [500, { detail: 'Server error.' }] } })
+
+        const logic = await mountedLogic()
+
+        expect(logic.values).toMatchObject({ evaluationResults: null, evalOutcomes: new Map() })
+    })
+
+    it('indexes the evaluation outcomes by node id', async () => {
+        const nodes = [
+            { nodeId: 'gen-1', outcome: 'fail' as const },
+            { nodeId: 'constructor', outcome: 'pass' as const },
+        ]
+        useMocks({
+            get: {
+                [EVALUATIONS_URL]: () => [
+                    200,
+                    makeEvaluationResults({ summary: { passed: 1, failed: 1, unrated: 0, nodes } }),
+                ],
+            },
+        })
+
+        const logic = await mountedLogic()
+
+        expect([...logic.values.evalOutcomes]).toEqual([
+            ['gen-1', 'fail'],
+            ['constructor', 'pass'],
+        ])
+    })
+
+    it('indexes the step labels the trace sends by node id', async () => {
+        const trace = makeTraceResource()
+        trace.tree[0].children[1].label = 'openai.chat #2'
+        useMocks({ get: { [TRACE_URL]: () => [200, trace] } })
+
+        const logic = await mountedLogic()
+
+        expect(logic.values.stepLabels.get('gen-1')).toBe('openai.chat #2')
+        expect(logic.values.stepLabels.get('trace-1')).toBe('answer-billing-question')
     })
 })

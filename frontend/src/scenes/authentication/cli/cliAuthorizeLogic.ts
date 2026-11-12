@@ -21,10 +21,10 @@ export interface CLIAuthorizeForm {
     scopes: string[]
 }
 
-// The agent set mirrors what the MCP requests, minus the actions disabled for
-// manually-created keys. KNOWN LIMITATION: the few MCP tools needing those
-// writes (desktop file-system writes, integration deletes, reminder + user-settings
-// writes) therefore don't work through `posthog-cli api`.
+// The agent set mirrors what the MCP requests, minus the writes a key cannot hold
+// and the opt-in-only writes. KNOWN LIMITATION: the few MCP tools needing the first
+// kind (desktop file-system writes, reminder + user-settings writes) don't work through
+// `posthog-cli api`, and integration writes work only if the person ticks Integration Write.
 const AGENT_SCOPES = AGENT_CLI_API_KEY_SCOPES
 
 // Map use cases to their required scopes. The `agent-cli` set is generated from the

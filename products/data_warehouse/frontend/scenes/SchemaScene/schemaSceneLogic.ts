@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -23,6 +23,11 @@ import {
 
 import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
+import {
+    externalDataSchemasHistoryTableDestroy,
+    externalDataSourcesWizardRetrieve,
+} from 'products/warehouse_sources/frontend/generated/api'
+import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 export const SCHEMA_SCENE_TABS = ['configuration', 'syncs', 'metrics', 'data-quality', 'history'] as const
 export type SchemaSceneTab = (typeof SCHEMA_SCENE_TABS)[number]
@@ -76,6 +81,9 @@ export interface schemaSceneLogicValues {
     schemaIncrementalFieldsLoading: boolean
     sidePanelContext: SidePanelSceneContext | null
     source: (ExternalDataSource & Partial<ExternalDataSchemaSourceSummary>) | null
+    sourceConfig: SourceConfigResponseApi | null
+    sourceConfigLoading: boolean
+    sourceSupportsCdc: boolean
     supportsColumnSelection: boolean
     supportsRowFilters: boolean
 }
@@ -89,6 +97,9 @@ export interface schemaSceneLogicActions {
         tab: 'configuration' | 'data-quality' | 'history' | 'metrics' | 'syncs'
     }
     cancelSchema: (schema: ExternalDataSourceSchema) => {
+        schema: ExternalDataSourceSchema
+    }
+    deleteHistoryTable: (schema: ExternalDataSourceSchema) => {
         schema: ExternalDataSourceSchema
     }
     deleteTable: (schema: ExternalDataSourceSchema) => {
@@ -122,6 +133,21 @@ export interface schemaSceneLogicActions {
         payload?: any
     ) => {
         schemaData: ExternalDataSchemaWithSource | null
+        payload?: any
+    }
+    loadSourceConfig: () => any
+    loadSourceConfigFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSourceConfigSuccess: (
+        sourceConfig: SourceConfigResponseApi | null,
+        payload?: any
+    ) => {
+        sourceConfig: SourceConfigResponseApi | null
         payload?: any
     }
     refreshSchemas: () => {
@@ -163,6 +189,10 @@ export interface schemaSceneLogicMeta {
         ) => (ExternalDataSource & Partial<ExternalDataSchemaSourceSummary>) | null
         supportsColumnSelection: (schemaData: ExternalDataSchemaWithSource | null) => boolean
         supportsRowFilters: (schemaData: ExternalDataSchemaWithSource | null) => boolean
+        sourceSupportsCdc: (
+            source: (ExternalDataSource & Partial<ExternalDataSchemaSourceSummary>) | null,
+            sourceConfig: SourceConfigResponseApi | null
+        ) => boolean
         breadcrumbs: (schemaData: ExternalDataSchemaWithSource | null, arg: any) => Breadcrumb[]
         sidePanelContext: (arg: any, schema: ExternalDataSourceSchema | null) => SidePanelSceneContext | null
     }
@@ -194,9 +224,10 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         cancelSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
+        deleteHistoryTable: (schema: ExternalDataSourceSchema) => ({ schema }),
         refreshSchemas: true,
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         schemaData: [
             null as ExternalDataSchemaWithSource | null,
             {
@@ -225,6 +256,22 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                         lemonToast.error(e?.data?.message ?? e?.message ?? e)
                         throw e
                     }
+                },
+            },
+        ],
+        // Only this source type's config: the unfiltered catalog describes every source and is large.
+        sourceConfig: [
+            null as SourceConfigResponseApi | null,
+            {
+                loadSourceConfig: async () => {
+                    const sourceType = values.source?.source_type
+                    if (!sourceType) {
+                        return null
+                    }
+                    const configs = await externalDataSourcesWizardRetrieve(String(ApiConfig.getCurrentProjectId()), {
+                        source_type: sourceType,
+                    })
+                    return configs[sourceType] ?? null
                 },
             },
         ],
@@ -290,6 +337,14 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         supportsRowFilters: [
             (s) => [s.schemaData],
             (schemaData: ExternalDataSchemaWithSource | null): boolean => !!schemaData?.source?.supports_row_filters,
+        ],
+        // Matches where the source's CDC section is shown, so the sync method page never points to a missing setting.
+        sourceSupportsCdc: [
+            (s) => [s.source, s.sourceConfig],
+            (
+                source: (ExternalDataSource & Partial<ExternalDataSchemaSourceSummary>) | null,
+                sourceConfig: SourceConfigResponseApi | null
+            ): boolean => source?.access_method === 'warehouse' && !!sourceConfig?.cdcEngine,
         ],
         breadcrumbs: [
             (s) => [s.schemaData, (_, props) => props.sourceId],
@@ -408,6 +463,16 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 lemonToast.success(`Data for ${schema.label ?? schema.name} has been deleted`)
             } catch (e: any) {
                 lemonToast.error(e?.message || "Can't delete data at this time")
+            } finally {
+                actions.loadSchema()
+            }
+        },
+        deleteHistoryTable: async ({ schema }) => {
+            try {
+                await externalDataSchemasHistoryTableDestroy(String(ApiConfig.getCurrentTeamId()), schema.id)
+                lemonToast.success(`${schema.registered_history_table_name ?? 'The history table'} has been deleted`)
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || "Can't delete the history table at this time")
             } finally {
                 actions.loadSchema()
             }

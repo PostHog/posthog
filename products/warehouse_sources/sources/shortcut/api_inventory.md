@@ -66,6 +66,29 @@ A window under three seconds wide cannot split; if it still hits the threshold, 
 silently ignored, (b) the accepted date format (we send RFC 3339 `...Z`), and (c) whether the `created_at_*`
 bounds are inclusive (the windows overlap either way, so this only affects request count).
 
+## Additional tables (full refresh)
+
+The official v3 reference confirms these endpoints and defines no pagination or timestamp filters for them.
+
+| Table         | Path                          | Response                   | Primary key      | Partition key |
+| ------------- | ----------------------------- | -------------------------- | ---------------- | ------------- |
+| story_history | `/stories/{story_id}/history` | Array of `History`         | `story_id`, `id` | `changed_at`  |
+| epic_workflow | `/epic-workflow`              | One `EpicWorkflow` object  | `id`             | `created_at`  |
+| epic_comments | `/epics/{epic_id}/comments`   | Array of `ThreadedComment` | `epic_id`, `id`  | `created_at`  |
+| documents     | `/documents`                  | Array of `DocSlim`         | `id`             | None          |
+
+History reads stories through the existing search windows and requests each story's history.
+Repeated stories across windows trigger one history request each.
+Comments reads epics and requests each epic's comments.
+Both tables add the parent ID to each row.
+Threaded replies stay in the `comments` field.
+
+The workflow row retains the `epic_states` array, which maps state IDs to names and types.
+Documents contains `id`, `title`, and `app_url` only.
+Document content and epic links require separate endpoints and are outside this table's scope.
+These shapes were verified against the official OpenAPI reference through Context7 on 2026-11-06.
+No live workspace token was available.
+
 ## Webhooks (deferred)
 
 Shortcut supports a single programmatic "generic integration" webhook

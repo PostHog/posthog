@@ -66,6 +66,8 @@ import {
 import { appendRtkGuidanceForCodex } from "@posthog/harness/extensions/rtk";
 import {
   buildStoreSkillsInstructions,
+  NO_STORE_SKILLS,
+  type StoreSkillsListing,
   syncStoreSkills,
 } from "@posthog/harness/extensions/skills-store";
 import {
@@ -604,7 +606,7 @@ export class AgentServer {
   // run's state when the first message arrives (see resolveActivationSettings).
   private prewarmedRun = false;
   private prewarmedStartupTurnPending = false;
-  private storeSkillsInstalledCount = 0;
+  private storeSkills: StoreSkillsListing = NO_STORE_SKILLS;
   private storeSkillsActivationResolved = false;
   private agentInstructions: string | null = null;
   private autoPublishStateResolved = false;
@@ -4561,7 +4563,7 @@ export class AgentServer {
     runId: string,
     runState: TaskRunState | null,
   ): Promise<void> {
-    this.storeSkillsInstalledCount = await syncStoreSkills(
+    this.storeSkills = await syncStoreSkills(
       runState,
       { taskId, runId },
       this.logger,
@@ -4803,13 +4805,20 @@ export class AgentServer {
     const context: string[] = [];
     if (shouldResolveStoreSkills) {
       const { task_id: taskId, run_id: runId } = this.session.payload;
-      const previousCount = this.storeSkillsInstalledCount;
+      const previousInstructions = buildStoreSkillsInstructions(
+        this.storeSkills,
+      );
       await this.installStoreSkills(taskId, runId, state ?? null);
       this.storeSkillsActivationResolved = true;
-      if (previousCount === 0 && this.storeSkillsInstalledCount > 0) {
-        context.push(
-          buildStoreSkillsInstructions(this.storeSkillsInstalledCount).trim(),
-        );
+      const storeSkillsInstructions = buildStoreSkillsInstructions(
+        this.storeSkills,
+      );
+      // The system prompt still carries the prewarm section, so only a changed one is worth sending.
+      if (
+        storeSkillsInstructions &&
+        storeSkillsInstructions !== previousInstructions
+      ) {
+        context.push(storeSkillsInstructions.trim());
       }
       const instructions = await new AgentInstructionFiles(this.logger).sync(
         state ?? null,
@@ -4943,7 +4952,7 @@ export class AgentServer {
       projectId: this.config.projectId,
       repositoryAttached: Boolean(this.config.repositoryPath),
       shouldAutoPublish: this.shouldAutoPublishCloudChanges(),
-      storeSkillsInstalledCount: this.storeSkillsInstalledCount,
+      storeSkills: this.storeSkills,
       taskId: this.config.taskId,
       taskRepositories: this.taskRepositories,
     });
@@ -5408,7 +5417,7 @@ export class AgentServer {
             outcome: { outcome: "cancelled" },
             _meta: {
               message:
-                "This run is configured to stop before publishing. Do not push commits or create/update pull requests unless the user explicitly asks.",
+                "This run is configured to stop before publishing. Publishing is disabled for this run, even if the user invokes a skill. Do not retry this push or pull request update here. Explain that publishing must be enabled for this run.",
             },
           };
         }

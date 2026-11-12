@@ -101,6 +101,12 @@ describe('hog api', () => {
         ['a destructive tool without --confirm', ['api', 'call', 'flag-delete', '{"id":1}'], 'needs_confirmation', 1],
         ['an empty --project-id', ['api', 'call', 'flag-list', '{}', '--project-id', ''], 'invalid_input', 2],
         [
+            'a --project-id that is not a number',
+            ['api', 'call', 'flag-list', '{}', '--project-id', 'abc'],
+            'invalid_input',
+            2,
+        ],
+        [
             'an empty --organization-id',
             ['api', 'call', 'flag-list', '{}', '--organization-id', ' '],
             'invalid_input',
@@ -123,7 +129,7 @@ describe('hog api', () => {
         ],
         [
             'an organization override drops the saved project',
-            ['--organization-id', 'org-b'],
+            ['--organization-id', '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'],
             { ok: 1 },
             [
                 {
@@ -132,7 +138,7 @@ describe('hog api', () => {
                     connection: {
                         apiKey: 'phx_test',
                         host: 'https://ph.example.com',
-                        organizationId: 'org-b',
+                        organizationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
                         clientName: 'hog',
                         clientVersion: expect.any(String),
                     },
@@ -188,13 +194,20 @@ describe('hog api', () => {
         expect(result.error()).toMatchObject({
             code: 'missing_scopes',
             message: `Your credentials need ${scopes} to call insight-create.`,
+            hint: expect.stringContaining('personal API key'),
         })
     })
 
     test.each([
         ['an unlimited key reaches the project', [], 200, undefined, true],
         ["a key limited to the project's organization reaches it", ['org-a'], 200, 'org-a', true],
-        ['a key limited to another organization does not', ['org-b'], 200, 'org-a', false],
+        [
+            'a key limited to another organization does not',
+            ['0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'],
+            200,
+            'org-a',
+            false,
+        ],
         ["a key without project:read can't tell", ['org-a'], 403, undefined, null],
     ])('access: %s', async (_name, scopedOrganizations, status, projectOrganization, projectAllowed) => {
         const result = await runHog(['api', 'access'], {
@@ -235,7 +248,26 @@ describe('hog api', () => {
         expect(result.json()).toMatchObject({ usable: 2, tools: 3, projectAllowed: true })
     })
 
-    test('a refused call from an OAuth login names every scope the login lacks, from its own scopes', async () => {
+    test.each([
+        [
+            'stops before calling, naming every scope the login lacks',
+            ['feature_flag:read'],
+            'insight:write',
+            {
+                code: 'step_up_required',
+                scopes: ['insight:write', 'query:read'],
+                command: 'hog auth add --host https://eu.posthog.com insight:write query:read',
+            },
+            0,
+        ],
+        [
+            'never puts a scope from the refusal text into a command',
+            ['insight:write', 'query:read'],
+            'insight:write $(curl example.com)',
+            { code: 'missing_scopes' },
+            1,
+        ],
+    ])('a call from an OAuth login %s', async (_name, held, missingScope, expected, calls) => {
         const EU = 'https://eu.posthog.com'
         const record = {
             store: 'keychain',
@@ -243,25 +275,25 @@ describe('hog api', () => {
             projectId: '42',
             host: EU,
             expiresAt: Date.UTC(2026, 0, 8),
-            scopes: ['feature_flag:read'],
+            scopes: held,
             loginId: 'login-1',
         }
+        const library = fakeLibrary([], {
+            lookupFails: true,
+            callResult: {
+                ok: false,
+                error: { code: 'permission_denied', message: 'denied', status: 403, missingScope },
+            },
+        })
         const result = await runHog(['api', 'call', 'insight-create', '{}'], {
             env: { CLAUDECODE: '1' },
             files: { '/home/test/.config/hog/settings.json': JSON.stringify({ logins: { [EU]: record }, host: EU }) },
             keychain: { [EU]: JSON.stringify({ accessToken: 'pha_token', refreshToken: 'phr_token' }) },
-            apiTools: fakeLibrary([], {
-                lookupFails: true,
-                callResult: {
-                    ok: false,
-                    error: { code: 'permission_denied', message: 'denied', status: 403, missingScope: 'insight:write' },
-                },
-            }),
+            apiTools: library,
         })
 
-        expect(result.error()).toMatchObject({
-            code: 'missing_scopes',
-            message: 'Your credentials need insight:write, query:read to call insight-create.',
-        })
+        expect(result.error()).toMatchObject(expected)
+        expect(String(result.error().command ?? '')).not.toContain('$(')
+        expect(library.calls).toHaveLength(calls)
     })
 })

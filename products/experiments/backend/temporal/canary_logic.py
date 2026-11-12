@@ -108,7 +108,8 @@ MIN_EXPOSURES_PER_VARIANT = 100
 # Metric types that use the precompute path: all of them read precomputed exposures, and funnel,
 # mean, and retention also read precomputed metric events when eligible. Derived from the runner's
 # builder registry so a new buildable type is sampled automatically instead of silently uncovered.
-ELIGIBLE_METRIC_TYPES = frozenset(METRIC_BUILDERS)
+# Quantile metrics stay out of the canary until their main results path is proven in production.
+ELIGIBLE_METRIC_TYPES = frozenset(METRIC_BUILDERS) - {"quantile"}
 
 # Experiments must have been running this long to be sampled — comfortably past the runner's 12h
 # precomputation gate, with enough accumulated exposures for the comparison to be meaningful.
@@ -138,6 +139,8 @@ def _eligible_experiments() -> list[Experiment]:
             team_id__in=team_ids,
             start_date__lte=timezone.now() - MIN_EXPERIMENT_RUNTIME,
             end_date__isnull=True,
+            # An experiment on a feature flag rule never precomputes, so it has no second path to compare.
+            feature_flag_rule_id__isnull=True,
         )
         .exclude(deleted=True)
         .exclude(archived=True)

@@ -7,7 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { ApiConfig } from 'lib/api'
 import type { PaginatedResponse } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -70,6 +70,7 @@ import {
 } from './sourceRecommendations'
 import {
     SOURCE_ALERT_SCOPE_KEY,
+    SOURCE_ISSUE_FILTERS_KEY,
     SOURCE_STEERING_KEY,
     SignalAlertScope,
     SignalSourceConfig,
@@ -87,6 +88,8 @@ export interface SourceProductStatus {
     productName: string
     enabled: boolean | null
     enablement: SourceProductEnablement | null
+    /** Set when the current user can't turn the product on, so the button can't send a request that 403s. */
+    enableDisabledReason?: string
     dataStatus: SourceProductDataStatus
 }
 
@@ -115,7 +118,14 @@ function inheritedErrorTrackingConfig(configs: SignalSourceConfig[]): Record<str
     const steering = configs
         .map((config) => config.config[SOURCE_STEERING_KEY])
         .find((value) => typeof value === 'string' && value.trim())
-    return steering ? { [SOURCE_STEERING_KEY]: steering } : {}
+    // One filter covers the whole source, so a type turned on later must not admit what the others skip.
+    const issueFilters = configs
+        .map((config) => config.config[SOURCE_ISSUE_FILTERS_KEY])
+        .find((value) => !!value && typeof value === 'object')
+    return {
+        ...(steering ? { [SOURCE_STEERING_KEY]: steering } : {}),
+        ...(issueFilters ? { [SOURCE_ISSUE_FILTERS_KEY]: issueFilters } : {}),
+    }
 }
 
 /** Warehouse-backed signal sources, keyed by roster source id. */
@@ -655,6 +665,7 @@ export interface signalSourcesLogicMeta {
                 | 'clickup'
                 | 'cronitor'
                 | 'cursor'
+                | 'datadog'
                 | 'decagon'
                 | 'discourse'
                 | 'dixa'
@@ -670,6 +681,9 @@ export interface signalSourcesLogicMeta {
                 | 'gainsight_px'
                 | 'gitea'
                 | 'github'
+                | 'github_code_scanning'
+                | 'github_dependabot'
+                | 'github_secret_scanning'
                 | 'gitlab'
                 | 'google_play_console'
                 | 'google_search_console'
@@ -769,6 +783,7 @@ export interface signalSourcesLogicMeta {
                 | 'clickup'
                 | 'cronitor'
                 | 'cursor'
+                | 'datadog'
                 | 'decagon'
                 | 'discourse'
                 | 'dixa'
@@ -784,6 +799,9 @@ export interface signalSourcesLogicMeta {
                 | 'gainsight_px'
                 | 'gitea'
                 | 'github'
+                | 'github_code_scanning'
+                | 'github_dependabot'
+                | 'github_secret_scanning'
                 | 'gitlab'
                 | 'google_play_console'
                 | 'google_search_console'
@@ -873,6 +891,7 @@ export interface signalSourcesLogicMeta {
                 | 'clickup'
                 | 'cronitor'
                 | 'cursor'
+                | 'datadog'
                 | 'decagon'
                 | 'discourse'
                 | 'dixa'
@@ -888,6 +907,9 @@ export interface signalSourcesLogicMeta {
                 | 'gainsight_px'
                 | 'gitea'
                 | 'github'
+                | 'github_code_scanning'
+                | 'github_dependabot'
+                | 'github_secret_scanning'
                 | 'gitlab'
                 | 'google_play_console'
                 | 'google_search_console'
@@ -1761,6 +1783,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         productName: 'Support',
                         enabled: team ? !!team.conversations_enabled : null,
                         enablement: 'conversations',
+                        // product_enablement keeps conversations admin-only, matching the Team API.
+                        enableDisabledReason:
+                            (team?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin
+                                ? undefined
+                                : 'Ask a project admin to turn on Support',
                         dataStatus: 'unavailable',
                     },
                     llm_analytics: {
@@ -2360,9 +2387,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     })
                     captureSignalSourceAlertScopeChanged({ alertScope, previousAlertScope, success: true })
                     lemonToast.success(
-                        alertScope === SignalAlertScope.AllFiringAlerts
-                            ? 'Product analytics now turns every firing alert into a signal.'
-                            : 'Product analytics now turns only investigated alerts into signals.'
+                        {
+                            [SignalAlertScope.AllFiringAlerts]:
+                                'Product analytics now turns every firing alert into a signal.',
+                            [SignalAlertScope.InvestigatedOnly]:
+                                'Product analytics now turns only investigated alerts into signals.',
+                            [SignalAlertScope.Off]: 'Product analytics no longer turns alerts into signals.',
+                        }[alertScope]
                     )
                 } catch (error: any) {
                     captureSignalSourceAlertScopeChanged({ alertScope, previousAlertScope, success: false })

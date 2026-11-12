@@ -1,6 +1,7 @@
 import type { TraceNodeApi } from '../../../generated/api.schemas'
-import { NodeProperties, ThreadMessage } from '../types'
-import { SampleTraceFixture, sampleStats } from './sampleTraceFixture'
+import { ThreadMessage } from '../types'
+import { jsonContent, messagesContent, messagesSides } from './sampleContent'
+import { SampleTraceFixture, sampleDetail, sampleRaw, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = '2fa60c6497874ba3c4633d94fdfae64f'
 const GENERATION_ID = 'd6263394121a6a51'
@@ -91,6 +92,7 @@ const output: ThreadMessage[] = [
                 kind: 'toolCall',
                 name: 'calc',
                 args: { v: 'card_6PbgqloIxg@rollup-fixed-guarded-v2', code: FIXED_ROLLUP_CODE },
+                result: null,
             },
         ],
         isInternal: true,
@@ -114,6 +116,7 @@ const tree: TraceNodeApi[] = [
         id: TRACE_ID,
         kind: 'trace',
         name: 'run-budget-rollup',
+        label: 'run-budget-rollup #1',
         model: null,
         stats: sampleStats({ costUsd: 0.0435, inputTokens: 2, outputTokens: 218, latencyMs: 3539 }),
         hasError: false,
@@ -122,6 +125,7 @@ const tree: TraceNodeApi[] = [
                 id: GENERATION_ID,
                 kind: 'generation',
                 name: 'run-budget-rollup',
+                label: 'run-budget-rollup #2',
                 model: 'claude-opus-5-5',
                 stats: generationStats,
                 hasError: false,
@@ -131,47 +135,29 @@ const tree: TraceNodeApi[] = [
     },
 ]
 
-const traceProperties: NodeProperties = {
-    timestamp: TIMESTAMP,
-    provider: null,
-    temperature: null,
-    sessionId: null,
-    promptName: null,
-    promptVersion: null,
-    person: 'user-1',
-}
-
 export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
     header: {
         name: 'run-budget-rollup',
         hasError: false,
         backLink: { label: 'Back to traces', href: '/traces' },
     },
-    summary: {
-        traceId: TRACE_ID,
-        timestamp: TIMESTAMP,
-        person: { label: 'user-1', href: '/person/user-1' },
+    trace: {
+        id: TRACE_ID,
+        createdAt: TIMESTAMP,
+        sessionId: null,
+        person: { distinctId: 'user-1', label: 'user-1' },
         totals: tree[0].stats,
     },
     tree,
     initialNodeId: GENERATION_ID,
     details: {
-        [TRACE_ID]: {
-            content: { kind: 'io', input: null, output: null },
-            error: null,
-            properties: traceProperties,
-            evals: { status: 'ready', results: [] },
-            raw: { id: TRACE_ID, createdAt: TIMESTAMP, traceName: 'run-budget-rollup' },
-        },
-        [GENERATION_ID]: {
-            content: { kind: 'messages', input, output },
-            error: null,
-            properties: { ...traceProperties, provider: 'anthropic.messages' },
-            evals: { status: 'ready', results: [] },
-            raw: {
-                event: '$ai_generation',
-                id: GENERATION_ID,
-                createdAt: TIMESTAMP,
+        [TRACE_ID]: sampleDetail({ content: jsonContent(null, null), raw: sampleRaw('trace', TRACE_ID, null) }),
+        [GENERATION_ID]: sampleDetail({
+            content: messagesContent(input, output),
+            metadata: { provider: 'anthropic.messages' },
+            raw: sampleRaw('generation', GENERATION_ID, {
+                name: '$ai_generation',
+                timestamp: TIMESTAMP,
                 properties: {
                     $ai_provider: 'anthropic.messages',
                     $ai_model: 'claude-opus-5-5',
@@ -191,12 +177,12 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
                     $ai_tool_call_count: 1,
                     resource_locator: 'personal-finance/workbooks/monthly-budget/cards/rollup-final',
                 },
-            },
-        },
+            }),
+        }),
     },
     thread: {
         status: 'ready',
-        turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, messages: anthropicThinkingMessages, error: null }],
+        turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, ...messagesSides(input, output), error: null }],
         activeTurnId: TRACE_ID,
     },
     timeline: {
@@ -213,4 +199,5 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
         ],
         totalMs: 3539,
     },
+    evaluationResults: [],
 }

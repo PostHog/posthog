@@ -5,7 +5,6 @@ import { LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
-import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -16,7 +15,6 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { emailEngagement } from './broadcastPerformanceLogic'
 import { BroadcastsEmptyState } from './BroadcastsEmptyState'
@@ -47,7 +45,6 @@ export function BroadcastsTable(): JSX.Element {
         filters,
         filtersPending,
         loadFailed,
-        tags: allTags,
         savingTagsFor,
     } = useValues(broadcastsLogic)
     // Rows from other filters stay behind the loading state, and are dropped once the load for these fails.
@@ -111,7 +108,6 @@ export function BroadcastsTable(): JSX.Element {
                         {...shown}
                         onChange={(tags) => saveBroadcastTags(item.id, tags)}
                         saving={savingTagsFor === item.id}
-                        tagsAvailable={allTags}
                     />
                 )
             },
@@ -193,14 +189,6 @@ export function BroadcastsTable(): JSX.Element {
         },
     ]
 
-    // Each row counts its latest send from the start of that run until now.
-    const earliestEmailRunStart = (hideRows ? [] : broadcasts.results)
-        .filter((item) => getBroadcastChannel(item.actions as any) !== 'push')
-        .map((item) => rowDetailsById[item.id]?.latestBatchJob?.created_at)
-        .filter((createdAt): createdAt is string => !!createdAt)
-        .map((createdAt) => dayjs(createdAt))
-        .sort((a, b) => a.diff(b))[0]
-
     const isEmpty =
         hasLoadedBroadcasts &&
         !broadcastsLoading &&
@@ -215,7 +203,6 @@ export function BroadcastsTable(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            {earliestEmailRunStart ? <EmailMetricsIncidentBanner dateFrom={earliestEmailRunStart} /> : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
                     type="search"

@@ -38,6 +38,7 @@ import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
 import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
+import PROJECT_SCOPE from '@/templates/sections/project-scope.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import SKILLS_FIRST from '@/templates/sections/skills-first.md'
@@ -238,7 +239,15 @@ export class InstructionsFormatter {
     private artifactSections(ctx: InstructionsContext): string[] {
         return [
             ANALYSIS_ARTIFACTS,
-            ...(ctx.tools?.some(({ name }) => name === 'explain-chart') ? [EXPLAIN_CHART] : []),
+            ...(ctx.tools?.some(({ name }) => name === 'explain-chart')
+                ? [
+                      formatPrompt(EXPLAIN_CHART, {
+                          explain_chart_link_line: ctx.tools.some(({ name }) => name === 'explain-chart-save')
+                              ? 'Where the conversation cannot show the chart explanation, call `explain-chart-save` with the same arguments and give the person the link it returns, which opens it beside the chart in PostHog.'
+                              : '',
+                      }),
+                  ]
+                : []),
             ...(ctx.notebookCellsEnabled ? [formatPrompt(NOTEBOOK_SQL, notebookSqlVars(ctx)), NOTEBOOK_PYTHON] : []),
             ...(ctx.notebookRunEnabled ? [NOTEBOOK_RUN] : []),
         ]
@@ -258,6 +267,7 @@ export class InstructionsFormatter {
     buildToolsInstructions(ctx: InstructionsContext): string {
         return this.compose(
             [
+                PROJECT_SCOPE,
                 BASIC_FUNCTIONALITY,
                 ...this.knowledgeFirstSections(ctx),
                 ...this.inboxFirstSections(ctx, false),
@@ -307,7 +317,7 @@ export class InstructionsFormatter {
 
     /** Build the top-level description of the `posthog:exec` tool. Lives in the
      *  uncapped top-level `description`, so the skills text costs no schema budget.
-     *  The skills mandate LEADS the description: it is the only signal that reaches
+     *  Project clarification and the skills mandate lead the description to reach
      *  an agent before its first tool call, and agents that answer PostHog-behavior
      *  questions by cloning the public repo never make a call for the gate to catch. */
     buildExecToolDescription(
@@ -322,6 +332,7 @@ export class InstructionsFormatter {
         const knowledgeSections = this.knowledgeFirstSectionsForCapabilities({ ...opts, execSyntax: true })
         const hasMandate = opts.skillsEnabled || knowledgeSections.length > 0
         return [
+            PROJECT_SCOPE,
             ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
             ...knowledgeSections,
             hasMandate ? EXEC_TOOL_BLURB_COMPACT : EXEC_TOOL_BLURB,

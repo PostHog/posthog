@@ -1136,11 +1136,24 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       }
       pendingSubagents.set(taskId, runId);
     };
-    const subagentReplyBatches: Set<string>[] = [];
+    interface SubagentReplyBatch {
+      runId?: string;
+      replyMessageId?: string;
+      tasks: Map<string, string | undefined>;
+    }
+    const subagentReplyBatches: SubagentReplyBatch[] = [];
+    let parentReplyMessageId: string | undefined;
+    const recordParentReply = (messageId: string): void => {
+      if (messageId === parentReplyMessageId) return;
+      parentReplyMessageId = messageId;
+      for (const batch of subagentReplyBatches) {
+        batch.replyMessageId = messageId;
+      }
+    };
     const hasPendingSubagents = () =>
       pendingSubagents.size > 0 ||
       completedSubagents.size > 0 ||
-      subagentReplyBatches.some((batch) => batch.size > 0);
+      subagentReplyBatches.some((batch) => batch.tasks.size > 0);
 
     // Read live: model switches reset session.lastContextWindowSize.
     const windowSize = () =>
@@ -1205,6 +1218,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       completedSubagents.clear();
       endedSubagentRuns.clear();
       subagentReplyBatches.length = 0;
+      parentReplyMessageId = undefined;
       lastAssistantTotalUsage = null;
       lastRefusalExplanation = null;
       lastRefusalCategory = null;
@@ -1606,12 +1620,45 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             break;
 
           case "result": {
-            const isTaskNotification =
-              (message as { origin?: { kind?: string } }).origin?.kind ===
-              "task-notification";
-            const subagentReply = isTaskNotification
-              ? subagentReplyBatches.shift()
-              : undefined;
+            const origin = message.origin;
+            const isTaskNotification = origin?.kind === "task-notification";
+            let subagentReply: Map<string, string | undefined> | undefined;
+            if (isTaskNotification) {
+              const runId = origin.runId;
+              const batchIndex = runId
+                ? subagentReplyBatches.findIndex(
+                    (batch) =>
+                      batch.runId === runId ||
+                      [...batch.tasks.values()].includes(runId),
+                  )
+                : 0;
+              if (batchIndex >= 0) {
+                subagentReply = subagentReplyBatches.splice(batchIndex, 1)[0]
+                  ?.tasks;
+              }
+              // The SDK can omit the notification's user echo, but its result still identifies the run.
+              if (runId) {
+                for (const [taskId, completedRunId] of completedSubagents) {
+                  if (completedRunId === runId) {
+                    subagentReply ??= new Map();
+                    subagentReply.set(taskId, completedRunId);
+                    completedSubagents.delete(taskId);
+                  }
+                }
+              }
+            } else {
+              // An early echo can precede the old result; require a new parent response before retiring it.
+              for (let i = subagentReplyBatches.length - 1; i >= 0; i--) {
+                if (
+                  parentReplyMessageId !== undefined &&
+                  subagentReplyBatches[i]?.replyMessageId ===
+                    parentReplyMessageId
+                ) {
+                  subagentReplyBatches.splice(i, 1);
+                  session.backgroundTurnActive = false;
+                }
+              }
+            }
             const isSubagentContinuation =
               session.activeTurn != null && (subagentReply?.size ?? 0) > 0;
             const isBackgroundResult =
@@ -1868,6 +1915,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 message.event.type === "message_delta")
             ) {
               if (message.event.type === "message_start") {
+                recordParentReply(message.event.message.id);
                 const u = message.event.message.usage;
                 lastStreamUsage = {
                   input_tokens: u.input_tokens ?? 0,
@@ -1910,6 +1958,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           case "user":
           case "assistant": {
             if (
+              message.type === "assistant" &&
+              message.parent_tool_use_id === null
+            ) {
+              recordParentReply(message.message.id);
+            }
+            if (
               message.type === "user" &&
               (message as { origin?: { kind?: string } }).origin?.kind ===
                 "task-notification"
@@ -1925,18 +1979,21 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                         .filter((block) => block.type === "text")
                         .map((block) => block.text)
                         .join("\n");
-                const batch = new Set<string>();
+                const batch = new Map<string, string | undefined>();
                 for (const [taskId, runId] of completedSubagents) {
                   if (
                     origin?.runId
                       ? runId === origin.runId
                       : text.includes(`<task-id>${taskId}</task-id>`)
                   ) {
-                    batch.add(taskId);
+                    batch.set(taskId, runId);
                     completedSubagents.delete(taskId);
                   }
                 }
-                subagentReplyBatches.push(batch);
+                subagentReplyBatches.push({
+                  runId: origin?.runId,
+                  tasks: batch,
+                });
               }
             }
             // The SDK can echo a task notification before the previous

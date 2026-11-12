@@ -25,6 +25,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -37,11 +38,14 @@ from posthog.hogql.errors import (
     ImpossibleASTError,
     NotImplementedError,
     QueryError,
+    ResolutionCycleError,
+    ResolutionDepthExceededError,
     ResolutionError,
 )
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
+from posthog.hogql.functions.clickhouse.conversions import NUMERIC_CONVERSION_ALIASES
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
@@ -71,8 +75,10 @@ from posthog.hogql.resolver_utils import (
     lookup_table_by_nested_name,
     suggest_field_names,
     suggested_field_fix,
+    zero_argument_function_call,
 )
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import swap_flag_calls, swaps_flag_calls
+from posthog.hogql.transforms.grouped_clauses import raise_on_whole_document_grouping
 from posthog.hogql.transforms.trino.persons import (
     lower_trino_table,
     resolve_internal_trino_logical_table,
@@ -138,7 +144,7 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
 # re-executed per shard of a distributed outer scan: sharded tables, and tables on another
 # cluster (log_entries is a Distributed over the aux cluster, so a plain IN makes every shard
 # of the outer query issue its own remote read against aux).
-_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, LogEntriesTable)
+_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, FlagEvaluationsTable, LogEntriesTable)
 _GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
@@ -479,6 +485,8 @@ class Resolver(CloningVisitor):
         context: HogQLContext,
         dialect: HogQLDialect = "clickhouse",
         scopes: Optional[list[ast.SelectQueryType]] = None,
+        *,
+        initial_view_name: str | None = None,
     ):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
@@ -486,7 +494,11 @@ class Resolver(CloningVisitor):
         self.ctes: dict[str, ast.CTE] = {}
         self.current_view_depth: int = 0
         self._compilation_budget = compilation_budget.get() or CompilationBudget()
-        self._resolving_saved_views: set[str] = set()
+        # Seed unsaved queries so a body that reads its own name is a cycle.
+        self.initial_view_name = initial_view_name
+        self._resolving_saved_views: set[str] = {initial_view_name} if initial_view_name else set()
+        # SelectSetQuery has no `view_name`, so track the source view by object identity.
+        self.union_view_name_by_id: dict[int, str] = {}
         self._pending_saved_view: str | None = None
         self.swap_flag_calls_in_views = False
         # The unresolved body that the flag call swap chose for each view, by the CTEs in scope where it was read. A
@@ -1199,6 +1211,7 @@ class Resolver(CloningVisitor):
         if node.group_by:
             new_node.group_by = [self.visit(expr) for expr in node.group_by]
         new_node.group_by_mode = node.group_by_mode
+        raise_on_whole_document_grouping(new_node, self.context)
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
         if node.interpolate is not None:
@@ -1456,6 +1469,15 @@ class Resolver(CloningVisitor):
             self.join_sources.record_copied_tree(copy, node)
         return copy
 
+    def _check_saved_view_expansion(self, view_name: str) -> None:
+        """Refuses to expand a view that is already being resolved, or one nested past the hard depth limit."""
+        if view_name in self._resolving_saved_views:
+            raise ResolutionCycleError(view_name, initial_view=self.initial_view_name)
+        if self.current_view_depth >= MAX_VIEW_DEPTH:
+            raise ResolutionDepthExceededError(
+                self.current_view_depth + 1, MAX_VIEW_DEPTH, initial_view=self.initial_view_name
+            )
+
     def _swap_flag_calls_in_view_body(
         self, body: ast.SelectQuery | ast.SelectSetQuery, view_name: str
     ) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -1607,12 +1629,7 @@ class Resolver(CloningVisitor):
                 database_table = lower_trino_table(database_table, self.context)
 
             if isinstance(database_table, SavedQuery):
-                if database_table.name in self._resolving_saved_views:
-                    raise QueryError(f"Circular dependency detected in view '{database_table.name}'")
-                if self.current_view_depth >= MAX_VIEW_DEPTH:
-                    raise QueryError(
-                        f"Query exceeds the limit of {MAX_VIEW_DEPTH} nested saved views. Reduce the view nesting depth."
-                    )
+                self._check_saved_view_expansion(database_table.name)
                 view_query = str(database_table.query)
                 self._compilation_budget.expand_view(view_query)
                 view_body = parse_select(view_query)
@@ -1640,6 +1657,20 @@ class Resolver(CloningVisitor):
             else:
                 assert isinstance(database_table, ast.Table)
                 node_table_type = ast.TableType(table=database_table)
+
+            for scope_alias, scope_type in scope.tables.items():
+                # An unaliased scan of a non-lazy table prints as its bare table name. `FROM posthog.events JOIN
+                # events` would print both scans as `events`. ClickHouse then cannot tell them apart.
+                if (
+                    isinstance(scope_type, ast.TableType)
+                    and scope_type == node_table_type
+                    and scope_alias != table_alias
+                    and database_table.to_printed_clickhouse(self.context) == table_alias
+                ):
+                    raise QueryError(
+                        f'"{self._get_scope_table_names(scope)[scope_alias]}" and "{".".join(table_name_chain)}" '
+                        "read the same table. Give one of them an alias."
+                    )
 
             if isinstance(database_table, HogQLDataWarehouseTable) and database_table.table_id is not None:
                 self._record_warehouse_sync_warnings(database_table.table_id)
@@ -1672,7 +1703,14 @@ class Resolver(CloningVisitor):
                 node_type = ast.ColumnAliasedTableType(
                     alias=table_alias, table_type=node_table_type, alias_to_original=alias_to_original
                 )
-            elif table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
+            elif (
+                table_alias != table_name_alias
+                or isinstance(database_table, FunctionCallTable)
+                # `persons` and `posthog.persons` resolve to the same table, and their types compare equal.
+                # `get_alias_for_table_type` returns the first scope entry with an equal type. Without an alias,
+                # the second scan prints with the first scan's name.
+                or node_table_type in scope.tables.values()
+            ):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
@@ -1765,6 +1803,8 @@ class Resolver(CloningVisitor):
                 if view_name is not None:
                     self.current_view_depth -= 1
                     self._resolving_saved_views.remove(view_name)
+            if view_name is not None and isinstance(node.table, ast.SelectSetQuery):
+                self.union_view_name_by_id[id(node.table)] = view_name
 
             # Remap column names if column_aliases is provided (e.g. AS v(id, name))
             if node.column_aliases and node.table.type:
@@ -2203,6 +2243,10 @@ class Resolver(CloningVisitor):
         if self.dialect == "trino" and node.name.lower() == "date":
             node = self._copy(node)
             node.name = "toDate"
+
+        if node.name in NUMERIC_CONVERSION_ALIASES:
+            node = self._copy(node)
+            node.name = NUMERIC_CONVERSION_ALIASES[node.name]
 
         # Expand *COLUMNS(...) in function arguments
         expanded_args: list[ast.Expr] = []
@@ -2693,6 +2737,9 @@ class Resolver(CloningVisitor):
                 return ast.Constant(value=value, type=global_type)
 
             suggestions = suggest_field_names(scope, name, self.context)
+            function_call = zero_argument_function_call(name) if len(node.chain) == 1 else None
+            if function_call is not None:
+                suggestions = [function_call, *suggestions]
             suggestion_suffix = (
                 f". Did you mean: {', '.join(suggestions)}?"
                 if suggestions
@@ -2700,7 +2747,10 @@ class Resolver(CloningVisitor):
             )
             # The message lists every close match, but a quick fix can only substitute one, so it
             # offers the best of them. `get_close_matches` returns them in descending similarity.
-            fix = suggested_field_fix(node, suggestions[0]) if suggestions else None
+            if function_call is not None:
+                fix = function_call if node.start is not None and node.end is not None else None
+            else:
+                fix = suggested_field_fix(node, suggestions[0]) if suggestions else None
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #

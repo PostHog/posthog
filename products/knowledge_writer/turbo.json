@@ -8,7 +8,13 @@
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
                 "backend/temporal/**",
-                "backend/migrations/**"
+                "backend/feature_flags.py",
+                "backend/logic/intake.py",
+                "backend/receivers.py",
+                "backend/settings.py",
+                "backend/migrations/**",
+                "backend/apps.py",
+                "backend/task_profiles.py"
             ],
             "outputs": [],
             "cache": true

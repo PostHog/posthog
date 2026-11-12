@@ -67,7 +67,7 @@ function AudienceSizePreview(): JSX.Element | null {
                 <div className="text-danger text-xs" data-attr="broadcast-audience-over-limit">
                     This project can send a broadcast to up to {humanFriendlyNumber(limit)} people right now.
                     {channel === 'email'
-                        ? ' The limit can rise as the project keeps sending with low bounce and spam complaint rates.'
+                        ? " The project's workflows share one daily email allowance, and a larger broadcast would use it up for days, even with a slower sending rate. The limit rises as the project keeps sending with low bounce and spam complaint rates."
                         : ''}{' '}
                     Add filters to narrow the audience, or{' '}
                     <Link

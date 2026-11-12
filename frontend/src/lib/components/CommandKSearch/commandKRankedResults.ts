@@ -11,8 +11,8 @@ import {
     compareRanks,
     isIdentityQuery,
     rankCandidate,
-    rankLocalItem,
     searchWords,
+    serverOnlyRank,
     tokenTypos,
 } from './commandKRanking'
 import type { CommandKRow, CommandKSection } from './commandKSections'
@@ -40,73 +40,6 @@ function groupLabel(groupKey: string): string {
         return 'Settings'
     }
     return capitalizeFirstLetter(pluralTypeName(getItemTypeDisplayName(groupKey) ?? groupKey.replace(/_/g, ' ')))
-}
-
-const RANKED_LOCAL_CACHE_SIZE = 50
-const rankedLocalCache = new WeakMap<SearchItem[], Map<string, RankedItem[]>>()
-
-function rankLocalItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
-    const key = `${groupKey}:${query}`
-    let byQuery = rankedLocalCache.get(items)
-    if (!byQuery) {
-        byQuery = new Map()
-        rankedLocalCache.set(items, byQuery)
-    }
-    const cached = byQuery.get(key)
-    if (cached) {
-        return cached
-    }
-    const ranked = rankItems(items, query, groupKey)
-    if (byQuery.size >= RANKED_LOCAL_CACHE_SIZE) {
-        byQuery.delete(byQuery.keys().next().value!)
-    }
-    byQuery.set(key, ranked)
-    return ranked
-}
-
-function rankItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
-    return items.flatMap((item) => {
-        const name = String(item.displayName || item.name)
-        const aliases =
-            groupKey === 'settings'
-                ? [
-                      ...(item.searchKeywords ?? []),
-                      [
-                          name,
-                          ...(item.searchKeywords ?? []),
-                          item.parentName ?? '',
-                          ...(item.contextKeywords ?? []),
-                      ].join(' '),
-                  ]
-                : item.searchKeywords
-        const ranked = rankLocalItem(query, name, aliases, !!item.parentName, groupKey === 'settings')
-        return ranked
-            ? [
-                  {
-                      item:
-                          ranked.matchedAlias && !item.hideMatchedKeyword
-                              ? { ...item, matchedSearchKeyword: ranked.matchedAlias }
-                              : item,
-                      rank: ranked.rank,
-                      groupKey,
-                  },
-              ]
-            : []
-    })
-}
-
-function rankAccounts(accounts: SearchItem[], query: string): RankedItem[] {
-    const queryMatch = rankLocalItem(query, query)
-    if (!queryMatch) {
-        return []
-    }
-    return accounts.map((item) => {
-        const nameMatch = rankLocalItem(query, String(item.displayName || item.name))
-        // The Accounts API matches the full query, including identities that the display name does not contain.
-        const rank =
-            nameMatch?.rank[0] === queryMatch.rank[0] && nameMatch.rank[1] === 0 ? nameMatch.rank : queryMatch.rank
-        return { item, rank, groupKey: 'accounts' }
-    })
 }
 
 const IDENTITY_GROUPS = ['accounts', 'persons']
@@ -155,23 +88,12 @@ function candidateFor(item: SearchItem, groupKey: string, query: string): RankCa
     }
 }
 
-function rankUnified(items: SearchItem[], query: string, groupKey: (item: SearchItem) => string): RankedItem[] {
+function rankItems(items: SearchItem[], query: string, groupKey: (item: SearchItem) => string): RankedItem[] {
     return items.flatMap((item) => {
         const key = groupKey(item)
-        const ranked = rankCandidate(query, candidateFor(item, key, query))
-        if (!ranked) {
-            return item.rankKey ? [{ item, rank: item.rankKey, groupKey: key }] : []
-        }
-        return [
-            {
-                item:
-                    ranked.matchedAlias && !item.hideMatchedKeyword
-                        ? { ...item, matchedSearchKeyword: ranked.matchedAlias }
-                        : item,
-                rank: ranked.rank,
-                groupKey: key,
-            },
-        ]
+        const candidate = candidateFor(item, key, query)
+        const rank = rankCandidate(query, candidate) ?? (item.rankKey && serverOnlyRank(item.rankKey, candidate))
+        return rank ? [{ item, rank, groupKey: key }] : []
     })
 }
 
@@ -314,7 +236,6 @@ interface RankedResultsInput {
     accounts?: SearchItem[]
     state: CommandKSection['state']
     scoped: boolean
-    unifiedRanking?: boolean
 }
 
 export function buildRankedResults({
@@ -329,25 +250,14 @@ export function buildRankedResults({
     accounts = [],
     state,
     scoped,
-    unifiedRanking = false,
 }: RankedResultsInput): CommandKSection[] {
-    const candidates: RankedItem[] = (
-        unifiedRanking
-            ? [
-                  ...rankUnified(results, query, groupKeyFor),
-                  ...rankUnified(products, query, () => 'products'),
-                  ...rankUnified(persons, query, () => 'persons'),
-                  ...rankUnified(settings, query, () => 'settings'),
-                  ...rankUnified(accounts, query, () => 'accounts'),
-              ]
-            : [
-                  ...results.map((item) => ({ item, rank: item.rankKey ?? [], groupKey: groupKeyFor(item) })),
-                  ...rankLocalItems(products, query, 'products'),
-                  ...rankLocalItems(persons, query, 'persons'),
-                  ...rankLocalItems(settings, query, 'settings'),
-                  ...rankAccounts(accounts, query),
-              ]
-    ).sort((a, b) => compareRanks(a.rank, b.rank))
+    const candidates: RankedItem[] = [
+        ...rankItems(results, query, groupKeyFor),
+        ...rankItems(products, query, () => 'products'),
+        ...rankItems(persons, query, () => 'persons'),
+        ...rankItems(settings, query, () => 'settings'),
+        ...rankItems(accounts, query, () => 'accounts'),
+    ].sort((a, b) => compareRanks(a.rank, b.rank))
     if (!candidates.length) {
         return []
     }

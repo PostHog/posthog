@@ -7,7 +7,7 @@ import { MetricChecksPanel } from 'products/data_quality/frontend/MetricChecksPa
 
 import { dataCatalogMetricSceneLogic } from '../dataCatalogMetricSceneLogic'
 
-const NEW_CHECK_NEEDS_SQL_REASON = 'Tests are available for SQL metrics only'
+export const NEW_CHECK_NEEDS_SQL_REASON = 'Tests are available for SQL metrics only'
 
 export function MetricTestsTab(): JSX.Element | null {
     const { metric, supportsMetricChecks } = useValues(dataCatalogMetricSceneLogic)

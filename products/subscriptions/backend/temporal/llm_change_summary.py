@@ -30,6 +30,7 @@ from posthog.utils import get_instance_region
 from products.ai_observability.backend.prompt_references import resolve_prompt_references
 from products.product_analytics.backend.facade.api import get_query_specific_instructions
 from products.subscriptions.backend.logic.report_text import REPORT_TEXT_INSTRUCTIONS, ReportSummary
+from products.subscriptions.backend.temporal.results_summarizer import is_time_series_query
 
 logger = structlog.get_logger(__name__)
 
@@ -83,7 +84,7 @@ The user may provide additional context to guide your summary focus. Use it to d
 INITIAL_USER_PROMPT_TEMPLATE = """Current data (captured {{current_timestamp}}):
 {{current_section}}
 
-{{annotations_section}}Summarize the key takeaways in 2-4 bullet points. {{formatting_instructions}}
+{{annotations_section}}Summarize the key takeaways in 2-4 bullet points.
 
 Focus on:
 - Notable metric values (unusually high, low, or outlier values)
@@ -102,7 +103,7 @@ USER_PROMPT_TEMPLATE = """Previous data (captured {{previous_timestamp}}):
 Current data (captured {{current_timestamp}}):
 {{current_section}}
 
-{{annotations_section}}Summarize the key changes in 2-4 bullet points. {{formatting_instructions}}
+{{annotations_section}}Summarize the key changes in 2-4 bullet points.
 
 Focus on:
 - Changes of 10% or more in key metrics
@@ -124,8 +125,6 @@ For event lists, the first finding must state the query window and any limits on
 Do not use the subscription schedule or title as the data window.
 Keep each event type's time range separate. Never apply the overall returned time span to every event type.
 An event-table image can show only the newest rows. Its missing older rows do not contradict full-result event counts or time ranges.
-Use structured items to identify event and metric names, measured values, time windows, links, and connecting text.
-Each destination applies its own visual styles. Do not put formatting markers or bullet characters inside the items.
 Use sentence case and direct language. Remove repetition, generic introductions, sign-offs, and concluding recaps.
 State uncertainty once, beside the affected fact. Do not infer causes, business impact, or tracking failures from missing evidence.
 Before returning the findings, remove filler, stock phrases, inflated claims, and duplicate observations.
@@ -142,6 +141,25 @@ SUMMARY_INTERPRETATION_INSTRUCTIONS = """Interpret performance against an approp
 - Compare like periods when the supplied data permits it. Account for weekdays versus weekends, elapsed time since publication, and complete versus partial periods. Do not invent a comparison that is absent from the data.
 - If the supplied evidence explains a change, put that explanation beside the value. Distinguish a known event from a proven cause; timing alone does not establish causation.
 - If context is absent, describe the observed change without guessing its cause. Do not list speculative explanations or call routine variation surprising, strong, exceptional, or alarming without evidence."""
+
+
+TREND_FIELD_INSTRUCTIONS = """Trend series fields:
+- latest is the most recent complete period, previous point is the point before it in the chart, and change is the direction and size of the move between them.
+- in progress is a period that was still collecting data. Do not compare it with complete periods or describe it as a rise or fall.
+- window trend compares the later half of the chart window with the earlier half. It describes the shape of the whole window, not the latest move, so it can point the other way from change.
+- When you describe a move "from X to Y", use the direction of the numbers. Never use window trend as the direction of a from-to change.
+- When you compare deliveries, compare latest with latest."""
+
+
+SUMMARY_OUTPUT_INSTRUCTIONS = f"""{REPORT_TEXT_INSTRUCTIONS}
+Return one finding per bullet. Include the time window when describing a trend.
+Start each finding with the exact insight name from the data headers as a kind=name item; do not paraphrase it.
+Approximate numbers ("about 30%") are kind=value items too, and windows ("30-day window") are kind=time items.
+Example items for one finding: [{{"kind":"name","text":"Signup conversion"}},{{"kind":"text","text":" fell "}},{{"kind":"change","text":"12%","direction":"decrease"}},{{"kind":"text","text":" to "}},{{"kind":"value","text":"31%"}},{{"kind":"text","text":" on "}},{{"kind":"time","text":"November 10"}},{{"kind":"text","text":", the lowest point in the "}},{{"kind":"time","text":"30-day window"}},{{"kind":"text","text":"."}}]"""
+
+# Managed prompts can still reference these variables, and _compile_template leaves an unknown
+# variable in the text as written, so each one is set to an empty string.
+_RETIRED_TEMPLATE_VARIABLES = {"formatting_instructions": ""}
 
 
 def _compile_template(template: str, variables: dict[str, str]) -> str:
@@ -297,7 +315,7 @@ def build_prompt_messages(
             "current_timestamp": current_timestamp,
             "current_section": _wrap_insight_data("\n\n".join(current_section_parts) or "No current data"),
             "annotations_section": annotations_section,
-            "formatting_instructions": SUMMARY_CONTENT_INSTRUCTIONS,
+            **_RETIRED_TEMPLATE_VARIABLES,
         },
     )
 
@@ -329,7 +347,7 @@ def build_initial_prompt_messages(
             "current_timestamp": current_timestamp,
             "current_section": _wrap_insight_data("\n\n".join(current_section_parts) or "No data"),
             "annotations_section": annotations_section,
-            "formatting_instructions": SUMMARY_CONTENT_INSTRUCTIONS,
+            **_RETIRED_TEMPLATE_VARIABLES,
         },
     )
 
@@ -427,7 +445,6 @@ def generate_change_summary(
     insight_images: dict[int, bytes] | None = None,
     core_memory_text: str = "",
     annotations_section: str = "",
-    slack_formatting: bool = False,
 ) -> str:
     team_id = team.id if team else 0
 
@@ -454,9 +471,9 @@ def generate_change_summary(
         )
 
     messages[0]["content"] += f"\n\n{SUMMARY_CONTENT_INSTRUCTIONS}\n\n{SUMMARY_INTERPRETATION_INSTRUCTIONS}"
-    messages[0]["content"] += (
-        f"\n\n{REPORT_TEXT_INSTRUCTIONS}\nReturn one finding per bullet. Include the time window when describing a trend."
-    )
+    if any(is_time_series_query(state.get("query_kind", "")) for state in current_states):
+        messages[0]["content"] += f"\n\n{TREND_FIELD_INSTRUCTIONS}"
+    messages[0]["content"] += f"\n\n{SUMMARY_OUTPUT_INSTRUCTIONS}"
 
     attached = _attach_images_to_user_message(messages, current_states, insight_images)
 
@@ -480,11 +497,11 @@ def generate_change_summary(
 
     prompt_tokens, completion_tokens = 0, 0
     with client:
-        for max_tokens in (1500, 4500):
+        for max_completion_tokens in (4096, 8192):
             result = client.chat.completions.create(
-                model="gpt-4.1-mini",
-                temperature=0.3,
-                max_tokens=max_tokens,
+                model="gpt-6-luna",
+                reasoning_effort="low",
+                max_completion_tokens=max_completion_tokens,
                 response_format={
                     "type": "json_schema",
                     "json_schema": {
@@ -493,7 +510,7 @@ def generate_change_summary(
                         "schema": to_strict_json_schema(ReportSummary),
                     },
                 },
-                timeout=20,
+                timeout=30,
                 messages=cast(list[ChatCompletionMessageParam], messages),
                 user=user_tag,
             )
@@ -507,7 +524,7 @@ def generate_change_summary(
     if result.choices and result.choices[0].message.content:
         content = result.choices[0].message.content
     if content:
-        content = ReportSummary.model_validate_json(content).render(slack_formatting=slack_formatting)
+        content = ReportSummary.model_validate_json(content).render()
 
     logger.info(
         "change_summary_generated",

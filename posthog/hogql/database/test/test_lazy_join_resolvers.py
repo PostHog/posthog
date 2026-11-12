@@ -22,6 +22,10 @@ from posthog.hogql.database.warehouse_join_resolvers import (
     resolve_data_warehouse_join,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
+
+from posthog.models import Organization, Team
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 
@@ -143,6 +147,65 @@ class TestLazyJoinResolvers(SimpleTestCase):
             (ast.CompareOperationOp.GtEq, "2023-01-01"),
             (ast.CompareOperationOp.LtEq, "2023-02-01"),
         ]
+
+    @parameterized.expand(
+        [
+            (
+                "string_source_numeric_joining",
+                "events",
+                "distinct_id",
+                "static_cohort_people",
+                "cohort_id",
+                "ON equals(events.distinct_id, toString(events__linked.events__linked___cohort_id))",
+            ),
+            (
+                "numeric_source_string_joining",
+                "static_cohort_people",
+                "cohort_id",
+                "events",
+                "distinct_id",
+                "ON equals(toString(person_static_cohort.cohort_id), "
+                "static_cohort_people__linked.static_cohort_people__linked___distinct_id)",
+            ),
+        ]
+    )
+    def test_data_warehouse_join_compares_a_numeric_key_to_a_string_key_as_strings(
+        self,
+        _name: str,
+        source_table: str,
+        source_key: str,
+        joining_table: str,
+        joining_key: str,
+        expected_constraint: str,
+    ) -> None:
+        database = Database()
+        database.get_table(source_table).fields["linked"] = LazyJoin(
+            from_field=[source_key],
+            to_field=[joining_key],
+            join_table=joining_table,
+            resolver=DATA_WAREHOUSE,
+            resolver_params=data_warehouse_resolver_params(
+                source_table_key=source_key,
+                joining_table_key=joining_key,
+                joining_table_name=joining_table,
+            ),
+        )
+        context = HogQLContext(
+            team_id=1,
+            team=Team(id=1, organization=Organization()),
+            database=database,
+            enable_select_queries=True,
+            use_new_events_schema=False,
+            apply_events_retention_floor=False,
+            modifiers=HogQLQueryModifiers(),
+            restricted_properties=set(),
+        )
+
+        printed, _ = prepare_and_print_ast(
+            parse_select(f"SELECT linked.{joining_key} FROM {source_table}"), context, "clickhouse"
+        )
+
+        assert expected_constraint in printed
 
 
 def _walk_lazy_joins(database: Database) -> Iterator[tuple[str, LazyJoin]]:

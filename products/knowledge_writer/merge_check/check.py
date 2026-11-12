@@ -6,34 +6,53 @@ from ..backend.facade.enums import DocsChangeKind
 from .judge import judge_merge
 from .sources import (
     DOCS_URL_PREFIX,
-    POSTHOG_REPOSITORY,
     GitHubReader,
-    find_merged_pull_request,
+    LandedChange,
     is_generated_path,
     is_published_from_repository,
     is_test_path,
-    read_commit_diff_by_path,
+    merged_pull_request,
+    reached_default_branch,
+    read_diff_by_path,
     read_docs_page_urls,
     read_generated_path_patterns,
+    read_numbered_pull_request,
 )
 
 
+class MergeNotConfirmed(Exception):
+    pass
+
+
+class MergeNotOnDefaultBranch(Exception):
+    pass
+
+
 def run_merge_check(
-    commit_sha: str,
+    change: LandedChange,
     *,
+    is_final_attempt: bool,
     github: GitHubReader,
     http: httpx.Client,
     anthropic_client: Anthropic,
 ) -> MergeCheckReport:
-    commit_url = f"https://github.com/{POSTHOG_REPOSITORY}/commit/{commit_sha}"
-    pull_request = find_merged_pull_request(github, commit_sha)
+    commit_sha = change.after
+    commit_url = f"https://github.com/{change.repository}/commit/{commit_sha}"
+    listed = read_numbered_pull_request(github, change)
+    if not reached_default_branch(github, change.repository, listed, commit_sha):
+        if not is_final_attempt:
+            raise MergeNotOnDefaultBranch(commit_sha)
+        return no_docs_report(commit_sha, commit_url, title=listed.get("title") or "", reason="not_on_default_branch")
+    pull_request = merged_pull_request(listed, commit_sha)
+    if pull_request is None and not is_final_attempt:
+        raise MergeNotConfirmed(commit_sha)
     if pull_request is None:
         return no_docs_report(commit_sha, commit_url, title="", reason="no_pull_request")
     if not pull_request.is_trusted_author:
         return no_docs_report(commit_sha, commit_url, title=pull_request.title, reason="untrusted_author")
-    diff_by_path = read_commit_diff_by_path(github, commit_sha)
+    diff_by_path = read_diff_by_path(github, change)
     page_url_by_path = {url.removeprefix(DOCS_URL_PREFIX): url for url in read_docs_page_urls(http)}
-    generated_path_patterns = read_generated_path_patterns(github, commit_sha)
+    generated_path_patterns = read_generated_path_patterns(github, change.repository, commit_sha)
     judged_diff = "".join(
         chunk
         for path, chunk in diff_by_path.items()
@@ -48,7 +67,7 @@ def run_merge_check(
     if not verdict.needs_docs or verdict.change_kind is None:
         return no_docs_report(commit_sha, commit_url, title=pull_request.title, reason=verdict.reason or "judge")
     named_page_paths = tuple(dict.fromkeys(path.strip("/") for path in verdict.page_urls))
-    if any(is_published_from_repository(github, commit_sha, path) for path in named_page_paths):
+    if any(is_published_from_repository(github, change.repository, commit_sha, path) for path in named_page_paths):
         return no_docs_report(commit_sha, commit_url, title=pull_request.title, reason="docs_in_source_repo")
     listed_page_urls = tuple(page_url_by_path[path] for path in named_page_paths if path in page_url_by_path)
     has_nothing_to_update = verdict.change_kind == DocsChangeKind.UPDATE and not listed_page_urls

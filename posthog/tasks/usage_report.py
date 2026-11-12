@@ -33,7 +33,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AI_EVENT_NAME_PREFIX, MCP_EVENT_NAME_PREFIX, FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.billing import AI_COST_MARKUP_PERCENT
+from posthog.llm.billing import AI_COST_MARKUP_PERCENT, POSTHOG_AI_PRODUCTS, POSTHOG_CODE_AI_PRODUCTS
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
 from posthog.models.ai_events.sql import TABLE_BASE_NAME as AI_EVENTS_TABLE
@@ -69,9 +69,11 @@ from products.business_knowledge.backend.facade import api as business_knowledge
 from products.business_knowledge.backend.facade.contracts import KnowledgeUsageByTeam
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.enums import DashboardUsageCount
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
+from products.feature_flags.backend.flag_analytics import USAGE_EVENT_NAMES, billable_feature_flag_requests
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.billing import (
     get_replay_vision_credits_by_team,
@@ -79,7 +81,13 @@ from products.replay_vision.backend.billing import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.quota import unreported_spend_by_org
-from products.signals.backend.facade.billing import credited_refund_credits_for_org, signals_billing_credits_by_team
+from products.signals.backend.facade.billing import (
+    TeamSignalsCredits,
+    credited_refund_credits_for_org,
+    signals_billing_credits_by_team,
+    signals_spend_billing_credits_by_team,
+    signals_spend_quota_credits_by_team,
+)
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -253,6 +261,7 @@ class UsageReportCounters:
     ff_active_count: int
     decide_requests_count_in_period: int
     local_evaluation_requests_count_in_period: int
+    local_evaluation_not_modified_requests_count_in_period: int
     billable_feature_flag_requests_count_in_period: int
 
     # Queries
@@ -328,6 +337,7 @@ class UsageReportCounters:
 
     # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
+    signals_spend_credits_used_in_period: int
 
     # PostHog Desktop Billing Credits
     posthog_code_credits_used_in_period: int
@@ -358,6 +368,7 @@ class UsageReportCounters:
     ruby_mcp_events_count_in_period: int
 
     # MCP usage overlaps billable event and per-SDK totals.
+    web_mcp_events_count_in_period: int
     mcp_tool_call_events_count_in_period: int
     mcp_missing_capability_events_count_in_period: int
     mcp_initialize_events_count_in_period: int
@@ -986,12 +997,8 @@ def _get_ai_sub_sdk_event_metric_counts(
     )
 
 
-# MCP Analytics events emitted verbatim by the @posthog/mcp SDK, beyond `$mcp_tool_call` (which
-# has its own dedicated metric/query below and must not be folded in here — see
-# `mcp_tool_call_events` in `get_all_event_metrics_in_period`). Excludes `$exception`/`$identify`
-# (shared with every SDK, would double count) and `$mcp_custom` (a registered constant that's
-# never emitted verbatim, so it would always be zero).
 MCP_ANALYTICS_EVENT_METRICS: dict[str, str] = {
+    "$mcp_tool_call": "mcp_tool_call_events",
     "$mcp_missing_capability": "mcp_missing_capability_events",
     "$mcp_initialize": "mcp_initialize_events",
     "$mcp_tools_list": "mcp_tools_list_events",
@@ -1003,49 +1010,62 @@ MCP_ANALYTICS_EVENT_METRICS: dict[str, str] = {
 
 
 def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
-    """One grouped query for all `MCP_ANALYTICS_EVENT_METRICS`, fanned out in Python.
+    """Keep MCP metrics on `events`, whose ORDER BY key matches their dedup expression.
 
-    Mirrors `_get_ai_sub_sdk_event_metric_counts`'s "one query, group by two dims, fan out"
-    shape, but groups by `event` (not `$ai_lib`).
-
-    Reads `events` directly, matching `mcp_tool_call_events` rather than the
-    `events_read_table(use_new)` the rest of this module uses. The two must agree: every MCP
-    metric shares one dedup expression so the counts stay comparable, and that expression is the
-    legacy `events` ORDER BY key. The JSON table sorts by full-precision `timestamp` and raw
-    `distinct_id`/`uuid` instead, so the same expression does not dedup it equivalently. Moving
-    these metrics onto that table means changing how they dedup, for the whole module at once.
+    The native-JSON table sorts by full-precision timestamp and raw distinct_id/uuid instead.
+    Moving these metrics onto that table requires changing their deduplication together.
     """
-    quoted_events = ", ".join(f"'{event}'" for event in MCP_ANALYTICS_EVENT_METRICS)
-    # nosemgrep: clickhouse-fstring-param-audit - event names are internal constants, not user input
+    interface_expression, _ = get_property_string_expr(
+        "events", "$mcp_interface", "'$mcp_interface'", "properties", use_new_events_schema=False
+    )
+    library_expression, _ = get_property_string_expr(
+        "events", "$lib", "'$lib'", "properties", use_new_events_schema=False
+    )
+    metric_names = (*MCP_ANALYTICS_EVENT_METRICS.values(), "web_mcp_events")
+    metric_expressions = ",\n            ".join(
+        f"uniqExactIf(event_key, event = %({metric_name})s) AS {metric_name}"
+        for metric_name in MCP_ANALYTICS_EVENT_METRICS.values()
+    )
+    # nosemgrep: clickhouse-fstring-param-audit - metric names and property expressions come from internal definitions
     query_template = f"""
+        WITH tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) AS event_key
         SELECT
             team_id,
-            event,
-            uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
+            {metric_expressions},
+            uniqExactIf(
+                event_key,
+                if(
+                    {library_expression} = %(web_mcp_lib)s,
+                    {interface_expression} = %(web_mcp_interface)s,
+                    0
+                )
+            ) AS web_mcp_events
         FROM events
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
-        WHERE event IN ({quoted_events})
-        GROUP BY team_id, event
+            AND startsWith(event, %(mcp_event_prefix)s)
+        GROUP BY team_id
     """
 
     def combine_mcp_analytics_results(results_list: list) -> dict[str, list[tuple[int, int]]]:
-        counts_by_metric: dict[str, dict[int, int]] = {
-            metric_name: {} for metric_name in MCP_ANALYTICS_EVENT_METRICS.values()
-        }
+        counts_by_metric: dict[str, dict[int, int]] = {metric_name: {} for metric_name in metric_names}
         for results in results_list:
-            for team_id, event, count in results:
-                metric_name = MCP_ANALYTICS_EVENT_METRICS.get(event)
-                if metric_name is None:
-                    continue
-                team_counts = counts_by_metric[metric_name]
-                team_counts[team_id] = team_counts.get(team_id, 0) + count
+            for team_id, *counts in results:
+                for metric_name, count in zip(metric_names, counts, strict=True):
+                    if count:
+                        team_counts = counts_by_metric[metric_name]
+                        team_counts[team_id] = team_counts.get(team_id, 0) + count
         return {metric_name: list(team_counts.items()) for metric_name, team_counts in counts_by_metric.items()}
 
     return _execute_calendar_aligned_split_query(
         begin=begin,
         end=end,
         query_template=query_template,
-        params={},
+        params={
+            "mcp_event_prefix": MCP_EVENT_NAME_PREFIX,
+            "web_mcp_interface": "webmcp",
+            "web_mcp_lib": "web",
+            **{metric_name: event for event, metric_name in MCP_ANALYTICS_EVENT_METRICS.items()},
+        },
         num_splits=12,
         combine_results_func=combine_mcp_analytics_results,
     )
@@ -1209,21 +1229,6 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             params={},
             num_splits=12,
             combine_results_func=combine_event_metrics_results,
-        )
-        metrics["mcp_tool_call_events"] = _execute_calendar_aligned_split_query(
-            begin=begin,
-            end=end,
-            query_template="""
-            SELECT
-                team_id,
-                uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
-            FROM events
-            PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            WHERE event = '$mcp_tool_call'
-            GROUP BY team_id
-            """,
-            params={},
-            num_splits=12,
         )
         ai_sub_sdk_metric_counts = _get_ai_sub_sdk_event_metric_counts(
             begin=begin,
@@ -1549,7 +1554,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
     team_to_query = 1 if get_instance_region() == "EU" else 2
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
-    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+    target_event = USAGE_EVENT_NAMES[request_type]
 
     use_new = use_new_events_schema(None)
     count_expr, _ = get_property_string_expr("events", "count", "'count'", "properties", use_new_events_schema=use_new)
@@ -1590,7 +1595,7 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
     team_to_query = 1 if get_instance_region() == "EU" else 2
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
-    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+    target_event = USAGE_EVENT_NAMES[request_type]
 
     use_new = use_new_events_schema(None)
     sdk_breakdown_expr, _ = get_property_string_expr(
@@ -1909,23 +1914,7 @@ CLOUD_REGION_TO_URL = {
 }
 
 
-# ai_product values that roll into PostHog AI (Max) billing credits.
-POSTHOG_AI_PRODUCTS = [
-    "posthog_ai",
-    "slack_app",
-    "workflows",
-    "subscriptions",
-    "alert_investigation_agent",
-    "alert_llm_detector",
-    "product_analytics",
-    "surveys",
-    "replay_vision",
-    "hogql_decide",
-]
-
-# ai_product values billed as PostHog Desktop credits.
 UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis", "account_audit")
-POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
 def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
@@ -2195,6 +2184,20 @@ def get_teams_with_signals_credits_used_in_period(
     return [(row.team_id, row.credits) for row in signals_billing_credits_by_team(begin, end)]
 
 
+@timed_log()
+def get_teams_with_signals_spend_credits_used_in_period(
+    begin: datetime, end: datetime
+) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- counter API rows
+    return [(row.team_id, row.credits) for row in signals_spend_billing_credits_by_team(begin, end)]
+
+
+@timed_log()
+def get_teams_with_signals_spend_quota_credits_used_in_period(
+    begin: datetime, end: datetime
+) -> list[TeamSignalsCredits]:
+    return signals_spend_quota_credits_by_team(begin, end)
+
+
 def get_signals_credited_refund_credits_for_org(
     organization_id: str | uuid.UUID, begin: datetime, end: datetime
 ) -> int:
@@ -2225,7 +2228,7 @@ def get_self_driving_credits_used_in_period_for_orgs(
 
 
 def get_self_driving_credits_used_in_period_for_org(
-    organization_id: str | uuid.UUID, begin: datetime, end: datetime
+    organization_id: str | uuid.UUID, begin: datetime, end: datetime, *, spend_billing: bool = False
 ) -> int:
     """Live self-driving credits used in `[begin, end)` across one org's teams.
 
@@ -2233,7 +2236,8 @@ def get_self_driving_credits_used_in_period_for_org(
     fresher number than the cron-patched `todays_usage`. Re-exported from this posthog-layer
     module for the same boundary reason as the helper above.
     """
-    return sum(row.credits for row in signals_billing_credits_by_team(begin, end, organization_id=organization_id))
+    counter = signals_spend_quota_credits_by_team if spend_billing else signals_billing_credits_by_team
+    return sum(row.credits for row in counter(begin, end, organization_id=organization_id))
 
 
 @timed_log()
@@ -2330,6 +2334,13 @@ def get_teams_with_active_external_data_schemas_in_period() -> list:
 def get_teams_with_active_batch_exports_in_period() -> list:
     return [
         {"team_id": row.team_id, "total": row.total} for row in batch_exports_api.get_teams_with_active_batch_exports()
+    ]
+
+
+def get_teams_with_dashboard_count(count: DashboardUsageCount) -> list[dict[str, int]]:
+    return [
+        {"team_id": team_id, "total": total}
+        for team_id, total in dashboards_api.dashboard_counts_by_team(count).items()
     ]
 
 
@@ -2785,7 +2796,7 @@ def get_teams_with_logs_retention_byte_days_in_period(
 def get_teams_with_logs_records_in_period(
     begin: datetime,
     end: datetime,
-) -> list[tuple[int, int]]:
+) -> TeamUsageRows:
     with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             """
@@ -3042,17 +3053,21 @@ def capture_report(
         )
 
     # Update organization group properties so they can be used for email campaigns
+    group_properties: dict[str, Any] = {
+        "member_count": full_report_dict.get("organization_user_count", 0),
+        "project_count": full_report_dict.get("team_count", 0),
+        "dashboard_count": full_report_dict.get("dashboard_count", 0),
+        "ff_count": full_report_dict.get("ff_count", 0),
+        "survey_count": full_report_dict.get("survey_count", 0),
+    }
+    # Flags target orgs that send logs or traces. Set only when true, so a quiet day keeps the org targeted.
+    if full_report_dict.get("logs_records_in_period", 0) or full_report_dict.get("apm_tracing_spans_in_period", 0):
+        group_properties["sends_logs_or_traces"] = True
     try:
         pha_client.group_identify(
             group_type="organization",
             group_key=organization_id,
-            properties={
-                "member_count": full_report_dict.get("organization_user_count", 0),
-                "project_count": full_report_dict.get("team_count", 0),
-                "dashboard_count": full_report_dict.get("dashboard_count", 0),
-                "ff_count": full_report_dict.get("ff_count", 0),
-                "survey_count": full_report_dict.get("survey_count", 0),
-            },
+            properties=group_properties,
         )
     except Exception as err:
         logger.exception(
@@ -3102,6 +3117,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.mobile_recording_count_in_period > 0
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
+        or report.local_evaluation_not_modified_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
         or report.free_historical_rows_synced_in_period > 0
@@ -3114,6 +3130,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.business_knowledge_queries_in_period > 0
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
+        or report.signals_spend_credits_used_in_period > 0
         or report.posthog_code_credits_used_in_period > 0
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
@@ -3234,6 +3251,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_rust_mcp_events_count_in_period": all_metrics["rust_mcp_events"],
         "teams_with_go_mcp_events_count_in_period": all_metrics["go_mcp_events"],
         "teams_with_ruby_mcp_events_count_in_period": all_metrics["ruby_mcp_events"],
+        "teams_with_web_mcp_events_count_in_period": all_metrics["web_mcp_events"],
         "teams_with_mcp_tool_call_events_count_in_period": all_metrics["mcp_tool_call_events"],
         "teams_with_mcp_missing_capability_events_count_in_period": all_metrics["mcp_missing_capability_events"],
         "teams_with_mcp_initialize_events_count_in_period": all_metrics["mcp_initialize_events"],
@@ -3282,27 +3300,10 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_group_types_total": count_group_type_mappings_per_team(),
-        "teams_with_dashboard_count": list(
-            Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
-        ),
-        "teams_with_dashboard_template_count": list(
-            Dashboard.objects.filter(creation_mode="template")
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
-        "teams_with_dashboard_shared_count": list(
-            Dashboard.objects.filter(sharingconfiguration__enabled=True)
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
-        "teams_with_dashboard_tagged_count": list(
-            Dashboard.objects.filter(tagged_items__isnull=False)
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
+        "teams_with_dashboard_count": get_teams_with_dashboard_count(DashboardUsageCount.ALL),
+        "teams_with_dashboard_template_count": get_teams_with_dashboard_count(DashboardUsageCount.FROM_TEMPLATE),
+        "teams_with_dashboard_shared_count": get_teams_with_dashboard_count(DashboardUsageCount.SHARED),
+        "teams_with_dashboard_tagged_count": get_teams_with_dashboard_count(DashboardUsageCount.TAGGED),
         "teams_with_ff_count": list(
             FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
@@ -3512,6 +3513,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     local_evaluation_requests_count_in_period = all_data["teams_with_local_evaluation_requests_count_in_period"].get(
         team.id, 0
     )
+    local_evaluation_not_modified_requests_count_in_period = all_data[
+        "teams_with_local_evaluation_not_modified_requests_count_in_period"
+    ].get(team.id, 0)
     logs_bytes_in_period = all_data["teams_with_logs_bytes_in_period"].get(team.id, 0)
     apm_tracing_bytes_in_period = all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0)
     return UsageReportCounters(
@@ -3556,8 +3560,12 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
         decide_requests_count_in_period=decide_requests_count_in_period,
         local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,
-        billable_feature_flag_requests_count_in_period=decide_requests_count_in_period
-        + (local_evaluation_requests_count_in_period * 10),
+        local_evaluation_not_modified_requests_count_in_period=local_evaluation_not_modified_requests_count_in_period,
+        billable_feature_flag_requests_count_in_period=billable_feature_flag_requests(
+            decide=decide_requests_count_in_period,
+            local_evaluation=local_evaluation_requests_count_in_period,
+            local_evaluation_not_modified=local_evaluation_not_modified_requests_count_in_period,
+        ),
         dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
         dashboard_template_count=all_data["teams_with_dashboard_template_count"].get(team.id, 0),
         dashboard_shared_count=all_data["teams_with_dashboard_shared_count"].get(team.id, 0),
@@ -3631,6 +3639,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         rust_mcp_events_count_in_period=all_data["teams_with_rust_mcp_events_count_in_period"].get(team.id, 0),
         go_mcp_events_count_in_period=all_data["teams_with_go_mcp_events_count_in_period"].get(team.id, 0),
         ruby_mcp_events_count_in_period=all_data["teams_with_ruby_mcp_events_count_in_period"].get(team.id, 0),
+        web_mcp_events_count_in_period=all_data["teams_with_web_mcp_events_count_in_period"].get(team.id, 0),
         mcp_tool_call_events_count_in_period=all_data["teams_with_mcp_tool_call_events_count_in_period"].get(
             team.id, 0
         ),
@@ -3694,6 +3703,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
+        signals_spend_credits_used_in_period=all_data["teams_with_signals_spend_credits_used_in_period"].get(
+            team.id, 0
+        ),
         posthog_code_credits_used_in_period=combine_posthog_code_credits(
             all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
             all_data["teams_with_sandbox_compute_credits_used_in_period"].get(team.id, 0),

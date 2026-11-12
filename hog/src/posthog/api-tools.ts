@@ -8,10 +8,13 @@ import type {
 } from '@posthog/mcp/src/cli/library-types'
 
 import type { Context } from '@/core/context'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_FAILURE, HogError } from '@/core/errors'
 import { VERSION } from '@/version'
 
-import { ApiError } from './api'
+import { ApiError, stepUpRequired } from './api'
+import type { Credentials } from './credentials'
+import type { OrganizationId, ProjectId } from './ids'
+import { addToKeyHint, canStepUp, isScopeName, workloadScopesHint } from './scope-challenge'
 
 export interface ToolGroup {
     slug: string
@@ -33,7 +36,7 @@ export interface ToolRow {
 }
 
 const SCOPES_HINT =
-    'For a personal API key, add the scopes to it in PostHog under Settings, Personal API keys. For a login, run `hog auth login` again and keep these scopes when you approve it.'
+    'If you logged in with `hog auth login`, run `hog auth add` with the scopes PostHog named. If you use a personal API key, add the scopes to it in PostHog under Settings > Personal API keys.'
 
 // "Events & properties" becomes "events-properties".
 export function groupSlug(name: string): string {
@@ -95,19 +98,12 @@ export function toolRow(library: ApiToolLibrary, tool: ApiToolSummary, granted: 
     }
 }
 
-export async function apiConnection(
-    ctx: Context,
-    scope: { projectId?: string | undefined; organizationId?: string | undefined } = {}
-): Promise<ApiConnection> {
-    // An empty ID, often an unset shell variable, would fall back to another project silently.
-    for (const [flag, value] of [
-        ['--project-id', scope.projectId],
-        ['--organization-id', scope.organizationId],
-    ] as const) {
-        if (value !== undefined && value.trim() === '') {
-            throw new HogError('invalid_input', `${flag} is empty.`, `Pass an ID, or leave out ${flag}.`, EXIT_USAGE)
-        }
-    }
+interface ConnectionScope {
+    projectId?: ProjectId | undefined
+    organizationId?: OrganizationId | undefined
+}
+
+export async function apiConnection(ctx: Context, scope: ConnectionScope = {}): Promise<ApiConnection> {
     const session = await ctx.session()
     const apiKey = await session.token()
     const key = session.current
@@ -126,7 +122,7 @@ export async function apiConnection(
 // A tool can send several requests, so only a tool that is safe to run twice runs again after a 401.
 export async function withApiConnection<T>(
     ctx: Context,
-    scope: { projectId?: string | undefined; organizationId?: string | undefined },
+    scope: ConnectionScope,
     canRunTwice: boolean,
     call: (connection: ApiConnection) => Promise<ApiToolResult<T>>
 ): Promise<ApiToolResult<T>> {
@@ -141,22 +137,38 @@ export async function withApiConnection<T>(
     )
 }
 
-export function missingScopesError(tool: string, scopes: readonly string[]): HogError {
-    return new HogError('missing_scopes', `Your credentials need ${scopes.join(', ')} to call ${tool}.`, SCOPES_HINT)
+export function missingScopesError(
+    tool: string,
+    scopes: readonly string[],
+    credentials: Credentials | undefined
+): HogError {
+    const message = `Your credentials need ${scopes.join(', ')} to call ${tool}.`
+    if (credentials?.source === 'workload') {
+        return new HogError('missing_scopes', message, workloadScopesHint(scopes))
+    }
+    const loginCanAdd = canStepUp(credentials)
+    if (loginCanAdd && scopes.every(isScopeName)) {
+        return stepUpRequired(scopes, { message, host: credentials?.key.host })
+    }
+    return new HogError('missing_scopes', message, loginCanAdd ? SCOPES_HINT : addToKeyHint(scopes))
 }
 
-export function toHogError(error: ApiToolError, tool?: string): HogError {
+export function toHogError(error: ApiToolError, tool?: string, credentials?: Credentials): HogError {
+    const { detail } = error
     switch (error.code) {
         case 'permission_denied':
             return error.missingScope && tool
-                ? missingScopesError(tool, [error.missingScope])
-                : new ApiError(403, undefined, 'permission_denied', error.message, SCOPES_HINT)
+                ? missingScopesError(tool, [error.missingScope], credentials)
+                : new ApiError(403, undefined, 'permission_denied', error.message, SCOPES_HINT, undefined, detail)
         case 'validation_error':
         case 'invalid_input':
             return new HogError(
                 error.code,
                 error.message,
-                tool ? `Run \`hog api schema ${tool}\` to see the input it takes.` : undefined
+                tool ? `Run \`hog api schema ${tool}\` to see the input it takes.` : undefined,
+                EXIT_FAILURE,
+                undefined,
+                detail
             )
         case 'needs_confirmation':
             return new HogError(error.code, error.message, 'Run it again with --confirm.')
@@ -176,7 +188,7 @@ export function toHogError(error: ApiToolError, tool?: string): HogError {
                 404: 'Check the IDs in the input, and the project ID.',
             }
             const status = error.status ?? 500
-            return new ApiError(status, undefined, `http_${status}`, error.message, hints[status])
+            return new ApiError(status, undefined, `http_${status}`, error.message, hints[status], undefined, detail)
         }
         case 'tool_error':
             return new HogError(error.code, error.message)

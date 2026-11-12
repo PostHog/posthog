@@ -12,7 +12,6 @@ import type {
     ActionApi,
     ActionListResponseApi,
     ActionReferenceApi,
-    ActionSelectorMatchChangeApi,
     ActionsBulkUpdateTagsCreateParams,
     ActionsCreateParams,
     ActionsDestroyParams,
@@ -20,7 +19,6 @@ import type {
     ActionsPartialUpdateParams,
     ActionsReferencesListParams,
     ActionsRetrieveParams,
-    ActionsSelectorMatchChangesListParams,
     ActionsUpdateParams,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
@@ -296,35 +294,5 @@ export const actionsBulkUpdateTagsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkUpdateTagsRequestApi),
-    })
-}
-
-export const getActionsSelectorMatchChangesListUrl = (
-    projectId: string,
-    params: ActionsSelectorMatchChangesListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/actions/selector_match_changes/?${stringifiedParams}`
-        : `/api/projects/${projectId}/actions/selector_match_changes/`
-}
-
-export const actionsSelectorMatchChangesList = async (
-    projectId: string,
-    params: ActionsSelectorMatchChangesListParams,
-    options?: RequestInit
-): Promise<ActionSelectorMatchChangeApi[]> => {
-    return apiMutator<ActionSelectorMatchChangeApi[]>(getActionsSelectorMatchChangesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
     })
 }

@@ -16,6 +16,7 @@ from products.review_hog.backend.activity_logging import installation_account_na
 from products.review_hog.backend.automatic_review_rules import load_people
 from products.review_hog.backend.facade.contracts import (
     UNSET,
+    AdminOnlyChangeError,
     RepositoryNotFoundError,
     ReviewDetail,
     ReviewInstallationClaimInfo,
@@ -297,17 +298,18 @@ def save_review_repository(
     selected: bool | None,
     flash_for: AutomaticFlashFor | None | Unset = UNSET,
     review_drafts: bool | None = None,
+    raise_only: bool = False,
 ) -> ReviewRepositoryWriteOutcome:
     """Include or remove a repository, set or clear its exception, or turn its draft reviews on or off.
 
-    Omitted fields keep their value.
+    Omitted fields keep their value. With `raise_only`, the write may only turn the repository's reviews up.
 
-    Raises `OwnershipConflict` when another project holds the repository, and `RepositorySettingsError`
-    when the rules forbid the write.
+    Raises `OwnershipConflict` when another project holds the repository, `RepositorySettingsError`
+    when the rules forbid the write, and `AdminOnlyChangeError` when a `raise_only` write turns reviews down.
     """
     ref = RepositoryRef(installation_id=installation_id, github_repo_id=github_repo_id, full_name=full_name)
     result = _project_repositories(team_id, user_id).save_repository(
-        ref, selected=selected, flash_for=flash_for, review_drafts=review_drafts
+        ref, selected=selected, flash_for=flash_for, review_drafts=review_drafts, raise_only=raise_only
     )
     repository = None
     if result.repository is not None:
@@ -321,13 +323,22 @@ def delete_review_repository(team_id: int, user_id: int, repository_id: UUID) ->
 
 
 def add_review_repository_person(
-    team_id: int, user_id: int, repository_id: UUID | None, *, person_user_id: int, kind: ReviewRepositoryPersonKind
+    team_id: int,
+    user_id: int,
+    repository_id: UUID | None,
+    *,
+    person_user_id: int,
+    kind: ReviewRepositoryPersonKind,
+    raise_only: bool = False,
 ) -> bool:
     """Add a person to a list of a repository exception, or of the project rule when `repository_id` is None.
 
     True when added, False when the person was already on the list. Raises `PersonNotActiveMemberError`, and
-    `RepositoryNotFoundError` when the project has no such repository.
+    `RepositoryNotFoundError` when the project has no such repository. With `raise_only`, the user may only
+    add themselves to a repository's 'listed' list, and anything else raises `AdminOnlyChangeError`.
     """
+    if raise_only and (repository_id is None or person_user_id != user_id or kind != ReviewRepositoryPersonKind.LISTED):
+        raise AdminOnlyChangeError("Project members can only add themselves to a repository's people list.")
     repositories = _project_repositories(team_id, user_id)
     repository = None
     if repository_id is not None:

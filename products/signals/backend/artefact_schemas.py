@@ -962,6 +962,47 @@ class ReportLink(BaseModel):
             raise ValueError("must be a UUID")
 
 
+# One report is about a handful of issues at most. The cap bounds the writeback each write can start.
+MAX_SOURCE_ISSUES_PER_WRITE = 5
+
+# A scout edit reads each pull request from GitHub before it writes, so the cap bounds those API calls.
+MAX_PULL_REQUESTS_PER_WRITE = 5
+
+
+class SourceIssue(BaseModel):
+    """Content schema for a `source_issue` artefact: an issue in an external tracker that this
+    report is about, one row per issue.
+
+    A scout that files a report about a GitHub issue records it here, so the GitHub writeback can
+    comment on the issue and grouping can attach the issue's own signal to this report instead of
+    opening a second one. `url` is normalized from (`repository`, `number`), so an exact match on it
+    finds every report about one issue. GitHub is the only provider today; the field leaves room for
+    others.
+    """
+
+    provider: Literal["github"] = Field(default="github", description="Tracker the issue lives in.")
+    repository: str = Field(description="`owner/repo` of the issue, lowercased.")
+    number: int = Field(gt=0, description="Issue number in the repository.")
+    url: str = Field(description="Normalized issue URL, `https://github.com/<owner>/<repo>/issues/<number>`.")
+
+    # GitHub compares repository paths without case, so one spelling keeps one issue one row.
+    @field_validator("repository")
+    @classmethod
+    def repository_is_lowercase(cls, v: str) -> str:
+        return v.lower()
+
+    @model_validator(mode="after")
+    def url_must_be_normalized(self) -> SourceIssue:
+        if self.url != f"https://github.com/{self.repository}/issues/{self.number}":
+            raise ValueError("url must be the normalized URL of `repository` and `number`")
+        return self
+
+    @classmethod
+    def github(cls, repository: str, number: int) -> SourceIssue:
+        repository = repository.lower()
+        return cls(repository=repository, number=number, url=f"https://github.com/{repository}/issues/{number}")
+
+
 MAX_AUTOSTART_SKIP_DETAIL_LENGTH = 500
 
 
@@ -1344,6 +1385,7 @@ LogArtefactContent = (
     | CodeReview
     | RelatedTo
     | ReportLink
+    | SourceIssue
     | AutostartSkip
     | WorkClaim
     | WorkRelease
@@ -1385,6 +1427,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "code_review": CodeReview,
     "related_to": RelatedTo,
     "report_link": ReportLink,
+    "source_issue": SourceIssue,
     "autostart_skip": AutostartSkip,
     "work_claim": WorkClaim,
     "work_release": WorkRelease,
@@ -1425,6 +1468,9 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # may write them; API writes would let callers fabricate automation provenance or completion.
 # `ranking_score` is model output: the scoring sweep is its only writer, so accepting it through
 # the API would let a caller fabricate a probability the model never produced.
+# `source_issue` is written by the report authoring tools, which validate the URL and start the
+# writeback that comments on the issue. A row written here would route another issue's signals
+# into this report without either.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
         "reviewer_corrections",
@@ -1445,6 +1491,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "check_expired",
         "check_cancelled",
         "report_link",
+        "source_issue",
         "autostart_skip",
         "implementation_decision",
         "implementation_dispatch",

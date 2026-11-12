@@ -9,10 +9,9 @@ interface SheetTitleProps {
     title: string
     /** The small line above the title, such as the chart's name. */
     subtitle?: string | null
-    onDone: () => void
+    onDone?: () => void
 }
 
-/** The head of a Views sheet: a small line, the title, and Done. */
 export function SheetTitle({ title, subtitle, onDone }: SheetTitleProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
@@ -28,9 +27,16 @@ export function SheetTitle({ title, subtitle, onDone }: SheetTitleProps): ReactE
                     {title}
                 </Text>
             </View>
-            <Pressable44 onPress={onDone} style={styles.done} pressedBackground={colors.pressed} testID="sheet-done">
-                <Text style={styles.doneText}>Done</Text>
-            </Pressable44>
+            {onDone ? (
+                <Pressable44
+                    onPress={onDone}
+                    style={styles.done}
+                    pressedBackground={colors.pressed}
+                    testID="sheet-done"
+                >
+                    <Text style={styles.doneText}>Done</Text>
+                </Pressable44>
+            ) : null}
         </View>
     )
 }

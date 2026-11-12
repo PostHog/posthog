@@ -36,6 +36,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.parser import parse_select
@@ -59,7 +60,7 @@ from posthog.hogql.type_system import ComparisonCompatibility
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import EVENTS_JSON_DATA_TABLE, TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.errors import ExposedCHQueryError
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.group.util import create_group
 from posthog.models.property.util import get_property_string_expr
@@ -68,6 +69,7 @@ from posthog.schema_enums import PropertyGroupsMode
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.event_definitions.backend.models import PropertyDefinition
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
@@ -140,6 +142,22 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("extract", "JSONExtractString(properties, '')"),
+            ("has", "JSONHas(properties, '')"),
+            ("property", "properties['']"),
+            ("nested_property", "properties.parent[''].child"),
+            ("numeric", "toFloat(properties[''])"),
+            ("person", "JSONExtract(poe.properties, '', 'String')"),
+            ("wrapped", "JSONExtractString(toString(properties), '')"),
+        ]
+    )
+    def test_empty_property_keys_do_not_print_empty_identifiers(self, _name: str, expression: str) -> None:
+        printed = self._print_select(f"SELECT {expression} AS value FROM events")
+        assert ".``" not in printed
+        assert "getSubcolumn(" in printed
+
     def test_json_function_rewrites_ignore_property_metadata(self) -> None:
         printed = self._print_select(
             "SELECT JSONExtractRaw(properties, 'value') AS value FROM events",
@@ -612,39 +630,57 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 @pytest.mark.usefixtures("clickhouse_database")
 class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
-    def test_json_function_conversions_and_defaults_match_the_blob(self) -> None:
-        documents = [
-            "{}",
-            '{"value":null}',
-            '{"value":""}',
-            '{"value":"hello"}',
-            '{"value":"2.5"}',
-            '{"value":"1e3"}',
-            '{"value":true}',
-            '{"value":false}',
-            '{"value":1.5}',
-            '{"value":2.0}',
-            '{"value":1e21}',
-            '{"value":-1.5e-7}',
-            '{"value":-2}',
-            '{"value":0}',
-            '{"value":[1,"two"]}',
-            '{"value":{"name":"example"}}',
+    @parameterized.expand(
+        [
+            ("ordinary", ["value"]),
+            ("empty", [""]),
+            ("empty_first", ["", "child"]),
+            ("empty_middle", ["parent", "", "child"]),
+            ("empty_last", ["parent", ""]),
+            ("nested_percent", ["parent", "value%"]),
+            ("empty_then_backtick", ["", "tick`key"]),
+            ("percent_then_backtick", ["percent%", "tick`key"]),
+            ("empty_then_backslash_backtick", ["", "slash\\`key"]),
+            ("empty_then_control", ["", "line\nbreak\tkey"]),
         ]
+    )
+    def test_json_function_conversions_and_defaults_match_the_blob(self, _name: str, keys: list[str]) -> None:
+        values = [
+            "null",
+            '""',
+            '"hello"',
+            '"2.5"',
+            '"1e3"',
+            "true",
+            "false",
+            "1.5",
+            "2.0",
+            "1e21",
+            "-1.5e-7",
+            "-2",
+            "0",
+            '[1,"two"]',
+            '{"name":"example"}',
+        ]
+        # Wrap the raw value text, because re-serializing it would rewrite number tokens such as `1e21`.
+        prefix = "".join(f"{{{json.dumps(key)}:" for key in keys)
+        suffix = "}" * len(keys)
+        documents = ["{}", *(prefix + value + suffix for value in values)]
+        path = ", ".join(escape_hogql_string(key) for key in keys)
         expressions = [
-            "JSONExtractString(properties, 'value')",
-            "JSONExtractInt(properties, 'value')",
-            "JSONExtractUInt(properties, 'value')",
-            "JSONExtractFloat(properties, 'value')",
-            "JSONExtractBool(properties, 'value')",
-            "JSONExtract(properties, 'value', 'Nullable(Int64)')",
-            "JSONExtract(properties, 'value', 'Nullable(Bool)')",
-            "JSONExtract(properties, 'value', 'String')",
-            "JSONExtract(properties, 'value', 'Nullable(String)')",
-            "JSONExtract(properties, 'value', 'Float64')",
-            "JSONExtract(properties, 'value', 'Nullable(Float64)')",
-            "JSONLength(properties, 'value')",
-            "JSONType(properties, 'value')",
+            f"JSONExtractString(properties, {path})",
+            f"JSONExtractInt(properties, {path})",
+            f"JSONExtractUInt(properties, {path})",
+            f"JSONExtractFloat(properties, {path})",
+            f"JSONExtractBool(properties, {path})",
+            f"JSONExtract(properties, {path}, 'Nullable(Int64)')",
+            f"JSONExtract(properties, {path}, 'Nullable(Bool)')",
+            f"JSONExtract(properties, {path}, 'String')",
+            f"JSONExtract(properties, {path}, 'Nullable(String)')",
+            f"JSONExtract(properties, {path}, 'Float64')",
+            f"JSONExtract(properties, {path}, 'Nullable(Float64)')",
+            f"JSONLength(properties, {path})",
+            f"JSONType(properties, {path})",
         ]
         query = "SELECT distinct_id, " + ", ".join(expressions) + " FROM events ORDER BY distinct_id"
         results = []
@@ -930,12 +966,16 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            ("text_equals", "properties.step = 'template'", [1, 0, 0, 0, 0, 0]),
-            ("text_not_equals", "properties.step != 'template'", [0, 1, 1, 1, 1, 1]),
-            ("text_in", "properties.step IN ('template', 'domain')", [1, 1, 0, 0, None, 0]),
-            ("text_and_number_in", "properties.step IN ('template', '5')", [1, 0, 1, 1, None, 0]),
-            ("number_equals", "properties.step = '5'", [0, 0, 1, 1, 0, 0]),
-            ("non_finite_text", "properties.step = 'nan'", [0, 0, 0, 0, 0, 1]),
+            ("text_equals", "properties.step = 'template'", [1, 0, 0, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.step != 'template'", [0, 1, 1, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.step IN ('template', 'domain')", [1, 1, 0, 0, None, 0, 0, 0]),
+            ("text_and_number_in", "properties.step IN ('template', '5')", [1, 0, 1, 1, None, 0, 0, 0]),
+            ("number_equals", "properties.step = '5'", [0, 0, 1, 1, 0, 0, 0, 0]),
+            ("non_finite_text", "properties.step = 'nan'", [0, 0, 0, 0, 0, 1, 0, 0]),
+            ("empty_equals", "properties.step = ''", [0, 0, 0, 0, 0, 0, 1, 0]),
+            ("empty_not_equals", "properties.step != ''", [1, 1, 1, 1, 1, 1, 0, 1]),
+            ("empty_in", "properties.step IN ('', '5')", [0, 0, 1, 1, None, 0, 1, 0]),
+            ("array_text_equals", "properties.step = '[5]'", [0, 0, 0, 0, 0, 0, 0, 1]),
         ]
     )
     def test_numeric_property_compared_to_text_matches_text(
@@ -956,6 +996,8 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     '{"step":"5"}',
                     "{}",
                     '{"step":"nan"}',
+                    '{"step":""}',
+                    '{"step":[5]}',
                 ],
             },
         )
@@ -963,16 +1005,17 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            ("text_equals", "properties.opted_in = 'pending'", [1, 0, 0, 0, 0, 0]),
-            ("text_not_equals", "properties.opted_in != 'pending'", [0, 1, 1, 1, 1, 1]),
-            ("text_in", "properties.opted_in IN ('pending', 'declined')", [1, 1, 0, 0, None, 0]),
-            ("text_and_boolean_in", "properties.opted_in IN ('pending', 'true')", [1, 0, 1, 1, None, 0]),
-            ("boolean_text_equals", "properties.opted_in = 'true'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_digit_equals", "properties.opted_in = '1'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_yes_equals", "properties.opted_in = 'YeS'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_no_equals", "properties.opted_in = 'No'", [0, 0, 0, 0, 0, 1]),
-            ("boolean_t_equals", "properties.opted_in = 'T'", [0, 0, 1, 1, 0, 0]),
-            ("boolean_f_equals", "properties.opted_in = 'F'", [0, 0, 0, 0, 0, 1]),
+            ("text_equals", "properties.opted_in = 'pending'", [1, 0, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.opted_in != 'pending'", [0, 1, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.opted_in IN ('pending', 'declined')", [1, 1, 0, 0, None, 0, 0]),
+            ("text_and_boolean_in", "properties.opted_in IN ('pending', 'true')", [1, 0, 1, 1, None, 0, 0]),
+            ("boolean_text_equals", "properties.opted_in = 'true'", [0, 0, 1, 1, 0, 0, 0]),
+            ("boolean_digit_equals", "properties.opted_in = '1'", [0, 0, 1, 1, 0, 0, 0]),
+            ("boolean_yes_equals", "properties.opted_in = 'YeS'", [0, 0, 1, 1, 0, 0, 0]),
+            ("boolean_no_equals", "properties.opted_in = 'No'", [0, 0, 0, 0, 0, 1, 0]),
+            ("boolean_t_equals", "properties.opted_in = 'T'", [0, 0, 1, 1, 0, 0, 0]),
+            ("boolean_f_equals", "properties.opted_in = 'F'", [0, 0, 0, 0, 0, 1, 0]),
+            ("empty_equals", "properties.opted_in = ''", [0, 0, 0, 0, 0, 0, 1]),
             (
                 "boolean_true_aliases_in",
                 "countIf(properties.opted_in IN ('true', '1', 'T', 'Y', 'YeS', 'ON', 'Enable', 'Enabled'))",
@@ -1003,6 +1046,34 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     '{"opted_in":"true"}',
                     "{}",
                     '{"opted_in":false}',
+                    '{"opted_in":""}',
+                ],
+            },
+        )
+        assert [row[0] for row in rows] == expected
+
+    @parameterized.expand(
+        [
+            ("empty_equals", "properties.signed_up_at = ''", [0, 1, 0, 0]),
+            ("empty_in", "properties.signed_up_at IN ('', '2024-05-06')", [0, None, None, 1]),
+        ]
+    )
+    def test_datetime_property_compared_to_empty_text_matches_text(
+        self, _name: str, predicate: str, expected: list[int]
+    ) -> None:
+        context = self._context(event_properties={"signed_up_at": {"type": "DateTime"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {predicate} FROM events"), context, "clickhouse")
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
+            + printed,
+            {
+                **context.values,
+                "documents": [
+                    '{"signed_up_at":"2024-04-06 07:08:09"}',
+                    '{"signed_up_at":""}',
+                    "{}",
+                    '{"signed_up_at":"2024-05-06 00:00:00"}',
                 ],
             },
         )
@@ -2470,8 +2541,6 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                 "$unset": ["old_key"],
                 "$sdk_debug_replay_flushed_size": 42,
                 "$browser": "Firefox",
-                "coupon": None,
-                "cart": {"items": 2, "note": None},
             },
         )
         flush_persons_and_events()
@@ -2520,10 +2589,7 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
             "(SELECT properties.$set.email FROM (SELECT * FROM events WHERE uuid = {uuid})) "
             f"FROM events WHERE uuid = '{event_uuid}'"
         ).replace("{uuid}", f"'{event_uuid}'")
-        restricted_keys = {
-            RestrictedProperty(name=name, property_type=PropertyDefinition.Type.EVENT)
-            for name in ("$set.plan", "coupon")
-        }
+        restricted_plan = {RestrictedProperty(name="$set.plan", property_type=PropertyDefinition.Type.EVENT)}
         documents: dict[tuple[bool, bool], tuple[Any, ...]] = {}
         for use_new_events_schema in (False, True):
             for with_restriction in (False, True):
@@ -2531,7 +2597,7 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                     team_id=self.team.pk,
                     enable_select_queries=True,
                     use_new_events_schema=use_new_events_schema,
-                    restricted_properties=restricted_keys if with_restriction else set(),
+                    restricted_properties=restricted_plan if with_restriction else set(),
                 )
                 response = execute_hogql_query(document_query, team=self.team, context=context)
                 assert response.results is not None
@@ -2551,8 +2617,6 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                 "$unset": ["old_key"],
                 "$sdk_debug_replay_flushed_size": 42,
                 "$browser": "Firefox",
-                "coupon": None,
-                "cart": {"items": 2, "note": None},
             },
             {
                 "$set": {"email": "user@example.com", "plan": {"tier": "pro"}},
@@ -2560,14 +2624,11 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                 "$unset": ["old_key"],
                 "$sdk_debug_replay_flushed_size": 42,
                 "$browser": "Firefox",
-                "coupon": None,
-                "cart": {"items": 2, "note": None},
             },
-            ["$browser", "$sdk_debug_replay_flushed_size", "$set", "$set_once", "$unset", "cart", "coupon"],
+            ["$browser", "$sdk_debug_replay_flushed_size", "$set", "$set_once", "$unset"],
             "user@example.com",
         )
         assert documents[(True, True)][0]["$set"] == {"email": "user@example.com"}
-        assert "coupon" not in documents[(True, True)][0]
 
         # One call per registered JSON function, so a newly registered function fails here until native reads the
         # moved key. isValidJSON and JSONArrayLength take no key path.

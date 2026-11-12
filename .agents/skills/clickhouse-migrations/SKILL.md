@@ -25,8 +25,8 @@ operations = [
 ### Node roles (choose by the cluster that owns the object)
 
 Only the members of `NodeRole` in `posthog/clickhouse/client/connection.py` are valid: `ALL`, `DATA`,
-`INGESTION_EVENTS`, `INGESTION_SMALL`, `INGESTION_MEDIUM`, `ENDPOINTS`, `LOGS`, `APM`, `AI_EVENTS`,
-`AUX`, `BATCH_EXPORTS`, `OPS`, `SESSIONS`. A name that is not in that enum fails at import, which aborts
+`INGESTION_EVENTS`, `INGESTION_SMALL`, `INGESTION_MEDIUM`, `INGESTION_METRICS`, `ENDPOINTS`, `LOGS`, `METRICS`, `APM`,
+`AI_EVENTS`, `AUX`, `BATCH_EXPORTS`, `OPS`, `SESSIONS`. A name that is not in that enum fails at import, which aborts
 migration discovery and takes every job that runs migrations down with it.
 
 Pick the role by **which cluster owns the object**, not by its type alone:
@@ -42,6 +42,9 @@ Pick the role by **which cluster owns the object**, not by its type alone:
 - `[NodeRole.APM]`: the `ingestion-apm` nodes, the metrics ingestion layer. Kafka tables, `Null` input
   tables, materialized views and writable `Distributed` tables that write into storage on `LOGS`.
   Stateless like the other ingestion nodes, so storage tables never go here.
+- `[NodeRole.METRICS]`, `[NodeRole.INGESTION_METRICS]`: the `metrics` cluster and the `ingestion-metrics`
+  nodes that write to it. In cloud the metrics4 tables run only on these (0376 and 0379 removed them from
+  `APM` and `LOGS`). The local stacks still run them on `APM` and `LOGS`, so a metrics4 change targets both pairs.
 - `[NodeRole.OPS]`, `[NodeRole.LOGS]`, `[NodeRole.AUX]`, `[NodeRole.AI_EVENTS]`, `[NodeRole.SESSIONS]`,
   `[NodeRole.BATCH_EXPORTS]`: objects that live on a satellite cluster. A table for one of those on
   `DATA` lands on the wrong nodes and leaves the intended cluster without it, so check where the

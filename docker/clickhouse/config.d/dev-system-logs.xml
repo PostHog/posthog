@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<!-- These log tables write rows every second even on an idle dev stack, and their merges use more CPU
+     than the event data does. PostHog reads none of them. query_log, query_thread_log, text_log and
+     trace_log stay on with the settings from config.xml: the ClickHouse query debug panel reads
+     query_log without SYSTEM FLUSH LOGS, and the query-performance-ai profiling flow reads the others
+     on a local ClickHouse. -->
+<clickhouse>
+    <query_views_log remove="1"/>
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+</clickhouse>

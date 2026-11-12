@@ -351,6 +351,8 @@ export const metricsQueryCreateBodyQueryOneFormulaMax = 512
 
 export const metricsQueryCreateBodyQueryOnePromqlMax = 8192
 
+export const metricsQueryCreateBodyQueryOneLimitMax = 100
+
 export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -611,7 +613,7 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .optional()
                 .describe(
-                    "Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo."
+                    "Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-30M' (minutes), '-1h', '-7d', '-2w' or '-1m' (months; lowercase m is months, capital M is minutes). Defaults to 24 hours before dateTo."
                 ),
             dateTo: zod
                 .string()
@@ -619,8 +621,70 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.'
                 ),
+            dropEmptySeries: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    "Leave out series whose every point is zero or null, and count them in 'omitted_empty_series'. Defaults to true for MCP clients and false otherwise."
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(metricsQueryCreateBodyQueryOneLimitMax)
+                .nullish()
+                .describe(
+                    "Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries."
+                ),
         })
         .describe('The metric query to execute.'),
+})
+
+/**
+ * Create a recording rule. It writes its first result within about a minute.
+ */
+export const metricsRecordingRulesCreateBodyMetricNameMax = 200
+
+export const metricsRecordingRulesCreateBodyQueryMax = 8192
+
+export const metricsRecordingRulesCreateBodyDescriptionDefault = ``
+export const metricsRecordingRulesCreateBodyEnabledDefault = true
+
+export const MetricsRecordingRulesCreateBody = /* @__PURE__ */ zod.object({
+    metric_name: zod
+        .string()
+        .max(metricsRecordingRulesCreateBodyMetricNameMax)
+        .describe(
+            'The metric the rule writes, in the level:metric:operations form, for example job:http_errors:rate5m. It must contain a colon and cannot change after create.'
+        ),
+    query: zod
+        .string()
+        .max(metricsRecordingRulesCreateBodyQueryMax)
+        .describe(
+            "A PromQL expression over this project's metrics that returns an instant vector or a scalar. Each series it returns is written as one series of `metric_name`, with the same labels."
+        ),
+    description: zod
+        .string()
+        .default(metricsRecordingRulesCreateBodyDescriptionDefault)
+        .describe('What the recorded metric means.'),
+    enabled: zod
+        .boolean()
+        .default(metricsRecordingRulesCreateBodyEnabledDefault)
+        .describe('When false, the rule is kept but not evaluated.'),
+})
+
+/**
+ * Change a rule's query, description or enabled state. The metric name cannot change.
+ */
+export const metricsRecordingRulesPartialUpdateBodyQueryMax = 8192
+
+export const MetricsRecordingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(metricsRecordingRulesPartialUpdateBodyQueryMax)
+        .optional()
+        .describe('A new PromQL expression for the rule.'),
+    description: zod.string().optional().describe('What the recorded metric means.'),
+    enabled: zod.boolean().optional().describe('When false, the rule is kept but not evaluated.'),
 })
 
 /**
@@ -858,70 +922,4 @@ export const MetricsVariableOptionsCreateBody = /* @__PURE__ */ zod.object({
         .max(metricsVariableOptionsCreateBodyDateToMax)
         .nullish()
         .describe('End of the window that options come from, in the same format as dateFrom. Defaults to now.'),
-})
-
-/**
- * Add a notification destination to a metrics alert. It hears the transitions in `event_kinds`. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves.
- */
-export const metricsAlertsDestinationsCreateBodyPagerdutySeverityDefault = `critical`
-export const metricsAlertsDestinationsCreateBodyPagerdutyRegionDefault = `us`
-
-export const MetricsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty'])
-        .describe(
-            '\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty'
-        )
-        .describe(
-            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty'
-        ),
-    slack_workspace_id: zod
-        .number()
-        .optional()
-        .describe('Integration ID for the Slack workspace. Required when type=slack.'),
-    slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
-    slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
-    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook, teams and discord.'),
-    pagerduty_routing_key: zod
-        .string()
-        .optional()
-        .describe('Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.'),
-    pagerduty_severity: zod
-        .enum(['critical', 'error', 'warning', 'info'])
-        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
-        .default(metricsAlertsDestinationsCreateBodyPagerdutySeverityDefault)
-        .describe(
-            'Severity PagerDuty records on the incident. Used when type=pagerduty.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
-        ),
-    pagerduty_region: zod
-        .enum(['us', 'eu'])
-        .describe('\* `us` - us\n\* `eu` - eu')
-        .default(metricsAlertsDestinationsCreateBodyPagerdutyRegionDefault)
-        .describe('PagerDuty service region of the account. Used when type=pagerduty.\n\n\* `us` - us\n\* `eu` - eu'),
-    event_kinds: zod
-        .array(
-            zod
-                .enum(['firing', 'resolved', 'errored', 'broken'])
-                .describe(
-                    '\* `firing` - firing\n\* `resolved` - resolved\n\* `errored` - errored\n\* `broken` - broken'
-                )
-        )
-        .min(1)
-        .optional()
-        .describe(
-            "The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve."
-        ),
-})
-
-/**
- * Delete notification destinations of a metrics alert.
- */
-export const metricsAlertsDestinationsDeleteCreateBodyDestinationIdsMax = 100
-
-export const MetricsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
-    destination_ids: zod
-        .array(zod.uuid())
-        .min(1)
-        .max(metricsAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
-        .describe('IDs of the destinations to delete, as the list endpoint returns them.'),
 })

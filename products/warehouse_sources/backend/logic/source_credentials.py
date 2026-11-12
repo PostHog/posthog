@@ -39,11 +39,7 @@ from posthog.integrations import (
 )
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.facade.contracts import (
-    UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE,
-    WAREHOUSE_SOURCE_USAGE_TYPE,
-    SharedCredentialsError,
-)
+from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_SOURCE_USAGE_TYPE, SharedCredentialsError
 from products.warehouse_sources.backend.logic.credential_auth_types import credentials_accessor
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -178,13 +174,7 @@ class WarehouseSourceCredentialsStore:
         if current is not None and same_connection_fields(current, fields):
             return IntegrationReference.from_legacy_id(pk)
         try:
-            # A source whose inputs do not decode may use the row, so it blocks a delete. It does not make an
-            # edit shared: else one broken source of the kind would block every edit of every row of the kind.
-            others = [
-                usage
-                for usage in _other_usages(rows, source, row.id)
-                if usage.type != UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE
-            ]
+            others = _other_usages(rows, source, row.id)
         except IntegrationNotFound as error:
             raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
         if others:

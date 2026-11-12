@@ -849,31 +849,25 @@ def load_run_footer(
             plan=plan,
             chart_links=bool((run.state or {}).get("slack_chart_links")),
             # A run on someone's own plan is not paid with PostHog credits, so its cost says nothing.
-            thread_cost_usd=_thread_cost(run, integration_id=integration_id)
-            if include_thread_cost and plan is None
-            else None,
+            thread_cost_usd=_thread_cost(run) if include_thread_cost and plan is None else None,
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
         return RunFooter()
 
 
-def _thread_cost(run: "TaskRunDTO", *, integration_id: int | None) -> Decimal | None:
-    """What the thread's task spent on models so far, or `None` outside the rollout or when unknown.
+def _thread_cost(run: "TaskRunDTO") -> Decimal | None:
+    """What the thread's task spent on models so far, or `None` when unknown.
 
     Reads the same task usage that PostHog Desktop shows, which sums the task's `$ai_generation`
     events. Those events arrive with a short delay and the usage is cached for a minute, so the
     newest requests can be missing here. A later reply's total then includes them.
     """
-    from products.slack_app.backend.feature_flags import is_slack_app_footer_cost_enabled  # noqa: PLC0415
     from products.tasks.backend.facade.billing import get_task_usage  # noqa: PLC0415
 
-    if integration_id is None or run.task_created_at is None:
+    if run.task_created_at is None:
         return None
     try:
-        integration = IntegrationManager.slack.oauth.get(run.team_id, integration_id)
-        if not is_slack_app_footer_cost_enabled(integration, run.created_by_distinct_id):
-            return None
         return get_task_usage(
             team_id=run.team_id, task_id=run.task_id, task_created_at=run.task_created_at
         ).token_cost_usd

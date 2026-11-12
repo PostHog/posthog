@@ -16,11 +16,19 @@ from rest_framework.response import Response
 
 from posthog.hogql.direct_sql.capability import is_direct_capable
 
+from posthog.api.fields import LengthFirstListField
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.utils import action
+from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
+from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
+from products.warehouse_sources.backend.facade.incremental_field_model import (
+    MAX_TABLES_PER_CALL,
+    recommend_for_candidates,
+)
 from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     ExternalDataSchema,
@@ -42,6 +50,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     known_source_key,
     new_source_requires_ssl,
 )
+from products.warehouse_sources.backend.presentation.sync_frequency_field import SYNC_FREQUENCY_HELP_TEXT
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
     ExternalDataSchemaSerializer,
@@ -49,6 +58,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 )
 
 from . import base, credential_store, helpers
+from .source_type_field import resolve_known_source_key
 
 
 class RefreshSchemasResponseSerializer(serializers.Serializer):
@@ -60,6 +70,71 @@ class RefreshSchemasResponseSerializer(serializers.Serializer):
         help_text="Number of new schemas auto-enabled because the source has auto_sync_new_schemas on."
     )
     total_tables_seen = serializers.IntegerField(help_text="Total tables the source reported, before filtering.")
+
+
+# Long enough for a nested document field path. The model reads a shorter prefix of each name.
+MAX_IDENTIFIER_LENGTH = 4096
+
+
+class IncrementalFieldCandidateSerializer(serializers.Serializer):
+    label = serializers.CharField(  # type: ignore[assignment]
+        max_length=MAX_IDENTIFIER_LENGTH, trim_whitespace=False, help_text="Name of the field as shown in the UI."
+    )
+    field = serializers.CharField(
+        max_length=MAX_IDENTIFIER_LENGTH,
+        trim_whitespace=False,
+        help_text="Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.",
+    )
+    type = serializers.CharField(max_length=32, help_text="Type of the field as shown in the UI, such as timestamp.")
+    field_type = serializers.CharField(max_length=32, help_text="Type of the field in the source, such as timestamp.")
+    nullable = serializers.BooleanField(required=False, help_text="Whether the field allows null values.")
+    is_indexed = serializers.BooleanField(
+        required=False, help_text="Whether the field leads an index or sort key on the source table."
+    )
+    recommended = serializers.BooleanField(
+        required=False, help_text="Whether this is the field the source recommends as the incremental cursor."
+    )
+    picked_by_model = serializers.BooleanField(
+        required=False,
+        help_text="Whether the decision model, not the name rules, picked this field. Ignored on input.",
+    )
+    notes = LengthFirstListField(
+        child=serializers.CharField(max_length=1000),
+        max_length=16,
+        required=False,
+        help_text="Trade-offs of picking this field.",
+    )
+
+
+class IncrementalFieldTableSerializer(serializers.Serializer):
+    table = serializers.CharField(
+        max_length=MAX_IDENTIFIER_LENGTH,
+        trim_whitespace=False,
+        help_text="Name of the table, as returned by database_schema.",
+    )
+    incremental_fields = LengthFirstListField(
+        child=IncrementalFieldCandidateSerializer(),
+        max_length=GATEWAY_MAX_CHOICE_OPTIONS,
+        help_text=(
+            "The leading candidate incremental fields of the table, as returned by database_schema. "
+            "The decision model reads at most this many."
+        ),
+    )
+
+
+class IncrementalFieldRecommendationsRequestSerializer(serializers.Serializer):
+    tables = LengthFirstListField(
+        child=IncrementalFieldTableSerializer(),
+        max_length=MAX_TABLES_PER_CALL,
+        help_text="Tables from database_schema to get a recommended incremental field for.",
+    )
+
+
+class IncrementalFieldRecommendationsResponseSerializer(serializers.Serializer):
+    tables = IncrementalFieldTableSerializer(
+        many=True,
+        help_text="Only the tables where the decision model picked a field, with that field first and recommended.",
+    )
 
 
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
@@ -84,7 +159,7 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
     sync_frequency = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Human-readable sync frequency value.",
+        help_text=SYNC_FREQUENCY_HELP_TEXT,
     )
     sync_time_of_day = serializers.TimeField(
         required=False,
@@ -359,6 +434,28 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             ).data,
         )
 
+    @validated_request(
+        request_serializer=IncrementalFieldRecommendationsRequestSerializer,
+        responses={200: IncrementalFieldRecommendationsResponseSerializer},
+        summary="Recommend incremental fields with the decision model",
+        description=(
+            "Asks the decision model which incremental field to use for tables whose column names leave it "
+            "open. Send the tables database_schema returned; the response holds only the tables the model "
+            "picked a field for. Called after database_schema so the table list never waits for the model."
+        ),
+    )
+    @action(methods=["POST"], detail=False)
+    def incremental_field_recommendations(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        picks = recommend_for_candidates(
+            [(table["table"], table["incremental_fields"]) for table in request.validated_data["tables"]],
+            team=self.team,
+        )
+        return Response(
+            IncrementalFieldRecommendationsResponseSerializer(
+                {"tables": [{"table": name, "incremental_fields": fields} for name, fields in picks.items()]}
+            ).data
+        )
+
     @extend_schema(request=credential_store.DatabaseSchemaRequestSerializer)
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
@@ -367,7 +464,10 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         if source_type is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Missing required parameter: source_type"},
+                data={
+                    "message": "Missing required parameter: source_type. "
+                    "Use external-data-sources-wizard to list the valid source types."
+                },
             )
 
         secret_ref_response = credential_store._unresolved_secret_ref_response(request.data)
@@ -375,27 +475,32 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             return secret_ref_response
 
         try:
-            source_type_model = known_source_key(source_type)
+            source_type_model = resolve_known_source_key(source_type)
         except ValueError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
+        source_type = str(source_type_model)
+
+        # A `credential_id` references connection details stored for this user via the connect flow.
+        # Discovery only reads the stored secrets: the credential stays so `setup` or `create` can still use it.
+        # `.items()` keeps scalar values when a form-encoded body arrives as a QueryDict.
+        resolved = self._resolve_stored_credential(source_type, dict(request.data.items()))
+        if resolved.error_response is not None:
+            return resolved.error_response
+        payload = resolved.payload
+
         source = base.SourceRegistry.get_source(source_type_model)
-        if helpers.source_feature_flag_missing(source, self.team):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers._source_unavailable_message(source_type)},
-            )
-        is_valid, errors = source.validate_config(request.data)
+        is_valid, errors = source.validate_config(payload)
         if not is_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Invalid source config: {', '.join(errors)}"},
             )
-        source_config: Config = source.parse_config(request.data)
+        source_config: Config = source.parse_config(payload)
 
-        access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        access_method = payload.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
         try:
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
@@ -448,10 +553,6 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             endpoint_permissions = {schema.name: None for schema in schemas}
 
-        # Cache the CDC flag once: in non-DEBUG environments this calls posthoganalytics.feature_enabled,
-        # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
-        # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
-        cdc_enabled = base.is_cdc_enabled_for_team(self.team)
         # xmin is gated at the source-type level by the source's capability flag so it never
         # leaks to another SQL source.
         xmin_capable = source.supports_xmin
@@ -463,7 +564,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
-                "cdc_available": schema.supports_cdc if cdc_enabled else None,
+                "cdc_available": schema.supports_cdc,
                 "xmin_available": schema.supports_xmin if xmin_capable else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
@@ -476,7 +577,13 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
                 "available_columns": [
-                    {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                    {
+                        "field": col_name,
+                        "label": col_name,
+                        "type": col_type,
+                        "nullable": nullable,
+                        "sensitivity": classify_column_sensitivity(col_name, col_type),
+                    }
                     for col_name, col_type, nullable in schema.columns
                 ],
                 "detected_primary_keys": schema.detected_primary_keys,
@@ -577,6 +684,18 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         serializer.is_valid(raise_exception=True)
 
         schema_updates: list[dict[str, Any]] = serializer.validated_data["schemas"]
+        # Built once: the context builds the team's HogQL database.
+        serializer_context = self.get_serializer_context()
+        updated_schemas = self._apply_schema_updates(source, schema_updates, serializer_context)
+        return Response(
+            ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
+            status=status.HTTP_200_OK,
+        )
+
+    def _apply_schema_updates(
+        self, source: ExternalDataSource, schema_updates: list[dict[str, Any]], serializer_context: dict[str, Any]
+    ) -> list[ExternalDataSchema]:
+        """Save each schema update in its own transaction, then run its Temporal schedule changes."""
         schema_ids = [schema_update["id"] for schema_update in schema_updates]
 
         if len(set(schema_ids)) != len(schema_ids):
@@ -603,7 +722,6 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         )
         only_validation_errors = True
 
-        serializer_context = self.get_serializer_context()
         updated_schemas: list[ExternalDataSchema] = []
         # Each deferred action is paired with its schema so a post-commit failure can be attributed.
         post_commit_actions: list[tuple[ExternalDataSchema, Callable[[], None]]] = []
@@ -699,7 +817,4 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         if post_commit_error is not None:
             raise post_commit_error
 
-        return Response(
-            ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
-            status=status.HTTP_200_OK,
-        )
+        return updated_schemas

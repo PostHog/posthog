@@ -110,6 +110,91 @@ export interface PaginatedDigestRunListApi {
     results: DigestRunApi[]
 }
 
+/**
+ * * `off` - Off
+ * * `always` - Always
+ * * `fallback` - When stamphog does not approve
+ */
+export type RoutingModeEnumApi = (typeof RoutingModeEnumApi)[keyof typeof RoutingModeEnumApi]
+
+export const RoutingModeEnumApi = {
+    Off: 'off',
+    Always: 'always',
+    Fallback: 'fallback',
+} as const
+
+/**
+ * * `waiting` - Waiting for stamphog's verdict
+ * * `routing` - Routing
+ * * `requested` - Requested
+ * * `done` - Done
+ */
+export type RoutingStatusEnumApi = (typeof RoutingStatusEnumApi)[keyof typeof RoutingStatusEnumApi]
+
+export const RoutingStatusEnumApi = {
+    Waiting: 'waiting',
+    Routing: 'routing',
+    Requested: 'requested',
+    Done: 'done',
+} as const
+
+/**
+ * * `full` - Every owner
+ * * `pinned` - Pinned owners only
+ */
+export type RoutingScopeEnumApi = (typeof RoutingScopeEnumApi)[keyof typeof RoutingScopeEnumApi]
+
+export const RoutingScopeEnumApi = {
+    Full: 'full',
+    Pinned: 'pinned',
+} as const
+
+export interface StamphogPullRequestRoutingApi {
+    /** The phase of the latest routing record: 'waiting' (fallback mode, the head waits for stamphog's verdict or the safety net), 'routing' (a task holds the claim and requested nobody yet), 'requested' (the review requests went out, the routing comment is not finished) or 'done'.
+     *
+     * * `waiting` - Waiting for stamphog's verdict
+     * * `routing` - Routing
+     * * `requested` - Requested
+     * * `done` - Done */
+    readonly status: RoutingStatusEnumApi
+    /** The repository's routing_mode when the record was written. Compare with the pull request's routing_mode.
+     *
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When stamphog does not approve */
+    readonly mode: RoutingModeEnumApi
+    /** 'full', or 'pinned' when a stamphog approval asks only the owners of sensitive and new paths. Null while the record waits.
+     *
+     * * `full` - Every owner
+     * * `pinned` - Pinned owners only */
+    readonly scope: RoutingScopeEnumApi | null
+    /** The head commit the record is for. It can be older than the pull request head. */
+    readonly head_sha: string
+    /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
+    readonly trigger: string
+    /** True when a 'routing' or 'requested' claim is older than the takeover limit. The task can still be alive, and a later delivery does not always finish an expired 'requested' claim. */
+    readonly claim_expired: boolean
+    /**
+     * When the head started to wait for stamphog's verdict. Null unless waiting.
+     * @nullable
+     */
+    readonly waiting_since: string | null
+    /**
+     * When a task claimed the pull request for this record.
+     * @nullable
+     */
+    readonly claimed_at: string | null
+    /**
+     * When the claim planned its requests. Null until the plan is saved.
+     * @nullable
+     */
+    readonly routed_at: string | null
+    /** The head that a full routing of this pull request requested owners for, blank if none. Fallback mode routes in full at most once per pull request. */
+    readonly full_routed_head: string
+    /** The latest approved head whose pinned owners were requested, blank if none. */
+    readonly pinned_routed_head: string
+}
+
 export interface StamphogPullRequestApi {
     readonly id: string
     /** Full name of the repository this pull request belongs to. */
@@ -139,6 +224,14 @@ export interface StamphogPullRequestApi {
     readonly deletions: number
     /** Files changed, recorded when the pull request merges. */
     readonly changed_files: number
+    /** The repository's routing_mode now. 'off' means reviewer routing does not run for new events.
+     *
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When stamphog does not approve */
+    readonly routing_mode: RoutingModeEnumApi
+    /** The latest reviewer routing record of the pull request, or null when routing never wrote one: routing is off, the pull request is still a draft, or no routing event arrived yet. Use the routing runs list for the owners each run requested or cut. */
+    readonly routing: StamphogPullRequestRoutingApi | null
     /** When this pull request was first captured. */
     readonly created_at: string
     /** When this pull request was last updated. */
@@ -166,17 +259,9 @@ export const ReviewModeEnumApi = {
 } as const
 
 /**
- * * `off` - Off
- * * `always` - Always
- * * `fallback` - When stamphog does not approve
+ * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual.
  */
-export type RoutingModeEnumApi = (typeof RoutingModeEnumApi)[keyof typeof RoutingModeEnumApi]
-
-export const RoutingModeEnumApi = {
-    Off: 'off',
-    Always: 'always',
-    Fallback: 'fallback',
-} as const
+export type StamphogRepoConfigApiRoutingForkLabels = { [key: string]: string }
 
 export interface StamphogRepoConfigApi {
     readonly id: string
@@ -203,8 +288,12 @@ export interface StamphogRepoConfigApi {
      * * `always` - Always
      * * `fallback` - When stamphog does not approve */
     readonly routing_mode: RoutingModeEnumApi
+    /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. */
+    readonly routing_fork_labels: StamphogRepoConfigApiRoutingForkLabels
+    /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
+    readonly review_on_clean_external_review: boolean
     /**
-     * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label or routing_mode.
+     * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
      * @nullable
      */
     readonly user_access_level: string | null
@@ -222,6 +311,11 @@ export interface PaginatedStamphogRepoConfigListApi {
 }
 
 /**
+ * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
+ */
+export type StamphogRepoConfigWriteApiRoutingForkLabels = { [key: string]: string }
+
+/**
  * Input shape for creating/updating a repo config.
  *
  * Separate from the read serializer because the contract is an output shape: it carries a
@@ -234,9 +328,9 @@ export interface PaginatedStamphogRepoConfigListApi {
  * installation and simply won't resolve webhooks until synced.
  */
 export interface StamphogRepoConfigWriteApi {
-    /** SCM provider this config talks to. Defaults to 'github'. */
+    /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
     provider?: string
-    /** Repository full name, e.g. 'PostHog/posthog'. */
+    /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
     repository: string
     /** Whether stamphog actively reviews pull requests for this repo. */
     enabled?: boolean
@@ -255,7 +349,16 @@ export interface StamphogRepoConfigWriteApi {
      * * `always` - Always
      * * `fallback` - When stamphog does not approve */
     routing_mode?: RoutingModeEnumApi
+    /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
+    routing_fork_labels?: StamphogRepoConfigWriteApiRoutingForkLabels
+    /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
+    review_on_clean_external_review?: boolean
 }
+
+/**
+ * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
+ */
+export type PatchedStamphogRepoConfigWriteApiRoutingForkLabels = { [key: string]: string }
 
 /**
  * Input shape for creating/updating a repo config.
@@ -270,9 +373,9 @@ export interface StamphogRepoConfigWriteApi {
  * installation and simply won't resolve webhooks until synced.
  */
 export interface PatchedStamphogRepoConfigWriteApi {
-    /** SCM provider this config talks to. Defaults to 'github'. */
+    /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
     provider?: string
-    /** Repository full name, e.g. 'PostHog/posthog'. */
+    /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
     repository?: string
     /** Whether stamphog actively reviews pull requests for this repo. */
     enabled?: boolean
@@ -291,6 +394,10 @@ export interface PatchedStamphogRepoConfigWriteApi {
      * * `always` - Always
      * * `fallback` - When stamphog does not approve */
     routing_mode?: RoutingModeEnumApi
+    /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
+    routing_fork_labels?: PatchedStamphogRepoConfigWriteApiRoutingForkLabels
+    /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
+    review_on_clean_external_review?: boolean
 }
 
 /**
@@ -395,16 +502,18 @@ export interface StamphogSyncInstallationResponseApi {
 }
 
 /**
- * * `self_driving` - SELF_DRIVING
- * * `manual` - MANUAL
- * * `label` - LABEL
- * * `all` - ALL
+ * * `self_driving` - Self-driving
+ * * `manual` - Manual
+ * * `reviewhog_clean` - Clean PostHog Review
+ * * `label` - Label
+ * * `all` - All
  */
-export type ReviewRunTriggerEnumApi = (typeof ReviewRunTriggerEnumApi)[keyof typeof ReviewRunTriggerEnumApi]
+export type ReviewTriggerEnumApi = (typeof ReviewTriggerEnumApi)[keyof typeof ReviewTriggerEnumApi]
 
-export const ReviewRunTriggerEnumApi = {
+export const ReviewTriggerEnumApi = {
     SelfDriving: 'self_driving',
     Manual: 'manual',
+    ReviewhogClean: 'reviewhog_clean',
     Label: 'label',
     All: 'all',
 } as const
@@ -451,7 +560,7 @@ export const ReviewRunVerdictEnumApi = {
  * Allowlisted, content-free slice of ``ReviewRun.gate_result``.
  *
  * The raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry
- * repository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),
+ * repository content — changed-file paths (``lifted_files``, ``invalid_folder_files``),
  * manifest gate messages, and declared ``policy.scopes`` — which a project member without repo
  * access must not read. Only the terminal decision is exposed.
  */
@@ -525,13 +634,14 @@ export interface ReviewRunApi {
      * @nullable
      */
     readonly delivery_id: string | null
-    /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.
+    /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo reviewing every PR event.
      *
-     * * `self_driving` - SELF_DRIVING
-     * * `manual` - MANUAL
-     * * `label` - LABEL
-     * * `all` - ALL */
-    readonly trigger: ReviewRunTriggerEnumApi
+     * * `self_driving` - Self-driving
+     * * `manual` - Manual
+     * * `reviewhog_clean` - Clean PostHog Review
+     * * `label` - Label
+     * * `all` - All */
+    readonly trigger: ReviewTriggerEnumApi
     /** Current stage of the review run's lifecycle.
      *
      * * `queued` - QUEUED
@@ -616,6 +726,307 @@ export interface ReviewRequestResponseApi {
     readonly created: boolean
 }
 
+/**
+ * * `single_candidate` - Single candidate
+ * * `fork` - Fork
+ * * `nothing_cuttable` - Nothing cuttable
+ * * `no_answer` - No answer
+ * * `stamphog_approved` - Stamphog approved
+ * * `files_truncated` - Files truncated
+ */
+export type LlmSkipReasonEnumApi = (typeof LlmSkipReasonEnumApi)[keyof typeof LlmSkipReasonEnumApi]
+
+export const LlmSkipReasonEnumApi = {
+    SingleCandidate: 'single_candidate',
+    Fork: 'fork',
+    NothingCuttable: 'nothing_cuttable',
+    NoAnswer: 'no_answer',
+    StamphogApproved: 'stamphog_approved',
+    FilesTruncated: 'files_truncated',
+} as const
+
+/**
+ * * `requested` - Requested
+ * * `labeled` - Labeled
+ * * `refused` - Refused by GitHub
+ * * `cut` - Cut
+ * * `not_requested` - Not requested
+ * * `already_requested` - Already requested
+ */
+export type RoutingOwnerOutcomeEnumApi = (typeof RoutingOwnerOutcomeEnumApi)[keyof typeof RoutingOwnerOutcomeEnumApi]
+
+export const RoutingOwnerOutcomeEnumApi = {
+    Requested: 'requested',
+    Labeled: 'labeled',
+    Refused: 'refused',
+    Cut: 'cut',
+    NotRequested: 'not_requested',
+    AlreadyRequested: 'already_requested',
+} as const
+
+/**
+ * * `sensitive` - Owns a sensitive path
+ * * `new_path` - Owns a new path
+ * * `largest_owner` - Has the largest part
+ * * `diff_not_seen` - Diff not shown to the model
+ * * `cut_skipped` - Cut step skipped
+ * * `model_kept` - Kept by the model
+ * * `model_cut` - Cut by the model
+ * * `stamphog_approved` - Stamphog approved
+ */
+export type RoutingOwnerReasonEnumApi = (typeof RoutingOwnerReasonEnumApi)[keyof typeof RoutingOwnerReasonEnumApi]
+
+export const RoutingOwnerReasonEnumApi = {
+    Sensitive: 'sensitive',
+    NewPath: 'new_path',
+    LargestOwner: 'largest_owner',
+    DiffNotSeen: 'diff_not_seen',
+    CutSkipped: 'cut_skipped',
+    ModelKept: 'model_kept',
+    ModelCut: 'model_cut',
+    StamphogApproved: 'stamphog_approved',
+} as const
+
+/**
+ * * `sensitive` - Sensitive path
+ * * `new_path` - New path
+ */
+export type PinReasonEnumApi = (typeof PinReasonEnumApi)[keyof typeof PinReasonEnumApi]
+
+export const PinReasonEnumApi = {
+    Sensitive: 'sensitive',
+    NewPath: 'new_path',
+} as const
+
+export interface StamphogRoutingPinApi {
+    /** Why the path pins its owner.
+     *
+     * * `sensitive` - Sensitive path
+     * * `new_path` - New path */
+    readonly reason: PinReasonEnumApi
+    /** The changed path, or the new directory, that pinned the owner. */
+    path: string
+}
+
+/**
+ * * `team` - Team
+ * * `person` - Person
+ */
+export type OwnerKindEnumApi = (typeof OwnerKindEnumApi)[keyof typeof OwnerKindEnumApi]
+
+export const OwnerKindEnumApi = {
+    Team: 'team',
+    Person: 'person',
+} as const
+
+export interface StamphogRoutingRunOwnerApi {
+    /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
+     *
+     * * `requested` - Requested
+     * * `labeled` - Labeled
+     * * `refused` - Refused by GitHub
+     * * `cut` - Cut
+     * * `not_requested` - Not requested
+     * * `already_requested` - Already requested */
+    readonly outcome: RoutingOwnerOutcomeEnumApi
+    /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved' (older runs only).
+     *
+     * * `sensitive` - Owns a sensitive path
+     * * `new_path` - Owns a new path
+     * * `largest_owner` - Has the largest part
+     * * `diff_not_seen` - Diff not shown to the model
+     * * `cut_skipped` - Cut step skipped
+     * * `model_kept` - Kept by the model
+     * * `model_cut` - Cut by the model
+     * * `stamphog_approved` - Stamphog approved */
+    readonly reason: RoutingOwnerReasonEnumApi
+    /** The changed paths that pinned the owner, so no cut could remove them. */
+    readonly pins: readonly StamphogRoutingPinApi[]
+    /** Whether the owner is a GitHub team or a person.
+     *
+     * * `team` - Team
+     * * `person` - Person */
+    readonly kind: OwnerKindEnumApi
+    /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
+    owner: string
+    /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
+    model_reason?: string
+    /** Changed lines in the files this owner owns. */
+    lines?: number
+    /** Changed files this owner owns. */
+    file_count?: number
+}
+
+export interface StamphogRoutingRunApi {
+    /** ID of the routing run. */
+    id: string
+    /** Full name of the repository. */
+    repository: string
+    /** Pull request number. */
+    pr_number: number
+    /** The head commit the run routed. */
+    head_sha: string
+    /** The repository's routing_mode when the run made its requests.
+     *
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When stamphog does not approve */
+    readonly mode: RoutingModeEnumApi
+    /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
+    trigger: string
+    /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
+     *
+     * * `full` - Every owner
+     * * `pinned` - Pinned owners only */
+    readonly scope: RoutingScopeEnumApi
+    /** Whether the pull request came from a fork, which skips the model. */
+    fork?: boolean
+    /** Why the cut step made no model call. Null when it made one.
+     *
+     * * `single_candidate` - Single candidate
+     * * `fork` - Fork
+     * * `nothing_cuttable` - Nothing cuttable
+     * * `no_answer` - No answer
+     * * `stamphog_approved` - Stamphog approved
+     * * `files_truncated` - Files truncated */
+    readonly llm_skipped: LlmSkipReasonEnumApi | null
+    /** The model the cut request reached. Blank when no request reached the gateway. */
+    model?: string
+    /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
+    files_truncated?: boolean
+    /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
+    additions_resolved?: boolean
+    /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+    owners_sha?: string
+    /** The run's decision for every owner of the changed code. */
+    readonly owners: readonly StamphogRoutingRunOwnerApi[]
+    /**
+     * When the run made its requests.
+     * @nullable
+     */
+    created_at?: string | null
+}
+
+export interface PaginatedStamphogRoutingRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: StamphogRoutingRunApi[]
+}
+
+export interface StamphogRoutingFileApi {
+    /** The changed path. */
+    path: string
+    /**
+     * The path before a rename. Null for any other change.
+     * @nullable
+     */
+    previous_path?: string | null
+    /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
+    status?: string
+    /** Added lines. */
+    additions?: number
+    /** Deleted lines. */
+    deletions?: number
+    /**
+     * Repo-relative path of the ownership file, read at the run's owners_sha, whose `owners` list names this owner for the file. Null when only an additions declaration made the owner a candidate (see the owner's `new_path` pins), or when the run is older than this field.
+     * @nullable
+     */
+    owners_source?: string | null
+}
+
+export interface StamphogRoutingRunOwnerDetailApi {
+    /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
+     *
+     * * `requested` - Requested
+     * * `labeled` - Labeled
+     * * `refused` - Refused by GitHub
+     * * `cut` - Cut
+     * * `not_requested` - Not requested
+     * * `already_requested` - Already requested */
+    readonly outcome: RoutingOwnerOutcomeEnumApi
+    /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved' (older runs only).
+     *
+     * * `sensitive` - Owns a sensitive path
+     * * `new_path` - Owns a new path
+     * * `largest_owner` - Has the largest part
+     * * `diff_not_seen` - Diff not shown to the model
+     * * `cut_skipped` - Cut step skipped
+     * * `model_kept` - Kept by the model
+     * * `model_cut` - Cut by the model
+     * * `stamphog_approved` - Stamphog approved */
+    readonly reason: RoutingOwnerReasonEnumApi
+    /** The changed paths that pinned the owner, so no cut could remove them. */
+    readonly pins: readonly StamphogRoutingPinApi[]
+    /** Whether the owner is a GitHub team or a person.
+     *
+     * * `team` - Team
+     * * `person` - Person */
+    readonly kind: OwnerKindEnumApi
+    /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
+    readonly files: readonly StamphogRoutingFileApi[]
+    /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
+    owner: string
+    /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
+    model_reason?: string
+    /** Changed lines in the files this owner owns. */
+    lines?: number
+    /** Changed files this owner owns. */
+    file_count?: number
+}
+
+export interface StamphogRoutingRunDetailApi {
+    /** ID of the routing run. */
+    id: string
+    /** Full name of the repository. */
+    repository: string
+    /** Pull request number. */
+    pr_number: number
+    /** The head commit the run routed. */
+    head_sha: string
+    /** The repository's routing_mode when the run made its requests.
+     *
+     * * `off` - Off
+     * * `always` - Always
+     * * `fallback` - When stamphog does not approve */
+    readonly mode: RoutingModeEnumApi
+    /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
+    trigger: string
+    /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
+     *
+     * * `full` - Every owner
+     * * `pinned` - Pinned owners only */
+    readonly scope: RoutingScopeEnumApi
+    /** Whether the pull request came from a fork, which skips the model. */
+    fork?: boolean
+    /** Why the cut step made no model call. Null when it made one.
+     *
+     * * `single_candidate` - Single candidate
+     * * `fork` - Fork
+     * * `nothing_cuttable` - Nothing cuttable
+     * * `no_answer` - No answer
+     * * `stamphog_approved` - Stamphog approved
+     * * `files_truncated` - Files truncated */
+    readonly llm_skipped: LlmSkipReasonEnumApi | null
+    /** The model the cut request reached. Blank when no request reached the gateway. */
+    model?: string
+    /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
+    files_truncated?: boolean
+    /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
+    additions_resolved?: boolean
+    /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+    owners_sha?: string
+    /** The run's decision for every owner of the changed code, with the files each owner owns. */
+    readonly owners: readonly StamphogRoutingRunOwnerDetailApi[]
+    /**
+     * When the run made its requests.
+     * @nullable
+     */
+    created_at?: string | null
+}
+
 export type StamphogDigestRunsListParams = {
     /**
      * Number of results to return per page.
@@ -696,7 +1107,7 @@ export type StamphogReviewRunsListParams = {
      */
     status?: string
     /**
-     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
      */
     trigger?: StamphogReviewRunsListTrigger
 }
@@ -708,5 +1119,97 @@ export const StamphogReviewRunsListTrigger = {
     All: 'all',
     Label: 'label',
     Manual: 'manual',
+    ReviewhogClean: 'reviewhog_clean',
     SelfDriving: 'self_driving',
+} as const
+
+export type StamphogRoutingRunsListParams = {
+    /**
+     * Keep only runs created at or after this time (ISO 8601).
+     */
+    created_after?: string
+    /**
+     * Keep only runs created before this time (ISO 8601).
+     */
+    created_before?: string
+    /**
+     * Keep only runs on this head commit. Pass the full 40-character SHA.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
+     *
+     * * `requested` - Requested
+     * * `labeled` - Labeled
+     * * `refused` - Refused by GitHub
+     * * `cut` - Cut
+     * * `not_requested` - Not requested
+     * * `already_requested` - Already requested
+     * @minLength 1
+     */
+    outcome?: StamphogRoutingRunsListOutcome
+    /**
+     * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
+     * @minLength 1
+     */
+    owner?: string
+    /**
+     * Filter by pull request number.
+     */
+    pr_number?: number
+    /**
+     * Keep only runs where an owner was kept or cut for this reason. With `owner`, that owner must have it.
+     *
+     * * `sensitive` - Owns a sensitive path
+     * * `new_path` - Owns a new path
+     * * `largest_owner` - Has the largest part
+     * * `diff_not_seen` - Diff not shown to the model
+     * * `cut_skipped` - Cut step skipped
+     * * `model_kept` - Kept by the model
+     * * `model_cut` - Cut by the model
+     * * `stamphog_approved` - Stamphog approved
+     * @minLength 1
+     */
+    reason?: StamphogRoutingRunsListReason
+    /**
+     * Filter by repository full name, e.g. 'PostHog/posthog'.
+     * @minLength 1
+     */
+    repository?: string
+}
+
+export type StamphogRoutingRunsListOutcome =
+    (typeof StamphogRoutingRunsListOutcome)[keyof typeof StamphogRoutingRunsListOutcome]
+
+export const StamphogRoutingRunsListOutcome = {
+    Requested: 'requested',
+    Labeled: 'labeled',
+    Refused: 'refused',
+    Cut: 'cut',
+    NotRequested: 'not_requested',
+    AlreadyRequested: 'already_requested',
+} as const
+
+export type StamphogRoutingRunsListReason =
+    (typeof StamphogRoutingRunsListReason)[keyof typeof StamphogRoutingRunsListReason]
+
+export const StamphogRoutingRunsListReason = {
+    Sensitive: 'sensitive',
+    NewPath: 'new_path',
+    LargestOwner: 'largest_owner',
+    DiffNotSeen: 'diff_not_seen',
+    CutSkipped: 'cut_skipped',
+    ModelKept: 'model_kept',
+    ModelCut: 'model_cut',
+    StamphogApproved: 'stamphog_approved',
 } as const

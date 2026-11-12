@@ -9,6 +9,7 @@ import structlog
 
 from posthog.api.capture import capture_internal
 from posthog.exceptions_capture import capture_exception
+from posthog.ip_restrictions import ip_restrictions_exempt
 from posthog.models import Team
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 
@@ -114,6 +115,11 @@ def report_workflows_email_tracking_consent_updated(team_id: int, identifier: st
         capture_exception(e)
 
 
+def _is_live_recipient(team_id: int | None, identifier: str | None) -> bool:
+    return bool(team_id and identifier) and Team.objects.filter(id=team_id).exists()
+
+
+@ip_restrictions_exempt
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
@@ -129,7 +135,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
 
     team_id = data.get("team_id")
     identifier = data.get("identifier")
-    if not team_id or not identifier:
+    if not _is_live_recipient(team_id, identifier):
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
     recipient = get_or_create_recipient(team_id, identifier)
@@ -232,6 +238,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     )
 
 
+@ip_restrictions_exempt
 @csrf_protect
 @require_http_methods(["POST"])
 def update_preferences(request: HttpRequest) -> JsonResponse:
@@ -250,7 +257,7 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": "Invalid recipient token"}, status=400)
     team_id = data.get("team_id")
     identifier = data.get("identifier")
-    if not team_id or not identifier:
+    if not _is_live_recipient(team_id, identifier):
         return JsonResponse({"error": "Invalid recipient"}, status=400)
 
     try:

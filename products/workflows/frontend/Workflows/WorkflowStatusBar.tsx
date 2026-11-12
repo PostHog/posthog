@@ -1,17 +1,15 @@
 import { useValues, useActions } from 'kea'
 
-import { IconClock, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonSwitch, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
-import { urls } from 'scenes/urls'
 
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
 type WorkflowStatusBarProps = WorkflowLogicProps & {
-    /** Editor commands that sit in the bar, such as the tile canvas panels. They bring their own History. */
-    commands?: JSX.Element
+    commands: JSX.Element
 }
 
 export function WorkflowStatusBar({ commands, ...props }: WorkflowStatusBarProps): JSX.Element | null {
@@ -24,6 +22,7 @@ export function WorkflowStatusBar({ commands, ...props }: WorkflowStatusBarProps
         isAutoSavePending,
         autoSaveEnabled,
         lastSavedAt,
+        isViewOnly,
     } = useValues(logic)
     const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
@@ -48,7 +47,7 @@ export function WorkflowStatusBar({ commands, ...props }: WorkflowStatusBarProps
                     ) : (
                         <LemonTag>Draft</LemonTag>
                     ))}
-                {showWorkflowStatus && isActive && (
+                {showWorkflowStatus && isActive && !isViewOnly && (
                     <span className="text-xs text-secondary truncate">
                         {isEditingDraftOfLive
                             ? 'The live version keeps running until you publish.'
@@ -58,7 +57,7 @@ export function WorkflowStatusBar({ commands, ...props }: WorkflowStatusBarProps
                 {commands}
             </div>
             {/* Interactive controls sit right-anchored with variable-width text leftmost, so the
-                toggle and History never shift as the narration or the timestamp changes. */}
+                toggle never shifts as the narration or the timestamp changes. */}
             {showWorkflowStatus && historyWorkflowId && (
                 <div className="flex items-center gap-3 shrink-0">
                     {autoSaveEnabled && showSaving ? (
@@ -68,34 +67,25 @@ export function WorkflowStatusBar({ commands, ...props }: WorkflowStatusBarProps
                     ) : lastSavedAt ? (
                         <LastSavedIndicator timestamp={lastSavedAt} />
                     ) : null}
-                    <span className="flex items-center gap-1">
-                        <LemonSwitch
-                            checked={autoSaveEnabled}
-                            onChange={setAutoSaveEnabled}
-                            label="Auto-save"
-                            size="small"
-                        />
-                        <Tooltip
-                            title={
-                                isActive
-                                    ? 'Auto-save stores your changes as a draft. Nothing goes live until you publish.'
-                                    : 'Draft workflows auto-save as you edit.'
-                            }
-                            placement="bottom"
-                        >
-                            <IconInfo className="text-tertiary size-4" />
-                        </Tooltip>
-                    </span>
-                    {!commands && (
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            icon={<IconClock />}
-                            to={urls.workflow(historyWorkflowId, 'history')}
-                            tooltip="See and restore previous versions"
-                        >
-                            History
-                        </LemonButton>
+                    {!isViewOnly && (
+                        <span className="flex items-center gap-1">
+                            <LemonSwitch
+                                checked={autoSaveEnabled}
+                                onChange={setAutoSaveEnabled}
+                                label="Auto-save"
+                                size="small"
+                            />
+                            <Tooltip
+                                title={
+                                    isActive
+                                        ? 'Auto-save stores your changes as a draft. Nothing goes live until you publish.'
+                                        : 'Draft workflows auto-save as you edit.'
+                                }
+                                placement="bottom"
+                            >
+                                <IconInfo className="text-tertiary size-4" />
+                            </Tooltip>
+                        </span>
                     )}
                 </div>
             )}

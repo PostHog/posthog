@@ -49,7 +49,9 @@ from posthog.models.oauth import (
     revoke_oauth_session,
 )
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
@@ -652,6 +654,101 @@ class TestOAuthAPI(APIBaseTest):
         expiration_minutes = expiration_seconds / 60
         expected_expiration = timezone.now() + timedelta(minutes=expiration_minutes)
         self.assertEqual(grant.expires, expected_expiration)
+
+    @parameterized.expand(
+        [
+            ("organization_blocked", "organization", "203.0.113.1", True, True, 403),
+            ("organization_allowed", "organization", "192.0.2.1", True, True, 200),
+            ("team_blocked", "team", "203.0.113.1", True, True, 403),
+            ("team_allowed", "team", "192.0.2.1", True, True, 200),
+            ("all_blocked", "all", "203.0.113.1", True, True, 403),
+            ("all_allowed", "all", "192.0.2.1", True, True, 200),
+            ("unrelated_policy", "organization", "203.0.113.1", False, True, 200),
+            ("declined", "organization", "203.0.113.1", True, False, 200),
+            ("auto_org_blocked", "organization", "203.0.113.1", True, True, 403, "auto"),
+            ("auto_org_allowed", "organization", "192.0.2.1", True, True, 302, "auto"),
+            ("auto_team_blocked", "team", "203.0.113.1", True, True, 403, "auto"),
+            ("auto_team_allowed", "team", "192.0.2.1", True, True, 302, "auto"),
+            ("auto_all_blocked", "all", "203.0.113.1", True, True, 403, "auto"),
+            ("auto_all_allowed", "all", "192.0.2.1", True, True, 302, "auto"),
+            ("auto_unrelated", "organization", "203.0.113.1", False, True, 302, "auto"),
+            ("auto_mixed_blocked", "mixed", "203.0.113.1", True, True, 403, "auto"),
+            ("first_party_blocked", "organization", "203.0.113.1", True, True, 403, "first_party"),
+            ("first_party_allowed", "organization", "192.0.2.1", True, True, 302, "first_party"),
+        ]
+    )
+    @override_settings(IS_BEHIND_PROXY=False)
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_authorize_checks_grant_ip_policy(
+        self,
+        _name: str,
+        access_level: str,
+        client_ip: str,
+        target_restricted: bool,
+        allow: bool,
+        expected_status: int,
+        approval_path: str = "consent",
+    ) -> None:
+        restricted_org, _, restricted_team = Organization.objects.bootstrap(self.user, name="Restricted organization")
+        OrganizationIPRestrictions.objects.create(
+            organization=restricted_org, enabled=True, ip_restrictions=["192.0.2.0/24"]
+        )
+        self.user.current_organization = self.organization
+        self.user.current_team = self.team
+        self.user.save()
+        target_org = restricted_org if target_restricted else self.organization
+        target_team = restricted_team if target_restricted else self.team
+        body = {
+            **self.base_authorization_post_body,
+            "allow": allow,
+            "access_level": access_level,
+            "scoped_organizations": [str(target_org.id)] if access_level == "organization" else [],
+            "scoped_teams": [target_team.id] if access_level == "team" else [],
+        }
+        grants_before = OAuthGrant.objects.count()
+
+        if approval_path == "consent":
+            response = self.client.post("/oauth/authorize/", body, REMOTE_ADDR=client_ip)
+        else:
+            if approval_path == "first_party":
+                self.confidential_application.is_first_party = True
+                self.confidential_application.save()
+                body["scoped_organizations"] = [
+                    str(org_id) for org_id in self.user.organizations.values_list("id", flat=True)
+                ]
+            else:
+                if access_level == "mixed":
+                    body["scoped_organizations"] = [str(restricted_org.id)]
+                    body["scoped_teams"] = [self.team.id]
+                elif access_level == "organization":
+                    body["scoped_teams"] = None
+                elif access_level == "team":
+                    body["scoped_organizations"] = None
+                OAuthAccessToken.objects.create(
+                    application=self.confidential_application,
+                    user=self.user,
+                    token="existing_ip_policy_token",
+                    expires=timezone.now() + timedelta(hours=1),
+                    scope="openid",
+                    scoped_organizations=body["scoped_organizations"],
+                    scoped_teams=body["scoped_teams"],
+                )
+            response = self.client.get(
+                self.base_authorization_url + "&scope=openid&approval_prompt=auto", REMOTE_ADDR=client_ip
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 403:
+            self.assertContains(response, "ip_not_allowed", status_code=403)
+            self.assertEqual(OAuthGrant.objects.count(), grants_before)
+        elif allow:
+            redirect_to = response.json()["redirect_to"] if approval_path == "consent" else response["Location"]
+            grant = OAuthGrant.objects.get(code=parse_qs(urlparse(redirect_to).query)["code"][0])
+            self.assertEqual(grant.scoped_organizations, body["scoped_organizations"])
+            self.assertEqual(grant.scoped_teams, body["scoped_teams"])
+        else:
+            self.assertIn("error=access_denied", response.json()["redirect_to"])
+            self.assertEqual(OAuthGrant.objects.count(), grants_before)
 
     @parameterized.expand(
         [
@@ -2608,6 +2705,69 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_request")
 
+    @parameterized.expand(
+        [
+            ("get_header_allowed", "get", "header", "192.0.2.1", True, False, 200),
+            ("get_header_blocked", "get", "header", "203.0.113.1", True, False, 403),
+            ("post_header_allowed", "post", "header", "192.0.2.1", True, False, 200),
+            ("post_header_blocked", "post", "header", "203.0.113.1", True, False, 403),
+            ("get_query_blocked", "get", "query", "203.0.113.1", True, False, 403),
+            ("post_body_allowed", "post", "body", "192.0.2.1", True, False, 200),
+            ("post_body_blocked", "post", "body", "203.0.113.1", True, False, 403),
+            ("disabled_policy", "get", "header", "203.0.113.1", False, False, 200),
+            ("staff_impersonation", "get", "header", "203.0.113.1", True, True, 200),
+        ]
+    )
+    @override_settings(IS_BEHIND_PROXY=False)
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_userinfo_checks_token_principal_ip_policy(
+        self,
+        _name: str,
+        method: str,
+        transport: str,
+        client_ip: str,
+        enabled: bool,
+        impersonated: bool,
+        expected_status: int,
+    ) -> None:
+        self.client.logout()
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization, enabled=enabled, ip_restrictions=["192.0.2.0/24"]
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.confidential_application,
+            token="userinfo_policy_test_token",
+            scope="openid profile email",
+            expires=timezone.now() + timedelta(hours=1),
+            impersonated_by=User.objects.create_user(
+                email="userinfo-staff@example.com", first_name="Verifier", password=None, is_staff=True
+            )
+            if impersonated
+            else None,
+        )
+        headers = {"Authorization": f"Bearer {token.token}"} if transport == "header" else {}
+        data = {"access_token": token.token} if transport in ("query", "body") else {}
+        if method == "post":
+            response = self.client.post(
+                "/oauth/userinfo/",
+                data=urlencode(data),
+                content_type="application/x-www-form-urlencoded",
+                headers=headers,
+                REMOTE_ADDR=client_ip,
+            )
+        else:
+            response = self.client.get("/oauth/userinfo/", data, headers=headers, REMOTE_ADDR=client_ip)
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == 200:
+            self.assertEqual(response.json()["sub"], str(self.user.uuid))
+            self.assertEqual(response.json()["email"], self.user.email)
+        else:
+            self.assertEqual(response.json()["code"], "ip_not_allowed")
+            self.assertNotIn("email", response.json())
+            self.assertNotIn("sub", response.json())
+
     def test_userinfo_endpoint_requires_valid_token(self):
         response = self.client.get("/oauth/userinfo/", headers={"Authorization": "Bearer invalid_token"})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -4469,7 +4629,7 @@ class TestOAuthAPI(APIBaseTest):
     def test_self_introspection_succeeds_without_introspection_scope(
         self, impersonated: bool, supports_step_up: bool
     ) -> None:
-        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
         access_token.impersonated_by = self.user if impersonated else None
         access_token.supports_step_up = supports_step_up
         access_token.save(update_fields=["impersonated_by", "supports_step_up"])
@@ -4483,9 +4643,12 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertTrue(data["active"])
-        self.assertEqual(data["scope"], "openid user:read")
+        self.assertEqual(data["scope"], "openid")
         self.assertEqual(data["is_impersonated"], impersonated)
         self.assertEqual(data["supports_step_up"], supports_step_up)
+        self.assertEqual(data["user_distinct_id"], self.user.distinct_id)
+        self.assertEqual(data["current_organization_id"], str(self.user.current_organization_id))
+        self.assertEqual(data["current_team_id"], self.user.current_team_id)
 
     def test_self_introspection_via_get_succeeds_without_introspection_scope(self):
         """Self-introspection also works via GET method."""
@@ -4609,6 +4772,9 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
+        self.assertNotIn("user_distinct_id", data)
+        self.assertNotIn("current_organization_id", data)
+        self.assertNotIn("current_team_id", data)
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_client_gets_extended_token_expiry(self):

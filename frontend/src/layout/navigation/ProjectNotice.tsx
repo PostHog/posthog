@@ -7,12 +7,19 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { noEventsBannerLogic } from './noEventsBannerLogic'
-import { projectNoticeLogic } from './projectNoticeLogic'
+import { ProjectNoticeVariant, projectNoticeLogic } from './projectNoticeLogic'
 
 const LAYOUT_WITH_HORIZONTAL_MARGIN: SceneConfig['layout'][] = ['app-raw', 'app-raw-no-header']
 
-export function ProjectNotice({ className }: { className?: string }): JSX.Element | null {
+export function ProjectNotice({
+    className,
+    hiddenVariants,
+}: {
+    className?: string
+    hiddenVariants?: ProjectNoticeVariant[]
+}): JSX.Element | null {
     const { projectNotice, projectNoticeVariant } = useValues(projectNoticeLogic)
+    const hidden = !!projectNoticeVariant && !!hiddenVariants?.includes(projectNoticeVariant)
     const { reportNoticeShown } = useActions(projectNoticeLogic)
     const { sceneConfig } = useValues(sceneLogic)
 
@@ -21,12 +28,12 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
     // KLUDGE: We can't really depend on `projectNotice` being set inside the logic
     // to trigger the action from inside the logic, so let's do it here.
     useEffect(() => {
-        if (projectNoticeVariant) {
+        if (projectNoticeVariant && !hidden) {
             reportNoticeShown()
         }
-    }, [projectNoticeVariant, reportNoticeShown])
+    }, [projectNoticeVariant, hidden, reportNoticeShown])
 
-    if (!projectNotice) {
+    if (!projectNotice || hidden) {
         return null
     }
 

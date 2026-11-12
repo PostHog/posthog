@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-export function QuillPlayerShareMenu(): JSX.Element {
+export function QuillPlayerShareMenu({ filled = false }: { filled?: boolean }): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
@@ -56,9 +56,18 @@ export function QuillPlayerShareMenu(): JSX.Element {
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger render={<Button size="xs" data-attr="session-recording-share-button" />}>
+            <DropdownMenuTrigger
+                render={
+                    <Button
+                        size={filled ? 'icon' : 'icon-sm'}
+                        variant={filled ? 'secondary' : 'default'}
+                        tooltip="Share"
+                        aria-label="Share"
+                        data-attr="session-recording-share-button"
+                    />
+                }
+            >
                 <IconShare />
-                Share
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
                 <QuillMenuItems

@@ -11,8 +11,8 @@ export function WizardRunSidebarWidget({ projectId }: { projectId: string }): JS
     const { tasksByRunId } = useValues(logic)
     const { user } = useValues(userLogic)
     const sidebarLogic = wizardRunSidebarLogic({ projectId, userId: user?.id ?? 0 })
-    const { visibleRuns } = useValues(sidebarLogic)
-    const { clickState, dismissRuns } = useActions(sidebarLogic)
+    const { visibleRuns, runDetectedSources } = useValues(sidebarLogic)
+    const { clickState, clickDetectedSource, dismissRuns } = useActions(sidebarLogic)
     return (
         <WizardRunSidebarWidgetView
             key={`${projectId}.${user?.id}`}
@@ -20,6 +20,8 @@ export function WizardRunSidebarWidget({ projectId }: { projectId: string }): JS
             tasksByRunId={tasksByRunId}
             onStateClick={() => clickState('navbar_sidebar')}
             onDismissRuns={dismissRuns}
+            detectedSources={runDetectedSources}
+            onDetectedSourceClick={clickDetectedSource}
         />
     )
 }

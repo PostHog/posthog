@@ -10,7 +10,7 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { QuillMenuItems } from 'scenes/session-recordings/playlist/QuillMenuItems'
 
-export function QuillSetPlaybackSpeed(): JSX.Element {
+export function QuillSetPlaybackSpeed({ filled = false }: { filled?: boolean }): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { setSpeed } = useActions(sessionRecordingPlayerLogic)
     const Icon = speed === 0.5 ? IconTortoise : IconRabbit
@@ -20,8 +20,8 @@ export function QuillSetPlaybackSpeed(): JSX.Element {
             <DropdownMenuTrigger
                 render={
                     <Button
-                        size="xs"
-                        variant={speed === 1 ? 'default' : 'secondary'}
+                        size={filled ? 'default' : 'sm'}
+                        variant={filled || speed !== 1 ? 'secondary' : 'default'}
                         data-attr="session-recording-speed-select"
                     />
                 }

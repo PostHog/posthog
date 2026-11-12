@@ -901,7 +901,7 @@ export const ExperimentSavedMetricsCreateBody = /* @__PURE__ */ zod
         query: zod
             .unknown()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })
@@ -925,7 +925,7 @@ export const ExperimentSavedMetricsUpdateBody = /* @__PURE__ */ zod
         query: zod
             .unknown()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })
@@ -951,7 +951,7 @@ export const ExperimentSavedMetricsPartialUpdateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+                "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
             ),
         tags: zod.array(zod.unknown()).optional(),
     })

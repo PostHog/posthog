@@ -5,7 +5,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, type LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 const EXPERIMENTS = [
     {
@@ -91,7 +91,7 @@ const columns: LemonTableColumns<PreviewExperiment> = [
 ]
 
 export function OfflineExperimentsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('OfflineExperimentsPreview', isStatic && 'OfflineExperimentsPreview--static')}>

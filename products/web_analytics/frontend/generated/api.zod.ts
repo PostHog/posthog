@@ -10,12 +10,162 @@
 import * as zod from 'zod'
 
 /**
+ * Adds a brand to the project's brand catalog by domain, confirmed. Add the project's own site with kind 'own' before the first daily run: only own brands count as the project in citations and mentions, and the run skips a project without one. Returns 400 when the catalog already has the domain; update that brand instead.
+ * @summary Add an AEO brand
+ */
+export const aeoBrandsCreateBodyDomainMax = 253
+
+export const aeoBrandsCreateBodyNameMax = 200
+
+export const aeoBrandsCreateBodyAliasesItemMax = 200
+
+export const aeoBrandsCreateBodyAliasesMax = 20
+
+export const AeoBrandsCreateBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(aeoBrandsCreateBodyDomainMax)
+        .describe(
+            "The brand's domain or a URL on it, for example 'example.com'. Stored as its registrable domain, so citations on its subdomains count for the brand."
+        ),
+    name: zod
+        .string()
+        .max(aeoBrandsCreateBodyNameMax)
+        .optional()
+        .describe('Brand name as people say it. Guessed from the domain when empty.'),
+    kind: zod
+        .enum(['own', 'competitor', 'publisher', 'unknown'])
+        .describe('\* `own` - Own\n\* `competitor` - Competitor\n\* `publisher` - Publisher\n\* `unknown` - Unknown')
+        .describe(
+            "What the brand is to the project: 'own' (the project's site, counted as us in citations), 'competitor', 'publisher' or 'unknown'.\n\n\* `own` - Own\n\* `competitor` - Competitor\n\* `publisher` - Publisher\n\* `unknown` - Unknown"
+        ),
+    aliases: zod
+        .array(zod.string().max(aeoBrandsCreateBodyAliasesItemMax).describe('One other name for the brand.'))
+        .max(aeoBrandsCreateBodyAliasesMax)
+        .optional()
+        .describe(
+            'Other names for the brand, used to find it in answer text. Names are trimmed, and repeated names are dropped.'
+        ),
+})
+
+/**
+ * Renames, relabels, confirms or ignores a brand, or replaces its other names. The daily run keeps these edits; it only adds newly cited domains.
+ * @summary Update an AEO brand
+ */
+export const aeoBrandsPartialUpdateBodyNameMax = 200
+
+export const aeoBrandsPartialUpdateBodyAliasesItemMax = 200
+
+export const aeoBrandsPartialUpdateBodyAliasesMax = 20
+
+export const AeoBrandsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(aeoBrandsPartialUpdateBodyNameMax).optional().describe('Brand name as people say it.'),
+    kind: zod
+        .enum(['own', 'competitor', 'publisher', 'unknown'])
+        .describe('\* `own` - Own\n\* `competitor` - Competitor\n\* `publisher` - Publisher\n\* `unknown` - Unknown')
+        .optional()
+        .describe(
+            "What the brand is to the project: 'own', 'competitor', 'publisher' or 'unknown'.\n\n\* `own` - Own\n\* `competitor` - Competitor\n\* `publisher` - Publisher\n\* `unknown` - Unknown"
+        ),
+    status: zod
+        .enum(['suggested', 'confirmed', 'ignored'])
+        .describe('\* `suggested` - Suggested\n\* `confirmed` - Confirmed\n\* `ignored` - Ignored')
+        .optional()
+        .describe(
+            "'confirmed' to accept the brand, 'ignored' to hide it, 'suggested' to put it back for review.\n\n\* `suggested` - Suggested\n\* `confirmed` - Confirmed\n\* `ignored` - Ignored"
+        ),
+    aliases: zod
+        .array(zod.string().max(aeoBrandsPartialUpdateBodyAliasesItemMax).describe('One other name for the brand.'))
+        .max(aeoBrandsPartialUpdateBodyAliasesMax)
+        .optional()
+        .describe("Replaces the brand's other names. Names are trimmed, and repeated names are dropped."),
+})
+
+/**
+ * Turns an answer engine on or off for the project, or sets how often it checks each prompt. The next daily run uses the change. Each check on an engine is a paid model call.
+ * @summary Update an AEO answer engine
+ */
+export const AeoEnginesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional().describe("Whether the daily run checks the project's prompts on this engine."),
+    frequency: zod
+        .enum(['daily', 'weekly'])
+        .describe('\* `daily` - Daily\n\* `weekly` - Weekly')
+        .optional()
+        .describe(
+            "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n\* `daily` - Daily\n\* `weekly` - Weekly"
+        ),
+})
+
+/**
+ * Adds keywords to the project's keyword list. Send many at once. Blank entries and keywords already in the list are skipped and counted. Fails with 400 when the new keywords would take the list past 200.
+ * @summary Add AEO keywords
+ */
+export const aeoKeywordsCreateBodyKeywordsItemMax = 200
+
+export const aeoKeywordsCreateBodyKeywordsMax = 200
+
+export const AeoKeywordsCreateBody = /* @__PURE__ */ zod.object({
+    keywords: zod
+        .array(
+            zod
+                .string()
+                .max(aeoKeywordsCreateBodyKeywordsItemMax)
+                .describe('One keyword or phrase, at most 100 characters once whitespace is collapsed.')
+        )
+        .min(1)
+        .max(aeoKeywordsCreateBodyKeywordsMax)
+        .describe(
+            'Keywords to add. Each is lowercased and its whitespace collapsed. Blank entries, entries longer than 100 characters, and keywords the project already tracks are skipped. A project tracks at most 200 keywords.'
+        ),
+})
+
+/**
+ * Suggests keywords to add to the project's keyword list. Requires AI data processing approved for the organization. PostHog ranks keywords from the site, the project's tracked prompts and topics, and the web searches the engines ran while answering them, and gives a reason for each. PostHog has no search-volume data: each suggestion only carries how many recent answers searched for it. Nothing is saved: add the keywords you keep with aeo_keywords create. Keywords already in the list and keywords that name the brand are left out. Fails with 400 when the list already holds 200 keywords. Returns a pending job right away; poll GET aeo_keywords/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * @summary Suggest AEO keywords
+ */
+export const aeoKeywordsSuggestBodyDomainMax = 200
+
+export const aeoKeywordsSuggestBodyBrandMax = 200
+
+export const aeoKeywordsSuggestBodyDescriptionMax = 1000
+
+export const aeoKeywordsSuggestBodyCountDefault = 20
+export const aeoKeywordsSuggestBodyCountMax = 50
+
+export const AeoKeywordsSuggestBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(aeoKeywordsSuggestBodyDomainMax)
+        .describe(
+            "The project's site, for example posthog.com. The model reads it with web search when the project's prompts and searches are not enough."
+        ),
+    brand: zod
+        .string()
+        .max(aeoKeywordsSuggestBodyBrandMax)
+        .optional()
+        .describe('The brand name. Inferred from the site when empty. Keywords that name the brand are left out.'),
+    description: zod
+        .string()
+        .max(aeoKeywordsSuggestBodyDescriptionMax)
+        .optional()
+        .describe('What the product does and who it is for. Inferred from the site when empty.'),
+    count: zod
+        .number()
+        .min(1)
+        .max(aeoKeywordsSuggestBodyCountMax)
+        .default(aeoKeywordsSuggestBodyCountDefault)
+        .describe(
+            'How many keywords to suggest, at most 50, and never more than the room left in the 200-keyword list.'
+        ),
+})
+
+/**
  * Turns a prompt on or off, changes its topic, archives or restores it, or changes its text. A text change adds the next version and makes it current, and current_version moves back to an earlier one. The prompt keeps its id, and past checks are always kept.
  * @summary Update an AEO prompt
  */
 export const aeoPromptsPartialUpdateBodyTopicMax = 200
 
-export const aeoPromptsPartialUpdateBodyPromptMax = 10000
+export const aeoPromptsPartialUpdateBodyPromptMax = 2000
 
 export const aeoPromptsPartialUpdateBodyVersionDescriptionMax = 400
 
@@ -91,11 +241,72 @@ export const AeoPromptsBulkImportBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate.'
                     ),
+                origin: zod
+                    .enum(['api', 'suggestion'])
+                    .describe('\* `api` - Api\n\* `suggestion` - Suggestion')
+                    .optional()
+                    .describe(
+                        "Where the prompt text came from: api (written by a person) or suggestion (picked from aeo_prompts\/suggest). Stored in the prompt's evidence so suggested prompts can be audited later.\n\n\* `api` - Api\n\* `suggestion` - Suggestion"
+                    ),
             })
         )
         .min(1)
         .max(aeoPromptsBulkImportBodyPromptsMax)
         .describe('Prompts to add or update, at most 2000 per request.'),
+})
+
+/**
+ * Suggests prompts to track for a site. Requires AI data processing approved for the organization. PostHog reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * @summary Suggest AEO prompts
+ */
+export const aeoPromptsSuggestBodyDomainMax = 200
+
+export const aeoPromptsSuggestBodyBrandMax = 200
+
+export const aeoPromptsSuggestBodyDescriptionMax = 1000
+
+export const aeoPromptsSuggestBodyCompetitorsItemMax = 200
+
+export const aeoPromptsSuggestBodyCompetitorsMax = 20
+
+export const aeoPromptsSuggestBodyTopicsItemMax = 200
+
+export const aeoPromptsSuggestBodyTopicsMax = 20
+
+export const aeoPromptsSuggestBodyCountDefault = 20
+export const aeoPromptsSuggestBodyCountMax = 50
+
+export const AeoPromptsSuggestBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(aeoPromptsSuggestBodyDomainMax)
+        .describe('The site to suggest prompts for, for example posthog.com. The model reads it with web search.'),
+    brand: zod
+        .string()
+        .max(aeoPromptsSuggestBodyBrandMax)
+        .optional()
+        .describe('The brand name. Inferred from the site when empty.'),
+    description: zod
+        .string()
+        .max(aeoPromptsSuggestBodyDescriptionMax)
+        .optional()
+        .describe('What the product does and who it is for. Inferred from the site when empty.'),
+    competitors: zod
+        .array(zod.string().max(aeoPromptsSuggestBodyCompetitorsItemMax))
+        .max(aeoPromptsSuggestBodyCompetitorsMax)
+        .optional()
+        .describe('Competitor names or domains. The model picks the main ones when empty.'),
+    topics: zod
+        .array(zod.string().max(aeoPromptsSuggestBodyTopicsItemMax))
+        .max(aeoPromptsSuggestBodyTopicsMax)
+        .optional()
+        .describe('Topics to spread the prompts across. The model picks 3 to 6 when empty.'),
+    count: zod
+        .number()
+        .min(1)
+        .max(aeoPromptsSuggestBodyCountMax)
+        .default(aeoPromptsSuggestBodyCountDefault)
+        .describe('How many prompts to suggest, at most 50.'),
 })
 
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000
