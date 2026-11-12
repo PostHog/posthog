@@ -1,5 +1,3 @@
-"""An author's rejection of a review-bot finding, judged through the offline review entrypoint."""
-
 import sys
 import json
 import subprocess

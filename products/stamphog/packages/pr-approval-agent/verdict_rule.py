@@ -24,8 +24,6 @@ FACT_FIELDS = (*_FACT_LIST_FIELDS, *_FACT_BOOL_FIELDS, "rejected_bot_concerns")
 
 _STRING_LIST = {"type": "array", "items": {"type": "string"}}
 
-# A wrong call on these costs too much to settle on an automated judge's reading, so the author's
-# rejection never resolves them: they need a code fix or a person's sign-off in the thread.
 STRICT_CONCERN_CATEGORIES = ("security", "auth", "data_loss", "migration")
 CONCERN_CATEGORIES = (*STRICT_CONCERN_CATEGORIES, "other")
 
@@ -184,7 +182,6 @@ def derive_verdict(facts: ReviewFacts, rebuttable_threads: Mapping[str, str] | N
             upheld.append(f"{source}: {rejected.concern} Rejection holds: {rejected.evidence}")
         else:
             open_rejections.append(f"{source}: {rejected.concern} Still open, because {reason}.")
-    # Only the first three issues are posted, so the other refusal grounds go ahead of the rejections.
     issues = [*facts.unresolved_substantive_concerns, *facts.other_refusal_grounds, *open_rejections]
     assured = bool(facts.reviews_on_current_head) or facts.owning_team_author or facts.strong_familiarity
 
