@@ -68,6 +68,8 @@ tools:
                 - ref
                 - href
                 - shortcut
+                - meta.tags
+                - meta.content_type
     file-system-move:
         operation: file_system_move_create
         enabled: true
