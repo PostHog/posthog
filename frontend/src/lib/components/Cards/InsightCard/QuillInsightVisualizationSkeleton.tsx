@@ -6,6 +6,7 @@ import { visualizationShape } from './visualizationShape'
 
 const BAR_HEIGHTS = ['h-2/5', 'h-3/5', 'h-1/2', 'h-4/5', 'h-2/3', 'h-3/4', 'h-1/3', 'h-3/5']
 const FUNNEL_WIDTHS = ['w-full', 'w-4/5', 'w-3/5', 'w-2/5']
+const GRID_SIZES = { table: { rows: 5, columns: 3 }, heatmap: { rows: 3, columns: 5 } }
 // The shapes an SVG has to draw take the pulse and the 12% foreground fill of quill's Skeleton.
 // The opacity is an SVG attribute because the app has no opacity variants of quill's color classes.
 const DRAWN_SHAPE_CLASS = 'animate-pulse text-foreground motion-reduce:animate-none'
@@ -55,13 +56,12 @@ export function QuillInsightVisualizationSkeleton({
             </div>
         )
     } else if (shape === 'table' || shape === 'heatmap') {
-        const rowCount = shape === 'heatmap' ? 3 : 5
-        const columnCount = shape === 'heatmap' ? 5 : 3
+        const { rows, columns } = GRID_SIZES[shape]
         chart = (
             <div className="flex flex-1 flex-col justify-around gap-2">
-                {Array.from({ length: rowCount }, (_, rowIndex) => (
+                {Array.from({ length: rows }, (_, rowIndex) => (
                     <div key={rowIndex} className="flex flex-1 gap-3">
-                        {Array.from({ length: columnCount }, (_, columnIndex) => (
+                        {Array.from({ length: columns }, (_, columnIndex) => (
                             <Skeleton key={columnIndex} className="h-full flex-1" />
                         ))}
                     </div>
