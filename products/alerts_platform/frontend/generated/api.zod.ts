@@ -3076,6 +3076,18 @@ export const PlatformAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
+ * @summary Snooze a whole alert
+ */
+export const PlatformAlertsSnoozeCreateBody = /* @__PURE__ */ zod.object({
+    snooze_until: zod.iso
+        .datetime({ offset: true })
+        .nullable()
+        .describe(
+            "Time until which every group's notifications are muted. Must be in the future and at most 30 days away. Null clears the snooze. The alert keeps being checked."
+        ),
+})
+
+/**
  * @summary Snooze one group of a grouped alert
  */
 export const platformAlertsSnoozeGroupCreateBodyGroupingKeyMax = 255
