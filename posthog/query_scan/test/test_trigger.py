@@ -484,13 +484,36 @@ class TestQueryScanTrigger(SimpleTestCase):
 
 
 class TestSubqueryVerdicts(BaseTest):
-    def test_the_outer_query_and_a_subquery_are_each_judged_on_their_own_reads(self) -> None:
-        executor = HogQLQueryExecutor(
-            query=parse_select(
+    @parameterized.expand(
+        [
+            (
+                "separate read verdicts",
                 "select count() from events where event = '$pageview' and timestamp > now() - interval 7 day "
                 "and distinct_id in (select distinct_id from events "
-                "where lower(event) = 'signup' and timestamp > now() - interval 7 day)"
+                "where lower(event) = 'signup' and timestamp > now() - interval 7 day)",
+                0,
+                0,
             ),
+            (
+                "repeated CTE in a value subquery",
+                "SELECT (WITH counts AS (SELECT event, count() AS n FROM events GROUP BY event) "
+                "SELECT sum(l.n) FROM counts l CROSS JOIN counts r)",
+                1,
+                0,
+            ),
+            (
+                "cross join equality in a value subquery",
+                "SELECT (SELECT count() FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id)",
+                0,
+                1,
+            ),
+        ]
+    )
+    def test_the_outer_query_retains_structures_and_separate_read_verdicts(
+        self, _name: str, sql: str, repeated_ctes: int, cross_join_equalities: int
+    ) -> None:
+        executor = HogQLQueryExecutor(
+            query=parse_select(sql),
             team=self.team,
             query_type="HogQLQuery",
             limit_context=LimitContext.QUERY_ASYNC,
@@ -521,11 +544,20 @@ class TestSubqueryVerdicts(BaseTest):
 
         assert result is None
         shipped = delay.call_args.kwargs["executions"][0]
-        assert shipped["event_filter"]["classification"] == "usable"
-        assert [
-            (subquery["event_filter"]["classification"], subquery["event_filter"]["reason"])
-            for subquery in shipped["subqueries"]
-        ] == [("not_used", "wrapped")]
+        facts = TreeFacts.from_payload(shipped["tree"])
+        assert facts is not None
+        assert facts.repeated_cte_expansions == repeated_ctes
+        assert facts.cross_join_equalities == cross_join_equalities
+        if repeated_ctes or cross_join_equalities:
+            assert len(shipped["subqueries"]) == 1
+            assert not facts.timestamp_bound
+            assert not facts.groups_by_event
+        else:
+            assert shipped["event_filter"]["classification"] == "usable"
+            assert [
+                (subquery["event_filter"]["classification"], subquery["event_filter"]["reason"])
+                for subquery in shipped["subqueries"]
+            ] == [("not_used", "wrapped")]
 
 
 class TestOpenFiltersPlaceholder(SimpleTestCase):

@@ -130,15 +130,38 @@ def _findings_for_plan(
     # filter goes unmentioned even when it is nearly as large, because gating each read on its own
     # share would cost a denominator per read.
     plan, tree, event_filter = explained.plan, explained.tree, explained.event_filter
+    findings: list[QueryScanWarning] = []
+    if tree is not None and subquery_index is None:
+        structures = [
+            (
+                QueryScanFindingKind.REPEATED_CTE_EXPANSION,
+                tree.repeated_cte_expansions,
+                f"{tree.repeated_cte_expansions} additional reference(s) to non-materialized CTEs in the executed tree.",
+            ),
+            (
+                QueryScanFindingKind.CROSS_JOIN_EQUALITY,
+                tree.cross_join_equalities,
+                f"{tree.cross_join_equalities} equality predicate(s) between CROSS JOIN sources in the executed tree.",
+            ),
+            (
+                QueryScanFindingKind.DATE_ARRAYS_BEFORE_BREAKDOWN_LIMIT,
+                tree.date_arrays_before_breakdown_limit,
+                "Date groupArray and breakdown ranking occur in the same grouped SELECT in the executed tree.",
+            ),
+        ]
+        for kind, present, evidence in structures:
+            if present:
+                findings.append(
+                    build_warning(kind=kind, query_kind=query_kind, evidence=evidence, subquery_index=subquery_index)
+                )
+
     heaviest = plan.heaviest_events_read()
-    # A plan that does not read the events table has no denominator and nothing to advise on.
     if heaviest is None:
-        return []
+        return findings
 
     is_sql = query_kind == SQL_QUERY_KIND
     range_share = _share(_read_granules(explained), explained.range_granules)
     view_name = tree.view_name if tree is not None else None
-    findings: list[QueryScanWarning] = []
 
     # "All time" reaches the plan as a bound at the project's first event, so only the setting
     # says the person chose no start date; it applies to the outer query, not its subqueries. It is

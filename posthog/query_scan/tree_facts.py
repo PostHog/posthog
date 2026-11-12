@@ -9,12 +9,14 @@ saved view. The trigger ships the facts with each execution and the job folds th
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
+from posthog.query_scan.structures import QueryStructures
 from posthog.query_scan.tree import (
     EventsRead,
     collect_conditions,
@@ -68,6 +70,11 @@ class TreeFacts:
     # read the plan shows with no start is that bound: the scan takes it out before it asks for the plan.
     start_date_hidden_from_plan: bool = False
 
+    # Structural facts describe the whole compiled tree and are reported once for the outer plan.
+    repeated_cte_expansions: int = 0
+    cross_join_equalities: int = 0
+    date_arrays_before_breakdown_limit: bool = False
+
     def to_payload(self) -> dict[str, Any]:
         return {
             "start_date_hidden_from_plan": self.start_date_hidden_from_plan,
@@ -77,6 +84,9 @@ class TreeFacts:
             "groups_by_event": self.groups_by_event,
             "counts_any_event": self.counts_any_event,
             "view_name": self.view_name,
+            "repeated_cte_expansions": self.repeated_cte_expansions,
+            "cross_join_equalities": self.cross_join_equalities,
+            "date_arrays_before_breakdown_limit": self.date_arrays_before_breakdown_limit,
         }
 
     @classmethod
@@ -86,6 +96,9 @@ class TreeFacts:
             return None
         view_name = payload.get("view_name")
         return cls(
+            repeated_cte_expansions=_nonnegative_count(payload.get("repeated_cte_expansions")),
+            cross_join_equalities=_nonnegative_count(payload.get("cross_join_equalities")),
+            date_arrays_before_breakdown_limit=payload.get("date_arrays_before_breakdown_limit") is True,
             timestamp_bound=payload.get("timestamp_bound") is True,
             property_filter=payload.get("property_filter") is True,
             all_history=payload.get("all_history") is True,
@@ -94,6 +107,10 @@ class TreeFacts:
             view_name=view_name if isinstance(view_name, str) and view_name else None,
             start_date_hidden_from_plan=payload.get("start_date_hidden_from_plan") is True,
         )
+
+
+def _nonnegative_count(value: object) -> int:
+    return value if type(value) is int and value >= 0 else 0
 
 
 @frozen
@@ -109,12 +126,24 @@ class _ReadFacts:
 
 
 def tree_facts(tree: ast.AST, reads: list[EventsRead] | None = None) -> TreeFacts | None:
-    """The facts for ``tree``, or None when it reads no events. ``reads`` narrows the facts to the
-    reads one plan holds; None takes every read in the tree."""
+    """Keep whole-tree structures even when this plan's events reads are all stubbed subqueries."""
+    structures = QueryStructures()
+    structures.visit(tree)
+    structural_facts = TreeFacts(
+        repeated_cte_expansions=structures.repeated_cte_expansions(),
+        cross_join_equalities=structures.cross_join_equalities,
+        date_arrays_before_breakdown_limit=structures.date_arrays_before_breakdown_limit,
+    )
     if reads is None:
         reads = find_events_reads(tree)
     if not reads:
-        return None
+        return (
+            structural_facts
+            if structural_facts.repeated_cte_expansions
+            or structural_facts.cross_join_equalities
+            or structural_facts.date_arrays_before_breakdown_limit
+            else None
+        )
     parents = _ParentSelects()
     parents.visit(tree)
     facts = [_read_facts(read, collect_conditions(tree, read), parents) for read in reads]
@@ -122,7 +151,8 @@ def tree_facts(tree: ast.AST, reads: list[EventsRead] | None = None) -> TreeFact
     unbounded = [read for read in facts if not read.timestamp_bound]
     unfiltered = [read for read in facts if not read.event_condition]
     view_names = {read.view_name for read in facts}
-    return TreeFacts(
+    return replace(
+        structural_facts,
         timestamp_bound=not unbounded,
         property_filter=bool(unfiltered) and all(read.property_condition for read in unfiltered),
         all_history=bool(unbounded) and all(read.all_history for read in unbounded),

@@ -182,6 +182,10 @@ Need more granular access to queries than these dashboards provide? Take a look 
 
 See [ClickHouse manual](https://posthog.com/handbook/engineering/clickhouse/) for tips and tricks.
 
+### Query scan structure findings
+
+Query scan can report repeated non-materialized CTE references, CROSS JOIN equality filters, and date arrays built during breakdown ranking. These are potential costs identified from the compiled tree. They do not estimate intermediate row counts or memory, and they do not offer automatic query edits. Explicit materialization and inner joins remove their corresponding structural findings. The existing query-scan flag controls when findings are collected and displayed.
+
 ### Repeated HogQL CTEs
 
 The `hogql-materialize-repeated-ctes` project flag, or `materializeRepeatedCTEs` query modifier, can reuse eligible repeated event aggregates within one execution. It defaults off and additionally requires `HOGQL_MATERIALIZED_CTE_SUPPORTED=true` on deployments whose application ClickHouse profile enables materialized CTEs and the analyzer. Explicit materialization hints take precedence. The initial path requires literal timestamp bounds, deterministic aggregates, and references within the same SELECT without filters or keyed joins; other queries retain their existing compilation. Compare equivalent results, median duration, bytes read, and peak memory over five paired runs before enabling a project, and disable the flag or capability setting if errors, latency, or memory regress.
