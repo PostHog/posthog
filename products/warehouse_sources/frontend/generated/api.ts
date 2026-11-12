@@ -57,6 +57,8 @@ import type {
     ExternalDataSourcesRetrieveParams,
     ExternalDataSourcesStoredCredentialsListParams,
     ExternalDataSourcesWizardRetrieveParams,
+    IncrementalFieldRecommendationsRequestApi,
+    IncrementalFieldRecommendationsResponseApi,
     IntegrationAccountsResponseApi,
     PaginatedExternalDataDestinationListApi,
     PaginatedExternalDataSchemaListApi,
@@ -67,6 +69,7 @@ import type {
     PatchedDestinationLinkApi,
     PatchedExternalDataDestinationApi,
     PatchedExternalDataSchemaApi,
+    PatchedExternalDataSourceRevenueAnalyticsConfigApi,
     PatchedExternalDataSourceSerializersApi,
     SchemaDestinationsApi,
     SourceConfigMapResponseApi,
@@ -1168,15 +1171,18 @@ export const getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl = (pro
 export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedExternalDataSourceSerializersApi?: NonReadonly<PatchedExternalDataSourceSerializersApi>,
+    patchedExternalDataSourceRevenueAnalyticsConfigApi?: PatchedExternalDataSourceRevenueAnalyticsConfigApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedExternalDataSourceSerializersApi),
-    })
+): Promise<ExternalDataSourceSerializersApi> => {
+    return apiMutator<ExternalDataSourceSerializersApi>(
+        getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedExternalDataSourceRevenueAnalyticsConfigApi),
+        }
+    )
 }
 
 export const getExternalDataSourcesUpdateCdcSettingsCreateUrl = (projectId: string, id: string) => {
@@ -1455,6 +1461,30 @@ export const externalDataSourcesExistsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getExternalDataSourcesIncrementalFieldRecommendationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/incremental_field_recommendations/`
+}
+
+/**
+ * Asks the decision model which incremental field to use for tables whose column names leave it open. Send the tables database_schema returned; the response holds only the tables the model picked a field for. Called after database_schema so the table list never waits for the model.
+ * @summary Recommend incremental fields with the decision model
+ */
+export const externalDataSourcesIncrementalFieldRecommendationsCreate = async (
+    projectId: string,
+    incrementalFieldRecommendationsRequestApi: IncrementalFieldRecommendationsRequestApi,
+    options?: RequestInit
+): Promise<IncrementalFieldRecommendationsResponseApi> => {
+    return apiMutator<IncrementalFieldRecommendationsResponseApi>(
+        getExternalDataSourcesIncrementalFieldRecommendationsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(incrementalFieldRecommendationsRequestApi),
+        }
+    )
 }
 
 export const getExternalDataSourcesOauthAccountsRetrieveUrl = (

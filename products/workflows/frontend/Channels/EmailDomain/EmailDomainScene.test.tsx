@@ -378,6 +378,13 @@ describe('EmailDomainScene', () => {
         expect(backend.requestsTo('integration_get')).toHaveLength(2)
     })
 
+    it('says the sender no longer exists, without a retry, when it was deleted', async () => {
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expectStep('This sending domain no longer exists')
+        expect(document.querySelector('[data-attr="email-domain-retry"]')).toBeNull()
+        expectBackToChannels()
+    })
+
     it('keeps the progress on screen when a status check fails after the records were found', async () => {
         seedSender()
         backend.publishRecords(DOMAIN)

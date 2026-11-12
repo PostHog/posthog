@@ -10,6 +10,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
 
 from django.conf import settings
+from django.core.cache.backends.locmem import LocMemCache
 from django.db import connection
 from django.test import SimpleTestCase
 from django.test.client import Client as HttpClient
@@ -43,6 +44,7 @@ from products.data_warehouse.backend.facade.api import (
     sync_external_data_job_workflow,
 )
 from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
+from products.warehouse_sources.backend.facade.incremental_field_model import recommend_for_candidates
 from products.warehouse_sources.backend.facade.models import (
     INCREMENTAL_HISTORY_KEY,
     DataWarehouseTable,
@@ -89,7 +91,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
-from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
+from products.warehouse_sources.backend.tests.api.utils import (
+    create_external_data_source_ok,
+    fake_decision_model,
+    open_orders_schema,
+)
 from products.warehouse_sources.sources.amazon_s3.source import AmazonS3Source
 
 _PH_HISTORY_NAMING_FLAG = (
@@ -129,6 +135,11 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     yield connection
 
     await connection.close()
+
+
+class _UnreachableCache(LocMemCache):
+    def add(self, *args, **kwargs):
+        raise ConnectionError("cache unreachable")
 
 
 @pytest.mark.usefixtures("postgres_connection", "postgres_config")
@@ -715,6 +726,149 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["supports_webhooks"] is True
         assert [call.kwargs["names"] for call in mock_get_schemas.call_args_list] == expected_names_per_call
+
+    @parameterized.expand(
+        [
+            ("no_cursor_yet", {}, ["created_at", "fecha_actualizacion"], 1),
+            ("cursor_configured", {"incremental_field": "created_at"}, ["created_at", "created_at"], 0),
+            (
+                "stale_stored_pick",
+                {"incremental_field_suggestion": {"field": "dropped_column", "candidates": "older-column-set"}},
+                ["created_at", "fecha_actualizacion"],
+                1,
+            ),
+            ("unsure_answer", {}, ["created_at", "created_at"], 1, "c1", 0.3),
+            ("wizard_already_asked", {}, ["fecha_actualizacion", "fecha_actualizacion"], 1, "c1", 0.9, True),
+        ]
+    )
+    def test_incremental_fields_stores_the_model_pick_for_later_opens(
+        self,
+        _name,
+        sync_type_config,
+        expected_first_field_per_open,
+        expected_model_calls,
+        choice="c1",
+        confidence=0.9,
+        wizard_asked_first=False,
+    ):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=StripeSource().source_type, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config=sync_type_config,
+        )
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
+            fake_decision_model(choice=choice, confidence=confidence) as model_calls,
+            mock.patch(
+                "products.warehouse_sources.backend.logic.incremental_field_model.cache",
+                LocMemCache(f"incremental-field-{_name}", {}),
+            ),
+        ):
+            if wizard_asked_first:
+                discovered = open_orders_schema()
+                recommend_for_candidates([(discovered.name, discovered.incremental_fields)], team=self.team)
+            first_fields = []
+            for _ in expected_first_field_per_open:
+                response = self.client.post(
+                    f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+                first_fields.append(response.json()["incremental_fields"][0]["field"])
+
+        assert first_fields == expected_first_field_per_open
+        assert len(model_calls) == expected_model_calls
+
+    def test_incremental_fields_queues_nothing_when_the_wizard_answer_agrees_with_the_rules(self):
+        schema = self._orders_schema_without_cursor()
+        recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
+            mock.patch(f"{recommender}.cache", LocMemCache("incremental-field-agrees", {})),
+            mock.patch(
+                "products.warehouse_sources.backend.tasks.tasks.compute_incremental_field_suggestion.apply_async"
+            ) as dispatch,
+            fake_decision_model(choice="c0"),
+        ):
+            discovered = open_orders_schema()
+            recommend_for_candidates([(discovered.name, discovered.incremental_fields)], team=self.team)
+            first_field = self._open_sync_form(schema)
+
+        assert first_field == "created_at"
+        assert dispatch.call_count == 0
+
+    def _orders_schema_without_cursor(self) -> ExternalDataSchema:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=StripeSource().source_type, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        return ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+    def _open_sync_form(self, schema: ExternalDataSchema) -> str:
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["incremental_fields"][0]["field"]
+
+    def test_incremental_fields_withdraws_a_stored_pick_when_the_flag_turns_off(self):
+        schema = self._orders_schema_without_cursor()
+        recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
+            mock.patch(f"{recommender}.cache", LocMemCache("incremental-field-flag-off", {})),
+            fake_decision_model(),
+        ):
+            self._open_sync_form(schema)
+            assert self._open_sync_form(schema) == "fecha_actualizacion"
+            with mock.patch(f"{recommender}.feature_enabled_or_false", return_value=False):
+                assert self._open_sync_form(schema) == "created_at"
+
+    @parameterized.expand(
+        [
+            ("broker_up", LocMemCache, None, 1),
+            ("broker_down", LocMemCache, OSError("broker unreachable"), 3),
+            ("cache_down", _UnreachableCache, None, 0),
+        ]
+    )
+    def test_incremental_fields_queues_one_question_while_one_is_pending(
+        self, _name, cache_class, dispatch_error, expected_dispatches
+    ):
+        schema = self._orders_schema_without_cursor()
+        recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
+            mock.patch(f"{recommender}.cache", cache_class(f"incremental-field-queue-{_name}", {})),
+            mock.patch(
+                "products.warehouse_sources.backend.tasks.tasks.compute_incremental_field_suggestion.apply_async",
+                side_effect=dispatch_error,
+            ) as dispatch,
+            fake_decision_model(),
+        ):
+            first_fields = [self._open_sync_form(schema) for _ in range(3)]
+
+        assert first_fields == ["created_at"] * 3
+        assert dispatch.call_count == expected_dispatches
 
     @parameterized.expand(
         [

@@ -1043,75 +1043,20 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
 /**
  * Update the revenue analytics configuration and return the full external data source.
  */
-export const externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyPrefixMax = 100
-
-export const externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyDescriptionMax = 400
-
-export const externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string().optional(),
-        account_id: zod.string().optional(),
-        prefix: zod.string().max(externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyPrefixMax).nullish(),
-        description: zod
-            .string()
-            .max(externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyDescriptionMax)
-            .nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-        payload: zod
-            .object({
-                credential_id: zod
-                    .uuid()
-                    .describe(
-                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
-                    ),
-            })
-            .optional()
-            .describe(
-                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
-            ),
-    })
-    .describe('Mixin for serializers to add user access control fields')
+export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed."
+        ),
+    include_invoiceless_charges: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices.'
+        ),
+})
 
 /**
  * Update CDC tuning fields without enabling/disabling.
@@ -1301,6 +1246,105 @@ export const ExternalDataSourcesDraftCustomManifestCreateBody = /* @__PURE__ */ 
         .string()
         .optional()
         .describe('Raw API documentation or an OpenAPI\/Swagger spec, pasted directly. Provide this or docs_url.'),
+})
+
+/**
+ * Asks the decision model which incremental field to use for tables whose column names leave it open. Send the tables database_schema returned; the response holds only the tables the model picked a field for. Called after database_schema so the table list never waits for the model.
+ * @summary Recommend incremental fields with the decision model
+ */
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemTableMax = 4096
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemLabelMax = 4096
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldMax = 4096
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemTypeMax = 32
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldTypeMax = 32
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemNotesItemMax = 1000
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemNotesMax = 16
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax = 16
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 128
+
+export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @__PURE__ */ zod.object({
+    tables: zod
+        .array(
+            zod.object({
+                table: zod
+                    .string()
+                    .max(externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemTableMax)
+                    .describe('Name of the table, as returned by database_schema.'),
+                incremental_fields: zod
+                    .array(
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(
+                                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemLabelMax
+                                )
+                                .describe('Name of the field as shown in the UI.'),
+                            field: zod
+                                .string()
+                                .max(
+                                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldMax
+                                )
+                                .describe(
+                                    'Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.'
+                                ),
+                            type: zod
+                                .string()
+                                .max(
+                                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemTypeMax
+                                )
+                                .describe('Type of the field as shown in the UI, such as timestamp.'),
+                            field_type: zod
+                                .string()
+                                .max(
+                                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldTypeMax
+                                )
+                                .describe('Type of the field in the source, such as timestamp.'),
+                            nullable: zod.boolean().optional().describe('Whether the field allows null values.'),
+                            is_indexed: zod
+                                .boolean()
+                                .optional()
+                                .describe('Whether the field leads an index or sort key on the source table.'),
+                            recommended: zod
+                                .boolean()
+                                .optional()
+                                .describe('Whether this is the field the source recommends as the incremental cursor.'),
+                            picked_by_model: zod
+                                .boolean()
+                                .optional()
+                                .describe(
+                                    'Whether the decision model, not the name rules, picked this field. Ignored on input.'
+                                ),
+                            notes: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemNotesItemMax
+                                        )
+                                )
+                                .max(
+                                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemNotesMax
+                                )
+                                .optional()
+                                .describe('Trade-offs of picking this field.'),
+                        })
+                    )
+                    .max(externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax)
+                    .describe(
+                        'The leading candidate incremental fields of the table, as returned by database_schema. The decision model reads at most this many.'
+                    ),
+            })
+        )
+        .max(externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax)
+        .describe('Tables from database_schema to get a recommended incremental field for.'),
 })
 
 /**
