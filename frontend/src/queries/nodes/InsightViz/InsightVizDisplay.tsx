@@ -514,7 +514,13 @@ export function InsightVizDisplay({
             if (funnelTable) {
                 return (
                     <SceneSection
-                        title={<span className="font-semibold text-lg m-0">Detailed results</span>}
+                        title={
+                            quillSurface ? (
+                                'Detailed results'
+                            ) : (
+                                <span className="font-semibold text-lg m-0">Detailed results</span>
+                            )
+                        }
                         className="mt-4"
                     >
                         {funnelTable}
@@ -526,7 +532,13 @@ export function InsightVizDisplay({
         if (display === ChartDisplayType.BoxPlot && !disableTable) {
             return (
                 <div className="mt-4">
-                    <h2 className="font-semibold text-lg m-0 mb-2">Detailed results</h2>
+                    {quillSurface ? (
+                        <Heading size="base" render={<h2 className="m-0 mb-2" />}>
+                            Detailed results
+                        </Heading>
+                    ) : (
+                        <h2 className="font-semibold text-lg m-0 mb-2">Detailed results</h2>
+                    )}
                     <BoxPlotResultsTable />
                 </div>
             )
