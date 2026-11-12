@@ -1151,6 +1151,8 @@ export namespace Schemas {
       own_domains: string[];
       /** Active, unarchived prompts the project tracks. */
       active_prompts: number;
+      /** Unarchived prompts that are turned off. No run checks them. */
+      paused_prompts: number;
       /** Keywords in the project's keyword list. */
       keywords: number;
       /** Whether any citation check has been recorded for the project. */
@@ -1217,7 +1219,7 @@ export namespace Schemas {
       status: SetupStepStatusEnum;
       /** How many brands, prompts or keywords the step added. */
       added?: number;
-      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), or why the keywords or first_run step failed. */
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
       detail?: string;
     }
 
@@ -1258,10 +1260,12 @@ export namespace Schemas {
          * @items.maxLength 64
          */
       engines?: string[];
-      /** Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the brand, prompts and keywords and the daily schedule runs the first checks. */
+      /** Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the new prompts paused, so no checks run and nothing is spent until they are turned on, for example with only_first_run and activate_paused_prompts. */
       run_first_check?: boolean;
       /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
       only_first_run?: boolean;
+      /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+      activate_paused_prompts?: boolean;
     }
 
     export interface AEOVisibilityDashboard {

@@ -43,7 +43,6 @@ from products.aeo.backend.facade.contracts import (
     KeywordLimitError,
     KeywordSuggestionError,
     KeywordSuggestionRequest,
-    PromptImport,
     PromptOrigin,
     PromptSuggestionError,
     PromptSuggestionRequest,
@@ -60,6 +59,7 @@ from products.aeo.backend.facade.contracts import (
     WebsiteSource,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword, AEOPrompt
+from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
 from products.aeo.backend.suggestions import SUGGESTION_CACHE_ALIAS, SUGGESTION_JOB_TTL_SECONDS
 
 logger = structlog.get_logger(__name__)
@@ -155,6 +155,7 @@ def read_context(team: Team) -> SetupContext:
         websites=tuple(website_candidates(team)),
         own_domains=tuple(catalog.own_domains(team.id)),
         active_prompts=_active_prompt_count(team.id),
+        paused_prompts=AEOPrompt.objects.for_team(team.id).filter(active=False, archived_at__isnull=True).count(),
         keywords=AEOKeyword.objects.for_team(team.id).count(),
         has_checks=AEOCitationCheck.objects.for_team(team.id).exists(),
         ai_data_processing_approved=bool(team.organization.is_ai_data_processing_approved),
@@ -315,10 +316,10 @@ def _ensure_own_brand(team_id: int, request: SetupRequest) -> SetupStepState:
     return SetupStepState(step=SetupStep.BRAND, status=SetupStepStatus.DONE, added=1)
 
 
-def _add_prompts(team_id: int, request: SetupRequest) -> SetupStepState:
-    from products.aeo.backend.facade.api import import_prompts  # noqa: PLC0415 -- import cycle
-
-    if _active_prompt_count(team_id) >= SETUP_ENOUGH_PROMPTS:
+def _add_prompts(team: Team, request: SetupRequest) -> SetupStepState:
+    team_id = team.id
+    # Paused prompts count too, so a second configure-only setup does not suggest a fresh set on top of them.
+    if AEOPrompt.objects.for_team(team_id).filter(archived_at__isnull=True).count() >= SETUP_ENOUGH_PROMPTS:
         return SetupStepState(step=SetupStep.PROMPTS, status=SetupStepStatus.SKIPPED, detail="already_set")
     found = suggestions.suggest_prompts(
         team_id,
@@ -326,11 +327,27 @@ def _add_prompts(team_id: int, request: SetupRequest) -> SetupStepState:
             domain=request.domain, brand=request.brand, description=request.description, count=SETUP_PROMPT_COUNT
         ),
     )
-    result = import_prompts(
-        team_id,
-        [PromptImport(prompt=item.prompt, topic=item.topic, origin=PromptOrigin.SUGGESTION) for item in found],
+    # Without a first run, new prompts are saved paused, so nothing is checked or paid for until someone turns them on.
+    active = request.run_first_check
+    result = upsert_prompts(
+        team,
+        [
+            PromptCandidate(
+                text=item.prompt,
+                source=AEOPrompt.Source.IMPORTED,
+                topic=item.topic,
+                evidence={"via": PromptOrigin.SUGGESTION.value},
+                active=active,
+            )
+            for item in found
+        ],
     )
-    return SetupStepState(step=SetupStep.PROMPTS, status=SetupStepStatus.DONE, added=result.created)
+    return SetupStepState(
+        step=SetupStep.PROMPTS,
+        status=SetupStepStatus.DONE,
+        added=result["created"],
+        detail="" if active else "paused",
+    )
 
 
 def _add_keywords(team_id: int, request: SetupRequest) -> SetupStepState:
@@ -363,6 +380,8 @@ def _queue_first_run(team: Team, request: SetupRequest) -> SetupStepState:
         return skipped("already_run")
     if not citation_tracking_enabled(team):
         return skipped("not_available")
+    if request.only_first_run and request.activate_paused_prompts:
+        AEOPrompt.objects.for_team(team.id).filter(active=False, archived_at__isnull=True).update(active=True)
     if not catalog.own_domains(team.id) or _active_prompt_count(team.id) == 0:
         # The run records nothing without an own brand and active prompts, so it would only spend credits.
         return skipped("nothing_to_run")
@@ -419,7 +438,7 @@ def _run_steps(team: Team, progress: _Progress, request: SetupRequest) -> None:
 
         progress.set(SetupStep.PROMPTS, SetupStepStatus.RUNNING)
         try:
-            progress.steps[SetupStep.PROMPTS] = _add_prompts(team_id, request)
+            progress.steps[SetupStep.PROMPTS] = _add_prompts(team, request)
         except PromptSuggestionError as error:
             # Without prompts there is nothing to run, so the job stops here and a retry starts from this step.
             progress.steps[SetupStep.PROMPTS] = SetupStepState(step=SetupStep.PROMPTS, status=SetupStepStatus.FAILED)
