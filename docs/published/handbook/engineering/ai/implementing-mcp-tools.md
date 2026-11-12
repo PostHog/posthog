@@ -78,6 +78,17 @@ that JSON Schema cannot enforce, such as limits across sections and unique list 
 read-only tool to plan alternatives, then read the person's saved layout before replacing it. Schema discovery
 uses the same feature flag and project access checks as reading a customization; saving still validates every layout.
 
+For the Analytics sidebar, keep customization focused on navigation. Apply specific requests directly. For a general
+redesign, ask which destinations matter and which existing sections to keep. Check built-in lists before adding
+shortcuts, since the saved layout contains list references rather than their resolved items. Reuse existing navigation,
+avoid duplicate destinations, and add live metrics only when explicitly requested. Layout limits are ceilings, not targets.
+
+For a general redesign, use `activity-summary-get` when available to suggest a few destinations based on the current
+person's recent work, repeated object opens, and product pages. Explain each suggestion briefly, and give their stated
+goal priority over inferred interests. The summary has no exact date-range filter and can be stale, not ready, or
+unavailable. Fall back to resolved Pinned and Recents items or ask what matters now. The summary does not resolve those
+lists or authorize removing sections or adding metrics. Apply specific requests without fetching activity first.
+
 Preserve API errors with `throw result.error` or `wrapError(message, result.error)` from `@/lib/errors`.
 Copying only the message loses the HTTP status and retry guidance.
 For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
