@@ -1,4 +1,5 @@
 import type { Meta, StoryFn } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 import { ReactFlowProvider } from '@xyflow/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
@@ -7,12 +8,15 @@ import { mswDecorator } from '~/mocks/browser'
 import _hogFunctionTemplatesDestinations from '~/mocks/fixtures/_hogFunctionTemplatesDestinations.json'
 import { HogFunctionTemplateType } from '~/types'
 
+import { expect, userEvent } from 'storybook/test'
+
 import { NEW_WORKFLOW, WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic, HogFlowEditorMode } from '../hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from '../types'
 import { HogFlowEditorPanel } from './HogFlowEditorPanel'
 
 const LOGIC_PROPS: WorkflowLogicProps = { id: 'storybook-configuration-panel' }
+const VIEW_ONLY_LOGIC_PROPS: WorkflowLogicProps = { id: 'storybook-configuration-panel-view-only' }
 
 // The email template is hidden, so it is not in the shared destinations fixture. Mirrors
 // nodejs/src/cdp/templates/_destinations/email/email.template.ts.
@@ -168,6 +172,7 @@ const PANEL_WORKFLOW: HogFlow = {
 type PanelStoryProps = {
     mode: HogFlowEditorMode
     selectedNodeId: string | null
+    viewOnly?: boolean
 }
 
 const meta: Meta<typeof HogFlowEditorPanel> = {
@@ -179,7 +184,12 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': PANEL_WORKFLOW,
+                '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
+                    200,
+                    params.id === VIEW_ONLY_LOGIC_PROPS.id
+                        ? { ...PANEL_WORKFLOW, id: params.id, user_access_level: 'viewer' }
+                        : PANEL_WORKFLOW,
+                ],
                 '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
                 '/api/projects/:team_id/hog_function_templates': {
                     count: _hogFunctionTemplatesDestinations.results.length + 1,
@@ -215,11 +225,12 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
 }
 export default meta
 
-function PanelStory({ mode, selectedNodeId }: PanelStoryProps): JSX.Element {
-    const { originalWorkflow } = useValues(workflowLogic(LOGIC_PROPS))
-    const { nodes } = useValues(hogFlowEditorLogic(LOGIC_PROPS))
-    const { setWorkflowValues } = useActions(workflowLogic(LOGIC_PROPS))
-    const { setMode, setSelectedNodeId } = useActions(hogFlowEditorLogic(LOGIC_PROPS))
+function PanelStory({ mode, selectedNodeId, viewOnly = false }: PanelStoryProps): JSX.Element {
+    const logicProps = viewOnly ? VIEW_ONLY_LOGIC_PROPS : LOGIC_PROPS
+    const { originalWorkflow } = useValues(workflowLogic(logicProps))
+    const { nodes } = useValues(hogFlowEditorLogic(logicProps))
+    const { setWorkflowValues } = useActions(workflowLogic(logicProps))
+    const { setMode, setSelectedNodeId } = useActions(hogFlowEditorLogic(logicProps))
 
     useEffect(() => {
         if (originalWorkflow) {
@@ -236,8 +247,8 @@ function PanelStory({ mode, selectedNodeId }: PanelStoryProps): JSX.Element {
 
     return (
         <ReactFlowProvider>
-            <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
-                <BindLogic logic={hogFlowEditorLogic} props={LOGIC_PROPS}>
+            <BindLogic logic={workflowLogic} props={logicProps}>
+                <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
                     <div className="@container/workflow-editor relative flex h-screen overflow-hidden">
                         <div className="min-w-0 flex-1 bg-background" />
                         <HogFlowEditorPanel />
@@ -249,6 +260,16 @@ function PanelStory({ mode, selectedNodeId }: PanelStoryProps): JSX.Element {
 }
 
 const Template: StoryFn<PanelStoryProps> = (args) => <PanelStory {...args} />
+
+function elementAtCenterOf(element: Element): Element | null {
+    const { left, top, width, height } = element.getBoundingClientRect()
+    return document.elementFromPoint(left + width / 2, top + height / 2)
+}
+
+function elementOverPreviewText(preview: Element): Element | null {
+    const { left, top, width, height } = preview.getBoundingClientRect()
+    return document.elementFromPoint(left + width / 2, top + height / 4)
+}
 
 export const Build: StoryFn<PanelStoryProps> = Template.bind({})
 Build.args = { mode: 'build', selectedNodeId: 'delay' }
@@ -265,11 +286,36 @@ Webhook.args = { mode: 'build', selectedNodeId: 'webhook' }
 export const Email: StoryFn<PanelStoryProps> = Template.bind({})
 Email.args = { mode: 'build', selectedNodeId: 'email' }
 
+export const EmailOpensContentEditor: StoryFn<PanelStoryProps> = Template.bind({})
+EmailOpensContentEditor.args = { mode: 'build', selectedNodeId: 'email' }
+EmailOpensContentEditor.parameters = { testOptions: { snapshotBrowsers: [] } }
+EmailOpensContentEditor.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const preview = await within(canvasElement).findByTitle('Email template preview')
+    await expect(elementOverPreviewText(preview)).toBe(preview)
+
+    const editButton = within(canvasElement).getByText('Click to modify content')
+    await expect(editButton.contains(elementAtCenterOf(editButton))).toBe(true)
+    await userEvent.click(editButton)
+    const heading = await within(document.body).findByText('Editing email template')
+    await waitFor(() => expect(heading).toBeVisible())
+}
+
 export const ConditionalBranch: StoryFn<PanelStoryProps> = Template.bind({})
 ConditionalBranch.args = { mode: 'build', selectedNodeId: 'conditional' }
 
 export const CohortBranch: StoryFn<PanelStoryProps> = Template.bind({})
 CohortBranch.args = { mode: 'build', selectedNodeId: 'cohort' }
+
+export const EmailViewOnly: StoryFn<PanelStoryProps> = Template.bind({})
+EmailViewOnly.args = { mode: 'build', selectedNodeId: 'email', viewOnly: true }
+EmailViewOnly.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const preview = await within(canvasElement).findByTitle('Email template preview')
+    await expect(elementOverPreviewText(preview)).toBe(preview)
+
+    const editButton = within(canvasElement).getByText('Click to modify content')
+    await expect(editButton).not.toBeVisible()
+    await expect(editButton.contains(elementAtCenterOf(editButton))).toBe(false)
+}
 
 export const Variables: StoryFn<PanelStoryProps> = Template.bind({})
 Variables.args = { mode: 'variables', selectedNodeId: null }
