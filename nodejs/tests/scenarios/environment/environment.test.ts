@@ -40,7 +40,7 @@ import {
     forgetSesBucket,
     membersOf,
     pingRedis,
-    postgresServersOf,
+    postgresDatabasesOf,
     scratchSchema,
     seekFailures,
     terminateRoleConnections,
@@ -78,35 +78,6 @@ const runner = proc(SELF, SELF, 'node scenarios run smoke', PLAIN_ENV)
 
 const writeFake = (file: string, body: string): void => {
     writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
-}
-
-const startPostgresRelay = async (
-    upstreamUrl: string
-): Promise<{ url: string; received(): string; close(): Promise<void> }> => {
-    const upstream = new URL(upstreamUrl)
-    let received = ''
-    const sockets = new Set<net.Socket>()
-    const server = net.createServer((client) => {
-        sockets.add(client)
-        const relay = net.connect(Number(upstream.port || 5432), upstream.hostname)
-        sockets.add(relay)
-        client.on('data', (chunk: Buffer) => (received += chunk.toString('latin1')))
-        client.pipe(relay).pipe(client)
-        relay.on('error', () => client.destroy())
-        client.on('error', () => relay.destroy())
-    })
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-    const url = new URL(upstreamUrl)
-    url.hostname = '127.0.0.1'
-    url.port = String((server.address() as net.AddressInfo).port)
-    return {
-        url: url.toString(),
-        received: () => received,
-        close: async () => {
-            sockets.forEach((socket) => socket.destroy())
-            await new Promise<void>((resolve) => server.close(() => resolve()))
-        },
-    }
 }
 
 const sendThrough = async (edgeUrl: string): Promise<string> => {
@@ -379,34 +350,34 @@ describe('scenario environment', () => {
 
         it.each<[string, Record<string, string>, string[]]>([
             [
-                'one server when Cyclotron shares it',
+                'both databases when Cyclotron keeps its own on the same server',
                 { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cyclotron' },
+                [POSTHOG, 'postgres://posthog:posthog@localhost:5432/cyclotron'],
+            ],
+            [
+                'one database when a setting spells the same one another way',
+                { DATABASE_READONLY_URL: 'postgres://posthog:posthog@127.0.0.1/posthog' },
                 [POSTHOG],
             ],
             [
-                'one server when Cyclotron spells the same server another way',
-                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@127.0.0.1/cyclotron' },
-                [POSTHOG],
-            ],
-            [
-                'one server when a setting holds the word postgres rather than a URL',
+                'one database when a setting holds the word postgres rather than a URL',
                 { POSTHOG_DB_USER: 'postgres' },
                 [POSTHOG],
             ],
             [
-                'both servers when a profile moves Cyclotron to another',
+                'both databases when a profile moves Cyclotron to another server',
                 { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron' },
                 [POSTHOG, 'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron'],
             ],
             [
-                'both servers when a profile moves the read replica to another',
+                'both databases when a profile moves the read replica to another server',
                 { DATABASE_READONLY_URL: 'postgres://posthog:posthog@replica.example.com:5432/posthog' },
                 [POSTHOG, 'postgres://posthog:posthog@replica.example.com:5432/posthog'],
             ],
-        ])('lists the Postgres servers the roles reach: %s', (_story, settings, servers) => {
+        ])('lists the Postgres databases the roles reach: %s', (_story, settings, databases) => {
             const [spec] = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings)
 
-            expect(postgresServersOf(spec, POSTHOG)).toEqual(servers)
+            expect(postgresDatabasesOf(spec, POSTHOG)).toEqual(databases)
         })
 
         const hogflowWorker = (settings: Record<string, string>) =>
@@ -1457,52 +1428,71 @@ describe('scenario environment', () => {
             expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: true })])
         }, 30_000)
 
-        it("drops the roles' Postgres connections on every server they use and spares every other one", async () => {
-            const secondServer = await startPostgresRelay(cyclotronUrl)
+        it("drops the roles' Postgres connections in every database they use and spares every other one", async () => {
+            environment = environmentOf()
+            await environment.up()
+            const connect = async (
+                url: string,
+                applicationName: string
+            ): Promise<{ client: Client; ended: Promise<void>; backend: number }> => {
+                const client = new Client({ connectionString: url, application_name: applicationName })
+                const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
+                await client.connect()
+                const backend = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid
+                return { client, ended, backend }
+            }
+            const tag = `${process.pid}-${Date.now()}`
+            const pool = await connect(templatesUrl, 'cdp-cyclotron-worker-hogflow')
+            const jobs = await connect(cyclotronUrl, `scenario-${tag}`)
+            const bystanders = [
+                await connect(templatesUrl, `bystander-${tag}`),
+                await connect(cyclotronUrl, `bystander-${tag}`),
+            ]
+            const sessions = [pool, jobs, ...bystanders]
             try {
-                process.env.CYCLOTRON_NODE_DATABASE_URL = secondServer.url
-                environment = environmentOf()
-                await environment.up()
-                const connect = async (
-                    applicationName: string
-                ): Promise<{ client: Client; ended: Promise<void>; backend: number }> => {
-                    const client = new Client({ connectionString: templatesUrl, application_name: applicationName })
-                    const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
-                    await client.connect()
-                    const backend = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid
-                    return { client, ended, backend }
-                }
-                const tag = `${process.pid}-${Date.now()}`
-                const pool = await connect('cdp-cyclotron-worker-hogflow')
-                const cyclotron = await connect(`scenario-${tag}`)
-                const bystander = await connect(`bystander-${tag}`)
-                try {
-                    const actuation = await environment.actuate({ kind: 'pg.terminate', share: 1 })
+                const actuation = await environment.actuate({ kind: 'pg.terminate', share: 1 })
 
-                    expect(await actuation.observed()).toBe(true)
-                    expect(secondServer.received()).toContain('pg_terminate_backend')
-                    await Promise.all([pool.ended, cyclotron.ended])
-                    const alive = await withPostgres(
-                        async (client) =>
-                            (
-                                await client.query<{ pid: number }>(
-                                    'SELECT pid FROM pg_stat_activity WHERE pid = ANY($1::int[])',
-                                    [[pool, cyclotron, bystander].map(({ backend }) => backend)]
-                                )
-                            ).rows.map(({ pid }) => pid),
-                        templatesUrl
-                    )
-                    expect(alive).toEqual([bystander.backend])
-                    await actuation.release()
-                } finally {
-                    await Promise.all(
-                        [pool, cyclotron, bystander].map(({ client }) => client.end().catch(() => undefined))
-                    )
-                }
+                expect(await actuation.observed()).toBe(true)
+                await Promise.all([pool.ended, jobs.ended])
+                const alive = await withPostgres(
+                    async (client) =>
+                        (
+                            await client.query<{ pid: number }>(
+                                'SELECT pid FROM pg_stat_activity WHERE pid = ANY($1::int[]) ORDER BY pid',
+                                [sessions.map(({ backend }) => backend)]
+                            )
+                        ).rows.map(({ pid }) => pid),
+                    templatesUrl
+                )
+                expect(alive).toEqual(bystanders.map(({ backend }) => backend).sort((x, y) => x - y))
+                await actuation.release()
             } finally {
-                await secondServer.close()
+                await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
             }
         }, 30_000)
+
+        it('drops only the role sessions of the database it is given', async () => {
+            const tag = `${process.pid}-${Date.now()}`
+            const sessions = await Promise.all(
+                [templatesUrl, cyclotronUrl].map(async (url) => {
+                    const client = new Client({ connectionString: url, application_name: `scenario-${tag}` })
+                    const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
+                    await client.connect()
+                    return { client, ended }
+                })
+            )
+            try {
+                const [here, elsewhere] = sessions
+
+                const terminated = await terminateRoleConnections(templatesUrl, 1)
+
+                await here.ended
+                const answered = (await elsewhere.client.query<{ one: number }>('SELECT 1 AS one')).rows[0].one
+                expect({ terminated, answered }).toEqual({ terminated: 1, answered: 1 })
+            } finally {
+                await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
+            }
+        })
 
         it("drops the dose's share of the roles' Postgres connections, rounded up", async () => {
             environment = environmentOf()
