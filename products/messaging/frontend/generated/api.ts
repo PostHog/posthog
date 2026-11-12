@@ -17,6 +17,7 @@ import type {
     BulkAddOptOutsResultApi,
     BulkRemoveSuppressionsRequestApi,
     BulkRemoveSuppressionsResponseApi,
+    CanceledEmailApi,
     CodeEmailApi,
     CodeEmailSourceCandidatesApi,
     EmailStatusApi,
@@ -28,6 +29,7 @@ import type {
     MessageSuppressionApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
+    MessagingEmailsListParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
@@ -40,11 +42,14 @@ import type {
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
+    PatchedRescheduleEmailApi,
     PatchedSupabaseAuthEmailSettingsUpdateApi,
     PreferencesLinkApi,
     ProviderImportRunApi,
     RemoveOptOutRequestApi,
     RemoveSuppressionRequestApi,
+    RescheduledEmailApi,
+    ScheduledEmailPageApi,
     SendEmailApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
@@ -103,6 +108,37 @@ export const messagingAttachmentsUploadsCreate = async (
     })
 }
 
+export const getMessagingEmailsListUrl = (projectId: string, params: MessagingEmailsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging/emails/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging/emails/`
+}
+
+/**
+ * List the emails that wait for their time, soonest first, a page at a time. An email leaves the list when it goes out or is canceled, and an email sent a moment ago can take a few seconds to show up. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too.
+ * @summary List scheduled emails
+ */
+export const messagingEmailsList = async (
+    projectId: string,
+    params: MessagingEmailsListParams,
+    options?: RequestInit
+): Promise<ScheduledEmailPageApi[]> => {
+    return apiMutator<ScheduledEmailPageApi[]>(getMessagingEmailsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/messaging/emails/${id}/`
 }
@@ -119,6 +155,47 @@ export const messagingEmailsRetrieve = async (
     return apiMutator<EmailStatusApi>(getMessagingEmailsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMessagingEmailsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/emails/${id}/`
+}
+
+/**
+ * Change when an email goes out, before PostHog starts sending it, by the `message_id` that the send returned. A time that already passed sends it now. Needs a project secret API key with the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Move a scheduled email
+ */
+export const messagingEmailsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedRescheduleEmailApi?: PatchedRescheduleEmailApi,
+    options?: RequestInit
+): Promise<RescheduledEmailApi> => {
+    return apiMutator<RescheduledEmailApi>(getMessagingEmailsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedRescheduleEmailApi),
+    })
+}
+
+export const getMessagingEmailsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/emails/${id}/cancel/`
+}
+
+/**
+ * Cancel an email before PostHog starts sending it, by the `message_id` that the send returned. A repeat cancel answers 200 too. Needs a project secret API key with the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Cancel a scheduled email
+ */
+export const messagingEmailsCancelCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CanceledEmailApi> => {
+    return apiMutator<CanceledEmailApi>(getMessagingEmailsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

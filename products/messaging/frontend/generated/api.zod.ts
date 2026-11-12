@@ -38,6 +38,21 @@ export const MessagingAttachmentsUploadsCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
+ * Change when an email goes out, before PostHog starts sending it, by the `message_id` that the send returned. A time that already passed sends it now. Needs a project secret API key with the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Move a scheduled email
+ */
+export const messagingEmailsPartialUpdateBodyScheduledAtTwoMax = 10
+
+export const MessagingEmailsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    scheduled_at: zod
+        .union([zod.email(), zod.array(zod.email()).max(messagingEmailsPartialUpdateBodyScheduledAtTwoMax)])
+        .optional()
+        .describe(
+            'When to send the email instead, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. At most 30 days after the email was sent. A time that already passed sends it now.'
+        ),
+})
+
+/**
  * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `messaging_preference:write` scope, which cannot send email. A key with `hog_flow:write` also works, but that scope can send transactional email too.
  * @summary Set a recipient's topic preferences
  */
@@ -75,9 +90,9 @@ export const messagingSendEmailCreateBodyDistinctIdMax = 400
 
 export const messagingSendEmailCreateBodyReplyToMax = 10
 
-export const messagingSendEmailCreateBodyCcTwoMax = 10
+export const messagingSendEmailCreateBodyCcMax = 10
 
-export const messagingSendEmailCreateBodyBccTwoMax = 10
+export const messagingSendEmailCreateBodyBccMax = 10
 
 export const messagingSendEmailCreateBodyAttachmentsItemSha256RegExp = new RegExp('^[0-9a-f]{64}$')
 export const messagingSendEmailCreateBodyAttachmentsItemFilenameMax = 255
@@ -87,6 +102,8 @@ export const messagingSendEmailCreateBodyAttachmentsItemContentTypeMax = 78
 export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 78
 
 export const messagingSendEmailCreateBodyAttachmentsMax = 10
+
+export const messagingSendEmailCreateBodyScheduledAtTwoMax = 10
 
 export const messagingSendEmailCreateBodyFromMax = 1024
 
@@ -133,14 +150,16 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Addresses replies to the email your code rendered go to.'),
     cc: zod
-        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyCcTwoMax), zod.null()])
-        .optional()
+        .array(zod.email())
+        .max(messagingSendEmailCreateBodyCcMax)
+        .nullish()
         .describe(
             "Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here."
         ),
     bcc: zod
-        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyBccTwoMax), zod.null()])
-        .optional()
+        .array(zod.email())
+        .max(messagingSendEmailCreateBodyBccMax)
+        .nullish()
         .describe(
             "Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here."
         ),
@@ -180,9 +199,9 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Files attached to the email your code rendered: up to 10, each uploaded first through `POST \/api\/projects\/{project_id}\/messaging\/attachments\/uploads\/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
         ),
-    scheduled_at: zod.iso
-        .datetime({ offset: true })
-        .nullish()
+    scheduled_at: zod
+        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyScheduledAtTwoMax), zod.null()])
+        .optional()
         .describe(
             'When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. PostHog holds the email until then, at most 30 days after the request. A time that already passed sends it now. Leave it out or send null to send now.'
         ),

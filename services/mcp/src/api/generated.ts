@@ -23662,6 +23662,13 @@ export namespace Schemas {
       check_id: string;
     }
 
+    export interface CanceledEmail {
+      /** The `message_id` of the canceled email. */
+      id: string;
+      /** Always `canceled`. */
+      status: string;
+    }
+
     export interface CandidateEvent {
       /** Name of the candidate event */
       event_name: string;
@@ -91075,6 +91082,11 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedRescheduleEmail {
+      /** When to send the email instead, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. At most 30 days after the email was sent. A time that already passed sends it now. */
+      scheduled_at?: string | string[];
+    }
+
     export interface PatchedReviewBlindSpotsConfigSelect {
       /** Set true to make this the single blind-spots skill that runs on the user's PR reviews. Only true is accepted — the blind-spot check is single-active, so you switch by selecting a different skill, not by deactivating the current one. */
       active?: boolean;
@@ -105384,6 +105396,15 @@ export namespace Schemas {
       repos: string[];
     }
 
+    export interface RescheduledEmail {
+      /** The `message_id` of the moved email. */
+      id: string;
+      /** Always `scheduled`. An email moved to now keeps this status until it goes out. */
+      status: string;
+      /** When the email goes out. For a time that already passed, this is the time of the move. */
+      scheduled_at: string;
+    }
+
     export interface RescoreRequest {
       /** Organization to re-score, from the $group_key of the wizard's $groupidentify event. */
       organization_id: string;
@@ -108655,6 +108676,27 @@ export namespace Schemas {
       by_type: ScannerStatsByType;
     }
 
+    export interface ScheduledEmail {
+      /** The `message_id` that the send returned. */
+      id: string;
+      /** The recipient's address. */
+      to: string;
+      /** When the email goes out. */
+      scheduled_at: string;
+      /** When the send was made. */
+      created_at: string;
+    }
+
+    export interface ScheduledEmailPage {
+      /** The emails, soonest first. */
+      results: ScheduledEmail[];
+      /**
+         * Pass this as `cursor` to read the next page. Null on the last page.
+         * @nullable
+         */
+      next: string | null;
+    }
+
     /**
      * Response shape for a table's destination override.
      */
@@ -110773,21 +110815,26 @@ export namespace Schemas {
          * @maxItems 10
          */
       reply_to?: string[];
-      /** Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
-      cc?: string | string[] | null;
-      /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
-      bcc?: string | string[] | null;
+      /**
+         * Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here.
+         * @maxItems 10
+         * @nullable
+         */
+      cc?: string[] | null;
+      /**
+         * Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here.
+         * @maxItems 10
+         * @nullable
+         */
+      bcc?: string[] | null;
       /**
          * Files attached to the email your code rendered: up to 10, each uploaded first through `POST /api/projects/{project_id}/messaging/attachments/uploads/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
          * @maxItems 10
          * @nullable
          */
       attachments?: EmailAttachment[] | null;
-      /**
-         * When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. PostHog holds the email until then, at most 30 days after the request. A time that already passed sends it now. Leave it out or send null to send now.
-         * @nullable
-         */
-      scheduled_at?: string | null;
+      /** When to send the email, in ISO 8601 with a timezone offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. PostHog holds the email until then, at most 30 days after the request. A time that already passed sends it now. Leave it out or send null to send now. */
+      scheduled_at?: string | string[] | null;
       /**
          * Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says.
          * @deprecated
@@ -138359,6 +138406,34 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type MessagingEmailsListParams = {
+    /**
+     * The `next` value of the page before. Leave it out for the first page.
+     * @minLength 1
+     */
+    cursor?: string;
+    /**
+     * How many emails a page holds, 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Which emails to list. Only `scheduled` is supported: the emails that wait for their time.
+     *
+     * * `scheduled` - Scheduled
+     * @minLength 1
+     */
+    status: MessagingEmailsListStatus;
+    };
+
+    export type MessagingEmailsListStatus = typeof MessagingEmailsListStatus[keyof typeof MessagingEmailsListStatus];
+
+
+    export const MessagingEmailsListStatus = {
+      Scheduled: 'scheduled',
+    } as const;
 
     export type MessagingCategoriesListParams = {
     /**
