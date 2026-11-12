@@ -96,6 +96,30 @@ def test_private_trial_keeps_the_pinned_model_without_agent_telemetry(mocker, is
     assert environment.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if is_trial else "synthetic-token")
 
 
+@pytest.mark.parametrize(
+    "github_token, gitlab_token, expected",
+    [
+        ("gh-token", "", {"GH_TOKEN": "gh-token", "GITLAB_TOKEN": None, "POSTHOG_GIT_PROVIDER": None}),
+        ("", "gl-token", {"GH_TOKEN": None, "GITLAB_TOKEN": "gl-token", "POSTHOG_GIT_PROVIDER": "gitlab"}),
+    ],
+    ids=["github", "gitlab"],
+)
+def test_environment_variables_name_the_git_provider(mocker, github_token, gitlab_token, expected) -> None:
+    for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+        mocker.patch.object(provision_sandbox_module, name, return_value={})
+    mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
+
+    environment = provision_sandbox_module._build_environment_variables(
+        _context_for_desktop_bootstrap(),
+        mocker.Mock(is_scout_experiment=False),
+        github_token,
+        "fake-token",
+        gitlab_token,
+    )
+
+    assert {key: environment.get(key) for key in expected} == expected
+
+
 class _ShellSandbox:
     def __init__(self, env: dict[str, str]) -> None:
         self.config = type("Config", (), {"image_fallback": None})()
@@ -473,6 +497,7 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         shallow=True,
         branch=expected_branch,
         blobless=True,
+        gitlab_token="",
     )
 
 
@@ -524,6 +549,7 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             shallow=True,
             branch="branch-from-a-sibling-repository",
             blobless=False,
+            gitlab_token="",
         ),
         mocker.call(
             "posthog/posthog",
@@ -531,6 +557,7 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             shallow=True,
             branch=None,
             blobless=False,
+            gitlab_token="",
         ),
     ]
 

@@ -17,8 +17,9 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.github_integration_base import GitHubIntegrationError
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, GitLabIntegration, GitLabIntegrationError
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
@@ -51,6 +52,7 @@ from products.tasks.backend.logic.services.network_policy import (
     compile_network_policy,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    GITLAB_HOST,
     ExecutionResult,
     SandboxBase,
     SandboxConfig,
@@ -149,6 +151,7 @@ class PrepareSandboxForRepositoryOutput:
     snapshot_source: str = "none"
     sandbox_creation_timeout_seconds: int = 300
     sandbox_creation_cancellable: bool = False
+    gitlab_token: str = ""
 
 
 @dataclass
@@ -207,6 +210,7 @@ class CloneRepositoryInSandboxInput:
     repository: str
     github_token: str
     shallow_clone: bool
+    gitlab_token: str = ""
 
 
 @dataclass
@@ -491,6 +495,21 @@ def _resolve_sandbox_github_token(
         )
 
 
+def _resolve_sandbox_gitlab_token(ctx: TaskProcessingContext) -> str:
+    """The token a GitLab run clones and pushes with, or an empty string for any other run."""
+    if ctx.repository_integration_id is None:
+        return ""
+    try:
+        integration = IntegrationManager.gitlab.token.get(ctx.team_id, ctx.repository_integration_id)
+        return GitLabIntegration(integration).credentials.access_token().token
+    except (IntegrationNotFound, GitLabIntegrationError) as e:
+        raise CredentialUnavailableError(
+            "The GitLab connection for this task is missing or unusable",
+            {"repository_integration_id": ctx.repository_integration_id, "task_id": ctx.task_id},
+            cause=e,
+        )
+
+
 @StepTimer("load_task")
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
@@ -562,7 +581,7 @@ def _sandbox_image_kind(image_source: str, custom_image_name: str | None) -> str
 
 @StepTimer("environment_variables")
 def _build_environment_variables(
-    ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str
+    ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str, gitlab_token: str = ""
 ) -> dict[str, str]:
     environment_variables = {
         "POSTHOG_PERSONAL_API_KEY": access_token,
@@ -594,6 +613,11 @@ def _build_environment_variables(
     if github_token:
         environment_variables["GITHUB_TOKEN"] = github_token
         environment_variables["GH_TOKEN"] = github_token
+    if gitlab_token:
+        # The agent reads these to push with plain git and open merge requests through the GitLab API.
+        environment_variables["POSTHOG_GIT_PROVIDER"] = "gitlab"
+        environment_variables["GITLAB_TOKEN"] = gitlab_token
+        environment_variables["GITLAB_HOST"] = GITLAB_HOST
 
     # BASH_ENV is intentionally NOT set in the container env: it's applied only to the
     # agent-server launch (see the sandbox services) so backend maintenance execs don't source
@@ -753,6 +777,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         github_token = _resolve_sandbox_github_token(
             ctx, task=task, actor_user=actor_user, repository=credential_repository, has_repo=has_repo
         )
+        gitlab_token = _resolve_sandbox_gitlab_token(ctx)
 
         try:
             with StepTimer("posthog_access_token"):
@@ -764,7 +789,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 cause=e,
             )
 
-        environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
+        environment_variables = _build_environment_variables(ctx, task, github_token, access_token, gitlab_token)
 
         resume_snapshot_external_id = run_state.snapshot_external_id
         if resume_snapshot_external_id:
@@ -828,6 +853,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             sandbox_name=get_sandbox_name_for_task(ctx.task_id),
             repository=repository,
             github_token=github_token,
+            gitlab_token=gitlab_token,
             branch=ctx.branch,
             environment_variables=environment_variables,
             snapshot_id=str(snapshot.id) if snapshot and not resume_snapshot_external_id else None,
@@ -1161,9 +1187,10 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
     raise cancellation
 
 
-def _redact_clone_output(output: str, github_token: str | None) -> str:
-    if github_token:
-        output = output.replace(github_token, "<redacted>")
+def _redact_clone_output(output: str, *tokens: str | None) -> str:
+    for token in tokens:
+        if token:
+            output = output.replace(token, "<redacted>")
     return redact_sandbox_command(output)[:500]
 
 
@@ -1212,6 +1239,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 shallow=input.shallow_clone,
                 branch=ctx.branch if is_resume else None,
                 blobless=blobless_clone,
+                gitlab_token=input.gitlab_token,
             )
 
             if is_resume and ctx.branch and _is_missing_remote_branch_clone_error(clone_result):
@@ -1226,12 +1254,17 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     shallow=input.shallow_clone,
                     branch=None,
                     blobless=blobless_clone,
+                    gitlab_token=input.gitlab_token,
                 )
 
             if clone_result.exit_code != 0:
-                stderr = _redact_clone_output(clone_result.stderr, github_token)
-                stdout = _redact_clone_output(clone_result.stdout, github_token)
-                execution_error = _redact_clone_output(clone_result.error, github_token) if clone_result.error else None
+                stderr = _redact_clone_output(clone_result.stderr, github_token, input.gitlab_token)
+                stdout = _redact_clone_output(clone_result.stdout, github_token, input.gitlab_token)
+                execution_error = (
+                    _redact_clone_output(clone_result.error, github_token, input.gitlab_token)
+                    if clone_result.error
+                    else None
+                )
                 error_context = {
                     "repository": input.repository,
                     "sandbox_id": input.sandbox_id,
@@ -1373,8 +1406,7 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
         log_with_activity_context(f"Checking out branch {input.branch}", run_id=ctx.run_id)
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
-        org, repo = input.repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        repo_path = sandbox_repo_path(input.repository)
 
         if input.used_snapshot and input.github_token:
             update_remote = (
