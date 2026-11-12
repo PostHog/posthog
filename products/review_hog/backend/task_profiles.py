@@ -37,7 +37,7 @@ REVIEW = TaskProfile(
     warm=None,
     runtimes=("acp",),
     sandbox_templates=("default_base",),
-    network=NetworkPolicy(levels=(NetworkAccess.FULL,)),
+    network=NetworkPolicy(levels=(NetworkAccess.TRUSTED,)),
     inherit_user_defaults=False,
     personal_mcp=False,
     mcp_agent=None,
