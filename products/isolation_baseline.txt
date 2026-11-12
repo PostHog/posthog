@@ -22,6 +22,7 @@ alerts
 analytics_platform
 apm
 approvals
+authorization
 batch_exports
 billing_alerts
 business_knowledge

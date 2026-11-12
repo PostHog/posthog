@@ -956,6 +956,8 @@ def _isolated_tests_state(status: IsolationStatus) -> tuple[str, str]:
     """(state, reason) for the isolated-tests certificate \u2014 the contract-check skip."""
     if status.test_skip_configured:
         return "ON", "contract-check skip live \u2014 Django suite stays off unrelated CI shards"
+    if status.skip_withheld_reason:
+        return "WITHHELD", f"by DevEx decision: {status.skip_withheld_reason}"
     if status.is_sealed and _blocking_facade_classes(status):
         return "BLOCKED", _blocked_reason(status)
     if status.is_sealed:
@@ -1027,7 +1029,7 @@ def _isolation_capstone(status: IsolationStatus) -> list[str]:
     return lines
 
 
-SEAL_LEGEND = "seal: on=tests live  ready=eligible, not wired  cls:N=facade hands out N non-contract classes  int:N=N internal bypasses open  ext\u2717=external boundary open  \u2014=Lenient (no facade contracts)"
+SEAL_LEGEND = "seal: on=tests live  held=skip withheld by DevEx decision  ready=eligible, not wired  cls:N=facade hands out N non-contract classes  int:N=N internal bypasses open  ext\u2717=external boundary open  \u2014=Lenient (no facade contracts)"
 
 
 def _seal_token(status: IsolationStatus | None) -> str:
@@ -1036,6 +1038,8 @@ def _seal_token(status: IsolationStatus | None) -> str:
         return "\u2014"
     if status.test_skip_configured:
         return "on"
+    if status.skip_withheld_reason:
+        return "held"
     if not status.externally_sealed:
         return "ext\u2717"
     if status.deferred_count > 0:

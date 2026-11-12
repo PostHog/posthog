@@ -437,6 +437,8 @@ def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
     Surfaced on a passing single-product lint so a reader sees the decision, not just
     its silent absence. Returns None when there's nothing meaningful to explain.
     """
+    if status.skip_withheld_reason:
+        return f"DevEx decision: {status.skip_withheld_reason}"
     if status.facade_leaks:
         classes = ", ".join(sorted({v.class_name for v in status.facade_leaks}))
         return f"facade hands out non-contract class(es) ({classes}) — not soundly isolated (see § Wiring couplings)"
@@ -555,7 +557,10 @@ class PackageJsonScriptsCheck(ProductCheck):
         # absence check below still keys on plain eligibility, so the five products that deliberately
         # keep script+broad while un-narrowed aren't told to drop it.
         require_contract_check_script = (
-            needs_contract_check and not status.facade_leaks and not status.unapproved_wiring
+            needs_contract_check
+            and not status.facade_leaks
+            and not status.unapproved_wiring
+            and status.skip_withheld_reason is None
         )
         required = ["backend:test"] + (["backend:contract-check"] if require_contract_check_script else [])
         for script in required:
@@ -567,7 +572,14 @@ class PackageJsonScriptsCheck(ProductCheck):
                 )
 
         # --- absence check: must NOT have contract-check when not safe for isolation ---
-        if not needs_contract_check and "backend:contract-check" in scripts:
+        if status.skip_withheld_reason and "backend:contract-check" in scripts:
+            result.lines.append("✗ must not have 'backend:contract-check'")
+            result.issues.append(
+                f"the contract-check skip is withheld for this product ({status.skip_withheld_reason}). "
+                "Remove 'backend:contract-check' from package.json. Only a DevEx-reviewed change to "
+                "SKIP_WITHHELD in hogli_commands/product/isolation.py can turn the skip on"
+            )
+        elif not needs_contract_check and "backend:contract-check" in scripts:
             if status.has_legacy_leaks:
                 reason = "has legacy interface leaks (core imports internals directly)"
             elif status.deferred_count > 0:
