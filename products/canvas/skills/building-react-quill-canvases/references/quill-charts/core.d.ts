@@ -1,7 +1,7 @@
 // Types that 3 or more quill-charts components share.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
-// Importable from '@posthog/quill-charts': Series, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, SeriesType, XAxisConfig, YAxisConfig, ValueLabelsConfig, GoalLineConfig, TrendLineConfig, AxisLinesConfig, TooltipConfig, ChartLegendConfig, ChartConfig, ValueDomain, TimeInterval, YFormatterConfig, ValueLabelFormatter, LegendItem, LegendItemControls, ChartMargins, YAxis, YAxisFormat, ValueLabelContext, RadialSlicePayload, ResolvedSeries.
+// Importable from '@posthog/quill-charts': Series, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, SeriesType, XAxisConfig, YAxisConfig, ValueLabelsConfig, GoalLineConfig, TrendLineConfig, AxisLinesConfig, TooltipConfig, ChartLegendConfig, ChartConfig, ValueDomain, TimeInterval, YFormatterConfig, ValueLabelsProps, ValueLabelFormatter, ReferenceLineStroke, DefaultTooltipProps, LegendItem, LegendItemControls, LegendTableConfig, ChartMargins, YAxis, YAxisFormat, ValueLabelContext, LegendValue, RadialSlicePayload, ResolvedSeries.
 // Other declarations here are shapes to match, not names to import.
 
 export interface Series<Meta = unknown> {
@@ -32,8 +32,9 @@ export interface Series<Meta = unknown> {
     /** Bar charts only: per-bar ceiling (in value-axis units) of the bar's interactive extent. The
      *  region beyond the ceiling is a blank, fully inert gap — no hover, tooltip, highlight, or
      *  click (`onPointClick` passes through). On grouped charts with `bars.track`, the hatched
-     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis; on
-     *  stacked charts no track is drawn — the ceiling only bounds interactivity. Used by funnel
+     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis. With
+     *  `bars.track: 'solid'`, the band's track stops at its largest ceiling. On stacked charts
+     *  without a solid track, the ceiling only bounds interactivity. Used by funnel
      *  compare to show a shorter period's volume gap as empty space rather than drop-off. Omit (or
      *  leave an entry undefined) for the default full-axis extent. */
     trackData?: number[]
@@ -49,13 +50,17 @@ export interface Series<Meta = unknown> {
      *  Defaults to `unknown` so the library is meta-agnostic internally; adapters narrow it
      *  via `Series<MyMeta>` to get typed reads in their tooltip/click handlers. */
     meta?: Meta
-    /** Point markers configuration. Omit for no dots. */
+    /** Point markers configuration. Omit to dot only the points with no line through them. A radius of 0 hides every dot. */
     points?: {
         /** Radius in CSS pixels. */
         radius: number
     }
     /** Line stroke configuration. */
     stroke?: {
+        /** Line width in CSS pixels. Defaults to 2. `0` draws no line, for an area fill or points
+         *  without a stroke. Lines have round caps, which close a dash gap narrower than the width,
+         *  so a wide line with a custom `pattern` needs wider gaps. */
+        width?: number
         /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit for solid. */
         pattern?: number[]
         /** A range of indices that should be drawn with a different (typically dashed) pattern. */
@@ -68,7 +73,8 @@ export interface Series<Meta = unknown> {
              *  beyond it — everything before stays solid. Lets a two-point line dash just its second
              *  half without a phantom interior point. Takes precedence over `fromIndex`/`toIndex`. */
             fromFraction?: number
-            /** Dash pattern for the partial range. Defaults to [10, 10]. */
+            /** Dash pattern for the partial range. Defaults to 10px dashes with an 8px visible gap,
+             *  `[10, 10]` at the default width. */
             pattern?: number[]
         }
     }
@@ -246,20 +252,18 @@ export interface YAxisConfig extends YFormatterConfig {
     showGrid?: boolean
     /** Y-axis baseline behavior. The default (`undefined`/`true`) clamps a non-negative axis down to
      *  0. Set `false` to float the axis to its data range instead (zoom in on the variation). Ignored
-     *  on a log scale; honored per axis in the array (multi-axis) form, except axes carrying bar
-     *  series, which always draw from 0. */
+     *  on a log scale; honored per axis, except on axes carrying bar series, which always draw from 0. */
     startAtZero?: boolean
     /** Pins the low end of the axis, overriding both the data-derived bound and `startAtZero`. Omit
      *  for an automatic bound. Honored per axis in the array (multi-axis) form; ignored under a
-     *  percent layout, and dropped when non-positive on a log scale. Read by the line charts only:
-     *  this config is shared, but bar and combo charts ignore it, since a bar encodes magnitude as
-     *  length from zero. */
+     *  percent layout, and dropped when non-positive on a log scale. Bar charts, and combo-chart axes
+     *  carrying bar series, ignore it, since a bar encodes magnitude as length from zero. */
     min?: number
     /** Pins the high end of the axis. Omit for an automatic bound. See {@link YAxisConfig.min}. */
     max?: number
 }
 
-export interface ValueLabelsConfig {
+export interface ValueLabelsConfig extends Pick<ValueLabelsProps, 'position' | 'background' | 'fontSize' | 'rotation'> {
     seriesKeys?: string[]
     /** Per-segment label text — see `ValueLabelFormatter` for the context and empty-string contract. */
     formatter?: ValueLabelFormatter
@@ -270,6 +274,8 @@ export interface GoalLineConfig {
     label?: string
     displayLabel?: boolean
     color?: string
+    /** Line style. Defaults to `dashed`. */
+    stroke?: ReferenceLineStroke
     labelPosition?: 'start' | 'end'
     displayIfCrossed?: boolean
     /** Forwarded to {@link ReferenceLineProps.showValueOnHover}; defaults to true. */
@@ -295,7 +301,7 @@ export type AxisLinesConfig =
           y?: boolean
       }
 
-export interface TooltipConfig {
+export interface TooltipConfig extends Pick<DefaultTooltipProps, 'labelRenderer' | 'showHeader' | 'hideZeroRows'> {
     /** Show a tooltip on hover. Defaults to true. */
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */
@@ -318,8 +324,10 @@ export interface TooltipConfig {
     showTotal?: boolean
     totalLabel?: string
     totalFormatter?: (value: number) => string
-    /** Sort series rows by value descending so the highest value appears at the top. */
-    sortedByValue?: boolean
+    /** Sort series rows by value: `true` or `'desc'` highest first, `'asc'` lowest first. */
+    sortedByValue?: boolean | 'asc' | 'desc'
+    /** `single` lists only the series closest to the cursor. Defaults to `all`. */
+    mode?: 'all' | 'single'
     /** Bar charts only. `bar` (the default) tooltips only inside a painted bar. `band` tooltips
      *  anywhere in the hovered band, so a one-pixel bar or a zero bucket still reports its value. */
     hitArea?: 'bar' | 'band'
@@ -370,6 +378,9 @@ export interface ChartLegendConfig {
      *  while keeping the default swatch/label/toggle rendering. Return `defaultNode` to leave a row
      *  untouched. */
     renderItem?: (defaultNode: ReactNode, item: LegendItem, controls: LegendItemControls) => ReactNode
+    /** Renders the legend as a table with one column per summary (`{ values: ['mean', 'max', 'last'] }`).
+     *  Rows still isolate and toggle on click, and a header click sorts by that column. */
+    table?: LegendTableConfig
 }
 
 /** An x-axis range resolved to labels — the shared shape of the drag-selection payloads. */
@@ -384,11 +395,13 @@ export interface LabelRange {
 export interface ChartConfig {
     /** Y-axis scale type. 'log' clamps minimum to 1e-10 to avoid log(0). Defaults to 'linear'. */
     yScaleType?: 'linear' | 'log'
-    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index). */
+    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index).
+     *  On a horizontal bar chart it formats the category labels on the left axis. */
     xTickFormatter?: (value: string, index: number) => string | null
     /** Fixed x-axis tick-label rotation in degrees, clamped to -90..90. Defaults to 0. */
     xTickLabelRotation?: number
-    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter. */
+    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter.
+     *  On a horizontal bar chart it formats the value axis along the bottom. */
     yTickFormatter?: (value: number) => string
     /** Hide the x-axis labels and reduce bottom margin. */
     hideXAxis?: boolean
@@ -407,7 +420,8 @@ export interface ChartConfig {
     /** Line/area interpolation. `linear` (default) draws straight segments; `monotone` smooths the
      *  line with monotone-cubic curves that pass through every point without overshooting. */
     curve?: 'linear' | 'monotone'
-    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
+    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement on the base
+     *  `Chart`. Charts that apply `DEFAULT_CHART_CONFIG` use `cursor` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
@@ -419,12 +433,13 @@ export interface ChartConfig {
     /** Fade-in the hover overlay when the hovered point changes. `true` = ~150ms. */
     animateHover?: boolean | number
     /** Per-side overrides applied on top of the computed chart margins. Useful for sparklines
-     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
-     *  Should be referentially stable — pass a module-level constant rather than an inline object. */
+     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`). */
     margins?: Partial<ChartMargins>
     /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
-     *  label can't push the plot off screen. Omit (default) to render labels untruncated. */
+     *  label can't push the plot off screen. Horizontal charts raise the cap to 30% of the chart
+     *  width when that is wider, so a wider chart shows more of each label. Omit (default) to
+     *  render labels untruncated. */
     maxCategoryLabelWidth?: number
     /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
      *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
@@ -471,6 +486,24 @@ export interface YFormatterConfig {
     currency?: string
 }
 
+export interface ValueLabelsProps {
+    valueFormatter?: ValueLabelFormatter
+    minGap?: number
+    mode?: ValueLabelsMode
+    /** Per-segment labels only: place labels at the bar end (default) or inside the segment's center. */
+    position?: 'end' | 'center'
+    /** Draw a series-colored badge behind the text. Defaults to true. */
+    background?: boolean
+    /** Label size in pixels, clamped to 8..32. */
+    fontSize?: number
+    /** Label rotation in degrees, clamped to -90..90. */
+    rotation?: number
+    /** Gap in px between the bar tip and the label, applied along the value axis in the outward
+     *  direction (right/above the tip, or inward for labels flipped inside a clipped bar). Ignored
+     *  for centered (`percent`) labels. Defaults to 0 — the label's edge sits on the bar tip. */
+    offset?: number
+}
+
 /** Returning an empty string skips the label entirely. */
 export type ValueLabelFormatter = (
     value: number,
@@ -480,12 +513,62 @@ export type ValueLabelFormatter = (
     context: ValueLabelContext
 ) => string
 
+export type ReferenceLineStroke = 'dashed' | 'solid'
+
+export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta> {
+    /** Formats each row's value. Receives the row's `seriesData` entry as a second argument so
+     *  callers can format per-series — e.g. each SQL column with its own currency/duration/percent
+     *  settings — rather than with one global formatter. Defaults to `toLocaleString`. Existing
+     *  callers that take only `value` keep working (the extra argument is ignored). May return a
+     *  node (e.g. a property-formatted value) and not just a string. */
+    valueFormatter?: (value: number, entry: SeriesDatum<Meta>) => React.ReactNode
+    /** Transforms the header label before display — use to convert raw ISO strings to human-
+     *  readable dates. Defaults to rendering the label as-is. */
+    labelFormatter?: (label: string) => React.ReactNode
+    /** Overrides how each row's label renders. Defaults to the series label. Use for richer labels
+     *  than a plain string — e.g. breakdown-value pills. */
+    labelRenderer?: (entry: SeriesDatum<Meta>) => React.ReactNode
+    /** Show the header label row. Defaults to true; pass false for charts without a meaningful
+     *  header (e.g. pie slices, aggregated single-column bars). */
+    showHeader?: boolean
+    /** Append a footer row summing the visible series at the hovered point. `overlay` series
+     *  (e.g. goal lines) and series with `visibility.total: false` (values that don't sum
+     *  meaningfully, e.g. a percentage alongside counts) are excluded from the sum, and the row is
+     *  suppressed when fewer than two summable series remain — a single-series total would just
+     *  restate the one row. */
+    showTotal?: boolean
+    /** Label for the total row. Defaults to 'Total'. */
+    totalLabel?: string
+    /** Formats the total value. Defaults to the `valueFormatter` (applied with the first summable
+     *  row's entry) or `toLocaleString`. */
+    totalFormatter?: (value: number) => React.ReactNode
+    /** Sort series rows by value. `true` or `'desc'` puts the highest value at the top, `'asc'` the
+     *  lowest. Unsorted rows follow the series' vertical order on the plot. */
+    sortedByValue?: boolean | 'asc' | 'desc'
+    /** `single` lists only the series closest to the cursor (the hovered segment on a stacked bar).
+     *  It lists every row when the tooltip is pinned or no series is under the cursor. Defaults to
+     *  `all`. */
+    mode?: 'all' | 'single'
+    /** Hide rows whose value is exactly 0 — useful when a zero means the series is absent rather than measured. */
+    hideZeroRows?: boolean
+    /** Make each series row clickable, firing with the row's `seriesData` entry. The tooltip must
+     *  be pinned for clicks to land (an unpinned tooltip has `pointer-events: none`). Used to open a
+     *  drill-down (e.g. the persons modal) for a specific series. */
+    onRowClick?: (entry: SeriesDatum<Meta>) => void
+    /** Extra content rendered below all rows and the total, separated by a divider. */
+    footer?: React.ReactNode
+}
+
 export interface LegendItem {
     key: string
     label: string
     color: string
     /** Optional trailing text shown muted after the label — e.g. a slope chart's per-series change. */
     secondaryLabel?: string
+    /** Extra classes for the color swatch, for example a dashed outline. */
+    swatchClassName?: string
+    /** Per-series summaries for a value-column legend, `null` when the series has no finite value. */
+    values?: Partial<Record<LegendValue, number | null>>
 }
 
 /** One legend row's visibility state plus the actions that can change it, handed to
@@ -509,6 +592,19 @@ export interface LegendItemControls {
     isolate: () => void
     /** Hide every series, or show all when any is hidden. */
     toggleAll: () => void
+}
+
+export interface LegendTableConfig {
+    values: LegendValue[]
+    /** Read on mount only. Omit to keep the series order. A header click changes the sort. */
+    defaultSort?: {
+        by: 'label' | LegendValue
+        /** Defaults to true for a value column and false for `'label'`, the order a header click starts with. */
+        descending?: boolean
+    }
+    /** Formats a value cell. The time-series charts default to the series' axis tick format; the
+     *  others to a locale number with significant decimals. */
+    valueFormatter?: (value: number, item: LegendItem) => string
 }
 
 /** Spacing between the container edges and the plot area. */
@@ -552,6 +648,8 @@ export type YAxisFormat =
     | 'duration_ns'
     | 'short'
 
+export type ValueLabelsMode = 'per-segment' | 'stack-total'
+
 /** Per-segment context handed to a value formatter so callers can compute labels that depend on
  *  the band (e.g. each segment's share of its band). Keeps band/stacking knowledge in the library
  *  while leaving the label text — values, percentages, units — entirely to the caller. */
@@ -568,6 +666,12 @@ export interface ValueLabelContext {
     /** True in normalized/percent layout, where `value` is already a fraction. */
     isPercent: boolean
 }
+
+type SeriesDatum<Meta> = TooltipContext<Meta>['seriesData'][number]
+
+/** A per-series summary a legend table can show as a column, computed over the series' finite
+ *  values. `delta` is the last value minus the first. */
+export type LegendValue = 'mean' | 'min' | 'max' | 'last' | 'sum' | 'delta'
 
 export interface RadialSlicePayload<Meta = unknown> {
     sliceIndex: number

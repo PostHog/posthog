@@ -1,7 +1,7 @@
-// Types of `ReferenceLine`. Shared types it uses, declared in core.d.ts: .
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Types of `ReferenceLine`. Shared types it uses, declared in core.d.ts: ReferenceLineStroke.
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
-// Importable from '@posthog/quill-charts': ReferenceLine, ReferenceLines, ReferenceLineProps, ReferenceLineOrientation, ReferenceLineLabelPosition, ReferenceLineStyle, ReferenceLineFillSide, ReferenceLineVariant, ReferenceLineStroke.
+// Importable from '@posthog/quill-charts': ReferenceLine, ReferenceLines, ReferenceLineProps, ReferenceLineOrientation, ReferenceLineLabelPosition, ReferenceLineStyle, ReferenceLineFillSide, ReferenceLineVariant.
 // Other declarations here are shapes to match, not names to import.
 
 /** Dispatches to the orientation-specific renderer. Each sub-component does its own
@@ -27,7 +27,7 @@ export interface ReferenceLineProps {
     style?: ReferenceLineStyle
     /** Optional filled half-plane on one side of the line. */
     fillSide?: ReferenceLineFillSide
-    /** Preset: `goal` (dashed grey), `alert` (dashed red), `marker` (solid thin grey). Defaults to `goal`. */
+    /** Preset: `goal` (dashed grey), `alert` (dashed red), `marker` (thin dashed, axis label color). Defaults to `goal`. */
     variant?: ReferenceLineVariant
     /** Which y-axis this line references. Only used for horizontal lines. Defaults to the primary axis. */
     yAxisId?: string
@@ -62,5 +62,3 @@ export interface ReferenceLineStyle {
 export type ReferenceLineFillSide = 'above' | 'below' | 'left' | 'right'
 
 export type ReferenceLineVariant = 'goal' | 'alert' | 'marker'
-
-export type ReferenceLineStroke = 'dashed' | 'solid'

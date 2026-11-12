@@ -48,7 +48,7 @@ const ENTRIES = {
     SlopeChart: ['SlopeChart'],
     Sparkline: ['Sparkline'],
     MetricCard: ['MetricCard'],
-    Chart: ['Chart', 'applyChartDefaults'],
+    Chart: ['Chart', 'applyChartDefaults', 'drawGrid', 'drawAxes', 'resolveAxisLineColor'],
     RadialChart: ['RadialChart'],
     ReferenceLine: ['ReferenceLine', 'ReferenceLines'],
     HighlightedRange: ['HighlightedRange'],

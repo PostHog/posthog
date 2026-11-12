@@ -1,5 +1,5 @@
-// Types of `ScatterChart`. Shared types it uses, declared in core.d.ts: ChartTheme, ChartLegendConfig, ChartMargins, TooltipContext, LegendItem, LegendItemControls, TooltipConfig, Series, SeriesType.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Types of `ScatterChart`. Shared types it uses, declared in core.d.ts: ChartTheme, ChartLegendConfig, ChartMargins, TooltipContext, LegendItem, LegendItemControls, LegendTableConfig, TooltipConfig, Series, LegendValue, DefaultTooltipProps, SeriesType, SeriesDatum.
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': ScatterChart, ScatterChartProps, ScatterSeries, ScatterChartConfig, ScatterTooltipContext, ScatterPointDatum, ScatterAreaSelection, ScatterPoint, ScatterMarkerShape, ScatterAxisConfig, ScatterTooltipConfig.
 // Other declarations here are shapes to match, not names to import.
@@ -8,7 +8,8 @@ export declare function ScatterChart<Meta = unknown>({ onError, ...rest }: Scatt
 
 export interface ScatterChartProps<Meta = unknown> {
     series: ScatterSeries<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: ScatterChartConfig<Meta>
     tooltip?: (ctx: ScatterTooltipContext<Meta>) => React.ReactNode
     onPointClick?: (point: ScatterPointDatum<Meta>) => void
@@ -36,6 +37,8 @@ export interface ScatterChartConfig<Meta = unknown> {
     xAxis?: ScatterAxisConfig
     yAxis?: ScatterAxisConfig
     pointRadius?: number
+    /** Draws a selection halo without changing point geometry or hit targets. */
+    isPointHighlighted?: (point: ScatterPoint<Meta>) => boolean
     /** Under 1 so a dense cloud reads as denser rather than painting over itself. Markers keep an
      *  opaque outline either way. */
     fillOpacity?: number
@@ -46,9 +49,9 @@ export interface ScatterChartConfig<Meta = unknown> {
     /** Draws a dashed least-squares fit line per series, spanning that series' own points. Fitted in
      *  the axes' own space, so a log axis fits the log values. */
     showBestFit?: boolean
-    legend?: ChartLegendConfig
+    legend?: Omit<ChartLegendConfig, 'table'>
     tooltip?: ScatterTooltipConfig<Meta>
-    /** Applied over the computed margins. Should be referentially stable (a module-level constant). */
+    /** Applied over the computed margins. */
     margins?: Partial<ChartMargins>
 }
 

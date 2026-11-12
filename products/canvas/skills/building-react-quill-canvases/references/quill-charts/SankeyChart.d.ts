@@ -1,5 +1,5 @@
 // Types of `SankeyChart`. Shared types it uses, declared in core.d.ts: ChartTheme, ChartMargins, TooltipContext, Series, SeriesType.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': SankeyChart, SankeyChartProps, SankeyNodeInput, SankeyLinkInput, SankeyChartConfig, SankeyTooltipContext, SankeyNodeDatum, SankeyLinkDatum, SankeyTooltipHit, SankeyHighlight, SankeyNodeAlign, SankeyLastColumnLabels.
 // Other declarations here are shapes to match, not names to import.
@@ -12,7 +12,8 @@ export declare function SankeyChart<NodeMeta = unknown, LinkMeta = NodeMeta>({
 export interface SankeyChartProps<NodeMeta = unknown, LinkMeta = NodeMeta> {
     nodes: SankeyNodeInput<NodeMeta>[]
     links: SankeyLinkInput<LinkMeta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: SankeyChartConfig
     tooltip?: (ctx: SankeyTooltipContext<NodeMeta, LinkMeta>) => React.ReactNode
     onNodeClick?: (node: SankeyNodeDatum<NodeMeta>) => void
@@ -92,7 +93,7 @@ export interface SankeyChartConfig {
          *  anchors it to the hovered node's right edge or the ribbon's midpoint. */
         placement?: 'follow-data' | 'top' | 'cursor'
     }
-    /** Per-side margin overrides. Should be referentially stable. Column headers add their room to
+    /** Per-side margin overrides. Column headers add their room to
      *  the top margin, and `outside` labels to the right margin, on top of an override. */
     margins?: Partial<ChartMargins>
 }

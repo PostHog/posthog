@@ -1,13 +1,10 @@
-// Types of `SlopeChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, PointClickData, SeriesType, ChartConfig, ValueDomain, AxisLinesConfig, TooltipConfig, ChartMargins, YAxis, ChartLegendConfig, LegendItem, LegendItemControls.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Types of `SlopeChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, PointClickData, SeriesType, ChartConfig, ValueDomain, AxisLinesConfig, TooltipConfig, ChartMargins, YAxis, ChartLegendConfig, DefaultTooltipProps, LegendItem, LegendItemControls, LegendTableConfig, SeriesDatum, LegendValue.
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': SlopeChart, SlopeSeriesMeta, SlopeChartProps, SlopeChartConfig, SlopeChartLegendConfig.
 // Other declarations here are shapes to match, not names to import.
 
-export declare function SlopeChart<Meta = SlopeSeriesMeta>({
-    onError,
-    ...rest
-}: SlopeChartProps<Meta>): React.ReactElement
+export declare function SlopeChart<Meta = SlopeSeriesMeta>(props: SlopeChartProps<Meta>): React.ReactElement
 
 /** Per-series options read from `Series.meta` by the slope chart. Lets a consumer toggle the
  *  start/end value labels for an individual series without touching the shared `Series` type. */
@@ -25,7 +22,8 @@ export interface SlopeChartProps<Meta = SlopeSeriesMeta> {
     series: Series<Meta>[]
     labels: string[]
     config?: SlopeChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string

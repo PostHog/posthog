@@ -1,5 +1,5 @@
-// Types of `BoxPlot`. Shared types it uses, declared in core.d.ts: ChartTheme, ChartConfig, ChartLegendConfig, TooltipContext, AxisLinesConfig, TooltipConfig, ChartMargins, YAxis, LegendItem, LegendItemControls, Series, ValueDomain, SeriesType.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Types of `BoxPlot`. Shared types it uses, declared in core.d.ts: ChartTheme, ChartConfig, ChartLegendConfig, TooltipContext, AxisLinesConfig, TooltipConfig, ChartMargins, YAxis, LegendItem, LegendItemControls, LegendTableConfig, Series, DefaultTooltipProps, ValueDomain, LegendValue, SeriesType, SeriesDatum.
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': BoxPlot, BoxPlotProps, BoxPlotSeries, BoxPlotConfig, BoxPlotTooltipContext, BoxPlotClickData, BoxPlotDatum, BoxPlotAdaptedMeta.
 // Other declarations here are shapes to match, not names to import.
@@ -9,7 +9,8 @@ export declare function BoxPlot<Meta = unknown>({ onError, ...rest }: BoxPlotPro
 export interface BoxPlotProps<Meta = unknown> {
     series: BoxPlotSeries<Meta>[]
     labels: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: BoxPlotConfig
     /** Optional custom tooltip. Receives the adapter `TooltipContext`; consumers can read
      *  the original datum back out via `entry.series.meta?.datums?.[ctx.dataIndex]`. */
@@ -47,13 +48,15 @@ export interface BoxPlotSeries<Meta = unknown> {
 /** Chart-level config. `axisOrientation: 'horizontal'` lists the labels down the y-axis and draws
  *  the value axis along x, which suits a few long boxes better than a row of narrow columns. */
 export interface BoxPlotConfig extends ChartConfig {
-    legend?: ChartLegendConfig
+    legend?: Omit<ChartLegendConfig, 'table'>
     /** Mean marker radius in CSS pixels. Defaults to 3. */
     meanRadius?: number
     /** Whisker cap width as a fraction of the box width. Defaults to 0.6. */
     whiskerCapRatio?: number
-    /** Box outline / whisker stroke width. Defaults to 1.5. */
+    /** Box outline / whisker stroke width. The median is three times as thick. Defaults to 1. */
     boxStrokeWidth?: number
+    /** Box corner radius in CSS pixels. Defaults to 3; 0 draws square corners. */
+    boxCornerRadius?: number
 }
 
 /** Tooltip context handed to consumer-supplied `tooltip` callbacks. Same shape as
@@ -87,6 +90,9 @@ export interface BoxPlotClickData<Meta = unknown> {
 export type BoxPlotDatum = BoxPlotSummary & {
     /** Optional identifier for this x position (e.g. ISO date). The chart treats it as opaque. */
     day?: string
+    /** Clipped whisker ends, for example at 1.5 × IQR. They default to `min` and `max`. */
+    whiskerMin?: number
+    whiskerMax?: number
 }
 
 /** Meta attached to the inner adapter `Series` we hand to the `Chart` base — carries the

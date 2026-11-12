@@ -1,7 +1,7 @@
-// Types of `LineChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, SeriesType, ChartConfig, ValueDomain, ChartLegendConfig, LabelRange, AxisLinesConfig, TooltipConfig, ChartMargins, YAxis, LegendItem, LegendItemControls.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Types of `LineChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, SeriesType, ChartConfig, ValueDomain, ChartLegendConfig, LabelRange, AxisLinesConfig, TooltipConfig, ChartMargins, YAxis, LegendItem, LegendItemControls, LegendTableConfig, DefaultTooltipProps, LegendValue, SeriesDatum.
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
-// Importable from '@posthog/quill-charts': LineChart, LineChartProps, LineChartConfig.
+// Importable from '@posthog/quill-charts': LineChart, LineChartProps, LineChartConfig, TimeScale.
 // Other declarations here are shapes to match, not names to import.
 
 export declare function LineChart<Meta = unknown>({ onError, ...rest }: LineChartProps<Meta>): React.ReactElement
@@ -10,9 +10,12 @@ export interface LineChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
     config?: LineChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Right-click counterpart of `onPointClick`. See `ChartProps.onPointContextMenu`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     onDateRangeZoom?: (data: DateRangeZoomData) => void
     className?: string
     /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
@@ -23,6 +26,10 @@ export interface LineChartProps<Meta = unknown> {
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
+    /** Place each label at its time instead of evenly by index. Labels must be ascending. Memoize it. */
+    timeScale?: TimeScale
+    /** Draw lines and areas across missing (non-finite) values instead of breaking them. */
+    connectNulls?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
     /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start
@@ -30,4 +37,9 @@ export interface LineChartConfig extends ChartConfig {
     floatBaseline?: boolean
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig
+}
+
+export interface TimeScale {
+    parse: (label: string) => number
+    domain: readonly [number, number]
 }

@@ -1,5 +1,5 @@
-// Types of `ProportionBar`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, RadialSlicePayload, SeriesType, ChartLegendConfig, ResolvedSeries, LegendItem, LegendItemControls.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Types of `ProportionBar`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, RadialSlicePayload, SeriesType, ChartLegendConfig, ResolvedSeries, LegendItem, LegendItemControls, LegendTableConfig, LegendValue.
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': ProportionBar, ProportionBarProps, ProportionBarConfig.
 // Other declarations here are shapes to match, not names to import.
@@ -15,7 +15,8 @@ export declare function ProportionBar<Meta = unknown>({
 export interface ProportionBarProps<Meta = unknown> {
     /** One series per part, valued like a `PieChart` slice: the sum of `data`, floored at 0. */
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: ProportionBarConfig
     /** Formats a part's raw value in the legend and the default tooltip. */
     valueFormatter?: (value: number) => string

@@ -1,11 +1,13 @@
 // Types of `MetricCard`. Shared types it uses, declared in core.d.ts: ChartTheme.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': MetricCard, MetricCardProps, MetricChange, ChangeColor.
 // Other declarations here are shapes to match, not names to import.
 
+/** @deprecated Use the composable `Metric` from `@posthog/quill-components/metric`. */
 export declare function MetricCard(props: MetricCardProps): React.ReactElement | null
 
+/** @deprecated Use `MetricProps` from `@posthog/quill-components/metric`. */
 export interface MetricCardProps {
     title: React.ReactNode
     /** Resting headline number. Defaults to `data[data.length - 1]` when `data` is present;
@@ -19,7 +21,7 @@ export interface MetricCardProps {
     /** Formats a label for the default subtitle, e.g. an ISO time as a short date. The sparkline
      *  keeps the raw `labels`, which must stay unique. */
     formatLabel?: (label: string) => React.ReactNode
-    /** Required when `data` is present. */
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
     theme?: ChartTheme
     /** Sparkline line + fill color. Falls back to `theme.colors[0]`. */
     color?: string
@@ -34,6 +36,7 @@ export interface MetricCardProps {
     /** Classes for the headline number. Replaces the default `text-4xl` size, e.g. with container
      *  query sizes so a narrow tile keeps the number on one line. */
     headlineClassName?: string
+    /** Formats the change pill. Receives a percent, so `8` for +8%, as in {@link MetricChange.value}. */
     formatChange?: (percent: number) => string
     showChange?: boolean
     /** Fixed comparison pill. Supplied → no hover-driven fallback. Pass `null` to suppress. */
@@ -67,7 +70,11 @@ export interface MetricCardProps {
 }
 
 export interface MetricChange {
+    /** Percent change, so `8` means +8% and `-3` means -3%. The sign sets the pill's direction,
+     *  and `goodDirection` on the card decides whether that direction reads as good. */
     value: number
+    /** Replaces the formatted `value` in the pill, for example `+1.1 pts` for a change in
+     *  percentage points. */
     label?: ReactNode
 }
 

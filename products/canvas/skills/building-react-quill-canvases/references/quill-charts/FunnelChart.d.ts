@@ -1,5 +1,5 @@
-// Types of `FunnelChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, SeriesType, TooltipConfig, ChartLegendConfig, ChartMargins, PointClickData, LegendItem, LegendItemControls.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Types of `FunnelChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, SeriesType, TooltipConfig, ChartLegendConfig, ChartMargins, PointClickData, DefaultTooltipProps, LegendItem, LegendItemControls, LegendTableConfig, SeriesDatum, LegendValue.
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': FunnelChart, funnelFromCounts, FunnelChartProps, FunnelStepCount, FunnelFromCountsOptions, FunnelChartConfig, FunnelStepClickData.
 // Other declarations here are shapes to match, not names to import.
@@ -10,7 +10,7 @@
 export declare function FunnelChart<Meta = unknown>({
     steps,
     series,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onStepClick,
@@ -41,7 +41,8 @@ export interface FunnelChartProps<Meta = unknown> {
      *  conversion from the first step as a percent (0–100). The hatched track drawn behind each
      *  bar covers the remainder up to 100%. See `funnelFromCounts` for the raw-counts case. */
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: FunnelChartConfig
     /** Custom tooltip content. Omit for the built-in tooltip with percent formatting. */
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode

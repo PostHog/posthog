@@ -1,5 +1,5 @@
 // Types of `Sparkline`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, ValueDomain, TooltipContext, SeriesType.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': Sparkline, SparklineProps.
 // Other declarations here are shapes to match, not names to import.
@@ -16,7 +16,8 @@ export interface SparklineProps {
     /** Optional x-axis labels — when omitted, indices stand in. Consumers can look up
      *  the hovered index against their own labels. */
     labels?: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     color?: string
     /** `line` (default) draws a gradient-filled trend line; `bar` draws stacked bars. */
     type?: 'line' | 'bar'

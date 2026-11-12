@@ -1,5 +1,5 @@
-// Types of `PieChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, RadialSlicePayload, SeriesType, ResolvedSeries, ChartLegendConfig, LegendItem, LegendItemControls.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Types of `PieChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, RadialSlicePayload, SeriesType, ResolvedSeries, ChartLegendConfig, LegendItem, LegendItemControls, LegendTableConfig, LegendValue.
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': PieChart, PieChartProps, PieChartConfig, SliceValueDisplay.
 // Other declarations here are shapes to match, not names to import.
@@ -8,7 +8,8 @@ export declare function PieChart<Meta = unknown>({ onError, ...rest }: PieChartP
 
 export interface PieChartProps<Meta = unknown> {
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: PieChartConfig<Meta>
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onSliceClick?: (payload: RadialSlicePayload<Meta>) => void
@@ -19,8 +20,8 @@ export interface PieChartProps<Meta = unknown> {
      *  Receives the raw slice magnitude; the chart handles percent conversion when
      *  `isPercent` is on. */
     valueFormatter?: (value: number) => string
-    /** Optional content rendered at the center of the chart — typically the aggregation
-     *  total for a donut. Receives the layout so consumers can position custom content. */
+    /** Content rendered in the center of the chart, typically the total of a donut
+     *  (`config.innerRadiusRatio` above 0). A top-level prop, not a `config` key. */
     centerLabel?: React.ReactNode
     /** React children passed through to the radial overlay layer (custom decorations). */
     children?: React.ReactNode
@@ -30,7 +31,7 @@ export interface PieChartProps<Meta = unknown> {
 export interface PieChartConfig<Meta = unknown> {
     /** 0 = pie (default), 0.5 = donut. Clamped to [0, 0.95]. */
     innerRadiusRatio?: number
-    /** Show the slice value above the slice (per Chart.js parity). Default true. */
+    /** Show the slice value above the slice. Default true for a pie, false for a donut, whose `centerLabel` carries the number. */
     showValueOnSlice?: boolean
     /** Show the breakdown label above the slice. Default false. */
     showLabelOnSlice?: boolean

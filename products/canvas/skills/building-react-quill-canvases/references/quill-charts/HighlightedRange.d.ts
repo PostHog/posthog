@@ -1,5 +1,5 @@
 // Types of `HighlightedRange`. Shared types it uses, declared in core.d.ts: .
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': HighlightedRange, HighlightedRangeProps.
 // Other declarations here are shapes to match, not names to import.
@@ -8,7 +8,8 @@
  *  (e.g. the rows currently visible in a paired virtualized list) onto the chart. On band
  *  (bar) charts the box covers the full bands of both endpoints; on point (line) charts it
  *  runs from point to point. Composes as a chart child like {@link ReferenceLine}; renders
- *  null when an endpoint doesn't resolve to a positioned label. */
+ *  null when an endpoint doesn't resolve to a positioned label. It draws no label, so name
+ *  the range with a vertical {@link ReferenceLine} whose `value` is the start label. */
 export declare function HighlightedRange({
     start,
     end,

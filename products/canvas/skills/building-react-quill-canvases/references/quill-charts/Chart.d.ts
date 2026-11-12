@@ -1,19 +1,20 @@
-// Types of `Chart`. Shared types it uses, declared in core.d.ts: ChartConfig, Series, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, AxisLinesConfig, TooltipConfig, ChartMargins, YAxis, SeriesType, ResolvedSeries, LabelRange, ValueDomain.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Types of `Chart`. Shared types it uses, declared in core.d.ts: ChartConfig, ChartTheme, Series, TooltipContext, PointClickData, DateRangeZoomData, AxisLinesConfig, TooltipConfig, ChartMargins, YAxis, SeriesType, ResolvedSeries, LabelRange, DefaultTooltipProps, ValueDomain, SeriesDatum.
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
-// Importable from '@posthog/quill-charts': Chart, applyChartDefaults, ChartProps, CreateScalesFn, ChartDrawArgs, AreaSelectData, ChartScales, ResolveValueFn, ChartDimensions, DragRect, YAxisScale.
+// Importable from '@posthog/quill-charts': Chart, applyChartDefaults, drawGrid, drawAxes, resolveAxisLineColor, ChartProps, ChartDimensions, DrawGridOptions, DrawAxesOptions, CreateScalesFn, ChartDrawArgs, AreaSelectData, ChartScales, ResolveValueFn, DragRect, YAxisScale.
 // Other declarations here are shapes to match, not names to import.
 
 export declare function Chart<Meta = unknown>({
     series,
     labels,
     config,
-    theme,
+    theme: themeProp,
     createScales: createScalesFn,
     drawStatic,
     drawHover,
     tooltip: renderTooltipProp,
     onPointClick,
+    onPointContextMenu,
     isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
@@ -35,11 +36,45 @@ export declare function Chart<Meta = unknown>({
  *  `placement: 'cursor'`. */
 export declare function applyChartDefaults<T extends ChartConfig>(config?: T): T
 
+/** Draws the grid lines and the full plot-area frame.
+ *
+ * `orientation`:
+ *  - `'vertical'` (default): horizontal grid lines at value-axis (y) tick positions, vertical baselines on both left and right.
+ *  - `'horizontal'`: vertical grid lines at value-axis (x) tick positions, horizontal baselines on both top and bottom.
+ *
+ * In both modes, `yScale` maps a value to a pixel on the value axis — for vertical that's a y-pixel,
+ * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
+ */
+export declare function drawGrid(
+    drawCtx: {
+        ctx: CanvasRenderingContext2D
+        dimensions: ChartDimensions
+        yScale: (value: number) => number
+    },
+    options?: DrawGridOptions
+): void
+
+/** Draws just the L-shaped axis baselines — the left value axis and the bottom category axis —
+ *  without any interior grid lines. For charts that want axis framing but a clean, grid-free plot. */
+export declare function drawAxes(
+    drawCtx: {
+        ctx: CanvasRenderingContext2D
+        dimensions: ChartDimensions
+    },
+    options?: DrawAxesOptions
+): void
+
+/** The stroke color for axis lines and tick marks — separate from `axisColor` (tick-label text)
+ *  so hosts can mute the lines without muting the labels. One place, so the precedence can't
+ *  drift between call sites. */
+export declare function resolveAxisLineColor(theme: ChartTheme): string | undefined
+
 export interface ChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
     config?: ChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     createScales: CreateScalesFn
     /** Static layer — grid, lines, areas, points. Redrawn only when chart inputs change. */
     drawStatic: (args: ChartDrawArgs) => void
@@ -48,6 +83,10 @@ export interface ChartProps<Meta = unknown> {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Fires on a right click with the series nearest the cursor. It never pins or unpins the
+     *  tooltip. The browser menu still opens unless the host calls `preventDefault()` on the
+     *  `contextmenu` event. `isPointClickable` limits it like `onPointClick`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     /** Limits `onPointClick` and the pointer cursor to the points it returns true for. */
     isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. Fired with the label range the user dragged across.
@@ -101,6 +140,48 @@ export interface ChartProps<Meta = unknown> {
         },
         scales: ChartScales
     ) => number
+}
+
+/** Computed layout dimensions of the chart, derived from container size and margins. */
+export interface ChartDimensions {
+    /** Full container width in CSS pixels. */
+    width: number
+    /** Full container height in CSS pixels. */
+    height: number
+    /** Left edge of the plot area (after left margin). */
+    plotLeft: number
+    /** Top edge of the plot area (after top margin). */
+    plotTop: number
+    /** Width of the drawable plot area. */
+    plotWidth: number
+    /** Height of the drawable plot area. */
+    plotHeight: number
+}
+
+export interface DrawGridOptions {
+    gridColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for the interior grid lines. Solid when omitted.
+     *  The plot-edge baseline strokes stay solid either way — only the interior lines dash. */
+    gridDash?: number[]
+    /** Draw the solid plot-edge baseline strokes framing the grid (both value-axis edges).
+     *  Defaults to true. Charts drawing their own axis lines pass false — the L-axis replaces the
+     *  near baseline, and the far one would read as a stray border. */
+    frame?: boolean
+    orientation?: 'vertical' | 'horizontal'
+    /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
+    categoryTicks?: number[]
+    /** Value-axis ticks for a `yScale` with no `.ticks()`, such as the core's `ChartScales.y`. */
+    valueTicks?: number[]
+}
+
+export interface DrawAxesOptions {
+    axisColor?: string
+    /** Stroke the bottom (x) baseline. Default true. */
+    xLine?: boolean
+    /** Stroke the left (y) baseline. Default true. */
+    yLine?: boolean
+    /** Also stroke the right plot edge — for charts with a right-positioned y-axis. Gated on `yLine`. */
+    rightAxis?: boolean
 }
 
 /** Factory function that chart types provide to create their scales from dimensions and data. */
@@ -197,22 +278,6 @@ export interface ChartScales {
 
 /** Resolves the y-value for a series at a given data index. Used by interaction/tooltip layer. */
 export type ResolveValueFn = (series: Series, dataIndex: number) => number
-
-/** Computed layout dimensions of the chart, derived from container size and margins. */
-export interface ChartDimensions {
-    /** Full container width in CSS pixels. */
-    width: number
-    /** Full container height in CSS pixels. */
-    height: number
-    /** Left edge of the plot area (after left margin). */
-    plotLeft: number
-    /** Top edge of the plot area (after top margin). */
-    plotTop: number
-    /** Width of the drawable plot area. */
-    plotWidth: number
-    /** Height of the drawable plot area. */
-    plotHeight: number
-}
 
 export interface DragRect {
     x0: number

@@ -1,5 +1,5 @@
-// Types of `BarChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, SeriesType, ChartConfig, ChartLegendConfig, LabelRange, AxisLinesConfig, TooltipConfig, ChartMargins, YAxis, ValueDomain, LegendItem, LegendItemControls.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Types of `BarChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, PointClickData, DateRangeZoomData, SeriesType, ChartConfig, ChartLegendConfig, LabelRange, AxisLinesConfig, TooltipConfig, ChartMargins, YAxis, ValueDomain, LegendItem, LegendItemControls, LegendTableConfig, DefaultTooltipProps, LegendValue, SeriesDatum.
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': BarChart, BarChartProps, BarChartConfig, BarsConfig.
 // Other declarations here are shapes to match, not names to import.
@@ -10,9 +10,12 @@ export interface BarChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
     config?: BarChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Right-click counterpart of `onPointClick`. See `ChartProps.onPointContextMenu`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     /** See `ChartProps.isPointClickable`. */
     isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. Vertical bars only — horizontal bars interact along y,
@@ -47,7 +50,8 @@ export interface BarsConfig {
      *  highlights the track region on hover; pass `{ hover: false }` to draw the track
      *  but leave it inert (no highlight when the cursor is over the empty remainder).
      *  `'solid'` draws one neutral track per band instead, in `theme.gridColor`, behind every bar
-     *  in the band. It works on every layout, ignores `trackData`, and has no hover highlight. */
+     *  in the band. It works on every layout, stops at the largest `trackData` ceiling in the band,
+     *  and has no hover highlight. */
     track?:
         | boolean
         | 'solid'
@@ -67,13 +71,14 @@ export interface BarsConfig {
      *  light→dark sheen. `gloss` is a curved radial highlight for a glassy look. */
     fillStyle?: BarFillStyle
     /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack below the zero
-     *  baseline (positives above). Default `false` clamps negatives to 0. */
+     *  baseline (positives above). A stacked layout with a negative value uses it without this flag. */
     divergingStack?: boolean
     /** Cap (px) on the band-axis range. Clusters bars at the start of the plot while gridlines
      *  still span the full width — useful for few-category funnel-style charts. */
     maxBandRange?: number
     /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half this
-     *  value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
+     *  value, so `step = range / N`. Zero also removes spacing within grouped bars.
+     *  Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
     bandPadding?: number
     /** Floor (px) on a bar's thickness along the value axis, so a present-but-tiny value stays
      *  visible instead of collapsing to a sub-pixel sliver — e.g. a single error in a volume bucket

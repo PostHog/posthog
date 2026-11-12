@@ -1,12 +1,12 @@
 // Types of `RadialChart`. Shared types it uses, declared in core.d.ts: Series, ChartTheme, TooltipContext, RadialSlicePayload, SeriesType, ResolvedSeries.
-// Generated from @posthog/quill-charts 0.3.0-beta.31, the version the canvas builder pins, by
+// Generated from @posthog/quill-charts 0.3.0-beta.33, the version the canvas builder pins, by
 // products/canvas/packages/canvas_builder/scripts/quill-charts-types.mjs. Do not edit.
 // Importable from '@posthog/quill-charts': RadialChart, RadialChartProps, RadialLayoutBuilder, ChartDrawArgs, PieLayout, ChartDimensions, ChartScales, DragRect, PieSlice, YAxisScale.
 // Other declarations here are shapes to match, not names to import.
 
 export declare function RadialChart<Meta = unknown>({
     series,
-    theme,
+    theme: themeProp,
     buildLayout,
     drawStatic,
     drawHover,
@@ -22,7 +22,8 @@ export declare function RadialChart<Meta = unknown>({
 
 export interface RadialChartProps<Meta = unknown> {
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     buildLayout: RadialLayoutBuilder<Meta>
     drawStatic: (args: ChartDrawArgs) => void
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
