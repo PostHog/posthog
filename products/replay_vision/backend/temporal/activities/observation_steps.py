@@ -92,10 +92,16 @@ async def prepare_observation_activity(inputs: PrepareObservationInputs) -> Prep
         ),
         asyncio.ensure_future(resolve),
     ]
-    # The network capture is left out: any error from it, ineligible included, is absorbed below.
-    await _raise_ineligible_early([steps[0], steps[1], steps[3]])
-    # Other errors wait for every step to end, so no step keeps running after the attempt fails.
-    fetched, asset, network, resolution = await asyncio.gather(*steps, return_exceptions=True)
+    try:
+        # The network capture is left out: any error from it, ineligible included, is absorbed below.
+        await _raise_ineligible_early([steps[0], steps[1], steps[3]])
+        fetched, asset, network, resolution = await asyncio.gather(*steps, return_exceptions=True)
+    finally:
+        # A step left running after the activity ends would keep working outside the worker's slot limit.
+        unfinished = [step for step in steps if not step.done()]
+        for step in unfinished:
+            step.cancel()
+        await asyncio.gather(*unfinished, return_exceptions=True)
     if isinstance(network, BaseException):
         # The network capture is a side input that the scan can run without.
         activity.logger.warning("replay_vision.network_fetch_failed", exc_info=network)
@@ -113,7 +119,7 @@ async def _none() -> None:
 
 
 async def _raise_ineligible_early(steps: Sequence[asyncio.Future[Any]]) -> None:
-    """An ineligible session is final, so raise it as soon as any step reports it and cancel the rest.
+    """An ineligible session is final, so raise it as soon as any step reports it.
 
     Waiting for a stalled sibling would run the attempt into its timeout, and the retries would end the
     observation as failed instead of ineligible.
@@ -130,9 +136,6 @@ async def _raise_ineligible_early(steps: Sequence[asyncio.Future[Any]]) -> None:
             None,
         )
         if ineligible is not None:
-            for step in pending:
-                step.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
             raise ineligible
 
 
