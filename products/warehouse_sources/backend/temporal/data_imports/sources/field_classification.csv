@@ -812,7 +812,7 @@ Mindbody,,,,,,mindbody
 Mintlify,api_key project_id,,,,,mintlify
 Mirakl,,,,,,mirakl
 Miro,,,,,,miro
-Missive,,,,,,missive
+Missive,api_token,,,,,missive
 MistralAI,api_key,,,,,mistral-ai
 MixMax,api_key,,,,,mix-max
 Mixpanel,region project_id service_account_username service_account_secret,,,,,mixpanel
