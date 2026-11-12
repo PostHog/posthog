@@ -979,6 +979,17 @@ class TestDeliveryPath(APIBaseTest):
         assert len(self.emitted) == emitted
         assert [channel for channel, _ in RecordingTransport.sends] == native_channels
 
+    def test_a_message_carries_the_rule_as_stored_when_it_is_sent(self) -> None:
+        self.configuration.labels = {"severity": "critical"}
+        self.configuration.annotations = {"runbook_url": "https://runbooks.example.com/api"}
+        self.configuration.save()
+
+        self._run(_announcement(_transition(AlertEventKind.FIRING)), self._chooses(DeliveryPath.NATIVE))
+
+        _, message = RecordingTransport.sends[0]
+        assert message.labels["severity"] == "critical"
+        assert message.links[0] == MessageLink(label="Runbook", url="https://runbooks.example.com/api")
+
     def test_a_firing_and_its_resolve_take_the_path_the_firing_took(self) -> None:
         fired = self._run(
             _announcement(_transition(AlertEventKind.FIRING)),

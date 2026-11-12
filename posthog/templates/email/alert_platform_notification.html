@@ -1,5 +1,8 @@
 {% extends "email/base.html" %}
 {% block heading %}{{ headline }}{% endblock %} {% block section %}
+{% if description %}
+    <p>{{ description|linebreaksbr }}</p>
+{% endif %}
 {% if details %}
     <ul>
         {% for detail in details %}

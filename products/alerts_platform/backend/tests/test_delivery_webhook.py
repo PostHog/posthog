@@ -57,7 +57,13 @@ class TestAlertmanagerBody(SimpleTestCase):
             "posthog_source_kind": "logs",
             "posthog_event_kind": "firing",
         }
-        annotations = {"summary": "API errors is firing", "description": "Value: 312\nThreshold: > 300", "value": "312"}
+        annotations = {
+            "summary": "API errors is firing",
+            "description": "Value: 312\nThreshold: > 300",
+            "value": "312",
+            "posthog_summary": "API errors is firing",
+            "posthog_description": "Value: 312\nThreshold: > 300",
+        }
         assert body == {
             "version": "4",
             "groupKey": "cfg-1:checkout",
@@ -83,6 +89,32 @@ class TestAlertmanagerBody(SimpleTestCase):
                     "fingerprint": body["alerts"][0]["fingerprint"],
                 }
             ],
+        }
+
+    def test_a_rule_speaks_through_labels_and_annotations_beside_the_platform_text(self) -> None:
+        message = alert_message(
+            headline="checkout errors over limit",
+            platform_headline="API errors is firing",
+            details=(MessageDetail(label="Value", value="312"),),
+            labels={"service": "checkout", "severity": "critical", "alertname": "spoofed"},
+            annotations={
+                "summary": "checkout errors over limit",
+                "runbook_url": "https://runbooks.example.com/api",
+                "value": "spoofed",
+            },
+        )
+
+        alert = alertmanager_body(message)["alerts"][0]
+
+        assert alert["labels"]["severity"] == "critical"
+        assert alert["labels"]["alertname"] == "API errors"
+        assert alert["annotations"] == {
+            "summary": "checkout errors over limit",
+            "description": "Value: 312",
+            "value": "300",
+            "runbook_url": "https://runbooks.example.com/api",
+            "posthog_summary": "API errors is firing",
+            "posthog_description": "Value: 312",
         }
 
     @parameterized.expand(

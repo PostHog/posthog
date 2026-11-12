@@ -2,9 +2,13 @@ import pytest
 
 from parameterized import parameterized
 
+from products.alerts_platform.backend.facade.contracts import MessageLink
 from products.alerts_platform.backend.logic.rule_metadata import (
+    MAX_LINK_URL_CHARS,
     MAX_RULE_LABELS,
     InvalidRuleMetadata,
+    links,
+    render_annotations,
     validate_annotations,
     validate_labels,
 )
@@ -69,3 +73,54 @@ def test_a_link_may_template_its_path() -> None:
 def test_a_link_may_not_template_its_site(_name: str, value: str) -> None:
     with pytest.raises(InvalidRuleMetadata):
         validate_annotations({"runbook_url": value}, {"team"})
+
+
+@parameterized.expand(
+    [
+        ("label", "summary", "{{ $labels.service }} is down", "checkout is down"),
+        ("value", "summary", "{{$value}} errors", "312 errors"),
+        ("label_the_group_lacks", "summary", "{{ $labels.region }} is down", " is down"),
+        (
+            "link_value_cannot_leave_the_path",
+            "runbook_url",
+            "https://r.example.com/{{ $labels.path }}",
+            "https://r.example.com/a%2F..%3Fx%3D1",
+        ),
+        ("template_that_no_longer_validates", "summary", "{{ humanize $value }}", None),
+        ("link_value_that_climbs_the_path", "runbook_url", "https://r.example.com/a/{{ $labels.up }}/b", None),
+        (
+            "link_value_beside_an_encoded_dot",
+            "runbook_url",
+            "https://r.example.com/a/%2E{{ $labels.dot }}/b",
+            None,
+        ),
+        ("link_value_beside_a_dot", "runbook_url", "https://r.example.com/a/{{ $labels.dot }}./b", None),
+    ]
+)
+def test_an_annotation_renders_from_its_group(_name: str, name: str, template: str, expected: str | None) -> None:
+    rendered = render_annotations(
+        {name: template},
+        labels={"service": "checkout", "path": "a/..?x=1", "up": "..", "dot": "."},
+        value=312.0,
+    )
+
+    assert rendered.get(name) == expected
+
+
+def test_links_come_from_url_annotations_with_the_runbook_first() -> None:
+    annotations = {
+        "summary": "API errors",
+        "alert_dashboard_url": "https://grafana.example.com/d/1",
+        "too_long_url": "https://example.com/" + "q" * MAX_LINK_URL_CHARS,
+        **{f"extra_{index}_url": f"https://example.com/{index}" for index in range(10)},
+        "runbook_url": "https://runbooks.example.com/api",
+    }
+
+    found = links(annotations)
+
+    assert found[:2] == (
+        MessageLink(label="Runbook", url="https://runbooks.example.com/api"),
+        MessageLink(label="Alert dashboard", url="https://grafana.example.com/d/1"),
+    )
+    assert len(found) == 5
+    assert all(len(link.url) <= MAX_LINK_URL_CHARS for link in found)

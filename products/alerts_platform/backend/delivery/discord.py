@@ -22,6 +22,8 @@ MAX_CONTENT_CHARS: Final = 2000
 # The footer is taken off the top of the budget, so it is bounded to leave the details most of it.
 MAX_FOOTER_CONTEXT_CHARS: Final = 300
 MAX_FOOTER_LINK_URL_CHARS: Final = 500
+MAX_FOOTER_LINKS_CHARS: Final = 700
+MAX_HEADLINE_CHARS: Final = 200
 
 # Stops a URL in a query error from unfurling into a preview of a page the alert never chose.
 SUPPRESS_EMBEDS: Final = 1 << 2
@@ -42,11 +44,19 @@ def content_for(message: AlertMessage) -> str:
 
 def _footer(message: AlertMessage) -> str:
     # The alert link is always short. A data link long enough to crowd out the details is left out.
-    links = [
-        f"[{escape_markdown(link.label)}](<{link.url}>)"
-        for link in message.links
-        if len(link.url) <= MAX_FOOTER_LINK_URL_CHARS
-    ]
+    *others, view_alert = message.links
+    entries = [f"[{escape_markdown(link.label)}](<{link.url}>)" for link in others]
+    kept: set[int] = set()
+    budget = MAX_FOOTER_LINKS_CHARS - len(view_alert.url)
+    # The data link takes its share of the budget before the rule's links, so they give way first.
+    rule_count = len(message.rule_links)
+    for index in (*range(rule_count, len(others)), *range(rule_count)):
+        entry = entries[index]
+        if len(others[index].url) <= MAX_FOOTER_LINK_URL_CHARS and len(entry) + 3 <= budget:
+            kept.add(index)
+            budget -= len(entry) + 3
+    links = [entry for index, entry in enumerate(entries) if index in kept]
+    links.append(f"[{escape_markdown(view_alert.label)}](<{view_alert.url}>)")
     footer = "\n\n"
     if message.context:
         # `-# ` is Discord's small print. Context names things a user chose, so it is escaped.
@@ -56,8 +66,10 @@ def _footer(message: AlertMessage) -> str:
 
 
 def _body(message: AlertMessage, limit: int) -> str:
-    headline = f"**{escape_markdown(message.title)}**"
+    headline = f"**{escape_markdown(clip_text(message.title, MAX_HEADLINE_CHARS))}**"
     lines = [f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.details]
+    if message.description:
+        lines.insert(0, escape_markdown(message.description))
     if not lines:
         return headline
     body = f"{headline}\n\n" + "\n".join(lines)
