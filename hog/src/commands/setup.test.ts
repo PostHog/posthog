@@ -301,8 +301,6 @@ describe('hog setup', () => {
             context: { events: { since: '2026-01-01T00:00:00.000Z', count: 0 } },
         })
 
-        // Agent tools often keep only the start of a long output, so the answer stays small and the
-        // outcome comes before the context.
         expect(reviewed.stdout.length).toBeLessThan(10_000)
         expect(Object.keys(reviewed.json() as object)).toEqual(['step', 'status', 'code', 'next', 'done', 'context'])
         const skills = (reviewed.json() as any).context.skills

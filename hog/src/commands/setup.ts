@@ -45,10 +45,8 @@ const OPTIONS = {
     },
 } as const satisfies Record<string, OptionSpec>
 
-// Agent tools often keep only the start of a long output, so the outcome comes before `context`.
 const AGENT_LEADING_KEYS = ['step', 'status', 'code', 'next', 'done'] as const
 
-// Agents get skill names only, as `hog skills list` gives them. `hog skills search` describes them.
 function agentResult(result: SetupResult): unknown {
     const { skills } = result.context
     return skills ? { ...result, context: { ...result.context, skills: skills.map((skill) => skill.id) } } : result
