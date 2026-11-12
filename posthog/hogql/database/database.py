@@ -86,6 +86,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
 )
+from posthog.hogql.database.schema.error_tracking_issue_tags import RawErrorTrackingIssueTagsTable
 from posthog.hogql.database.schema.error_tracking_recent_issue_state import ErrorTrackingRecentIssueStateTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.events_with_flag_calls import EVENTS_WITH_FLAG_CALLS_TABLE, EventsWithFlagCallsTable
@@ -650,6 +651,11 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "error_tracking_recent_issue_state": TableNode(
                         name="error_tracking_recent_issue_state",
                         table=ErrorTrackingRecentIssueStateTable(),
+                        hidden=True,
+                    ),
+                    "raw_error_tracking_issue_tags": TableNode(
+                        name="raw_error_tracking_issue_tags",
+                        table=RawErrorTrackingIssueTagsTable(),
                         hidden=True,
                     ),
                     "web_overview_preaggregated": TableNode(
