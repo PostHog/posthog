@@ -458,10 +458,7 @@ export class EmailTrackingService {
                 distinctId,
                 metricName,
                 properties:
-                    templateFromStepConfig &&
-                    this.templateTagsTeams(teamId) &&
-                    properties?.$email_template_id === undefined &&
-                    properties?.$email_template_key === undefined
+                    templateFromStepConfig && this.templateTagsTeams(teamId)
                         ? {
                               ...properties,
                               ...transactionalEmailIdentity(

@@ -915,7 +915,7 @@ describe('EmailTrackingService', () => {
                 [
                     'a template send',
                     { template_uuid: 'template-1' },
-                    { ph_template_id: ['template-1'] },
+                    { ph_template_tags: ['true'], ph_template_id: ['template-1'] },
                     true,
                     true,
                     { $email_template_id: 'template-1' },
@@ -923,7 +923,7 @@ describe('EmailTrackingService', () => {
                 [
                     'a template send whose step was pointed at another template before the bounce',
                     { template_uuid: 'template-2' },
-                    { ph_template_id: ['template-1'] },
+                    { ph_template_tags: ['true'], ph_template_id: ['template-1'] },
                     true,
                     true,
                     { $email_template_id: 'template-1' },
@@ -931,7 +931,7 @@ describe('EmailTrackingService', () => {
                 [
                     'a code send by key',
                     { template_key: 'welcome' },
-                    { ph_template_key: ['welcome'] },
+                    { ph_template_tags: ['true'], ph_template_key: ['welcome'] },
                     true,
                     true,
                     { $email_template_key: 'welcome' },
