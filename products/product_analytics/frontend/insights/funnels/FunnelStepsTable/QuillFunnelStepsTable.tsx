@@ -52,8 +52,9 @@ export function QuillFunnelStepsTable(): JSX.Element {
                                 colSpan={funnelStepColumns(stepIndex).length}
                                 className={GROUP_START}
                             >
-                                <span className="flex items-center gap-2 text-xs normal-case tracking-normal text-foreground">
-                                    <Badge>{stepIndex + 1}</Badge>
+                                {/* Zero width with a full minimum width keeps a long step name from widening its columns, so the name is cut off. */}
+                                <span className="flex w-0 min-w-full items-center gap-2 text-xs normal-case tracking-normal text-foreground">
+                                    <Badge className="shrink-0">{stepIndex + 1}</Badge>
                                     <EntityFilterInfo
                                         filter={getFunnelStepEntity(querySource, stepIndex, step)}
                                         isOptional={isStepOptional(stepIndex + 1)}
