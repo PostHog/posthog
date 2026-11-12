@@ -123,8 +123,6 @@ export type IdempotencyReservation =
 
 export type ReplayFields = Record<string, number>
 
-// `scheduledAt` is set only for a run queued to wait, so a key for a run that starts at once keeps the
-// shape that older versions write and read.
 type StoredKey = {
     fingerprint: string
     invocationId: string
@@ -238,7 +236,6 @@ export class IdempotencyKeys {
                 ...(replayFields && { replayFields }),
                 ...(scheduledAt && { scheduledAt }),
             },
-            // A scheduled send keeps its key until a day after it is due, so a retry while it waits replays it.
             expiresAt: Math.max(Date.now(), scheduledAt ? Date.parse(scheduledAt) : 0) + QUEUED_TTL_SECONDS * 1000,
         }
         for (let attempt = 1; attempt <= MARK_QUEUED_INLINE_ATTEMPTS; attempt++) {

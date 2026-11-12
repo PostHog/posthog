@@ -31,12 +31,10 @@ import {
 
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 const SCHEDULED_AT_FINGERPRINT_MARKER = 'scheduled_at'
-// Counted from the message's creation, so a later reschedule cannot extend it.
 const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 
-// A request without `scheduled_at` keeps the fingerprint that older versions store, so their keys still match.
 const transactionalEmailFingerprint = (
     hogFlowId: string,
     { to, distinct_id, variables }: TransactionalEmailRequest,
@@ -138,7 +136,6 @@ export class TransactionalSends {
             const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, invocation.id)
             switch (reservation.status) {
                 case 'replayed':
-                    // No status row: the send may have been moved or canceled since, and a newer row would hide that.
                     return {
                         outcome: 'replayed',
                         invocationId: reservation.invocationId,

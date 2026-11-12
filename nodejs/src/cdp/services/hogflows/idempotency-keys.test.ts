@@ -48,7 +48,6 @@ describe('IdempotencyKeys', () => {
         expect(await operations('test', 'reserve', 'replayed')).toEqual(replayedBefore + 1)
     })
 
-    // A retry while a scheduled send still waits would otherwise queue a second copy for the same time.
     it.each([
         { send: 'now', scheduledInMs: null, windowMs: 24 * HOUR_MS },
         { send: 'scheduled 3 days ahead', scheduledInMs: 72 * HOUR_MS, windowMs: 96 * HOUR_MS },
@@ -65,7 +64,6 @@ describe('IdempotencyKeys', () => {
             invocationId: 'run-1',
             scheduledAt,
         })
-        // Valkey cannot be moved days ahead, so the window is read from the expiry Valkey holds for the key.
         const ttlSeconds = await valkey.useClient({ name: 'test-ttl' }, async (client) => {
             const stored = await client.keys(`*${scope}*`)
             expect(stored).toHaveLength(1)
