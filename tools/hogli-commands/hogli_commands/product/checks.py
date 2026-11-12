@@ -437,8 +437,6 @@ def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
     Surfaced on a passing single-product lint so a reader sees the decision, not just
     its silent absence. Returns None when there's nothing meaningful to explain.
     """
-    if status.skip_withheld_reason:
-        return f"DevEx decision: {status.skip_withheld_reason}"
     if status.facade_leaks:
         classes = ", ".join(sorted({v.class_name for v in status.facade_leaks}))
         return f"facade hands out non-contract class(es) ({classes}) — not soundly isolated (see § Wiring couplings)"
@@ -451,6 +449,8 @@ def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
         return "legacy interface leak block present (external seal incomplete)"
     if not status.has_real_facade:
         return "facade/api.py is a re-export, not real functions"
+    if status.skip_withheld_reason:
+        return f"DevEx decision: {status.skip_withheld_reason}"
     return None
 
 
