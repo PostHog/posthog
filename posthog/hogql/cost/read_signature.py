@@ -36,6 +36,23 @@ _UPPER_BOUND_OPS = frozenset({ast.CompareOperationOp.Lt, ast.CompareOperationOp.
 
 type _Query = ast.SelectQuery | ast.SelectSetQuery
 
+# This runs after the compilation deadline lifts, and alias chains can grow exponentially when expanded.
+_WORK_BUDGET = 50_000
+
+
+class _BudgetExceeded(Exception):
+    pass
+
+
+class _Budget:
+    def __init__(self, limit: int = _WORK_BUDGET) -> None:
+        self.remaining = limit
+
+    def spend(self, amount: int = 1) -> None:
+        self.remaining -= amount
+        if self.remaining < 0:
+            raise _BudgetExceeded
+
 
 def _digest(text: str, length: int) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:length]
@@ -123,10 +140,15 @@ def _field_chain(expr: ast.Expr) -> list[str] | None:
 class _ExpandNames(CloningVisitor):
     """Replace projected aliases and scalar CTEs with their definitions, leaving nested queries to their own scope."""
 
-    def __init__(self, names: dict[str, ast.Expr]) -> None:
+    def __init__(self, names: dict[str, ast.Expr], budget: _Budget) -> None:
         super().__init__(clear_types=True, clear_locations=True)
         self.names = names
+        self.budget = budget
         self.expanding: set[str] = set()
+
+    def visit(self, node: ast.AST | None) -> ast.Expr:
+        self.budget.spend()
+        return super().visit(node)
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
         name = node.chain[0] if len(node.chain) == 1 else None
@@ -159,6 +181,31 @@ class _NestedQueries(TraversingVisitor):
         self.found.append(node)
 
 
+class _WindowFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_window_function(self, node: ast.WindowFunction) -> None:
+        self.found = True
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return None
+
+
+def _blocks_pushed_filters(node: ast.SelectQuery) -> bool:
+    # A filter outside a LIMIT, an ARRAY JOIN or a window function does not narrow the rows read inside it.
+    if node.limit is not None or node.array_join_op is not None:
+        return True
+    finder = _WindowFinder()
+    for expr in node.select:
+        finder.visit(expr)
+    return finder.found
+
+
 class _Source:
     """One entry of a FROM chain: the events table, another table, or a subquery or CTE read in its own scope."""
 
@@ -171,7 +218,9 @@ class _Source:
 class _ReadCollector:
     def __init__(self) -> None:
         self.reads: set[str] = set()
+        self.budget = _Budget()
         self._reading_ctes: set[int] = set()
+        self._read_scopes: set[tuple[int, tuple[str, ...]]] = set()
 
     def query(self, node: _Query, ctes: dict[str, ast.CTE], pushed: list[ast.Expr]) -> None:
         if isinstance(node, ast.SelectQuery):
@@ -185,6 +234,13 @@ class _ReadCollector:
             self.query(subsequent.select_query, branch_ctes, pushed)
 
     def select(self, node: ast.SelectQuery, outer_ctes: dict[str, ast.CTE], pushed: list[ast.Expr]) -> None:
+        if pushed and _blocks_pushed_filters(node):
+            pushed = []
+        scope = (id(node), tuple(repr(condition) for condition in pushed))
+        if scope in self._read_scopes:
+            return
+        self._read_scopes.add(scope)
+        self.budget.spend()
         ctes = {**outer_ctes, **(node.ctes or {})}
         names: dict[str, ast.Expr] = {
             name: cte.expr for name, cte in ctes.items() if cte.cte_type == "column" and cte.expr is not None
@@ -192,35 +248,40 @@ class _ReadCollector:
         for selected in node.select:
             if isinstance(selected, ast.Alias):
                 names.setdefault(selected.alias, selected.expr)
-        expand = _ExpandNames(names)
+        expand = _ExpandNames(names, self.budget)
 
         sources: list[_Source] = []
-        conditions: list[ast.Expr] = [*pushed, *_conjuncts(node.where), *_conjuncts(node.prewhere)]
+        conditions: list[tuple[ast.Expr, frozenset[str] | None]] = [
+            (condition, None) for condition in [*pushed, *_conjuncts(node.where), *_conjuncts(node.prewhere)]
+        ]
         join = node.select_from
         while join is not None:
+            preceding = frozenset(source.alias for source in sources)
             source = self._source(join, ctes)
             if source is not None:
                 sources.append(source)
             if join.constraint is not None:
-                conditions.extend(_conjuncts(join.constraint.expr))
+                narrows = _join_narrows(join.join_type, source.alias if source is not None else None, preceding)
+                conditions.extend((condition, narrows) for condition in _conjuncts(join.constraint.expr))
             join = join.next_join
-        conjuncts = [expand.visit(condition) for condition in conditions]
+        conjuncts = [(expand.visit(condition), narrows) for condition, narrows in conditions]
 
         for source in sources:
+            applicable = [conjunct for conjunct, narrows in conjuncts if narrows is None or source.alias in narrows]
             if source.table == _EVENTS_TABLE:
-                self.reads.add(self._describe_events_read(source, sources, conjuncts))
+                self.reads.add(self._describe_events_read(source, sources, applicable))
             elif source.table is not None:
                 self.reads.add(source.table)
             elif source.query is not None and id(source.query) not in self._reading_ctes:
                 # A recursive CTE reads itself, which adds nothing to the read already being collected.
                 self._reading_ctes.add(id(source.query))
                 try:
-                    relevant = [conjunct for conjunct in conjuncts if self._reads_only(conjunct, source, sources)]
+                    relevant = [conjunct for conjunct in applicable if self._reads_only(conjunct, source, sources)]
                     self.query(source.query, ctes, self._pushable(source, relevant))
                 finally:
                     self._reading_ctes.discard(id(source.query))
 
-        self._nested(node, conjuncts, ctes)
+        self._nested(node, [conjunct for conjunct, _ in conjuncts], ctes, expand)
 
     def _source(self, join: ast.JoinExpr, ctes: dict[str, ast.CTE]) -> _Source | None:
         table = join.table
@@ -254,10 +315,6 @@ class _ReadCollector:
 
     @staticmethod
     def _pushable(source: _Source, relevant: list[ast.Expr]) -> list[ast.Expr]:
-        # A filter outside a LIMIT or ARRAY JOIN does not narrow the rows inside it.
-        query = source.query
-        if isinstance(query, ast.SelectQuery) and (query.limit is not None or query.array_join_op is not None):
-            return []
         return [_Unqualify(source.alias).visit(conjunct) for conjunct in relevant]
 
     def _is_events_field(self, expr: ast.Expr, name: str, source: _Source, sources: list[_Source]) -> bool:
@@ -338,15 +395,31 @@ class _ReadCollector:
             ]
         )
 
-    def _nested(self, node: ast.SelectQuery, conjuncts: list[ast.Expr], ctes: dict[str, ast.CTE]) -> None:
-        # Subqueries outside FROM, such as `event IN (SELECT ...)`, read tables of their own.
+    def _nested(
+        self, node: ast.SelectQuery, conjuncts: list[ast.Expr], ctes: dict[str, ast.CTE], expand: _ExpandNames
+    ) -> None:
+        # Expanding the projection reaches scalar CTE subqueries referenced only there.
         finder = _NestedQueries()
-        for expr in [*node.select, *(node.group_by or []), *(node.order_by or []), *conjuncts]:
+        for expr in [*node.select, *(node.group_by or []), *(node.order_by or [])]:
+            finder.visit(expand.visit(expr))
+        for expr in conjuncts:
             finder.visit(expr)
         if node.having is not None:
-            finder.visit(node.having)
+            finder.visit(expand.visit(node.having))
         for nested in finder.found:
             self.query(nested, ctes, [])
+
+
+def _join_narrows(join_type: str | None, joined: str | None, preceding: frozenset[str]) -> frozenset[str] | None:
+    """The aliases an ON condition can narrow. An outer join keeps every row of its preserved side."""
+    kind = (join_type or "").upper()
+    if "FULL" in kind:
+        return frozenset()
+    if "LEFT" in kind:
+        return frozenset({joined}) if joined is not None else frozenset()
+    if "RIGHT" in kind:
+        return preceding
+    return None
 
 
 class _FieldChains(TraversingVisitor):
@@ -380,7 +453,10 @@ class _Unqualify(CloningVisitor):
 def read_signature(node: _Query) -> str | None:
     """Return a 16-hex-character digest of what the query reads, or None when it reads no table."""
     collector = _ReadCollector()
-    collector.query(node, {}, [])
+    try:
+        collector.query(node, {}, [])
+    except _BudgetExceeded:
+        return None
     if not collector.reads:
         return None
     return _digest("\x1f".join(sorted(collector.reads)), 16)

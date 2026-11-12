@@ -59,6 +59,23 @@ class TestReadSignature(SimpleTestCase):
                 "SELECT count() FROM events WHERE event = 'a'",
             ),
             (
+                "filter_outside_a_window",
+                "SELECT count() FROM (SELECT event, row_number() OVER (ORDER BY timestamp) AS r FROM events) WHERE event = 'a'",
+                "SELECT count() FROM (SELECT event, row_number() OVER (ORDER BY timestamp) AS r FROM events)",
+            ),
+            (
+                "on_condition_on_the_preserved_side_of_a_left_join",
+                "SELECT count() FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id AND e.event = 'a'",
+                "SELECT count() FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id",
+            ),
+            (
+                "cte_read_twice_in_each_link_of_a_chain",
+                "WITH c0 AS (SELECT event FROM events), "
+                + ", ".join(f"c{i} AS (SELECT * FROM c{i - 1} UNION ALL SELECT * FROM c{i - 1})" for i in range(1, 31))
+                + " SELECT count() FROM c30",
+                "SELECT count() FROM events",
+            ),
+            (
                 "unused_cte",
                 "WITH unused AS (SELECT event FROM events WHERE event = 'x') SELECT count() FROM persons",
                 "SELECT count() FROM persons",
@@ -156,6 +173,16 @@ class TestReadSignature(SimpleTestCase):
                 "SELECT count() FROM events WHERE timestamp >= toDateTime('2026-03-01 23:00:00', 'UTC')",
             ),
             (
+                "scalar_cte_in_the_projection",
+                "WITH (SELECT count() FROM events WHERE event = 'a') AS n SELECT n",
+                "WITH (SELECT count() FROM events WHERE event = 'b') AS n SELECT n",
+            ),
+            (
+                "left_join_against_inner_join",
+                "SELECT count() FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id AND e.event = 'a'",
+                "SELECT count() FROM events AS e INNER JOIN persons AS p ON e.person_id = p.id AND e.event = 'a'",
+            ),
+            (
                 "event_condition_narrowed_by_another_filter",
                 "SELECT count() FROM events WHERE event = 'a' OR event = 'b'",
                 "SELECT count() FROM events WHERE event = 'a' OR (event = 'b' AND properties.plan = 'pro')",
@@ -194,6 +221,22 @@ class TestReadSignature(SimpleTestCase):
         without_cte = parse_select("SELECT * FROM events UNION ALL SELECT * FROM events")
 
         assert read_signature(with_cte) == read_signature(without_cte)
+
+    def test_doubling_alias_chain_exceeds_the_work_budget(self):
+        sql = (
+            "WITH 1 AS a0, "
+            + ", ".join(f"a{i - 1} + a{i - 1} AS a{i}" for i in range(1, 34))
+            + " SELECT count() FROM events WHERE a33 > 0"
+        )
+
+        assert read_signature(parse_select(sql)) is None
+
+    def test_nested_scalar_subqueries_reusing_an_alias_are_read_once(self):
+        sql = "SELECT count() FROM events WHERE event = 'x'"
+        for _ in range(22):
+            sql = f"SELECT ({sql}) AS n FROM events WHERE n > 0"
+
+        assert read_signature(parse_select(sql)) is not None
 
     def test_query_reading_no_table_has_no_signature(self):
         assert read_signature(parse_select("SELECT 1")) is None
