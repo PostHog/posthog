@@ -4577,69 +4577,90 @@ describe('CDP API', () => {
                 }
             )
 
-            it('answers a move whose key write fails with 503 and keeps the move, so a retry of it keeps the key', async () => {
-                const keys = api['transactionalEmailIdempotencyKeys']
-                const valkey = keys['valkey']!
-                const scope = `scope-${new UUIDT().toString()}`
-                api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(valkey, scope)
-                const failedWrites = async (): Promise<number> =>
-                    (
-                        await (register.getSingleMetric('cdp_hogflow_idempotency_operations_total') as Counter).get()
-                    ).values.find(
-                        (v) =>
-                            v.labels.scope === scope &&
-                            v.labels.operation === 'replay_until' &&
-                            v.labels.outcome === 'failed'
-                    )?.value ?? 0
-                try {
-                    const sendFirstRequest = () =>
-                        send(
-                            hogFlow.id,
-                            { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
-                            { ...body, idempotency_key: `key-${scope}` }
-                        )
-                    const first = await sendFirstRequest()
-                    expect(first.status).toEqual(202)
-                    const messageId = first.body.invocation_id
-                    const scheduledAt = inDays(3)
-
-                    const outage = jest.spyOn(valkey, 'useClient').mockRejectedValue(new Error('connection lost'))
-                    let moved: supertest.Response
-                    try {
-                        moved = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
-                    } finally {
-                        outage.mockRestore()
-                    }
-
-                    expect(moved.status).toEqual(503)
-                    expect(moved.body).toEqual({ error: 'idempotency_unavailable' })
-                    expect(await scheduledTime(messageId)).toEqual(scheduledAt)
-                    expect(emailStatusRows().at(-1)).toEqual(
-                        expect.objectContaining({
-                            message_id: messageId,
-                            status: 'scheduled',
-                            scheduled_at: toClickHouseTime(new Date(scheduledAt)),
-                        })
-                    )
-                    expect(await failedWrites()).toEqual(1)
-
-                    const movedAgain = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
-                    expect(movedAgain.status).toEqual(200)
-                    await valkey.useClient({ name: 'test-store-clock' }, async (client) => {
-                        for (const stored of await client.keys(`*${scope}*`)) {
-                            const storedKey = stored.slice(client.options.keyPrefix?.length ?? 0)
-                            const remainingMs = await client.pttl(storedKey)
-                            await (remainingMs > DAY_MS + HOUR_MS
-                                ? client.pexpire(storedKey, remainingMs - DAY_MS - HOUR_MS)
-                                : client.del(storedKey))
+            it.each([
+                ['the key store is down', 'failed'],
+                ['no key store is configured', 'unavailable'],
+            ])(
+                'answers a move with 503 when %s and keeps the move, so a retry of it keeps the key',
+                async (_desc, outcome) => {
+                    const keys = api['transactionalEmailIdempotencyKeys']
+                    const valkey = keys['valkey']!
+                    const scope = `scope-${new UUIDT().toString()}`
+                    const scopedKeys = new IdempotencyKeys(valkey, scope)
+                    api['transactionalEmailIdempotencyKeys'] = scopedKeys
+                    const breakStore = (): (() => void) => {
+                        if (outcome === 'failed') {
+                            const outage = jest
+                                .spyOn(valkey, 'useClient')
+                                .mockRejectedValue(new Error('connection lost'))
+                            return () => outage.mockRestore()
                         }
-                    })
-                    const retry = await sendFirstRequest()
-                    expect(retry.body).toEqual({ ...first.body, replayed: true })
-                } finally {
-                    api['transactionalEmailIdempotencyKeys'] = keys
+                        api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(null, scope)
+                        return () => {
+                            api['transactionalEmailIdempotencyKeys'] = scopedKeys
+                        }
+                    }
+                    const failedWrites = async (): Promise<number> =>
+                        (
+                            await (
+                                register.getSingleMetric('cdp_hogflow_idempotency_operations_total') as Counter
+                            ).get()
+                        ).values.find(
+                            (v) =>
+                                v.labels.scope === scope &&
+                                v.labels.operation === 'replay_until' &&
+                                v.labels.outcome === outcome
+                        )?.value ?? 0
+                    try {
+                        const sendFirstRequest = () =>
+                            send(
+                                hogFlow.id,
+                                { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                                { ...body, idempotency_key: `key-${scope}` }
+                            )
+                        const first = await sendFirstRequest()
+                        expect(first.status).toEqual(202)
+                        const messageId = first.body.invocation_id
+                        const scheduledAt = inDays(3)
+
+                        const restoreStore = breakStore()
+                        let moved: supertest.Response
+                        try {
+                            moved = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
+                        } finally {
+                            restoreStore()
+                        }
+
+                        expect(moved.status).toEqual(503)
+                        expect(moved.body).toEqual({ error: 'idempotency_unavailable' })
+                        expect(await scheduledTime(messageId)).toEqual(scheduledAt)
+                        expect(emailStatusRows().at(-1)).toEqual(
+                            expect.objectContaining({
+                                message_id: messageId,
+                                status: 'scheduled',
+                                scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                            })
+                        )
+                        expect(await failedWrites()).toEqual(1)
+
+                        const movedAgain = await manage('reschedule', messageId, { scheduled_at: scheduledAt })
+                        expect(movedAgain.status).toEqual(200)
+                        await valkey.useClient({ name: 'test-store-clock' }, async (client) => {
+                            for (const stored of await client.keys(`*${scope}*`)) {
+                                const storedKey = stored.slice(client.options.keyPrefix?.length ?? 0)
+                                const remainingMs = await client.pttl(storedKey)
+                                await (remainingMs > DAY_MS + HOUR_MS
+                                    ? client.pexpire(storedKey, remainingMs - DAY_MS - HOUR_MS)
+                                    : client.del(storedKey))
+                            }
+                        })
+                        const retry = await sendFirstRequest()
+                        expect(retry.body).toEqual({ ...first.body, replayed: true })
+                    } finally {
+                        api['transactionalEmailIdempotencyKeys'] = keys
+                    }
                 }
-            })
+            )
 
             it('keeps the time of the reschedule that committed last when its status row arrives first', async () => {
                 const messageId = await scheduleSend()

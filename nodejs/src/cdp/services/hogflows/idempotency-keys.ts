@@ -347,6 +347,10 @@ export class IdempotencyKeys {
         { hash, fingerprint, scheduledAt, replayFields }: QueuedIdempotencyKey,
         latestDueAt: Date
     ): Promise<boolean> {
+        if (!this.valkey) {
+            this.count('replay_until', 'unavailable')
+            return false
+        }
         try {
             await this.writeQueued(
                 {
