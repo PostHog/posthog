@@ -308,7 +308,7 @@ describe('ToolExecutor metrics', () => {
         // A 4xx that is not a `validation_error` still names its cause in the body. Only
         // identifier-shaped `code` and `attr` values may reach analytics; the free text
         // (`detail`, `message`) echoes caller input and must not.
-        it.each([
+        it.each<[string, number, string, { $mcp_error_code?: string; $mcp_error_field?: string }]>([
             [
                 'a DRF validation body with code and attr',
                 400,
@@ -336,7 +336,7 @@ describe('ToolExecutor metrics', () => {
             ['a code with spaces', 400, '{"code":"secret value here"}', {}],
             ['a code with punctuation', 400, '{"code":"bad-code: secret-value!","attr":"a.b; drop"}', {}],
             ['an uppercase code', 400, '{"code":"INVALID_INPUT"}', {}],
-            ['a code with a newline', 400, '{"code":"invalid_input\n","attr":"name\n"}', {}],
+            ['a code with a newline', 400, '{"code":"invalid_input\\n","attr":"name\\n"}', {}],
         ])('records the API error code for a 4xx with %s', async (_label, status, body, expected) => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(
                 makeFakeTool('fail-tool', async () => {
