@@ -176,7 +176,7 @@ const handlers = (
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Web Analytics/Search & AI',
+    title: 'Scenes-App/Web Analytics/AI traffic',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

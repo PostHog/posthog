@@ -16902,6 +16902,14 @@ snapshots:
         hash: v1.k794b7964.23b20dc850e672e01464afbf247232e42dbdc87f41f8486bb7a4ae89a229967f.thSgbd2h5p8aJwfOL56I_r2fGr7YHWuFZ2eWkeqSFD4
     scenes-app-web-analytics-agent-analytics--agent-analytics-readiness--light:
         hash: v1.k794b7964.92d43d4dc156b83d511632faad1347ed4238883daea42ca862a3fa507aadbb4b.jdis1TkMpq0L8GdxpAOCTOVb2A8SN0hHP9rG1e5tY_M
+    scenes-app-web-analytics-ai-traffic--web-analytics-page-performance--dark:
+        hash: v1.k794b7964.b9ceb194a6d6919f3a26ef929ac1ab3f15cd6b209436a0324d3d9541a22f4085.yZCOd3IfWcxeYGhXe5t9fo-ycwnMWa9PrZCrBttJcXM
+    scenes-app-web-analytics-ai-traffic--web-analytics-page-performance--light:
+        hash: v1.k794b7964.7aa7c1d22c6f61ab19bbb61f35363d7b1900616c82f477e00748575e35dd92f9.ZlvLnSEa2GuxHHLEQ_6Bsvpu_nJUrR908aFQAeEZ02s
+    scenes-app-web-analytics-ai-traffic--web-analytics-page-performance-no-ai-traffic--dark:
+        hash: v1.k794b7964.5c1a966f480441cd472395df8a375b720652e857db58a93557b37baf6f59fe99.EM_xeocdRrIK2mcRCcz7Ode6zctGvy6fv4al4nb6Jgg
+    scenes-app-web-analytics-ai-traffic--web-analytics-page-performance-no-ai-traffic--light:
+        hash: v1.k794b7964.2644b61908de664fdc4b20ef3e029096e9f18a612a6e534381dce575dd1ac752.0bMYBJ-cKtlv7TG0Jfa9GGjntvgG6xOUQvsyAH36yUE
     scenes-app-web-analytics-livemetricscharts--bot-events-per-minute--dark:
         hash: v1.k794b7964.933ca8aa37de16e55b07b9be45e8784e14b6a9aa8d7119882340e8858c5f9afd.FWPAiDTJNN-96zh7GPc5h6lH7TSlCDPeLmG0lk3YW1I
     scenes-app-web-analytics-livemetricscharts--bot-events-per-minute--light:
@@ -16942,14 +16950,6 @@ snapshots:
         hash: v1.k794b7964.55240799900ad880b8e40b2f0a00936830f0547a88613cd476610d2e2e72947b.ihwaSOiLbve6MI_IKzxYoEn3CJjSC1-HkkNxAcZBGDU
     scenes-app-web-analytics-pageperformancemetriccard--without-sparkline--light:
         hash: v1.k794b7964.e7ebd4a413d617f5c6e38419027f3affa40cd1da68af95d686ccc152860dbb5b.Fq3Sz8vrvMYKZQk1yKdN-t5SvImO0L7rvFjFf0ZyfFc
-    scenes-app-web-analytics-search-ai--web-analytics-page-performance--dark:
-        hash: v1.k794b7964.23da81d1be34f51c8efcf0b42e7b32c16efb0826612cdab7ca6ee573e6ad98f4.viLOKY9TbNQQ6FiXyIt-NpGav9R5JX9pgHPtAiSvq_M
-    scenes-app-web-analytics-search-ai--web-analytics-page-performance--light:
-        hash: v1.k794b7964.a11beb9ba7e219d9829bc242a475c7feb927a80e66fe28c5f21f2843be819f73.YV5oS7bREkv46gwHvLJPu-NMKrKb2UnplNmsHBTKXY8
-    scenes-app-web-analytics-search-ai--web-analytics-page-performance-no-ai-traffic--dark:
-        hash: v1.k794b7964.73397cf7b4c96d9fbd92dbedeb5d1bdbcd400701601ae7b5f5ce4214a5ee52c0.38vB6K4y_W0HK4NlG2npXYpBSZP3tbF0WeAYMQjXpa4
-    scenes-app-web-analytics-search-ai--web-analytics-page-performance-no-ai-traffic--light:
-        hash: v1.k794b7964.52b14ed4ea1c48d30d4600a0c9a73ec060cf10dc016388cead3af541a170e969.jwjMMHfrh3Ns0clvzvWgda96yNds_L7XbpwYDPJ9Wbc
     scenes-app-workflows-createaitaskconnectors--no-approved-tools--dark:
         hash: v1.k794b7964.21192b03ef6f65ad46bd4fc88738669fc7b2902dcbce0db252a3d2417e10172b.lhKBZM-VPET3_AhQCAUubBUu7qAu8KlducA4WUsWhOM
     scenes-app-workflows-createaitaskconnectors--no-approved-tools--light:
