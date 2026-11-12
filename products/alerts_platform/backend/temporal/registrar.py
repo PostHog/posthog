@@ -13,6 +13,8 @@ from temporalio.common import RetryPolicy
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.alerts_platform.backend.temporal.workflows import AlertsPlatformInputs
+
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import close_db_connections
 
@@ -25,11 +27,6 @@ REGISTER_BUDGET = dt.timedelta(seconds=60)
 REGISTER_START_TO_CLOSE = dt.timedelta(minutes=2)
 # Projects one run reads at once, so a run with many projects does not take every worker slot.
 MAX_CONCURRENT_REGISTRATIONS = 8
-
-
-@frozen
-class RegistrarInputs:
-    pass
 
 
 @frozen
@@ -63,11 +60,11 @@ def alerts_platform_register_occurrences_activity(target: RegistrarTarget) -> No
 class AlertsPlatformRegisterOccurrencesWorkflow(PostHogWorkflow):
     """Brings each project's registry up to what its sources' feeds have finished."""
 
-    inputs_cls = RegistrarInputs
+    inputs_cls = AlertsPlatformInputs
     inputs_optional = True
 
     @workflow.run
-    async def run(self, inputs: RegistrarInputs) -> int:
+    async def run(self, inputs: AlertsPlatformInputs) -> int:
         targets = await workflow.execute_activity(
             alerts_platform_registrar_targets_activity,
             start_to_close_timeout=dt.timedelta(seconds=30),

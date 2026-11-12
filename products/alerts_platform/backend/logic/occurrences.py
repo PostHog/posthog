@@ -110,7 +110,7 @@ class RegistryStore:
         reached: datetime | None = None
         while True:
             try:
-                reached = self.register(team_id=team_id, now=now)
+                reached = self.register(team_id=team_id, ready=ready)
             except Exception:
                 if reached is None:
                     raise
@@ -121,8 +121,9 @@ class RegistryStore:
             if reached >= ready or time.monotonic() >= deadline:
                 return reached
 
-    def register(self, *, team_id: int, now: datetime) -> datetime:
-        """Records what the feed saw in the next span after the cursor, and returns where the registry stands.
+    def register(self, *, team_id: int, ready: datetime) -> datetime:
+        """Records what the feed saw in the next span after the cursor, up to `ready`, where the feed has
+        finished, and returns where the registry stands.
 
         The feed's read runs outside the transaction, so no row lock waits on ClickHouse. The write
         then records only if the cursor has not moved, so two concurrent reads record one window once.
@@ -131,7 +132,6 @@ class RegistryStore:
         assert self.feed is not None
         cursors = PlatformOccurrenceCursor.objects.for_team(team_id)
         cursor, _ = cursors.get_or_create(team_id=team_id, source_kind=self.source.value)
-        ready = self.feed.ready_until(team_id, now)
         since = cursor.registered_until or ready - self.feed.seed_lookback
         span = cursor.read_span or MAX_READ_SPAN
         until = min(ready, since + span)
@@ -150,8 +150,7 @@ class RegistryStore:
                 return locked.registered_until or since
             _record_sightings(self.source, team_id, seen)
             locked.registered_until = until
-            # None is the full span, so a cursor that never failed keeps nothing.
-            locked.read_span = span * 2 if span * 2 < MAX_READ_SPAN else None
+            locked.read_span = min(span * 2, MAX_READ_SPAN)
             locked.save(update_fields=["registered_until", "read_span"])
         return until
 

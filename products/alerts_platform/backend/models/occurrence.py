@@ -59,7 +59,6 @@ class PlatformOccurrenceCursor(TeamScopedRootMixin, UUIDModel):
     source_kind = models.CharField(max_length=32, choices=source_kind_choices)
     registered_until = models.DateTimeField(null=True, blank=True)
     # The span the next read asks the feed for, shortened after a read the feed could not finish.
-    # None is the full span.
     read_span = models.DurationField(null=True, blank=True)
 
     class Meta:
