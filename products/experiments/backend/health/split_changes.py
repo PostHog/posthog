@@ -104,6 +104,11 @@ def net_effect(changes: Sequence[SplitChange]) -> SplitNetEffect | None:
     )
 
 
+def split_value(split: Split) -> str:
+    """The split as the health panel lists it, where a flag without variants reads "None"."""
+    return describe_split(split) if split else "None"
+
+
 def describe_split(split: Split) -> str:
     """The split as the evidence and the wording show it, for example "control 50% / test 50%"."""
     if not split:
