@@ -133,30 +133,48 @@ export function TransactionalEmailsTable(): JSX.Element {
                         key: 'name',
                         sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
                         render: (_, row) => {
-                            const title = (
-                                <span className="flex flex-wrap items-center gap-1">
-                                    {row.source === 'code' ? (
-                                        <span className="font-mono break-all">{row.name}</span>
-                                    ) : (
-                                        row.name || 'Unnamed template'
-                                    )}
-                                    {row.source === 'code' && <CodeBadge sourceUrl={row.codeEmail.source_url} />}
-                                    {row.sensitive && (
-                                        <LemonTag type="highlight" size="small" icon={<IconLock />}>
-                                            Sensitive
-                                        </LemonTag>
-                                    )}
-                                    {row.source === 'posthog' && row.template.draft_content && (
-                                        <LemonTag type="warning" size="small">
-                                            Unpublished changes
-                                        </LemonTag>
-                                    )}
-                                </span>
+                            const sensitive = row.sensitive && (
+                                <LemonTag type="highlight" size="small" icon={<IconLock />}>
+                                    Sensitive
+                                </LemonTag>
                             )
+                            if (row.source === 'code') {
+                                // The Code tag can link to the source file, so only the key links to the email:
+                                // a link can't hold another link.
+                                return (
+                                    <div className="flex flex-col py-1">
+                                        <div className="flex flex-wrap items-center gap-1 font-semibold text-sm">
+                                            <Link
+                                                subtle
+                                                to={urls.transactionalCodeEmail(row.id)}
+                                                className="font-mono break-all"
+                                                data-attr="transactional-code-email-link"
+                                            >
+                                                {row.name}
+                                            </Link>
+                                            <CodeBadge sourceUrl={row.codeEmail.source_url} />
+                                            {sensitive}
+                                        </div>
+                                        {row.description ? (
+                                            <div className="text-xs text-tertiary mt-1">{row.description}</div>
+                                        ) : null}
+                                    </div>
+                                )
+                            }
                             return (
                                 <LemonTableLink
-                                    to={row.source === 'posthog' ? urls.transactionalTemplate(row.id) : undefined}
-                                    title={title}
+                                    to={urls.transactionalTemplate(row.id)}
+                                    title={
+                                        <span className="flex flex-wrap items-center gap-1">
+                                            {row.name || 'Unnamed template'}
+                                            {sensitive}
+                                            {row.template.draft_content && (
+                                                <LemonTag type="warning" size="small">
+                                                    Unpublished changes
+                                                </LemonTag>
+                                            )}
+                                        </span>
+                                    }
                                     description={row.description}
                                 />
                             )
@@ -233,10 +251,16 @@ export function TransactionalEmailsTable(): JSX.Element {
                                     }}
                                 />
                             )
-                            return row.source === 'posthog' ? (
-                                <Link to={urls.transactionalTemplate(row.id)}>{sparkline}</Link>
-                            ) : (
-                                sparkline
+                            return (
+                                <Link
+                                    to={
+                                        row.source === 'code'
+                                            ? urls.transactionalCodeEmail(row.id)
+                                            : urls.transactionalTemplate(row.id)
+                                    }
+                                >
+                                    {sparkline}
+                                </Link>
                             )
                         },
                     },
