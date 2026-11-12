@@ -28,6 +28,61 @@ describe('variablesLogic', () => {
         initKeaTests()
     })
 
+    it('loads every definition page before treating missing selections as deleted', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/insight_variables/': ({ request }) => {
+                    const page = new URL(request.url).searchParams.get('page')
+                    return [
+                        200,
+                        page === '2'
+                            ? {
+                                  results: [
+                                      {
+                                          id: 'second-id',
+                                          name: 'Second',
+                                          code_name: 'second',
+                                          type: 'String',
+                                          default_value: '',
+                                      },
+                                  ],
+                                  next: null,
+                              }
+                            : {
+                                  results: [
+                                      {
+                                          id: 'first-id',
+                                          name: 'First',
+                                          code_name: 'first',
+                                          type: 'String',
+                                          default_value: '',
+                                      },
+                                  ],
+                                  next: '/api/projects/2/insight_variables/?page=2',
+                              },
+                    ]
+                },
+            },
+        })
+        const logic = variableDataLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.variables.map((variable) => variable.id)).toEqual(['first-id', 'second-id'])
+        logic.unmount()
+    })
+
+    it('keeps definitions when a delete request fails', async () => {
+        useMocks({
+            delete: { '/api/projects/:team_id/insight_variables/:id/': [500, { detail: 'Could not delete variable' }] },
+        })
+        const logic = variableDataLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.deleteVariable('region-id')).toFinishAllListeners()
+        expect(logic.values.variables.map((variable) => variable.id)).toEqual(['region-id'])
+        logic.unmount()
+    })
+
     it('retains an unused editor value across saved-query updates and restores it when referenced again', async () => {
         let savedQuery: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
@@ -66,6 +121,14 @@ describe('variablesLogic', () => {
         expect(savedQuery.source.variables).toEqual({
             'region-id': expect.objectContaining({ value: 'South' }),
         })
+        const savedBeforeEdits = savedQuery
+        logic.actions.setEditorQuery('SELECT 1')
+        logic.actions.updateVariableValue('region-id', 'West', false)
+        savedQuery = savedBeforeEdits
+        variablesLogic({ ...props, sourceQuery: savedQuery })
+        logic.actions.setEditorQuery('SELECT {variables.region}')
+        expect(savedQuery.source.variables?.['region-id'].value).toBe('South')
+        expect(logic.values.variablesUsedInQuery[0].value).toBe('South')
         logic.unmount()
         parent.unmount()
     })

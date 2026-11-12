@@ -3,9 +3,11 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
+
+import { insightVariablesList, insightVariablesDestroy } from 'products/data_warehouse/frontend/generated/api'
 
 import { Variable } from '../../types'
 
@@ -62,15 +64,25 @@ export const variableDataLogic = kea<variableDataLogicType>([
                     if (isSharedView()) {
                         return []
                     }
-                    const insights = await api.insightVariables.list()
-                    return insights.results
+                    const variables: Variable[] = []
+                    const teamId = String(ApiConfig.getCurrentTeamId())
+                    let page = 1
+                    while (true) {
+                        const response = await insightVariablesList(teamId, { page })
+                        variables.push(...(response.results as Variable[]))
+                        if (!response.next) {
+                            return variables
+                        }
+                        page++
+                    }
                 },
                 deleteVariable: async (variableId: string) => {
                     try {
-                        await api.insightVariables.delete(variableId)
+                        await insightVariablesDestroy(String(ApiConfig.getCurrentTeamId()), variableId)
                         lemonToast.success('Variable deleted successfully')
                     } catch {
                         lemonToast.error('Failed to delete variable')
+                        return values.variables
                     }
                     return values.variables.filter((variable) => variable.id !== variableId)
                 },

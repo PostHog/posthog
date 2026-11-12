@@ -246,8 +246,10 @@ export const variablesLogic = kea<variablesLogicType>([
                     return [...state, { ...variable }]
                 },
                 _addVariable: (state, { variable }) => {
-                    if (state.find((n) => variable.variableId === n.variableId)) {
-                        return state
+                    if (state.some((selected) => selected.variableId === variable.variableId)) {
+                        return state.map((selected) =>
+                            selected.variableId === variable.variableId ? { ...variable } : selected
+                        )
                     }
 
                     return [...state, { ...variable }]
