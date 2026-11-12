@@ -100,6 +100,7 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
     def _calculate(self) -> LogValuesQueryResponse:
         response = execute_hogql_query(
             query_type="LogsQuery",
+            user=self.user,
             query=self.to_query(),
             modifiers=self.modifiers,
             team=self.team,

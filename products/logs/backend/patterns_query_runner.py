@@ -474,6 +474,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             settings.max_execution_time = min(remaining, own_limit)
         response = execute_hogql_query(
             query_type="LogsQuery",
+            user=self.user,
             query=query,
             modifiers=self.modifiers,
             team=self.team,

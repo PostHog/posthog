@@ -7,10 +7,15 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework import exceptions, status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.event_definitions.backend.models import PropertyDefinition
 from products.logs.backend.presentation.views.explain import (
     LogExplanationResponse,
     explain_log_with_openai,
@@ -306,8 +311,9 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
         assert mock_report.call_args[0][1] == "logs explain requested"
         assert mock_report.call_args[0][2]["cached"] is False
 
+    @parameterized.expand([("unchanged", False), ("restricted", True)])
     @patch("products.logs.backend.presentation.views.explain.report_user_action")
-    def test_caches_result(self, mock_report):
+    def test_caches_result(self, _name: str, restricted: bool, mock_report: MagicMock) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
@@ -315,6 +321,7 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
             line = f.readline()
             log_item = json.loads(line)
             log_item["team_id"] = self.team.id
+            log_item["service_name"] = "posthog-internal-hog-functions"
             sync_execute(f"""
                 INSERT INTO logs
                 FORMAT JSONEachRow
@@ -341,16 +348,32 @@ class TestLogExplainAPI(ClickhouseTestMixin, APIBaseTest):
             assert mock_report.call_args[0][1] == "logs explain requested"
             assert mock_report.call_args[0][2]["cached"] is False
 
-            # Second request should use cache
+            if restricted:
+                self.organization.available_product_features = [
+                    {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+                ]
+                self.organization.save()
+                self.organization_membership.level = OrganizationMembership.Level.MEMBER
+                self.organization_membership.save()
+                definition = PropertyDefinition.objects.create(
+                    team=self.team, name="private_note", type=PropertyDefinition.Type.EVENT
+                )
+                PropertyAccessControl.objects.create(
+                    team=self.team,
+                    property_definition=definition,
+                    organization_member=self.organization_membership,
+                    access_level="none",
+                )
+
             response2 = self.client.post(
                 f"/api/environments/{self.team.id}/logs/explainLogWithAI/",
                 {"uuid": log_item["uuid"], "timestamp": log_item["timestamp"]},
             )
-            assert response2.status_code == status.HTTP_200_OK
-            assert mock_client.chat.completions.create.call_count == 1  # Still 1, used cache
+            assert response2.status_code == (status.HTTP_404_NOT_FOUND if restricted else status.HTTP_200_OK)
+            assert mock_client.chat.completions.create.call_count == 1
 
-            assert mock_report.call_count == 2
-            assert mock_report.call_args[0][2]["cached"] is True
+            assert mock_report.call_count == (1 if restricted else 2)
+            assert mock_report.call_args[0][2]["cached"] is (not restricted)
 
     def test_force_refresh_bypasses_cache(self):
         self.organization.is_ai_data_processing_approved = True

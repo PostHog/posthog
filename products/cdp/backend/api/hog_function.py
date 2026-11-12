@@ -25,6 +25,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -1151,6 +1152,7 @@ class HogFunctionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
+    permission_classes = [CDPPropertyAccessPermission]
     scope_object_read_actions = [
         "list",
         "retrieve",

@@ -1115,8 +1115,11 @@ class TestQueryRunner(BaseTest):
 
         assert "restricted_objects" not in runner.get_cache_payload()
 
+    @parameterized.expand([("unversioned", None), ("previous_version", 2)])
     @time_machine.travel("2023-02-04T13:37:42Z", tick=False)
-    def test_restricted_user_does_not_receive_pre_enforcement_cached_results(self) -> None:
+    def test_restricted_user_does_not_receive_pre_enforcement_cached_results(
+        self, _name: str, legacy_version: int | None
+    ) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
@@ -1133,6 +1136,8 @@ class TestQueryRunner(BaseTest):
         runner = self.setup_test_query_runner_class()(query={"some_attr": "bla"}, team=self.team, user=self.user)
         legacy_payload = runner.get_cache_payload()
         legacy_payload.pop("property_access_control_version", None)
+        if legacy_version is not None:
+            legacy_payload["property_access_control_version"] = legacy_version
         legacy_cache_key = generate_cache_key(self.team.pk, f"query_{to_json(legacy_payload).decode()}")
         now = datetime.now(tz=UTC)
         legacy_response = TheTestCachedBasicQueryResponse(

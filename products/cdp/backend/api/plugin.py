@@ -19,6 +19,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPOrganizationPropertyAccessPermission, CDPPropertyAccessPermission
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.event_usage import report_user_action
@@ -345,7 +346,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
-    permission_classes = [PluginsAccessLevelPermission]
+    permission_classes = [PluginsAccessLevelPermission, CDPOrganizationPropertyAccessPermission]
     hide_api_docs = True
 
     def dangerously_get_permissions(self):
@@ -794,6 +795,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
 class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
+    permission_classes = [CDPPropertyAccessPermission]
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
     hide_api_docs = True

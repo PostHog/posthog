@@ -52,6 +52,7 @@ from ..models.team_access_control_config import TeamAccessControlConfig
 from ..property_access_control import (
     get_non_writable_property_names as _get_non_writable_property_names,
     get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
+    has_restricted_properties_in_organization as _has_restricted_properties_in_organization,
     is_property_access_control_enabled,
 )
 from . import contracts
@@ -147,6 +148,10 @@ def get_restricted_properties_with_group_type_index_for_team(
 ) -> set[RestrictedProperty]:
     """Return property restrictions for a user and team."""
     return _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+
+
+def has_restricted_properties_in_organization(*, user: User | None, organization_id: UUID) -> bool:
+    return _has_restricted_properties_in_organization(user=user, organization_id=organization_id)
 
 
 def get_restricted_properties_for_group_type(

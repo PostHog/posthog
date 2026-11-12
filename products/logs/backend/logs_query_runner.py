@@ -786,6 +786,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
     def _calculate(self) -> LogsQueryResponse:
         response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
+            user=self.user,
             query=self.to_query(),
             modifiers=self.modifiers,
             team=self.team,

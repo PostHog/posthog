@@ -36,6 +36,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import UserRateThrottle
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
@@ -2953,6 +2954,8 @@ class EventStreamViewSet(
     every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
     destination that is re-provisioned inside the same transaction as every write, so
     config and delivery can't drift apart."""
+
+    permission_classes = [CDPPropertyAccessPermission]
 
     scope_object = "account"
     serializer_class = EventStreamSerializer

@@ -7,6 +7,7 @@ from django.http import Http404
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
@@ -94,6 +95,7 @@ class HookViewSet(
     # NOTE: This permissions is needed for Zapier calls but we don't want to expose it in the API docs until
     # it is able to support more than Zapier
     hide_api_docs = True
+    permission_classes = [CDPPropertyAccessPermission]
     queryset = Hook.objects.all()
     ordering = "-created_at"
     serializer_class = HookSerializer

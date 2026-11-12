@@ -407,6 +407,40 @@ def get_restricted_properties_for_team(
     return {(restriction.name, restriction.property_type) for restriction in restrictions}
 
 
+def has_restricted_properties_in_organization(*, user: User | None, organization_id: UUID) -> bool:
+    organization = Organization.objects.get(id=organization_id)
+    if not organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL):
+        return False
+
+    membership = None
+    if user is not None:
+        membership = (
+            OrganizationMembership.objects.filter(user=user, organization_id=organization_id)
+            .only("id", "level", "user_id")
+            .first()
+        )
+        if membership is None:
+            raise UserNotOrganizationMemberError("user does not have organization membership")
+        if membership.level >= OrganizationMembership.Level.ADMIN:
+            return False
+
+    user_role_ids = _get_user_role_ids(membership, organization)
+    rules_by_property: dict[tuple[int, UUID], list[PropertyAccessControl]] = {}
+    rules = (
+        PropertyAccessControl.objects.filter(team__organization_id=organization_id)
+        .exclude(property_definition_id__isnull=True)
+        .only("team_id", "property_definition_id", "organization_member_id", "role_id", "access_level")
+    )
+    for rule in rules:
+        assert rule.property_definition_id is not None
+        rules_by_property.setdefault((rule.team_id, rule.property_definition_id), []).append(rule)
+
+    return any(
+        not _resolve_access_level(prop_rules, membership=membership, user_role_ids=user_role_ids).grants_access()
+        for prop_rules in rules_by_property.values()
+    )
+
+
 def _get_user_role_ids(membership: OrganizationMembership | None, organization: Organization) -> set[UUID]:
     """Roles the member holds for property rule resolution.
 

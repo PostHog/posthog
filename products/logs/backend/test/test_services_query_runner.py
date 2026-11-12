@@ -11,9 +11,16 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.event_definitions.backend.models import PropertyDefinition
 from products.logs.backend import services_query_runner
 from products.logs.backend.models import LogsExclusionRule
-from products.logs.backend.services_query_runner import rule_could_apply_to_service
+from products.logs.backend.services_query_runner import ServicesQueryRunner, rule_could_apply_to_service
 from products.logs.backend.test.volume_rollup_fixtures import insert_logs_and_rollups, log_row
 
 
@@ -368,6 +375,56 @@ class TestServicesCompare(ClickhouseTestMixin, APIBaseTest):
     @staticmethod
     def _by_service(result: dict) -> dict[str, dict]:
         return {row["service_name"]: row for row in result["services"]}
+
+    @parameterized.expand([("automatic", False, False), ("explicit", True, False), ("changed_user", True, True)])
+    @time_machine.travel(_COMPARE_NOW, tick=False)
+    def test_service_comparison_follows_property_access(
+        self, _name: str, explicit_baseline: bool, change_user: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="private_note", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        service = "posthog-internal-hog-functions"
+        insert_logs_and_rollups(_hour_rows(self.team.id, service, 11, 20, 0, {}))
+        runner = ServicesQueryRunner(
+            team=self.team,
+            user=None if change_user else self.user,
+            query=LogsQuery(
+                dateRange=DateRange(**_CURRENT),
+                serviceNames=[service],
+                searchTerm="log line",
+                severityLevels=[],
+                filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            ),
+            compare="previous_period",
+            baseline_date_range=(
+                DateRange(date_from="2026-06-23T11:00:00Z", date_to="2026-06-23T12:00:00Z")
+                if explicit_baseline
+                else None
+            ),
+        )
+        if change_user:
+            initial = runner.calculate().results
+            assert isinstance(initial, dict)
+            assert [row["service_name"] for row in initial["services"]] == [service]
+            runner.set_user(self.user)
+
+        result = runner.calculate().results
+
+        assert isinstance(result, dict)
+        assert result["services"] == []
 
     @time_machine.travel(_COMPARE_NOW, tick=False)
     def test_previous_period_classifies_each_service(self) -> None:

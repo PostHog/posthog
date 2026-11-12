@@ -31,6 +31,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.annotations.backend.facade import api as annotations_api
 from products.annotations.backend.facade.contracts import AnnotationFilters
 from products.annotations.backend.facade.enums import AnnotationScope
@@ -40,6 +41,7 @@ from products.canvas.backend.facade import access as canvas_facade
 from products.canvas.backend.mcp_tools import CANVAS_MCP_TOOL_ALLOWLIST
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
+from products.event_definitions.backend.models import PropertyDefinition
 from products.tasks.backend.facade.access import DesktopAccessDecision
 from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
@@ -2764,6 +2766,38 @@ class TestCanvasActions(CanvasAPIBaseTest):
         )
 
         assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand([("pause", "active"), ("resume", "draft")])
+    def test_workflow_verbs_respect_property_access(self, verb: str, workflow_status: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="private_note", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        canvas_id = self._actions_canvas(verbs=(f"workflows.{verb}",))
+        workflow = create_workflow_for_test(
+            team_id=self.team.id,
+            name="Scheduled workflow",
+            status=workflow_status,
+            trigger={"type": "schedule"},
+            actions=[{"id": "trigger", "type": "trigger", "name": "Scheduled", "config": {"type": "schedule"}}],
+            edges=[],
+        )
+
+        response = self._invoke(canvas_id, f"workflows.{verb}", {"workflow_ids": [str(workflow.id)]})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert get_workflow_summary(team_id=self.team.id, workflow_id=workflow.id).status == workflow_status
 
     def test_workflow_verbs_flip_status_and_refuse_other_projects(self):
         canvas_id = self._actions_canvas(verbs=("workflows.pause", "workflows.resume"))
