@@ -515,7 +515,8 @@ export class CyclotronV2Manager {
             const toInsert = entries.filter((entry) => claimedIds.has(entry.id))
             // A key that expired with its job gone between the read above and this claim skipped the guard.
             if (fresh.length === 0 && toInsert.length > 0) {
-                await this.insertGuard().catch((err) => {
+                // On the claim's own connection: asking the pool for another would wait forever on a full pool.
+                await this.insertGuard(client).catch((err) => {
                     capacityRefusal = err
                     throw err
                 })
@@ -1053,25 +1054,25 @@ export class CyclotronV2Manager {
         await this.pool.end()
     }
 
-    private async insertGuard(): Promise<void> {
-        if (await timeEnqueuePhase('depth_check', 'manager', () => this.isFull())) {
+    private async insertGuard(db: Pool | PoolClient = this.pool): Promise<void> {
+        if (await timeEnqueuePhase('depth_check', 'manager', () => this.isFull(db))) {
             throw new Error(`Cyclotron V2 queue is full (depth limit: ${this.depthLimit})`)
         }
     }
 
-    private isFull(): Promise<boolean> {
+    private isFull(db: Pool | PoolClient): Promise<boolean> {
         if (this.depthCheckPromise && Date.now() < this.depthCheckExpiresAt) {
             return this.depthCheckPromise
         }
 
-        this.depthCheckPromise = this.queryDepth()
+        this.depthCheckPromise = this.queryDepth(db)
         this.depthCheckExpiresAt = Date.now() + this.depthCheckIntervalMs
         return this.depthCheckPromise
     }
 
-    private async queryDepth(): Promise<boolean> {
+    private async queryDepth(db: Pool | PoolClient): Promise<boolean> {
         try {
-            const result = await this.pool.query(QUEUE_DEPTH_SQL)
+            const result = await db.query(QUEUE_DEPTH_SQL)
             const count = parseInt(result.rows[0].count, 10)
             const full = count >= this.depthLimit
 

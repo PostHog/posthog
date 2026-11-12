@@ -1605,7 +1605,13 @@ describe('Cyclotron V2', () => {
                     [id]
                 )
                 await manager.createJob({ teamId: 1, queueName: QUEUE })
-                const fullManager = createManager({ depthLimit: 1, depthCheckIntervalMs: 0 })
+                // One connection, so a depth check that asks the pool for a second one while the claim holds the
+                // first would wait forever.
+                const fullManager = createManager({
+                    pool: { dbUrl: DB_URL, maxConnections: 1 },
+                    depthLimit: 1,
+                    depthCheckIntervalMs: 0,
+                })
                 await fullManager.connect()
                 // The key expiring with its job gone between the read and the claim can't be timed from outside,
                 // because the claim's NOW() is fixed when its transaction begins. So the read reports it as taken.
@@ -1621,7 +1627,7 @@ describe('Cyclotron V2', () => {
                 )
                 expect(rows).toEqual([{ fingerprint: 'a', expired: true }])
                 expect(await totalJobCount()).toBe(1)
-            })
+            }, 5000)
 
             it('takes an email dequeue slot only for a job it queues', async () => {
                 const teamId = 4242
