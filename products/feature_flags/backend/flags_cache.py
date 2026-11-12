@@ -73,7 +73,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
 from products.experiments.backend.facade.change_signals import connect_experiment_changed
 from products.experiments.backend.facade.contracts import ExperimentChanged
-from products.experiments.backend.models.experiment import live_experiment_exists
+from products.experiments.backend.facade.feature_flags import flag_ids_with_live_experiment
 from products.feature_flags.backend.facade.config import (
     ConfigFormatError,
     UnsupportedConfig,
@@ -565,7 +565,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     # Note: We intentionally don't select_related("team") here because we only need
     # team_id (already on the model) for grouping, and the Team objects are already
     # loaded by the caller. Avoiding the join saves memory.
-    all_flags = list(
+    flag_queryset = (
         FeatureFlag.objects.filter(team__in=teams)
         .exclude(has_encrypted_payloads=True)
         .annotate(
@@ -574,14 +574,17 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
                 filter=Q(flag_evaluation_contexts__isnull=False),
                 distinct=True,
             ),
-            has_experiment_agg=live_experiment_exists(),
         )
     )
+    all_flags = list(flag_queryset)
+    # The ids come from a second read, so they can include experiment writes newer than the flags. Each such
+    # write also rebuilds the team's cache through the `experiment_changed_flags_cache` receiver when it commits.
+    live_experiment_flag_ids = flag_ids_with_live_experiment([flag.pk for flag in all_flags], using=flag_queryset.db)
 
     # Transfer aggregated tag names to model instances
     for flag in all_flags:
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
-        flag._has_experiment = flag.has_experiment_agg
+        flag._has_experiment = flag.pk in live_experiment_flag_ids
 
     # Group flags by team_id
     flags_by_team_id: dict[int, list[FeatureFlag]] = defaultdict(list)

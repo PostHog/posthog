@@ -1,10 +1,10 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models import QuerySet
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
@@ -420,18 +420,23 @@ def live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
     (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL —
     keep the two in lockstep.
 
-    Accepts a concrete id or an `OuterRef`, so it backs both helpers below.
+    `live_experiment_flag_ids` applies the same predicate to many flags at once, so keep it in lockstep too.
     """
     return Experiment.objects.filter(feature_flag_id=feature_flag_id, deleted=False)
 
 
-def live_experiment_exists() -> Exists:
-    """`Exists` subquery for `.annotate()` over many flags. For a single in-hand flag, use `flag_has_live_experiment`."""
-    return Exists(live_experiments_for_flag(OuterRef("pk")))
+def live_experiment_flag_ids(feature_flag_ids: Collection[int], *, using: str) -> frozenset[int]:
+    """The ids among `feature_flag_ids` that `live_experiments_for_flag` matches, read in one query from the
+    database alias `using`. An empty collection returns an empty set without a query."""
+    return frozenset(
+        Experiment.objects.using(using)
+        .filter(feature_flag_id__in=list(feature_flag_ids), deleted=False)
+        .values_list("feature_flag_id", flat=True)
+    )
 
 
 def flag_has_live_experiment(feature_flag_id: int) -> bool:
-    """Instance-level companion to `live_experiment_exists` — same predicate, one flag."""
+    """`live_experiments_for_flag` for one flag."""
     return live_experiments_for_flag(feature_flag_id).exists()
 
 

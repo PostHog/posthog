@@ -55,7 +55,7 @@ from posthog.utils import capture_exception_throttled, get_safe_cache, safe_int
 from products.cohorts.backend.models.cohort import Cohort, is_cohort_recalculation_only_save
 from products.experiments.backend.facade.change_signals import connect_experiment_changed
 from products.experiments.backend.facade.contracts import ExperimentChanged
-from products.experiments.backend.models.experiment import live_experiment_exists
+from products.experiments.backend.facade.feature_flags import flag_ids_with_live_experiment
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
@@ -642,9 +642,13 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 filter=Q(flag_evaluation_contexts__isnull=False),
                 distinct=True,
             ),
-            has_experiment_agg=live_experiment_exists(),
         )
         .order_by("team_id", "key")
+    )
+    # The ids come from a second read, so they can include experiment writes newer than the flags. Each such
+    # write also rebuilds the team's cache through the `experiment_changed` receiver when it commits.
+    live_experiment_flag_ids = flag_ids_with_live_experiment(
+        [flag.pk for flag in all_flags], using=DATABASE_FOR_LOCAL_EVALUATION
     )
 
     direct_cohort_ids: set[int] = set()
@@ -655,7 +659,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
             excluded_by_team[flag.team_id][str(flag.pk)] = flag.key
             continue
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
-        flag._has_experiment = flag.has_experiment_agg
+        flag._has_experiment = flag.pk in live_experiment_flag_ids
         direct_cohort_ids.update(referenced_cohort_ids(flag.filters))
         dependency_references.update(str(prop["key"]) for prop in flag_dependency_properties(flag.filters))
         eligible_flags.append(flag)

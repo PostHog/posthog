@@ -909,6 +909,25 @@ class TestLocalEvaluationBatch(BaseTest):
         else:
             assert f"flag-{desc}" not in flag_keys, f"Expected flag-{desc} to be excluded"
 
+    @parameterized.expand(
+        [
+            ("no_experiment", "none", False),
+            ("active_experiment", "active", True),
+            ("deleted_experiment", "deleted", False),
+        ]
+    )
+    def test_batch_has_experiment_value(self, _name: str, experiment_state: str, expected: bool) -> None:
+        team = self._create_team_with_project("Experiment Team")
+        flag = FeatureFlag.objects.create(team=team, key="exp-flag", filters={"groups": [{"rollout_percentage": 100}]})
+        if experiment_state != "none":
+            create_experiment(
+                team_id=team.id, feature_flag_id=flag.id, name="exp", deleted=experiment_state == "deleted"
+            )
+
+        results = _get_flags_response_for_local_evaluation_batch([team])
+
+        assert [f["has_experiment"] for f in results[team.id]["flags"]] == [expected]
+
     def test_batch_two_teams_flags_isolated(self):
         team_a = self._create_team_with_project("Team A")
         team_b = self._create_team_with_project("Team B")
@@ -1296,8 +1315,9 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 100}]},
         )
 
-        with self.assertNumQueries(3):
-            # Group type mappings use personhog; SQL only loads team config, surveys, and eligible flags.
+        with self.assertNumQueries(4):
+            # Group type mappings use personhog; SQL only loads team config, surveys, eligible flags, and the flag
+            # ids that have a live experiment.
             results = _get_flags_response_for_local_evaluation_batch([team])
 
         assert results[team.id]["cohorts"] == {}

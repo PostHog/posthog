@@ -839,13 +839,17 @@ class TestHasExperimentField(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_experiment", "none", False),
-            ("active_experiment", "active", True),
-            ("stopped_not_deleted_experiment", "stopped", True),
-            ("deleted_experiment", "deleted", False),
+            (f"{name}_{loader}", state, expected, loader)
+            for name, state, expected in [
+                ("no_experiment", "none", False),
+                ("active_experiment", "active", True),
+                ("stopped_not_deleted_experiment", "stopped", True),
+                ("deleted_experiment", "deleted", False),
+            ]
+            for loader in ("per_team", "batch")
         ]
     )
-    def test_has_experiment_value(self, _name: str, experiment_state: str, expected: bool):
+    def test_has_experiment_value(self, _name: str, experiment_state: str, expected: bool, loader: str):
         flag = self._make_flag("exp-flag")
         if experiment_state == "active":
             create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp")
@@ -854,18 +858,14 @@ class TestHasExperimentField(BaseTest):
         elif experiment_state == "deleted":
             create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp", deleted=True)
 
-        flags = _get_feature_flags_for_service(self.team)["flags"]
+        if loader == "batch":
+            flags = _get_feature_flags_for_teams_batch([self.team])[self.team.id]["flags"]
+        else:
+            flags = _get_feature_flags_for_service(self.team)["flags"]
         assert flags[0]["has_experiment"] is expected
 
-    def test_has_experiment_present_in_batch_output(self):
-        flag = self._make_flag("exp-flag")
-        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp")
-
-        flags = _get_feature_flags_for_teams_batch([self.team])[self.team.id]["flags"]
-        assert flags[0]["has_experiment"] is True
-
     def test_has_experiment_no_n_plus_one(self):
-        """has_experiment is computed via a bulk Exists subquery, so the number of queries
+        """has_experiment is computed from one bulk read of the experiment flag ids, so the number of queries
         touching the experiment table stays constant as flags/experiments grow. Counting only
         experiment-table queries isolates this from unrelated per-flag queries on other paths."""
 
