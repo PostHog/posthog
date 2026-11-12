@@ -14,14 +14,16 @@ QUERY_PARAMETERS: dict[str, object] = {
 
 
 def test_native_events_export_query_refuses_stale_replicas() -> None:
-    query = native_events_export_query("event")
+    query = native_events_export_query([{"expression": "event", "alias": "event"}])
 
     assert "max_replica_delay_for_distributed_queries=60" in query
     assert "fallback_to_stale_replicas_for_distributed_queries=0" in query
 
 
 def test_native_events_export_query_keeps_empty_object_literals_in_custom_fields() -> None:
-    query = ClickHouseClient().prepare_query(native_events_export_query("'{}' AS properties"), QUERY_PARAMETERS)
+    query = ClickHouseClient().prepare_query(
+        native_events_export_query([{"expression": "'{}'", "alias": "properties"}]), QUERY_PARAMETERS
+    )
 
     assert "'{0}'" not in query
     assert "'{}'" in query
@@ -30,4 +32,4 @@ def test_native_events_export_query_keeps_empty_object_literals_in_custom_fields
 # Without these settings `toJSONString(properties)` prints a stored dotted key as `a%2Eb` and a `/` as `\/`.
 @pytest.mark.parametrize("setting", ["json_type_escape_dots_in_keys=1", "output_format_json_escape_forward_slashes=0"])
 def test_native_events_export_query_matches_legacy_json_text(setting: str) -> None:
-    assert setting in native_events_export_query("event")
+    assert setting in native_events_export_query([{"expression": "event", "alias": "event"}])

@@ -78,25 +78,45 @@ class SerializedExportProperties(CloningVisitor):
         return node
 
 
-def prepare_serialized_export_query(query: ast.SelectQuery, context: HogQLContext) -> ast.SelectQuery:
-    """Resolve a HogQL query the way the export SQL reads it."""
+def prepare_serialized_export_query(
+    query: ast.SelectQuery, context: HogQLContext, *, for_native_table: bool = False
+) -> ast.SelectQuery:
+    """Resolve a HogQL query the way the export SQL reads it.
+
+    With `for_native_table`, the fields read the typed columns of the native events table, which only the native
+    export query provides. Otherwise they read the String `properties` of the legacy tables.
+
+    The query is resolved against the `events` table itself, not against a subquery shaped like the export SQL.
+    HogQL converts a property to its defined type (for example, a cast to a number for a property defined as
+    numeric) only when the property is read from the events table, so this keeps those conversions in the fields.
+
+    The stored fields of a schema are compiled for the legacy tables, because runs that read `events`,
+    `events_recent` or `distributed_events_recent` use them as stored, even for a team on the new schema. Only runs
+    on the native table recompile them with `for_native_table`.
+
+    TODO: `for_native_table` is temporary. Once `events_json_recent` serves the recent export paths, every run of a
+    team on the new schema reads a native table, so the caller can set the target on the context
+    (`use_new_events_schema`) and this argument can go. Fields compiled for the legacy tables stay only while some
+    team can still read them.
+    """
     assert query.select_from is not None
     query = SerializedExportProperties(query.select_from.alias or "events", context).visit(query)
     assert query.select_from is not None
     # The export SQL names its source `events`, so a user alias must not reach the printed fields.
     query.select_from.alias = None
-    # Every export template hands the fields a String `properties`, the native source included, so
-    # the legacy shape is the one form valid on both. Resolving against the events table rather than
-    # a subquery is also what lets the swapper keep the cast a typed property needs.
-    context.use_new_events_schema = False
+    context.use_new_events_schema = for_native_table
     return typing.cast(ast.SelectQuery, prepare_ast_for_printing(query, context=context, dialect="clickhouse"))
 
 
-def serialize_batch_export_query(query: ast.SelectQuery, context: HogQLContext) -> "BatchExportSchema":
+def serialize_batch_export_query(
+    query: ast.SelectQuery, context: HogQLContext, *, for_native_table: bool = False
+) -> "BatchExportSchema":
     """Compile a HogQL query into stable ClickHouse expressions and aliases."""
-    if context.uses_new_events_schema():
+    if for_native_table or context.uses_new_events_schema():
         hogql = print_prepared_ast(query, context=context, dialect="hogql")
-        query = prepare_serialized_export_query(typing.cast(ast.SelectQuery, parse_select(hogql)), context)
+        query = prepare_serialized_export_query(
+            typing.cast(ast.SelectQuery, parse_select(hogql)), context, for_native_table=for_native_table
+        )
         stack = [query]
     else:
         print_prepared_ast(query, context=context, dialect="clickhouse")
@@ -135,12 +155,15 @@ def recompile_stored_schema(
         team_id=team_id,
         enable_select_queries=True,
         limit_top_select=False,
+        use_new_events_schema=True,
         modifiers=HogQLQueryModifiers(
             materializationMode=MaterializationMode.DISABLED,
             personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
         ),
     )
-    compiled = serialize_batch_export_query(typing.cast(ast.SelectQuery, parse_select(hogql_query)), context)
+    compiled = serialize_batch_export_query(
+        typing.cast(ast.SelectQuery, parse_select(hogql_query)), context, for_native_table=True
+    )
     fields: list[BatchExportField] = [
         {"expression": compiled_field["expression"], "alias": stored_field["alias"]}
         for stored_field, compiled_field in zip(schema["fields"], compiled["fields"], strict=True)
