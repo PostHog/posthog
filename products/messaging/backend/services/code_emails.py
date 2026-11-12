@@ -7,7 +7,11 @@ from uuid import UUID
 
 from django.db import models
 
-from products.messaging.backend.facade.contracts import CodeManagedEmail, CodeManagedEmailNotFound
+from products.messaging.backend.facade.contracts import (
+    CodeEmailSourceOrigin,
+    CodeManagedEmail,
+    CodeManagedEmailNotFound,
+)
 from products.messaging.backend.models import MessageTemplate, TransactionalEmailKey
 from products.workflows.backend.facade.transactional_emails import (
     CodeEmailWorkflow,
@@ -44,8 +48,16 @@ def _code_email(key: TransactionalEmailKey, workflow: CodeEmailWorkflow) -> Code
         tags=workflow.tags,
         sensitive=workflow.sensitive,
         source_url=key.source_url,
+        source_origin=_source_origin(key),
         created_at=key.created_at,
     )
+
+
+def _source_origin(key: TransactionalEmailKey) -> CodeEmailSourceOrigin | None:
+    if key.source_origin:
+        return CodeEmailSourceOrigin(key.source_origin)
+    # Keys linked before source_origin existed have a link and no origin, and only a person could set those links.
+    return CodeEmailSourceOrigin.MANUAL if key.source_url else None
 
 
 def list_code_emails(team_id: int, *, viewable_workflows: ViewableWorkflows) -> list[CodeManagedEmail]:
@@ -72,5 +84,7 @@ def update_code_email(
             tags=fields.get("tags"),
         )
     if "source_url" in fields:
-        _keys(team_id).filter(id=code_email_id).update(source_url=fields["source_url"])
+        _keys(team_id).filter(id=code_email_id).update(
+            source_url=fields["source_url"], source_origin=CodeEmailSourceOrigin.MANUAL
+        )
     return get_code_email(team_id, code_email_id, viewable_workflows=viewable_workflows)

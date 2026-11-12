@@ -1091,6 +1091,18 @@ export interface SendTransactionalEmailApi {
     identifiers?: TransactionalEmailIdentifiersApi
 }
 
+/**
+ * * `manual` - Manual
+ * * `detected` - Detected from GitHub
+ */
+export type CodeEmailSourceOriginEnumApi =
+    (typeof CodeEmailSourceOriginEnumApi)[keyof typeof CodeEmailSourceOriginEnumApi]
+
+export const CodeEmailSourceOriginEnumApi = {
+    Manual: 'manual',
+    Detected: 'detected',
+} as const
+
 export interface CodeEmailApi {
     /** The code email's ID. */
     id: string
@@ -1109,6 +1121,11 @@ export interface CodeEmailApi {
      * @nullable
      */
     source_url: string | null
+    /** How `source_url` was set: `manual` when a person linked or unlinked it, `detected` when PostHog found the file in a connected GitHub repository. Setting `source_url` makes it `manual`. Null when no link was ever set or cleared.
+     *
+     * * `manual` - Manual
+     * * `detected` - Detected from GitHub */
+    readonly source_origin: CodeEmailSourceOriginEnumApi | null
     /** When your code first sent under this key. */
     created_at: string
     /**

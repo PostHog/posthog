@@ -47,8 +47,17 @@ class TestTransactionalCodeEmails(APIBaseTest):
 
     def test_lists_the_projects_code_emails_with_their_labels(self, _post, _flag):
         reset = self._code_email("password-reset")
-        self._code_email("order-shipped")
+        shipped = self._code_email("order-shipped")
+        linked_before_origin = self._code_email("invoice-paid")
+        self._code_email("magic-link")
         self._code_email("other-team-email", team_id=self.create_team_with_organization(self.organization).id)
+        detected = "https://github.com/acme/web/blob/HEAD/src/emails.ts#L4"
+        TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(
+            id__in=[reset.id, shipped.id]
+        ).update(source_url=detected, source_origin="detected")
+        TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(id=linked_before_origin.id).update(
+            source_url="https://github.com/acme/web/blob/main/src/emails/invoice.ts"
+        )
         self.client.patch(
             self._url(f"{reset.id}/"),
             {
@@ -63,7 +72,7 @@ class TestTransactionalCodeEmails(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         rows = {row["key"]: row for row in response.json()}
-        assert set(rows) == {"password-reset", "order-shipped"}
+        assert set(rows) == {"password-reset", "order-shipped", "invoice-paid", "magic-link"}
         assert rows["password-reset"] | {"created_at": None} == {
             "id": str(reset.id),
             "key": "password-reset",
@@ -71,13 +80,16 @@ class TestTransactionalCodeEmails(APIBaseTest):
             "description": "Sent when someone asks to reset their password",
             "tags": ["auth"],
             "source_url": "https://github.com/acme/web/blob/main/src/emails/password-reset.tsx",
+            "source_origin": "manual",
             "sensitive": True,
             "created_at": None,
             "user_access_level": "editor",
         }
         assert rows["order-shipped"]["description"] == ""
         assert rows["order-shipped"]["tags"] == []
-        assert rows["order-shipped"]["source_url"] is None
+        assert (rows["order-shipped"]["source_url"], rows["order-shipped"]["source_origin"]) == (detected, "detected")
+        assert rows["invoice-paid"]["source_origin"] == "manual"
+        assert (rows["magic-link"]["source_url"], rows["magic-link"]["source_origin"]) == (None, None)
 
     @parameterized.expand(["workflow_deleted", "template_took_the_key"])
     def test_hides_a_key_that_no_longer_sends_as_code(self, _post, _flag, reason):
@@ -124,10 +136,11 @@ class TestTransactionalCodeEmails(APIBaseTest):
         response = self.client.patch(self._url(f"{email.id}/"), {"tags": ["auth"], "source_url": ""}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
-        assert {k: response.json()[k] for k in ("description", "tags", "source_url")} == {
+        assert {k: response.json()[k] for k in ("description", "tags", "source_url", "source_origin")} == {
             "description": "Sign-in link",
             "tags": ["auth"],
             "source_url": None,
+            "source_origin": "manual",
         }
         assert self.client.get(self._url(f"{email.id}/")).json()["tags"] == ["auth"]
         assert self._sending_config(email) == sending_config

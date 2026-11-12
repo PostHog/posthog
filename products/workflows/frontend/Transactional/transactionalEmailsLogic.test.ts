@@ -30,6 +30,7 @@ const codeEmail = (id: string, key: string, tags: string[]): CodeEmailApi => ({
     tags,
     sensitive: true,
     source_url: null,
+    source_origin: null,
     created_at: '2026-01-01T00:00:00Z',
     user_access_level: 'editor',
 })
