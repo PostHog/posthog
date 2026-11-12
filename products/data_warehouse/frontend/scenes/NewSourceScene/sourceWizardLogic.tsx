@@ -351,14 +351,12 @@ const isTimestampType = (field: IncrementalField): boolean => {
     return type === 'timestamp' || type === 'datetime' || type === 'date'
 }
 
+const isIdField = (field: IncrementalField): boolean => /^(id|uuid)/i.test(field.label) && field.type === 'integer'
+
 // The backend ranks database-source candidates and marks its pick. Trust it only for the kinds of
 // field the name rules below would accept, so a recommended integer such as `score` is not a cursor.
 const recommendedIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined =>
-    fields.find(
-        (field) =>
-            field.recommended &&
-            (isTimestampType(field) || (/^(id|uuid)/i.test(field.label) && field.type === 'integer'))
-    )
+    fields.find((field) => field.recommended && (isTimestampType(field) || isIdField(field)))
 
 const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
     const recommended = recommendedIncrementalField(fields)
@@ -387,11 +385,7 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
         return timestamp
     }
     // fallback to numeric fields matching "id" or "uuid" case insensitive
-    const id = fields.find((field) => {
-        const idRegex = /^id/i
-        const uuidRegex = /^uuid/i
-        return (idRegex.test(field.label) || uuidRegex.test(field.label)) && field.type === 'integer'
-    })
+    const id = fields.find(isIdField)
     if (id) {
         return id
     }

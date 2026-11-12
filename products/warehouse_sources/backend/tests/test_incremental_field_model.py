@@ -152,6 +152,7 @@ class TestRecommendIncrementalFields(SimpleTestCase):
     @parameterized.expand(
         [
             ("agrees_with_the_rules", lambda: _FakeClient(_pick("c0"))),
+            ("picks_a_non_timestamp", lambda: _FakeClient(_pick("c1"))),
             ("low_confidence", lambda: _FakeClient(_pick("c1", confidence=0.4))),
             ("refusal", lambda: _FakeClient(RefusalAnswer())),
             ("option_out_of_range", lambda: _FakeClient(_pick("c9"))),
@@ -175,6 +176,11 @@ class TestRecommendIncrementalFields(SimpleTestCase):
         [
             ("update_column_found", _schema("orders", _field("created_at"), _field("updated_at")), {}),
             ("single_candidate", _schema("orders", _field("created_at")), {}),
+            (
+                "silent_column_is_not_a_timestamp",
+                _schema("orders", _field("created_at"), _field("version", IncrementalFieldType.Integer)),
+                {},
+            ),
             (
                 "insert_only_candidates",
                 _schema("orders", _field("created_at"), _field("id", IncrementalFieldType.Integer)),

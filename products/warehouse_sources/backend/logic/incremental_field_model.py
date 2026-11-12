@@ -41,6 +41,7 @@ from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, cons
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
+    is_temporal,
     name_is_silent,
     tracks_updates,
 )
@@ -54,7 +55,6 @@ logger = structlog.get_logger(__name__)
 FEATURE_FLAG = "warehouse-incremental-field-model"
 AI_PRODUCT = "warehouse_sources"
 MODEL = DEFAULT_DECISION_MODEL
-PROMPT_VERSION = 1
 # Both endpoints block a person's screen, so _ask_all gives every request together this long.
 TIMEOUT_SECONDS = 3.0
 MIN_CONFIDENCE = 0.6
@@ -74,6 +74,8 @@ _INSTRUCTIONS = (
     "Pick the column whose value changes every time a row is inserted or updated, so that edited rows sync again. "
     "When two columns are equally likely, pick the indexed one that is never empty."
 )
+# Keys every cached and stored answer, so editing the instructions retires the old answers.
+PROMPT_VERSION = hashlib.sha256(_INSTRUCTIONS.encode()).hexdigest()[:12]
 
 
 def recommend_incremental_fields(schemas: Sequence[SourceSchema], *, team: "Team") -> None:
@@ -130,8 +132,13 @@ def _candidates(schema: SourceSchema) -> list[IncrementalField]:
 
 def _is_open(schema: SourceSchema) -> bool:
     candidates = _candidates(schema)
-    # With every name saying "created" or "updated", the rules already know the answer.
-    return len(candidates) >= 2 and not tracks_updates(candidates[0]) and any(map(name_is_silent, candidates))
+    # Only a timestamp whose name says neither "created" nor "updated" can beat the rules, and only
+    # a timestamp pick is one every surface (wizard, sync form, MCP) uses as the cursor.
+    return (
+        len(candidates) >= 2
+        and not tracks_updates(candidates[0])
+        and any(name_is_silent(field) and is_temporal(field) for field in candidates)
+    )
 
 
 def _model_allowed(team: "Team") -> bool:
@@ -230,9 +237,9 @@ async def _ask(client: GatewaySystemOneClient, tables: list[tuple[int, SourceSch
 def _apply_pick(schema: SourceSchema, field_name: str) -> bool:
     fields = schema.incremental_fields
     chosen = next((field for field in fields if field["field"] == field_name and "recommended" in field), None)
-    # Agreeing with the rules adds nothing. Marking it would also make append skip a column that may
-    # never change, such as `created_at`.
-    if chosen is None or chosen is fields[0]:
+    # Agreeing with the rules adds nothing, and marking it would make append skip a column that may
+    # never change, such as `created_at`. A non-timestamp pick is one the wizard would ignore.
+    if chosen is None or chosen is fields[0] or not is_temporal(chosen):
         return False
     rest: list[IncrementalField] = [
         {**field, "recommended": False} if "recommended" in field else field for field in fields if field is not chosen

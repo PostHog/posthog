@@ -103,6 +103,10 @@ def tracks_updates(field: IncrementalField) -> bool:
     return _change_tracking_tier(field) == 2
 
 
+def is_temporal(field: IncrementalField) -> bool:
+    return (field.get("field_type") or field.get("type")) in _TEMPORAL_FIELD_TYPES
+
+
 def name_is_silent(field: IncrementalField) -> bool:
     """True when the column name says neither "updated" nor "created", so only reading it can tell."""
     return _change_tracking_tier(field) == 0
