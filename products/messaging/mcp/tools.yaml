@@ -165,3 +165,18 @@ tools:
             exclude:
                 - email_types
                 - hook_url
+    suppressions-add:
+        operation: messaging_suppressions_bulk_add_suppressions_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Add email addresses to the suppression list
+        description: >
+            Suppress one or more email addresses (up to 1000 per call) so no workflow sends to them. Use this to migrate
+            a suppression list from another email provider, such as Resend or SendGrid: page through the provider's list
+            and send each page in one call instead of adding addresses one at a time. Set reason to bounce for bounced
+            or invalid addresses (these also block transactional email), complaint for spam reports, and manual for
+            anything else. Addresses that already have an entry keep it, so repeating a call is safe.
+        feature_flag: workflows-bulk-suppressions-mcp
