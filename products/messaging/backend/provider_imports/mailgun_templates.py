@@ -44,6 +44,7 @@ _ENTITY = re.compile(r"&(?:\w+|#\d+|#[xX][0-9a-fA-F]+);")
 _ARGUMENT = re.compile(r"""\[[^\]]*\]|"[^"]*"|'[^']*'|\S+""")
 # Syntax Handlebars can't parse, for a version whose engine field is blank.
 _GO_ONLY = re.compile(r"\{\{-?\s*(?:\.[A-Za-z_]|end\b|range\b|\$)")
+_ELSE_TOKEN = re.compile(r"\{\{~?-?\s*(?:else\b|\^\s*~?-?\}\})")
 
 Engine = Literal["handlebars", "go"]
 
@@ -207,6 +208,8 @@ class _Converter:
         self.in_tag = False
         self.tag_quote = ""
         self.go_value_in_tag = False
+        # Per open block: the tag state where it opened, and where each earlier branch ended.
+        self.tag_branches: list[tuple[tuple[bool, str], list[tuple[bool, str]]]] = []
 
     def convert(self) -> ConvertedText:
         try:
@@ -225,7 +228,9 @@ class _Converter:
             before = self.text[cursor : match.start()]
             pieces.append(before)
             self._track_tag(before)
+            depth = len(self.blocks)
             kept.append(self._read_token(match))
+            self._track_branches(match.group(0), depth)
             size += len(before) + len(kept[-1][0])
             if size > _MAX_OUTPUT_CHARS:
                 raise _TooLarge
@@ -266,6 +271,20 @@ class _Converter:
                 self.tag_quote = character
             elif character == ">":
                 self.in_tag = False
+
+    def _track_branches(self, token: str, depth: int) -> None:
+        """Only one branch of an if/else renders, so after the block a value is inside a tag if any branch left one
+        open."""
+        if len(self.blocks) > depth:
+            self.tag_branches.append(((self.in_tag, self.tag_quote), []))
+        elif len(self.blocks) < depth and self.tag_branches:
+            _, ended = self.tag_branches.pop()
+            states = [*ended, (self.in_tag, self.tag_quote)]
+            self.in_tag, self.tag_quote = next((state for state in states if state[0]), states[-1])
+        elif _ELSE_TOKEN.match(token) and self.tag_branches:
+            opened, ended = self.tag_branches[-1]
+            ended.append((self.in_tag, self.tag_quote))
+            self.in_tag, self.tag_quote = opened
 
     def _strip_whitespace(self, pieces: list[str], matches: list[re.Match[str]], kept: list[tuple[str, bool]]) -> None:
         previous_ended_its_line = False
