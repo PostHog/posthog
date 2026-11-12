@@ -4,6 +4,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
@@ -504,6 +505,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 const endpoint = orgId ? `api/organizations/${orgId}/projects/` : 'api/projects/'
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 await api.create(endpoint, { name })
+                posthog.capture('oauth_project_created', { flow: 'authorize' })
                 lemonToast.success(`Project "${name}" created`)
                 actions.setShowCreateProject(false)
                 // Remember existing team IDs so we can find the new one after reload

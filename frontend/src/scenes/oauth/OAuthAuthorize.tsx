@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import { IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
 
@@ -8,13 +8,13 @@ import { OAuthScopeList } from 'lib/components/ScopeAccessRow/OAuthScopeList'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { InlineCreateForm } from 'scenes/authentication/shared/InlineCreateForm'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
 
@@ -76,61 +76,6 @@ export const OAuthAuthorizeRedirecting = ({
                 <p className="mt-2">
                     If {appName} has already finished authorizing on your end, you can safely close this window.
                 </p>
-            </div>
-        </div>
-    )
-}
-
-const InlineCreateForm = ({
-    label,
-    placeholder,
-    loading,
-    onSubmit,
-    onCancel,
-}: {
-    label: string
-    placeholder: string
-    loading: boolean
-    onSubmit: (name: string) => void
-    onCancel?: () => void
-}): JSX.Element => {
-    const [name, setName] = useState('')
-
-    return (
-        <div className="flex flex-col gap-2 p-3 border border-border rounded bg-bg-light">
-            <LemonLabel>{label}</LemonLabel>
-            <div className="flex gap-2">
-                <LemonInput
-                    autoFocus
-                    fullWidth
-                    placeholder={placeholder}
-                    maxLength={64}
-                    value={name}
-                    onChange={setName}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' && name.trim()) {
-                            onSubmit(name.trim())
-                        }
-                        if (e.key === 'Escape') {
-                            onCancel?.()
-                        }
-                    }}
-                    disabled={loading}
-                />
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    loading={loading}
-                    disabledReason={!name.trim() ? 'Enter a name' : undefined}
-                    onClick={() => onSubmit(name.trim())}
-                >
-                    Create
-                </LemonButton>
-                {onCancel && (
-                    <LemonButton type="secondary" size="small" onClick={onCancel} disabled={loading}>
-                        Cancel
-                    </LemonButton>
-                )}
             </div>
         </div>
     )

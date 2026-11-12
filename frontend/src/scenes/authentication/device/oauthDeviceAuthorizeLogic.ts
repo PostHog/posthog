@@ -1,8 +1,10 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     buildOAuthScopeRows,
     grantedResourceScopes,
@@ -22,6 +24,7 @@ import {
     oauthDeviceApproveCreate,
     oauthDeviceDenyCreate,
     oauthDeviceLookupCreate,
+    organizationsProjectsCreate,
     organizationsProjectsList,
 } from '~/generated/core/api'
 import type { DeviceDecisionEnumApi, DeviceGrantDetailsApi } from '~/generated/core/api.schemas'
@@ -101,6 +104,7 @@ export interface oauthDeviceAuthorizeLogicValues {
     adjustableScopeRows: OAuthScopeRow[]
     allScopesRequired: boolean
     consentResourceScopes: string[]
+    creatingProject: boolean
     decision: DeviceDecisionEnumApi | null
     decisionLoading: boolean
     deviceGrant: DeviceGrantDetailsApi | null
@@ -123,6 +127,7 @@ export interface oauthDeviceAuthorizeLogicValues {
     scopeGroups: OAuthScopeGroup[] | null
     scopeRows: OAuthScopeRow[]
     scopeSummary: string
+    showCreateProject: boolean
     userCode: string
 }
 
@@ -142,6 +147,12 @@ export interface oauthDeviceAuthorizeLogicActions {
     ) => {
         decision: DeviceDecisionEnumApi | null
         payload?: any
+    }
+    createProject: (name: string) => {
+        name: string
+    }
+    createProjectDone: (project: DeviceProject | null) => {
+        project: DeviceProject | null
     }
     deny: () => any
     denyFailure: (
@@ -211,6 +222,9 @@ export interface oauthDeviceAuthorizeLogicActions {
         level: ScopeAccessLevel
         scopeObjects: string[]
     }
+    setShowCreateProject: (show: boolean) => {
+        show: boolean
+    }
     setUserCode: (userCode: string) => {
         userCode: string
     }
@@ -269,6 +283,10 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
         goToLogin: true,
         setOrganizationId: (organizationId: string | null) => ({ organizationId }),
         setProjectId: (projectId: number | null) => ({ projectId }),
+        setShowCreateProject: (show: boolean) => ({ show }),
+        createProject: (name: string) => ({ name }),
+        // Null when the project wasn't created, or was created in an organization the person has left.
+        createProjectDone: (project: DeviceProject | null) => ({ project }),
         setScopeAccess: (scopeObject: string, level: ScopeAccessLevel) => ({ scopeObject, level }),
         setScopeGroupAccess: (scopeObjects: string[], level: ScopeAccessLevel) => ({ scopeObjects, level }),
     }),
@@ -301,8 +319,18 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
             {
                 setProjectId: (_, { projectId }) => projectId,
                 setOrganizationId: () => null,
+                createProjectDone: (state, { project }) => project?.id ?? state,
             },
         ],
+        showCreateProject: [
+            false,
+            {
+                setShowCreateProject: (_, { show }) => show,
+                setOrganizationId: () => false,
+                createProjectDone: (state, { project }) => (project ? false : state),
+            },
+        ],
+        creatingProject: [false, { createProject: () => true, createProjectDone: () => false }],
         projectsError: [
             null as string | null,
             {
@@ -381,6 +409,7 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
         projects: {
             setOrganizationId: () => [],
             loadProjectsFailure: () => [],
+            createProjectDone: (state, { project }) => (project ? [...state, project] : state),
         },
         // A code that expired during review goes back to code entry, so the person can type the new one.
         deviceGrant: {
@@ -503,6 +532,23 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
         setOrganizationId: ({ organizationId }) => {
             if (organizationId) {
                 actions.loadProjects(organizationId)
+            }
+        },
+        createProject: async ({ name }) => {
+            const { organizationId } = values
+            if (!organizationId) {
+                actions.createProjectDone(null)
+                return
+            }
+            try {
+                const project = await organizationsProjectsCreate(organizationId, { name })
+                posthog.capture('oauth_project_created', { flow: 'device' })
+                actions.createProjectDone(
+                    values.organizationId === organizationId ? { id: project.id, name: project.name ?? name } : null
+                )
+            } catch (error) {
+                lemonToast.error(`Couldn't create the project. ${deviceErrorMessage(error)}`)
+                actions.createProjectDone(null)
             }
         },
         loadProjectsSuccess: ({ projects }) => {

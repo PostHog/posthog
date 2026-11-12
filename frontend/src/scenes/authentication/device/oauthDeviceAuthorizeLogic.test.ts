@@ -137,6 +137,43 @@ describe('oauthDeviceAuthorizeLogic', () => {
         await expectLogic(logic).toMatchValues({ projects: [], projectsError: expect.any(String) })
     })
 
+    it('picks a project the person creates in the picker', async () => {
+        const created: unknown[] = []
+        useMocks({
+            get: {
+                '/api/organizations/org-a/projects/': () => [
+                    200,
+                    { results: [{ id: 1, name: 'A project' }], next: null },
+                ],
+            },
+            post: {
+                '/api/organizations/org-a/projects/': async ({ request }) => {
+                    created.push(await request.json())
+                    return [201, { id: 7, name: 'My app' }]
+                },
+            },
+        })
+        const logic = oauthDeviceAuthorizeLogic()
+        logic.mount()
+        logic.actions.setOrganizationId('org-a')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setShowCreateProject(true)
+        logic.actions.createProject('My app')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(created).toEqual([{ name: 'My app' }])
+        await expectLogic(logic).toMatchValues({
+            projects: [
+                { id: 1, name: 'A project' },
+                { id: 7, name: 'My app' },
+            ],
+            projectId: 7,
+            showCreateProject: false,
+            creatingProject: false,
+        })
+    })
+
     it('approves the code the server returned, for the project the person picked', async () => {
         useGrantMocks(GRANT)
         const logic = oauthDeviceAuthorizeLogic()
