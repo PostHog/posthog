@@ -119,7 +119,7 @@ from products.approvals.backend.policies import lock_approval_policies
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
-from products.dashboards.backend.api.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.facade.contracts import LinkedExperiment
 from products.feature_flags.backend.api.code_analysis import FeatureFlagCodeAnalysisMixin
 from products.feature_flags.backend.api.filters_schema import (

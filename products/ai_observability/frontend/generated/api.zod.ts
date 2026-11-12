@@ -155,6 +155,7 @@ export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemApplicati
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax = 1000
 
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemStatusDefault = `ok`
 export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemValueThreeItemMax = 128
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemErrorCodeMax = 128
@@ -256,11 +257,18 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
                     .uuid()
                     .describe('UUID of an item declared in this request or already accepted in this experiment.'),
                 scorer_version_id: zod.uuid().describe('Exact UUID of an existing scorer version in this project.'),
+                calculate: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result."
+                    ),
                 status: zod
                     .enum(['ok', 'error', 'skipped', 'not_applicable'])
                     .describe(
                         '\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable'
                     )
+                    .default(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemStatusDefault)
                     .describe(
                         'Outcome of this scorer execution.\n\n\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable'
                     ),
@@ -279,7 +287,7 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
                     ])
                     .optional()
                     .describe(
-                        'Required for ok: finite number, boolean, or distinct category keys matching the scorer version.'
+                        'Required for an ok reported result: finite number, boolean, or distinct category keys matching the scorer version. Omit when calculate is true.'
                     ),
                 error_code: zod
                     .string()
@@ -320,6 +328,18 @@ export const AiObservabilityTracesExportsCreateBody = /* @__PURE__ */ zod.object
         .describe(
             'When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.'
         ),
+})
+
+/**
+ * Tests a custom parser recipe against one node without saving it: the node's input and output as they would render with the parser saved, and whether it parses every side that the project's saved parsers leave unparsed.
+ */
+export const aiObservabilityTracesNodesParserTestCreateBodySourceMax = 100000
+
+export const AiObservabilityTracesNodesParserTestCreateBody = /* @__PURE__ */ zod.object({
+    source: zod
+        .string()
+        .max(aiObservabilityTracesNodesParserTestCreateBodySourceMax)
+        .describe('The parser recipe to test, as raw YAML in the custom parser DSL.'),
 })
 
 /**
@@ -2480,7 +2500,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .max(llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMax)
         .optional()
         .describe(
-            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.'
+            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.'
         ),
     daily_run_cap: zod
         .number()
@@ -2553,7 +2573,7 @@ export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.objec
         .max(llmAnalyticsEvaluationReportsUpdateBodyCooldownMinutesMax)
         .optional()
         .describe(
-            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.'
+            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.'
         ),
     daily_run_cap: zod
         .number()
@@ -2626,7 +2646,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax)
         .optional()
         .describe(
-            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.'
+            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.'
         ),
     daily_run_cap: zod
         .number()
@@ -2917,6 +2937,14 @@ export const llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax = 255
 
 export const llmAnalyticsScoreDefinitionsCreateBodyTagsMax = 100
 
+export const llmAnalyticsScoreDefinitionsCreateBodyCalculationDefault = `reported`
+export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneExpressionMax = 1024
+
+export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemAliasMax = 32
+
+export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
+    '^[a-z][a-z0-9_]{0,31}$'
+)
 export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
 
 export const llmAnalyticsScoreDefinitionsCreateBodyShortNameMax = 40
@@ -2934,6 +2962,45 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
         .max(llmAnalyticsScoreDefinitionsCreateBodyTagsMax)
         .optional()
         .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
+    calculation: zod
+        .enum(['reported', 'composite'])
+        .describe('\* `reported` - Reported\n\* `composite` - Composite')
+        .default(llmAnalyticsScoreDefinitionsCreateBodyCalculationDefault)
+        .describe(
+            'Reported or composite. This cannot be changed after creation.\n\n\* `reported` - Reported\n\* `composite` - Composite'
+        ),
+    composition: zod
+        .union([
+            zod.object({
+                expression: zod
+                    .string()
+                    .max(llmAnalyticsScoreDefinitionsCreateBodyCompositionOneExpressionMax)
+                    .describe(
+                        'Formula using the declared input aliases. Supports +, -, \*, \/, comparisons, and\/or\/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 \* precision + recall) \/ 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.'
+                    ),
+                inputs: zod
+                    .array(
+                        zod.object({
+                            alias: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemAliasMax)
+                                .regex(llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemAliasRegExp)
+                                .describe(
+                                    'Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.'
+                                ),
+                            scorer_version_id: zod
+                                .uuid()
+                                .describe('Exact immutable version of an ordinary input scorer.'),
+                        })
+                    )
+                    .describe(
+                        'Named, version-pinned input scorers for the same item. Nested composites are not supported.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Required for composite scorers: expression and exact input versions.'),
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
     short_name: zod
         .string()
@@ -3082,6 +3149,13 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     archived: zod.boolean().optional().describe('Whether the scorer is archived.'),
 })
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneExpressionMax = 1024
+
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemAliasMax = 32
+
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
+    '^[a-z][a-z0-9_]{0,31}$'
+)
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyShortNameMax = 40
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax = 255
@@ -3093,6 +3167,40 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptions
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
 export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ zod.object({
+    composition: zod
+        .union([
+            zod.object({
+                expression: zod
+                    .string()
+                    .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneExpressionMax)
+                    .describe(
+                        'Formula using the declared input aliases. Supports +, -, \*, \/, comparisons, and\/or\/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 \* precision + recall) \/ 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.'
+                    ),
+                inputs: zod
+                    .array(
+                        zod.object({
+                            alias: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemAliasMax)
+                                .regex(
+                                    llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemAliasRegExp
+                                )
+                                .describe(
+                                    'Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.'
+                                ),
+                            scorer_version_id: zod
+                                .uuid()
+                                .describe('Exact immutable version of an ordinary input scorer.'),
+                        })
+                    )
+                    .describe(
+                        'Named, version-pinned input scorers for the same item. Nested composites are not supported.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Required for a composite scorer. Creates a new immutable formula and input selection.'),
     short_name: zod
         .string()
         .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyShortNameMax)
@@ -3212,6 +3320,164 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
         .describe(
             "Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check."
         ),
+})
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneExpressionMax = 1024
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasMax = 32
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
+    '^[a-z][a-z0-9_]{0,31}$'
+)
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOneOptionsItemKeyMax = 128
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOneOptionsItemLabelMax = 256
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
+export const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody = /* @__PURE__ */ zod.object({
+    kind: zod
+        .enum(['categorical', 'numeric', 'boolean'])
+        .describe('\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean')
+        .describe(
+            'Expected formula output kind.\n\n\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean'
+        ),
+    composition: zod
+        .object({
+            expression: zod
+                .string()
+                .max(llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneExpressionMax)
+                .describe(
+                    'Formula using the declared input aliases. Supports +, -, \*, \/, comparisons, and\/or\/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 \* precision + recall) \/ 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.'
+                ),
+            inputs: zod
+                .array(
+                    zod.object({
+                        alias: zod
+                            .string()
+                            .max(
+                                llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasMax
+                            )
+                            .regex(
+                                llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasRegExp
+                            )
+                            .describe(
+                                'Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.'
+                            ),
+                        scorer_version_id: zod.uuid().describe('Exact immutable version of an ordinary input scorer.'),
+                    })
+                )
+                .describe(
+                    'Named, version-pinned input scorers for the same item. Nested composites are not supported.'
+                ),
+        })
+        .describe('Formula and pinned input versions to validate without saving.'),
+    config: zod
+        .union([
+            zod.object({
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(
+                                    llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOneOptionsItemKeyMax
+                                )
+                                .describe(
+                                    'Stable option key. Use lowercase letters, numbers, underscores, or hyphens.'
+                                ),
+                            label: zod
+                                .string()
+                                .max(
+                                    llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOneOptionsItemLabelMax
+                                )
+                                .describe('Human-readable option label.'),
+                        })
+                    )
+                    .describe('Ordered categorical options available to the scorer.'),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .describe('\* `single` - single\n\* `multiple` - multiple')
+                    .optional()
+                    .describe(
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n\* `single` - single\n\* `multiple` - multiple'
+                    ),
+                min_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional minimum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                max_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
+            }),
+            zod.object({
+                min: zod.number().nullish().describe('Optional inclusive minimum score.'),
+                max: zod.number().nullish().describe('Optional inclusive maximum score.'),
+                step: zod
+                    .number()
+                    .nullish()
+                    .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
+            }),
+            zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
+                true_label: zod.string().optional().describe('Optional label for a true value.'),
+                false_label: zod.string().optional().describe('Optional label for a false value.'),
+            }),
+        ])
+        .optional()
+        .describe('Output configuration to check literal categories and composite scoring rules.'),
 })
 
 /**

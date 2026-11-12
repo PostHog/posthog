@@ -1257,6 +1257,12 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         task_granted = _prompt(write_scopes=["customer_task:write"])
         assert "Customer analytics tasks" in task_granted
         assert "Tasks belong to people" in task_granted
+        # A scout's notes look like its owner's, so the note grant has to say they are tagged and how to read them.
+        assert "Account notes carry your name" not in granted
+        note_granted = _prompt(write_scopes=["account_note:write"])
+        assert "notes on Customer analytics accounts" in note_granted
+        assert "Account notes carry your name" in note_granted
+        assert "context-core" in note_granted
         assert "Ticket messages: private notes only" not in granted
         assert "Ticket messages: private notes only" in _prompt(write_scopes=["ticket:write"])
         # A scout run cannot create a canvas, so the canvas grant has to steer it at an existing one.
@@ -1340,6 +1346,8 @@ class TestPromptBuilder(BaseTest):
         # reference must survive in the signal tail.
         assert "Notes left for you" in prompt
         assert "scout-notes-list" in prompt
+        # A signal-channel scout authors no reports, so it has no discussions to read.
+        assert "scout-report-discussions-list" not in prompt
         # The fleet-seams section is shared across both channels, but each tail is assembled by
         # its own code path, so assert it on both to catch a drop from either list.
         assert "Working alongside the rest of the fleet" in prompt
@@ -1539,6 +1547,7 @@ class TestPromptBuilder(BaseTest):
         # Steering notes are prior context on the report channel too.
         assert "Notes left for you" in prompt
         assert "scout-notes-list" in prompt
+        assert "scout-report-discussions-list" in prompt
         # Fleet seams too — the report tail is built by `_report_tail_sections`, a separate list
         # from the signal tail, so it can lose the shared section independently.
         assert "Working alongside the rest of the fleet" in prompt
