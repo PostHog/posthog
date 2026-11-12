@@ -167,9 +167,10 @@ function buildSchema(entry: CatalogEntry): ZodObjectAny {
     let schema: z.ZodType = z.fromJSONSchema(root as Parameters<typeof z.fromJSONSchema>[0])
     for (const name of entry.input.validators) {
         const validator = validatorNamed(name)
-        if (validator) {
-            schema = schema.superRefine(validator)
+        if (!validator) {
+            throw new Error(`unknown validator ${name}`)
         }
+        schema = schema.superRefine(validator)
     }
 
     const aliases = Object.keys(entry.input.aliases).length > 0 ? normalizeParamAliases(entry.input.aliases) : null
@@ -300,6 +301,9 @@ async function shapeResponse(entry: CatalogEntry, context: Context, params: Para
 
 export function catalogTool(entry: CatalogEntry): ToolBase<ZodObjectAny> {
     const hooks: ToolHooks<Params> | undefined = entry.hooks ? GENERATED_TOOL_HOOKS[entry.hooks] : undefined
+    if (entry.hooks && !hooks) {
+        throw new Error(`unknown hooks ${entry.hooks}`)
+    }
     const { request } = entry
 
     const handler = async (context: Context, params: Params): Promise<unknown> => {

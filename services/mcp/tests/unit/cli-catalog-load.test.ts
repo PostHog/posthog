@@ -38,6 +38,11 @@ describe('CLI catalog loading', () => {
             'needs hook:future/newHooks',
         ],
         ['a capability this build lacks', (entry: any) => entry.requires.push('streaming'), 'needs streaming'],
+        [
+            'a validator it does not list in requires',
+            (entry: any) => entry.input.validators.push('validateCanvasStateValueContinuation'),
+            'uses validator:validateCanvasStateValueContinuation without listing it in requires',
+        ],
     ])('drops an entry with %s and reports why', (_name, change, reason) => {
         const loaded = loadCatalog(catalogWith(change))
 
@@ -59,7 +64,7 @@ describe('CLI catalog loading', () => {
         [
             'hooks it does not require',
             (entry: any) => (entry.requires = []),
-            'uses hooks featureFlags/conditionIdHooks without requiring a version of them',
+            'uses hook:featureFlags/conditionIdHooks without listing it in requires',
         ],
     ])('drops an entry that needs %s', (_name, change, reason) => {
         const loaded = loadCatalog(catalogWith(change, HOOKED_TOOL))
@@ -75,6 +80,18 @@ describe('CLI catalog loading', () => {
 
         expect(entry.requires).toEqual(['hook:featureFlags/conditionIdHooks@1'])
         expect(loadCatalog(catalogWith(() => {}, HOOKED_TOOL))).toMatchObject({ ok: true, dropped: [] })
+    })
+
+    it('leaves staff-only tools out of the public catalog, so hog keeps them built in', () => {
+        const names = buildCliCatalog(null).tools.map((tool) => tool.name)
+
+        expect(names).not.toContain('managed-migrations-support-list')
+        expect(names).toContain(TOOL)
+        expect(
+            createApiToolLibrary({ catalog: buildCliCatalog(null) })
+                .tools()
+                .map((tool) => tool.name)
+        ).toContain('managed-migrations-support-list')
     })
 
     it('ignores a catalog in another format version', () => {
