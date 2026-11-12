@@ -385,12 +385,15 @@ class TestTransactionalEmail(APIBaseTest):
         client = self._psak_client(["hog_flow:write"])
         # The first send also records when the key was last used.
         assert self._send(client, route, self.body).status_code == status.HTTP_202_ACCEPTED
+        flag.reset_mock()
 
         # The key with its team and organization, the template, its category, and the template's workflow.
         with self.assertNumQueries(expected_queries):
             response = self._send(client, route, self.body)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        categories_reads = [c for c in flag.call_args_list if c.args[0] == CODE_SEND_CATEGORIES_FLAG]
+        assert len(categories_reads) == (1 if categorized else 0)
 
     def test_passes_the_idempotency_key_to_the_pipeline_and_reports_a_replay(self, mock_post, _flag, capture):
         mock_post.return_value = MagicMock(

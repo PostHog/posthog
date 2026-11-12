@@ -989,7 +989,9 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             if template.transactional_hog_flow_id:
                 self._require_workflow_editor(template.transactional_hog_flow_id)
         data = request.validated_data
-        categories_enabled = _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG)
+        categories_enabled = (
+            isinstance(data.get("category"), SendCategoryDefinition) or template.message_category_id is not None
+        ) and _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG)
         return self._queue_send(
             request,
             lambda idempotency_key: send_transactional_email(

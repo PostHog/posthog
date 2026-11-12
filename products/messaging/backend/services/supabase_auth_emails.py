@@ -119,6 +119,10 @@ def _sendable_template_ids(team_id: int, template_ids: set[UUID]) -> set[UUID]:
     )
 
 
+def _has_category(team_id: int, template_id: UUID) -> bool:
+    return MessageTemplate.objects.filter(team_id=team_id, id=template_id, message_category__isnull=False).exists()
+
+
 def template_workflow_ids(team_id: int, template_ids: set[UUID]) -> set[UUID]:
     """The transactional workflows the given templates send through."""
     workflow_ids = MessageTemplate.objects.filter(
@@ -366,7 +370,7 @@ def handle_send_email_hook(team: Team, body: bytes, headers: Mapping[str, str]) 
         return result(status=400, message=SEND_FAILED_MESSAGE, error_code="template_not_sendable")
 
     sends = _sends(user, data)
-    categories_enabled = categories_enabled_for(team)
+    categories_enabled = _has_category(team.id, UUID(template_id)) and categories_enabled_for(team)
     for index, send in enumerate(sends):
         remaining = deadline - time.monotonic()
         if remaining < MIN_SEND_SECONDS:

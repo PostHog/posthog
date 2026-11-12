@@ -158,7 +158,7 @@ class TestSupabaseAuthEmails(APIBaseTest):
             ),
         ]
     )
-    def test_sends_each_auth_email_through_its_template(self, mock_post, _flag, capture, _name, payload, expected):
+    def test_sends_each_auth_email_through_its_template(self, mock_post, flag, capture, _name, payload, expected):
         mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
 
         response = self._post_hook(payload)
@@ -186,6 +186,7 @@ class TestSupabaseAuthEmails(APIBaseTest):
             assert send["variables"]["user_metadata"] == {"first_name": "Jane"}
         # Only failures are tracked, so the event volume doesn't grow with the customer's traffic.
         assert not any(c.kwargs.get("event") == "supabase auth email hook" for c in capture.call_args_list)
+        assert not [c for c in flag.call_args_list if c.args[0] == CODE_SEND_CATEGORIES_FLAG]
 
     def test_every_send_of_one_request_goes_out_in_the_templates_category(self, mock_post, flag, _capture):
         account = MessageCategory.objects.create(
@@ -209,6 +210,7 @@ class TestSupabaseAuthEmails(APIBaseTest):
         assert [call.kwargs["json"].get("message_category") for call in mock_post.call_args_list] == [
             {"id": str(account.id), "type": "transactional"}
         ] * 2
+        assert len([c for c in flag.call_args_list if c.args[0] == CODE_SEND_CATEGORIES_FLAG]) == 1
 
     @parameterized.expand(
         [
