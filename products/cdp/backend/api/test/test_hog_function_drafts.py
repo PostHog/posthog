@@ -12,7 +12,7 @@ from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.cdp.backend.api.hog_function import HogFunctionViewSet, supplied_input_keys
+from products.cdp.backend.api.hog_function import STAGED_SECRET_ENTERED, HogFunctionViewSet, supplied_input_keys
 from products.cdp.backend.api.test.secret_sender import (
     MOVED_SENDER_HOG,
     MOVED_URL,
@@ -463,21 +463,25 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert staged_outcomes == expected_staged_outcomes
         assert HogFunction.objects.get(id=function_id).encrypted_inputs["token"]["value"] == expected_live_token
 
-    def test_draft_edit_that_changes_one_secret_needs_the_others_entered_again(self):
+    @parameterized.expand([("string", "string", SENDER_URL, MOVED_URL), ("json_type", "json", True, 1)])
+    def test_draft_edit_that_changes_one_secret_needs_the_others_entered_again(
+        self, _name: str, url_type: str, stored_url: Any, moved_url: Any
+    ):
         url_schema, token_schema = BASE_FUNCTION["inputs_schema"]
         function_id = self._create(
             hog=SENDER_HOG,
-            inputs_schema=[{**url_schema, "secret": True}, token_schema],
-            inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}},
+            inputs_schema=[{**url_schema, "type": url_type, "secret": True}, token_schema],
+            inputs={"url": {"value": stored_url}, "token": {"value": "live"}},
         )
 
         with secret_reentry_flag(True):
-            self._stage(function_id, {"inputs": {"url": {"value": SENDER_URL}, "token": {"value": "live"}}})
-            self._stage(function_id, {"inputs": {"url": {"value": MOVED_URL}, "token": {"secret": True}}})
+            self._stage(function_id, {"inputs": {"url": {"value": stored_url}, "token": {"value": "live"}}})
+            self._stage(function_id, {"inputs": {"url": {"value": moved_url}, "token": {"secret": True}}})
             published = self._publish(function_id)
 
         assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
-        assert HogFunction.objects.get(id=function_id).encrypted_inputs["url"]["value"] == SENDER_URL
+        url = HogFunction.objects.get(id=function_id).encrypted_inputs["url"]["value"]
+        assert (url, type(url)) == (stored_url, type(stored_url))
 
     def test_secret_a_draft_added_must_be_entered_again_after_a_later_code_change(self):
         function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}})
@@ -695,23 +699,40 @@ class TestHogFunctionDrafts(DraftTestCase):
             sent_secrets = mock_invoke.call_args.kwargs["payload"]["configuration"]["encrypted_inputs"]
             assert {key: item["value"] for key, item in sent_secrets.items()} == {"token": token["value"]}
 
-    def test_secret_typed_while_another_edit_changes_the_draft_does_not_count_as_entered(self):
-        function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
-        self._stage(function_id, {"inputs": sender_inputs(SENDER_URL)})
+    @parameterized.expand(
+        [
+            ("code", {"hog": MOVED_SENDER_HOG}, {}),
+            ("secret", {}, {"url": {"value": MOVED_URL, STAGED_SECRET_ENTERED: True}}),
+        ]
+    )
+    def test_secret_typed_while_another_edit_changes_the_draft_does_not_count_as_entered(
+        self, _name: str, concurrent_draft: dict, concurrent_secrets: dict
+    ):
+        url_schema, token_schema = BASE_FUNCTION["inputs_schema"]
+        function_id = self._create(
+            hog=SENDER_HOG,
+            inputs_schema=[{**url_schema, "secret": True}, token_schema],
+            inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}},
+        )
+        self._stage(function_id, {"inputs": {"url": {"secret": True}, "token": {"secret": True}}})
         real_select_for_update = HogFunction.objects.select_for_update
 
         def lock_after_a_concurrent_edit(*args, **kwargs):
             function = HogFunction.objects.get(id=function_id)
-            HogFunction.objects.filter(id=function_id).update(draft={**(function.draft or {}), "hog": MOVED_SENDER_HOG})
+            HogFunction.objects.filter(id=function_id).update(
+                draft={**(function.draft or {}), **concurrent_draft},
+                draft_encrypted_inputs={**(function.draft_encrypted_inputs or {}), **concurrent_secrets},
+            )
             return real_select_for_update(*args, **kwargs)
 
         with secret_reentry_flag(True):
             with patch.object(HogFunction.objects, "select_for_update", side_effect=lock_after_a_concurrent_edit):
-                self._stage(function_id, {"inputs": sender_inputs(SENDER_URL, {"value": "new"})})
+                self._stage(function_id, {"inputs": {"url": {"secret": True}, "token": {"value": "live"}}})
             published = self._publish(function_id)
 
         assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
-        assert HogFunction.objects.get(id=function_id).hog == SENDER_HOG
+        function = HogFunction.objects.get(id=function_id)
+        assert (function.hog, function.encrypted_inputs["url"]["value"]) == (SENDER_HOG, SENDER_URL)
 
     def test_publish_resolves_the_rollout_flag_before_locking_the_row(self):
         function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})

@@ -408,6 +408,11 @@ def _without_entered_mark(entry: Any) -> Any:
     return {key: value for key, value in entry.items() if key != STAGED_SECRET_ENTERED}
 
 
+def _secret_json(entry: Any) -> str:
+    # As JSON, because Python equates `True` with `1`, which the worker reads differently.
+    return json.dumps(_without_entered_mark(entry), default=str, sort_keys=True)
+
+
 def draft_changed_fields(hog_function: HogFunction) -> list[str]:
     """Which config fields publishing this draft would change. Both sides are compared secret-free
     and without derived values, with staged secrets reported as an `inputs` change."""
@@ -1950,7 +1955,11 @@ class HogFunctionViewSet(
             seen = {**snapshot_hog_function_content(validated_against), **(validated_against.draft or {})}
             # A secret typed for a draft that another edit changed before this one took the lock was typed
             # for content its editor never saw.
-            stale = _draft_guarded_content(seen, staged) != _draft_guarded_content(previous, staged)
+            seen_secrets = validated_against.draft_encrypted_inputs or {}
+            stale = _draft_guarded_content(seen, staged) != _draft_guarded_content(previous, staged) or any(
+                _secret_json(seen_secrets.get(key)) != _secret_json(staged.get(key))
+                for key in seen_secrets.keys() | staged.keys()
+            )
             entered = set() if stale else entered_secret_input_keys(serializer.requested_inputs)
             # Each secret this edit writes is marked with whether it was typed. A secret typed again unchanged
             # stores the same value, and a secret recovered from live can differ from live after a rotation, so
@@ -1971,8 +1980,7 @@ class HogFunctionViewSet(
 
         live_secrets = locked.encrypted_inputs or {}
         secret_changed = any(
-            _without_entered_mark(draft_secrets.get(key))
-            != _without_entered_mark(staged.get(key, live_secrets.get(key)))
+            _secret_json(draft_secrets.get(key)) != _secret_json(staged.get(key, live_secrets.get(key)))
             for key in draft_secrets.keys() | staged.keys()
         )
         if secret_changed or _draft_guarded_content(previous, draft_secrets) != _draft_guarded_content(
