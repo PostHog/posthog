@@ -42,6 +42,7 @@ from products.messaging.backend.provider_imports.base import (
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.resend_templates import ConvertedTemplate, convert_template
+from products.messaging.backend.provider_imports.senders import sender_for_address
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
@@ -533,7 +534,7 @@ def _email_content(
     display_name, address = parseaddr(str(template.get("from") or ""))
     if not address:
         return email, (*subject_notes, "Resend has no sender for this template. Choose one before you send it.")
-    sender = senders.get(address.lower()) or _domain_sender(address, senders)
+    sender = sender_for_address(address, senders)
     if sender is None:
         return email, (
             *subject_notes,
@@ -550,17 +551,6 @@ def _email_content(
             f"{address} isn't verified in PostHog yet, so this template can't send until it is.",
         )
     return email, subject_notes
-
-
-def _domain_sender(address: str, senders: Mapping[str, IntegrationRecord]) -> IntegrationRecord | None:
-    """A sender can send from any address on its domain, so one on the same domain stands in. Verified ones first."""
-    domain = address.rpartition("@")[2].lower()
-    matches = [
-        sender
-        for sender in senders.values()
-        if str(sender.config.get("domain") or str(sender.config.get("email", "")).rpartition("@")[2]).lower() == domain
-    ]
-    return next((sender for sender in matches if sender.config.get("verified")), matches[0] if matches else None)
 
 
 def _fetch_domains(
