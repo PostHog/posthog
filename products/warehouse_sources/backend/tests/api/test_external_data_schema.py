@@ -1578,27 +1578,47 @@ class TestExternalDataSchema(APIBaseTest):
         # xmin never sets CDC state.
         assert "cdc_mode" not in schema.sync_type_config
 
-    def test_update_schema_to_xmin_rejected_without_primary_key(self):
+    @parameterized.expand(
+        [
+            ("switch_to_xmin_rejected", ExternalDataSchema.SyncType.FULL_REFRESH, status.HTTP_400_BAD_REQUEST),
+            # A table saved as xmin before its first sync has no key yet; the sync resolves one.
+            ("enable_keyless_xmin_accepted", ExternalDataSchema.SyncType.XMIN, status.HTTP_200_OK),
+        ]
+    )
+    def test_update_schema_to_xmin_without_primary_key(self, _name: str, current_sync_type: str, expected_status: int):
         source = self._xmin_postgres_source()
         schema = ExternalDataSchema.objects.create(
             name="public.orders",
             team=self.team,
             source=source,
             should_sync=False,
-            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type=current_sync_type,
             sync_type_config={},
         )
 
-        with self._xmin_discovery_patch():
+        with (
+            self._xmin_discovery_patch(),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+        ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "xmin"},
+                data={"sync_type": "xmin", "should_sync": True},
             )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "primary key" in str(response.json()).lower()
+        assert response.status_code == expected_status, response.content
         schema.refresh_from_db()
-        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "primary key" in str(response.json()).lower()
+            assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        else:
+            assert schema.sync_type == ExternalDataSchema.SyncType.XMIN
+            assert schema.should_sync
 
     @parameterized.expand(
         [
@@ -2140,7 +2160,14 @@ class TestExternalDataSchema(APIBaseTest):
         assert (schema.full_refresh_interval_days, schema.next_full_refresh_at) == expected
         assert schema.full_refresh_time_of_day == expected_time
 
-    def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
+    @parameterized.expand(
+        [
+            ("toggle_only", {"should_sync": True}),
+            # The settings page resends the sync type on every save.
+            ("with_sync_type", {"sync_type": "cdc", "should_sync": True}),
+        ]
+    )
+    def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self, _name: str, data: dict[str, Any]):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the
         # API gate landed) must not be re-enabled until a PK is added on the source side.
         source = ExternalDataSource.objects.create(
@@ -2159,7 +2186,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-            data={"should_sync": True},
+            data=data,
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST

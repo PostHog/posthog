@@ -32,6 +32,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { AnalyticsCollectionDialogHost } from 'scenes/analytics/AnalyticsCollectionDialogHost'
+import { AnalyticsCollectionMenuBarItems } from 'scenes/analytics/AnalyticsCollectionMenuBarItems'
+import { ShareToSpaceTarget } from 'scenes/analytics/analyticsShareLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -193,295 +196,312 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const showStateMenu = isSavedInsight // favorite + view-source toggle
     // The Today layout pins insights per person instead, so the project-wide favorite would read as a duplicate.
     const showFavorite = !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
+    // Collections exist only in the Today navigation.
+    const collectionTarget: ShareToSpaceTarget | null =
+        isSavedInsight && featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
+            ? {
+                  type: 'insight',
+                  ref: insight.short_id!,
+                  name: insight.name || insight.derived_name || 'Untitled insight',
+              }
+            : null
     const showStaffMenu = canShowDebugPanel
 
     return (
-        <SceneMenuBar>
-            {showFileMenu && (
-                <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
-                    {showCreateMenu && (
-                        <>
-                            <SceneMenuBarSubMenu label="Create">
-                                {isSavedInsight && (
-                                    <SceneMenuBarItem
-                                        opensFloatingUi
-                                        onClick={openAddToDashboardModal}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-add-to-dashboard`}
-                                    >
-                                        <IconPlusSmall />
-                                        Add to dashboard
-                                    </SceneMenuBarItem>
-                                )}
-                                {showAddToNotebook && (
-                                    <SceneMenuBarAddToNotebook
-                                        dataAttrKey={RESOURCE_TYPE}
-                                        notebookSelectButtonProps={{
-                                            resource: {
-                                                type: NotebookNodeType.Query,
-                                                attrs: {
-                                                    query: {
-                                                        kind: NodeKind.SavedInsightNode,
-                                                        shortId: insight.short_id,
+        <>
+            <SceneMenuBar>
+                {showFileMenu && (
+                    <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
+                        {showCreateMenu && (
+                            <>
+                                <SceneMenuBarSubMenu label="Create">
+                                    {isSavedInsight && (
+                                        <SceneMenuBarItem
+                                            opensFloatingUi
+                                            onClick={openAddToDashboardModal}
+                                            data-attr={`${RESOURCE_TYPE}-menubar-add-to-dashboard`}
+                                        >
+                                            <IconPlusSmall />
+                                            Add to dashboard
+                                        </SceneMenuBarItem>
+                                    )}
+                                    {showAddToNotebook && (
+                                        <SceneMenuBarAddToNotebook
+                                            dataAttrKey={RESOURCE_TYPE}
+                                            notebookSelectButtonProps={{
+                                                resource: {
+                                                    type: NotebookNodeType.Query,
+                                                    attrs: {
+                                                        query: {
+                                                            kind: NodeKind.SavedInsightNode,
+                                                            shortId: insight.short_id,
+                                                        },
                                                     },
                                                 },
-                                            },
-                                        }}
-                                    />
-                                )}
-                                {showCreateEndpoint && (
-                                    <SceneMenuBarItem
-                                        opensFloatingUi
-                                        onClick={openCreateFromInsightModal}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-create-endpoint`}
-                                    >
-                                        <IconEndpoints />
-                                        Endpoint
-                                    </SceneMenuBarItem>
-                                )}
-                                {showCreateMetric && <CreateMetricMenuBarItem insightShortId={insight?.short_id} />}
-                                {showCohort && (
-                                    <SceneMenuBarItem
-                                        opensFloatingUi
-                                        onClick={() =>
-                                            openSaveAsCohortDialog(createStaticCohort, hogQL!, hogQLVariables)
-                                        }
-                                        data-attr={`${RESOURCE_TYPE}-menubar-create-cohort`}
-                                    >
-                                        <IconPeople />
-                                        Static cohort
-                                    </SceneMenuBarItem>
-                                )}
-                                {isSavedInsight && (
-                                    <SceneMenuBarItem
-                                        onClick={() => push(urlForSubscriptions({ insightShortId: insight.short_id }))}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-subscribe`}
-                                    >
-                                        <IconBell />
-                                        Subscription
-                                    </SceneMenuBarItem>
-                                )}
-                                {isSavedInsight && (
-                                    <SceneMenuBarItem
-                                        onClick={() => push(urls.insightAlerts(insight.short_id!))}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-alerts`}
-                                    >
-                                        <IconWarning />
-                                        Alert
-                                    </SceneMenuBarItem>
-                                )}
-                                {isSavedInsight && (
-                                    <SceneMenuBarItem
-                                        onClick={() => push(urls.insightSharing(insight.short_id!))}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-share`}
-                                        disabled={!!sharingDisabledReason}
-                                        tooltip={sharingDisabledReason ?? undefined}
-                                    >
-                                        <IconShare />
-                                        Share or embed
-                                    </SceneMenuBarItem>
-                                )}
-                            </SceneMenuBarSubMenu>
-                            <SceneMenuBarSeparator />
-                        </>
-                    )}
-                    <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                    {showCopyToProject && (
+                                            }}
+                                        />
+                                    )}
+                                    {showCreateEndpoint && (
+                                        <SceneMenuBarItem
+                                            opensFloatingUi
+                                            onClick={openCreateFromInsightModal}
+                                            data-attr={`${RESOURCE_TYPE}-menubar-create-endpoint`}
+                                        >
+                                            <IconEndpoints />
+                                            Endpoint
+                                        </SceneMenuBarItem>
+                                    )}
+                                    {showCreateMetric && <CreateMetricMenuBarItem insightShortId={insight?.short_id} />}
+                                    {showCohort && (
+                                        <SceneMenuBarItem
+                                            opensFloatingUi
+                                            onClick={() =>
+                                                openSaveAsCohortDialog(createStaticCohort, hogQL!, hogQLVariables)
+                                            }
+                                            data-attr={`${RESOURCE_TYPE}-menubar-create-cohort`}
+                                        >
+                                            <IconPeople />
+                                            Static cohort
+                                        </SceneMenuBarItem>
+                                    )}
+                                    {isSavedInsight && (
+                                        <SceneMenuBarItem
+                                            onClick={() =>
+                                                push(urlForSubscriptions({ insightShortId: insight.short_id }))
+                                            }
+                                            data-attr={`${RESOURCE_TYPE}-menubar-subscribe`}
+                                        >
+                                            <IconBell />
+                                            Subscription
+                                        </SceneMenuBarItem>
+                                    )}
+                                    {isSavedInsight && (
+                                        <SceneMenuBarItem
+                                            onClick={() => push(urls.insightAlerts(insight.short_id!))}
+                                            data-attr={`${RESOURCE_TYPE}-menubar-alerts`}
+                                        >
+                                            <IconWarning />
+                                            Alert
+                                        </SceneMenuBarItem>
+                                    )}
+                                    {isSavedInsight && (
+                                        <SceneMenuBarItem
+                                            onClick={() => push(urls.insightSharing(insight.short_id!))}
+                                            data-attr={`${RESOURCE_TYPE}-menubar-share`}
+                                            disabled={!!sharingDisabledReason}
+                                            tooltip={sharingDisabledReason ?? undefined}
+                                        >
+                                            <IconShare />
+                                            Share or embed
+                                        </SceneMenuBarItem>
+                                    )}
+                                </SceneMenuBarSubMenu>
+                                <SceneMenuBarSeparator />
+                            </>
+                        )}
+                        <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
+                        {collectionTarget && (
+                            <AnalyticsCollectionMenuBarItems target={collectionTarget} dataAttrKey={RESOURCE_TYPE} />
+                        )}
+                        {showCopyToProject && (
+                            <SceneMenuBarItem
+                                onClick={() => push(urls.resourceTransfer('Insight', insight.id!, insight.short_id))}
+                                data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
+                            >
+                                <IconCopy />
+                                Copy to another project
+                            </SceneMenuBarItem>
+                        )}
+                        {canCaptureImage && (
+                            <SceneMenuBarItem
+                                onClick={() => copyImage(captureTarget)}
+                                disabled={isCapturingImage || !!captureDisabledReason}
+                                tooltip={captureDisabledReason}
+                                data-attr={`${RESOURCE_TYPE}-menubar-copy-image`}
+                            >
+                                <IconImage />
+                                Copy as PNG
+                            </SceneMenuBarItem>
+                        )}
                         <SceneMenuBarItem
-                            onClick={() => push(urls.resourceTransfer('Insight', insight.id!, insight.short_id))}
-                            data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
+                            opensFloatingUi
+                            onClick={openTerraformModal}
+                            data-attr={`${RESOURCE_TYPE}-menubar-terraform`}
+                        >
+                            <IconCode2 />
+                            Manage with Terraform
+                        </SceneMenuBarItem>
+                        {canExport && (
+                            <SceneMenuBarSubMenu label="Export">
+                                <SceneMenuBarItem
+                                    disabled={(canCaptureImage && isCapturingImage) || !!pngExportDisabledReason}
+                                    tooltip={pngExportDisabledReason ?? undefined}
+                                    onClick={() =>
+                                        canCaptureImage
+                                            ? downloadImage(captureTarget)
+                                            : startExport({
+                                                  export_format: ExporterFormat.PNG,
+                                                  insight: insight.id,
+                                                  insightShortId: insight.short_id,
+                                                  export_context: exportContext,
+                                              })
+                                    }
+                                    data-attr={`${RESOURCE_TYPE}-menubar-export-png`}
+                                >
+                                    <IconDownload />
+                                    PNG
+                                </SceneMenuBarItem>
+                                <SceneMenuBarItem
+                                    disabled={!!exportAssetAccessControlDisabledReason}
+                                    tooltip={exportAssetAccessControlDisabledReason ?? undefined}
+                                    onClick={() =>
+                                        startExport({
+                                            export_format: ExporterFormat.CSV,
+                                            export_context: exportContext,
+                                        })
+                                    }
+                                    data-attr={`${RESOURCE_TYPE}-menubar-export-csv`}
+                                >
+                                    <IconDownload />
+                                    CSV
+                                </SceneMenuBarItem>
+                                <SceneMenuBarItem
+                                    disabled={!!exportAssetAccessControlDisabledReason}
+                                    tooltip={exportAssetAccessControlDisabledReason ?? undefined}
+                                    onClick={() =>
+                                        startExport({
+                                            export_format: ExporterFormat.XLSX,
+                                            export_context: exportContext,
+                                        })
+                                    }
+                                    data-attr={`${RESOURCE_TYPE}-menubar-export-xlsx`}
+                                >
+                                    <IconDownload />
+                                    XLSX
+                                </SceneMenuBarItem>
+                            </SceneMenuBarSubMenu>
+                        )}
+                        {isSavedInsight && (
+                            <>
+                                <SceneMenuBarSeparator />
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Insight}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    {({ disabledReason }) => (
+                                        <SceneMenuBarItem
+                                            variant="destructive"
+                                            disabled={!!disabledReason}
+                                            onClick={() => deleteInsight(dashboardId ?? null)}
+                                            data-attr={`${RESOURCE_TYPE}-menubar-delete`}
+                                        >
+                                            <IconTrash />
+                                            Delete insight
+                                        </SceneMenuBarItem>
+                                    )}
+                                </AccessControlAction>
+                            </>
+                        )}
+                    </SceneMenuBarMenu>
+                )}
+                {showEditMenu && (
+                    <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
+                        <SceneMenuBarItem
+                            disabled={insightDuplicating}
+                            tooltip={insightDuplicating ? 'Duplicating…' : undefined}
+                            onClick={() => duplicateInsight(insight as InsightModel, true)}
+                            data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
                         >
                             <IconCopy />
-                            Copy to another project
+                            Duplicate
                         </SceneMenuBarItem>
-                    )}
-                    {canCaptureImage && (
-                        <SceneMenuBarItem
-                            onClick={() => copyImage(captureTarget)}
-                            disabled={isCapturingImage || !!captureDisabledReason}
-                            tooltip={captureDisabledReason}
-                            data-attr={`${RESOURCE_TYPE}-menubar-copy-image`}
-                        >
-                            <IconImage />
-                            Copy as PNG
-                        </SceneMenuBarItem>
-                    )}
-                    <SceneMenuBarItem
-                        opensFloatingUi
-                        onClick={openTerraformModal}
-                        data-attr={`${RESOURCE_TYPE}-menubar-terraform`}
-                    >
-                        <IconCode2 />
-                        Manage with Terraform
-                    </SceneMenuBarItem>
-                    {canExport && (
-                        <SceneMenuBarSubMenu label="Export">
+                        {(canEditInSqlEditor || unsavedSqlQuery) && (
                             <SceneMenuBarItem
-                                disabled={(canCaptureImage && isCapturingImage) || !!pngExportDisabledReason}
-                                tooltip={pngExportDisabledReason ?? undefined}
                                 onClick={() =>
-                                    canCaptureImage
-                                        ? downloadImage(captureTarget)
-                                        : startExport({
-                                              export_format: ExporterFormat.PNG,
-                                              insight: insight.id,
-                                              insightShortId: insight.short_id,
-                                              export_context: exportContext,
-                                          })
+                                    push(
+                                        urls.sqlEditor({
+                                            query: unsavedSqlQuery ?? hogQL ?? undefined,
+                                            dashboard: unsavedSqlQuery ? (dashboardId ?? undefined) : undefined,
+                                        })
+                                    )
                                 }
-                                data-attr={`${RESOURCE_TYPE}-menubar-export-png`}
+                                data-attr={`${RESOURCE_TYPE}-menubar-edit-sql`}
                             >
-                                <IconDownload />
-                                PNG
+                                <IconPencil />
+                                Edit in SQL editor
                             </SceneMenuBarItem>
-                            <SceneMenuBarItem
-                                disabled={!!exportAssetAccessControlDisabledReason}
-                                tooltip={exportAssetAccessControlDisabledReason ?? undefined}
-                                onClick={() =>
-                                    startExport({
-                                        export_format: ExporterFormat.CSV,
-                                        export_context: exportContext,
-                                    })
-                                }
-                                data-attr={`${RESOURCE_TYPE}-menubar-export-csv`}
-                            >
-                                <IconDownload />
-                                CSV
-                            </SceneMenuBarItem>
-                            <SceneMenuBarItem
-                                disabled={!!exportAssetAccessControlDisabledReason}
-                                tooltip={exportAssetAccessControlDisabledReason ?? undefined}
-                                onClick={() =>
-                                    startExport({
-                                        export_format: ExporterFormat.XLSX,
-                                        export_context: exportContext,
-                                    })
-                                }
-                                data-attr={`${RESOURCE_TYPE}-menubar-export-xlsx`}
-                            >
-                                <IconDownload />
-                                XLSX
-                            </SceneMenuBarItem>
-                        </SceneMenuBarSubMenu>
-                    )}
-                    {isSavedInsight && (
-                        <>
-                            <SceneMenuBarSeparator />
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Insight}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                {({ disabledReason }) => (
-                                    <SceneMenuBarItem
-                                        variant="destructive"
-                                        disabled={!!disabledReason}
-                                        onClick={() => deleteInsight(dashboardId ?? null)}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-delete`}
+                        )}
+                        <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
+                        {showStateMenu && (
+                            <>
+                                <SceneMenuBarSeparator />
+                                {showFavorite && (
+                                    <SceneMenuBarCheckboxItem
+                                        checked={!!insight.favorited}
+                                        onCheckedChange={(checked) => setInsightMetadata({ favorited: checked })}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-favorite`}
                                     >
-                                        <IconTrash />
-                                        Delete insight
-                                    </SceneMenuBarItem>
+                                        Favorite
+                                    </SceneMenuBarCheckboxItem>
                                 )}
-                            </AccessControlAction>
-                        </>
-                    )}
-                </SceneMenuBarMenu>
-            )}
-            {showEditMenu && (
-                <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
-                    <SceneMenuBarItem
-                        disabled={insightDuplicating}
-                        tooltip={insightDuplicating ? 'Duplicating…' : undefined}
-                        onClick={() => duplicateInsight(insight as InsightModel, true)}
-                        data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
-                    >
-                        <IconCopy />
-                        Duplicate
-                    </SceneMenuBarItem>
-                    {(canEditInSqlEditor || unsavedSqlQuery) && (
-                        <SceneMenuBarItem
-                            onClick={() =>
-                                push(
-                                    urls.sqlEditor({
-                                        query: unsavedSqlQuery ?? hogQL ?? undefined,
-                                        dashboard: unsavedSqlQuery ? (dashboardId ?? undefined) : undefined,
-                                    })
-                                )
-                            }
-                            data-attr={`${RESOURCE_TYPE}-menubar-edit-sql`}
-                        >
-                            <IconPencil />
-                            Edit in SQL editor
-                        </SceneMenuBarItem>
-                    )}
-                    <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
-                    {showStateMenu && (
-                        <>
-                            <SceneMenuBarSeparator />
-                            {showFavorite && (
                                 <SceneMenuBarCheckboxItem
-                                    checked={!!insight.favorited}
-                                    onCheckedChange={(checked) => setInsightMetadata({ favorited: checked })}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-favorite`}
+                                    checked={showQueryEditor}
+                                    onCheckedChange={handleToggleQueryEditorPanel}
+                                    data-attr={`${RESOURCE_TYPE}-menubar-view-source`}
                                 >
-                                    Favorite
+                                    View source
                                 </SceneMenuBarCheckboxItem>
-                            )}
-                            <SceneMenuBarCheckboxItem
-                                checked={showQueryEditor}
-                                onCheckedChange={handleToggleQueryEditorPanel}
-                                data-attr={`${RESOURCE_TYPE}-menubar-view-source`}
-                            >
-                                View source
-                            </SceneMenuBarCheckboxItem>
-                        </>
-                    )}
-                </SceneMenuBarMenu>
-            )}
-            {showMetadataMenu && (
-                <SceneMenuBarPopover
-                    label="Metadata"
-                    dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}
-                    contentClassName="w-80 p-2 flex flex-col gap-2"
-                >
-                    <SceneTagsCombobox
-                        onSave={(tags) => setInsightMetadata({ tags })}
-                        tags={insight.tags}
-                        dataAttrKey={RESOURCE_TYPE}
-                        canEdit={canEditInsight}
-                        loading={isSavingTags}
-                    />
-                    <SceneActivityIndicator
-                        at={insight.last_modified_at}
-                        by={insight.last_modified_by}
-                        prefix="Last modified"
-                    />
-                    {showMetalytics && (
-                        <Button
-                            type="button"
-                            variant="default"
-                            size="sm"
-                            left
-                            onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
-                            data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
-                        >
-                            <IconPulse />
-                            View metalytics
-                        </Button>
-                    )}
-                </SceneMenuBarPopover>
-            )}
-            {showStaffMenu && (
-                <SceneMenuBarMenu label="Staff only" dataAttr={`${RESOURCE_TYPE}-menubar-staff`}>
-                    <SceneMenuBarCheckboxItem
-                        checked={showDebugPanel}
-                        onCheckedChange={toggleDebugPanel}
-                        data-attr={`${RESOURCE_TYPE}-menubar-debug-panel`}
+                            </>
+                        )}
+                    </SceneMenuBarMenu>
+                )}
+                {showMetadataMenu && (
+                    <SceneMenuBarPopover
+                        label="Metadata"
+                        dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}
+                        contentClassName="w-80 p-2 flex flex-col gap-2"
                     >
-                        Show debug panel
-                    </SceneMenuBarCheckboxItem>
-                </SceneMenuBarMenu>
-            )}
-        </SceneMenuBar>
+                        <SceneTagsCombobox
+                            onSave={(tags) => setInsightMetadata({ tags })}
+                            tags={insight.tags}
+                            dataAttrKey={RESOURCE_TYPE}
+                            canEdit={canEditInsight}
+                            loading={isSavingTags}
+                        />
+                        <SceneActivityIndicator
+                            at={insight.last_modified_at}
+                            by={insight.last_modified_by}
+                            prefix="Last modified"
+                        />
+                        {showMetalytics && (
+                            <Button
+                                type="button"
+                                variant="default"
+                                size="sm"
+                                left
+                                onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
+                                data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
+                            >
+                                <IconPulse />
+                                View metalytics
+                            </Button>
+                        )}
+                    </SceneMenuBarPopover>
+                )}
+                {showStaffMenu && (
+                    <SceneMenuBarMenu label="Staff only" dataAttr={`${RESOURCE_TYPE}-menubar-staff`}>
+                        <SceneMenuBarCheckboxItem
+                            checked={showDebugPanel}
+                            onCheckedChange={toggleDebugPanel}
+                            data-attr={`${RESOURCE_TYPE}-menubar-debug-panel`}
+                        >
+                            Show debug panel
+                        </SceneMenuBarCheckboxItem>
+                    </SceneMenuBarMenu>
+                )}
+            </SceneMenuBar>
+            {collectionTarget && <AnalyticsCollectionDialogHost target={collectionTarget} />}
+        </>
     )
 }
 

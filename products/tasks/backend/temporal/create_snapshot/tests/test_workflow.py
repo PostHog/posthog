@@ -1,9 +1,7 @@
 import os
 import uuid
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from typing import cast
 
 import pytest
 
@@ -13,6 +11,8 @@ from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.test.waiting import wait_until
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxStatus
 from products.tasks.backend.models import SandboxSnapshot
@@ -94,54 +94,35 @@ class TestCreateSnapshotForRepositoryWorkflow:
         except Exception:
             pass
 
-    async def test_workflow_creates_snapshot_successfully(self, github_integration, test_team):
+    async def test_successful_runs_snapshot_only_the_repository_and_shut_down_their_sandboxes(
+        self, github_integration, test_team
+    ):
         created_snapshots: list[SandboxSnapshot] = []
 
         try:
-            result = await self._run_workflow(
-                github_integration_id=github_integration.id,
-                repository="posthog/posthog-js",
-                team_id=test_team.id,
-            )
+            results = []
+            sandbox_ids: list[str] = []
+            for _ in range(2):
+                result = await self._run_workflow(
+                    github_integration_id=github_integration.id,
+                    repository="posthog/posthog-js",
+                    team_id=test_team.id,
+                )
+                assert result.success is True
+                assert result.error is None
+                assert result.snapshot_id is not None
+                assert result.sandbox_id is not None
+                created_snapshots.append(await sync_to_async(SandboxSnapshot.objects.get)(id=result.snapshot_id))
+                results.append(result)
+                sandbox_ids.append(result.sandbox_id)
 
-            assert result.success is True
-            assert result.snapshot_id is not None
-            assert result.error is None
-
-            snapshots_query = SandboxSnapshot.objects.filter(
-                integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
-            ).order_by("-created_at")
-            snapshots = cast(list[SandboxSnapshot], await sync_to_async(lambda: list(snapshots_query))())
-
-            assert len(snapshots) >= 1
-            latest_snapshot = snapshots[0]
-            assert "posthog/posthog-js" in latest_snapshot.repos
-            assert latest_snapshot.status == SandboxSnapshot.Status.COMPLETE
-            assert latest_snapshot.external_id is not None
-
-            created_snapshots.append(latest_snapshot)
-
-        finally:
+            assert results[0].snapshot_id != results[1].snapshot_id
             for snapshot in created_snapshots:
-                await self._cleanup_snapshot(snapshot)
-
-    async def test_workflow_snapshot_contains_only_specified_repository(self, github_integration, test_team):
-        created_snapshots: list[SandboxSnapshot] = []
-
-        try:
-            result = await self._run_workflow(
-                github_integration_id=github_integration.id,
-                repository="posthog/posthog-js",
-                team_id=test_team.id,
-            )
-
-            assert result.success is True
-
-            snapshot = await sync_to_async(SandboxSnapshot.objects.get)(id=result.snapshot_id)
-            created_snapshots.append(snapshot)
-
-            assert snapshot.repos == ["posthog/posthog-js"]
-            assert len(snapshot.repos) == 1
+                assert snapshot.status == SandboxSnapshot.Status.COMPLETE
+                assert snapshot.external_id is not None
+                assert snapshot.repos == ["posthog/posthog-js"]
+            for sandbox_id in sandbox_ids:
+                _wait_for_sandbox_shutdown(sandbox_id)
 
         finally:
             for snapshot in created_snapshots:
@@ -160,7 +141,7 @@ class TestCreateSnapshotForRepositoryWorkflow:
         assert result.error is not None
         assert result.snapshot_id is None
 
-    async def test_workflow_handles_clone_failure(self, github_integration, test_team):
+    async def test_clone_failure_fails_the_run_and_shuts_down_its_sandbox(self, github_integration, test_team):
         result = await self._run_workflow(
             github_integration_id=github_integration.id,
             repository="posthog/nonexistent-repo-12345",
@@ -170,74 +151,14 @@ class TestCreateSnapshotForRepositoryWorkflow:
         assert result.success is False
         assert result.error is not None
         assert result.snapshot_id is None
-
-    async def test_workflow_cleans_up_sandbox_on_success(self, github_integration, test_team):
-        created_snapshots: list[SandboxSnapshot] = []
-
-        try:
-            result = await self._run_workflow(
-                github_integration_id=github_integration.id,
-                repository="posthog/posthog-js",
-                team_id=test_team.id,
-            )
-
-            assert result.success is True
-            assert result.sandbox_id is not None
-
-            if result.snapshot_id:
-                snapshot = await sync_to_async(SandboxSnapshot.objects.get)(id=result.snapshot_id)
-                created_snapshots.append(snapshot)
-
-            await asyncio.sleep(10)
-            sandbox = Sandbox.get_by_id(result.sandbox_id)
-            assert sandbox.get_status() == SandboxStatus.SHUTDOWN
-
-        finally:
-            for snapshot in created_snapshots:
-                await self._cleanup_snapshot(snapshot)
-
-    async def test_workflow_cleans_up_sandbox_on_failure(self, github_integration, test_team):
-        result = await self._run_workflow(
-            github_integration_id=github_integration.id,
-            repository="posthog/nonexistent-repo-12345",
-            team_id=test_team.id,
-        )
-
-        assert result.success is False
         assert result.sandbox_id is not None
+        _wait_for_sandbox_shutdown(result.sandbox_id)
 
-        await asyncio.sleep(10)
-        sandbox = Sandbox.get_by_id(result.sandbox_id)
-        assert sandbox.get_status() == SandboxStatus.SHUTDOWN
 
-    async def test_multiple_runs_create_separate_snapshots(self, github_integration, test_team):
-        created_snapshots: list[SandboxSnapshot] = []
-
-        try:
-            result1 = await self._run_workflow(
-                github_integration_id=github_integration.id,
-                repository="posthog/posthog-js",
-                team_id=test_team.id,
-            )
-
-            assert result1.success is True
-            snapshot1 = await sync_to_async(SandboxSnapshot.objects.get)(id=result1.snapshot_id)
-            created_snapshots.append(snapshot1)
-
-            result2 = await self._run_workflow(
-                github_integration_id=github_integration.id,
-                repository="posthog/posthog-js",
-                team_id=test_team.id,
-            )
-
-            assert result2.success is True
-            snapshot2 = await sync_to_async(SandboxSnapshot.objects.get)(id=result2.snapshot_id)
-            created_snapshots.append(snapshot2)
-
-            assert result1.snapshot_id != result2.snapshot_id
-            assert snapshot1.repos == ["posthog/posthog-js"]
-            assert snapshot2.repos == ["posthog/posthog-js"]
-
-        finally:
-            for snapshot in created_snapshots:
-                await self._cleanup_snapshot(snapshot)
+def _wait_for_sandbox_shutdown(sandbox_id: str) -> None:
+    wait_until(
+        lambda: Sandbox.get_by_id(sandbox_id).get_status() == SandboxStatus.SHUTDOWN,
+        timeout=60,
+        interval=1,
+        message=f"sandbox {sandbox_id} never shut down",
+    )

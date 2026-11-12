@@ -12,7 +12,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django import forms
 from django.conf import settings
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.models import Group
@@ -41,7 +41,7 @@ from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.api_key_search_tool import ApiKeySearchForm
 from posthog.admin.console.moved import MovedAction, MovedPage
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
-from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
+from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.results import (
@@ -50,7 +50,25 @@ from posthog.admin.console.results import (
     KEY_PREFIX as RESULTS_KEY_PREFIX,
     ResultCodec,
 )
-from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Secret, Table, ToolOperation
+from posthog.admin.console.tools import (
+    Cell,
+    ConsoleTool,
+    Download,
+    FieldGroup,
+    Filters,
+    Link,
+    Links,
+    Live,
+    Notice,
+    Page,
+    Paging,
+    Row,
+    Secret,
+    Stat,
+    Stats,
+    Table,
+    ToolOperation,
+)
 from posthog.admin.console.urls import moved_url_patterns
 from posthog.admin.console.user_panels import is_acting_as
 from posthog.admin.console.views import _offered_operations
@@ -143,6 +161,57 @@ class _Tool(ConsoleTool):
     group = "Data"
 
 
+class _ToolActionForm(forms.Form):
+    reason = forms.CharField()
+    confirm = forms.CharField(required=False)
+
+
+class _ToolFiltersForm(forms.Form):
+    since = forms.CharField()
+    step = forms.CharField(widget=forms.HiddenInput, required=False)
+
+
+class _ActingTool(_Tool):
+    key = "acting-tool"
+    title = "Acting tool"
+    runs: list[str] = []
+
+    def _act(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
+        assert form is not None
+        if form.cleaned_data["confirm"] != "yes":
+            messages.error(request, "Type yes to confirm.")
+            return HttpResponse(status=400)
+        self.runs.append(form.cleaned_data["reason"])
+        return None
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        if request.GET.get("state") == "stale":
+            return []
+        return [
+            ToolOperation(
+                key="act", label="Act", handler=self._act, form_class=_ToolActionForm, pending_label="Acting..."
+            )
+        ]
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(
+            blocks=(
+                Notice(text="Check the window first.", tone=Tone.WARNING),
+                Stats(items=(Stat(label="Runs to replay", value="1,234"),)),
+                Links(
+                    items=(
+                        Link(label="Show details", href="/admin/console/", primary=True, pending_label="Loading..."),
+                    )
+                ),
+                Filters(
+                    form=_ToolFiltersForm(request.GET),
+                    groups=(FieldGroup(title="Window", field_names=("since",)),),
+                    submit_label="Preview",
+                ),
+            )
+        )
+
+
 class _SecretTool(_Tool):
     key = "issue-password"
     runs = 0
@@ -165,7 +234,13 @@ class _SecretTool(_Tool):
     @classmethod
     def issue(cls, request: HttpRequest, form: object) -> Page:
         cls.runs += 1
-        return Page(blocks=(Secret(label="Root password", value="example-secret-value"),))
+        return Page(
+            blocks=(
+                Stats(items=(Stat(label="Passwords issued", value="1"),)),
+                Secret(label="Root password", value="example-secret-value"),
+                Links(items=(Link(label="Back to the cluster", href="/admin/console/"),)),
+            )
+        )
 
 
 def _register_twice() -> None:
@@ -305,6 +380,32 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "undo_hint",
             ),
             (
+                "danger_tool_operation_without_reason",
+                lambda: ToolOperation(
+                    key="wipe",
+                    label="Wipe",
+                    handler=lambda request, form: None,
+                    form_class=forms.Form,
+                    danger=True,
+                    undo_hint="It cannot be undone.",
+                ),
+                "reason",
+            ),
+            (
+                "link_off_site",
+                lambda: Link(label="Docs", href="//example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "filters_that_would_hide_a_field",
+                lambda: Filters(
+                    form=_ToolActionForm(),
+                    groups=(FieldGroup(title="Only one", field_names=("reason",)),),
+                    submit_label="Go",
+                ),
+                "must name each form field",
+            ),
+            (
                 "owner_gate_for_an_owner_without_a_staff_group",
                 lambda: Gate.owner().resolve(Owner(name="Dev experience", crest="dev-experience")),
                 "has no staff_group",
@@ -313,6 +414,21 @@ class TestAdminConsoleAssets(SimpleTestCase):
             (
                 "fact_linking_off_site",
                 lambda: Fact(label="Docs", value="Read", href="//example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "notice_linking_off_site_with_a_backslash",
+                lambda: Notice(text="Moved", link_text="Open", href="/\\example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "link_off_site_with_a_tab_the_browser_drops",
+                lambda: Link(label="Docs", href="/\t/example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "fact_linking_off_site_with_a_newline_the_browser_drops",
+                lambda: Fact(label="Docs", value="Read", href="/\n/example.com/phish"),
                 "starts with /",
             ),
             (
@@ -338,7 +454,12 @@ class TestAdminConsoleAssets(SimpleTestCase):
                         ),
                     )
                 ),
-                "not a table, notice or output",
+                "not a table, notice, output or stats",
+            ),
+            (
+                "live_block_holding_a_secret",
+                lambda: Live(key="password", block=Secret(label="Root password", value="example")),  # type: ignore[arg-type]
+                "not a table, notice, output or stats",
             ),
             (
                 "secret_on_a_page_that_renders_again",
@@ -349,6 +470,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
+            ),
+            (
+                "download_name_that_would_break_the_header",
+                lambda: Download(filename='certificate".json', content_type="application/json", content="{}"),
+                "only letters",
             ),
         ]
     )
@@ -642,6 +768,7 @@ class TestAdminConsoleViews(BaseTest):
         assert first.cookies[KEY_COOKIE]["max-age"] == 0
         assert first.status_code == 200
         assert "example-secret-value" in first.content.decode()
+        assert "Passwords issued" in first.content.decode() and "Back to the cluster" in first.content.decode()
         assert reload.status_code == 410
         assert "example-secret-value" not in reload.content.decode()
         assert _SecretTool.runs == 1
@@ -745,6 +872,9 @@ class TestAdminConsoleViews(BaseTest):
     @parameterized.expand(
         [
             ("team_name", "team", None),
+            ("team_uuid", "team_uuid", None),
+            ("team_api_token_in_uuid_form", "team_token", None),
+            ("organization_id", "organization", None),
             ("user_email_in_another_case", "user", None),
             ("user_email_from_a_support_ticket", "user", "https://support.example.com/tickets/42"),
         ]
@@ -752,6 +882,13 @@ class TestAdminConsoleViews(BaseTest):
     def test_a_lookup_with_one_match_opens_its_page(self, _name: str, record: str, ticket: str | None) -> None:
         if record == "team":
             query, expected = self.team.name, f"/admin/console/teams/{self.team.pk}/"
+        elif record == "team_uuid":
+            query, expected = str(self.team.uuid), f"/admin/console/teams/{self.team.pk}/"
+        elif record == "team_token":
+            query, expected = "3f2b8c1e-5d47-4a90-b6e2-9c0d1f7a8e35", f"/admin/console/teams/{self.team.pk}/"
+            Team.objects.filter(pk=self.team.pk).update(api_token=query)
+        elif record == "organization":
+            query, expected = str(self.organization.pk), f"/admin/console/organizations/{self.organization.pk}/"
         else:
             query, expected = self.user.email.upper(), f"/admin/console/users/{self.user.pk}/"
         params = {"q": query, **({"ticket": ticket} if ticket else {})}
@@ -790,6 +927,57 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == expected_status
         self.team.refresh_from_db()
         assert self.team.api_token == expected_token
+
+    @parameterized.expand(
+        [
+            ("runs_and_keeps_the_query", "?window=1", {"reason": "outage", "confirm": "yes"}, 302, ["outage"]),
+            ("handler_refusal_keeps_what_staff_typed", "", {"reason": "kept text", "confirm": "no"}, 400, []),
+            ("invalid_form_runs_nothing", "", {"reason": "", "confirm": "yes"}, 400, []),
+            ("operation_the_tool_no_longer_offers", "?state=stale", {"reason": "late", "confirm": "yes"}, 404, []),
+        ]
+    )
+    def test_a_tool_operation_runs_only_when_offered_and_valid(
+        self, _name: str, query: str, data: dict[str, str], status: int, runs: list[str]
+    ) -> None:
+        _ActingTool.runs = []
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = self.client.post(f"/admin/console/tools/acting-tool/act/{query}", data)
+
+        assert response.status_code == status
+        assert _ActingTool.runs == runs
+        if status == 302:
+            assert response["Location"] == f"/admin/console/tools/acting-tool/{query}"
+        if data["reason"] == "kept text":
+            content = response.content.decode()
+            assert "Type yes to confirm." in content
+            assert 'value="kept text"' in content
+            assert 'data-pending-label="Acting..."' in content
+
+    def test_a_tool_page_renders_every_block_it_holds(self) -> None:
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = self.client.get("/admin/console/tools/acting-tool/?since=2026-10-22&step=details")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'data-tone="warning"' in content and "Check the window first." in content
+        assert "Runs to replay" in content and "1,234" in content
+        assert 'data-pending-label="Loading..."' in content and "Show details" in content
+        assert 'value="2026-10-22"' in content and "Preview" in content
+        assert re.search(r'<input type="hidden" name="step" value="details"', content)
+
+    def test_a_tool_operation_needs_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        _ActingTool.runs = []
+
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = client.post(
+                "/admin/console/tools/acting-tool/act/?personal_api_key=phx_example",
+                {"reason": "forged", "confirm": "yes"},
+            )
+
+        assert response.status_code == 403
+        assert _ActingTool.runs == []
 
     @parameterized.expand(
         [

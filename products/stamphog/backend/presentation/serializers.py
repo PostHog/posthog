@@ -40,7 +40,7 @@ class _GateResultSummarySerializer(serializers.Serializer):
     """Allowlisted, content-free slice of ``ReviewRun.gate_result``.
 
     The raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry
-    repository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),
+    repository content — changed-file paths (``lifted_files``, ``invalid_folder_files``),
     manifest gate messages, and declared ``policy.scopes`` — which a project member without repo
     access must not read. Only the terminal decision is exposed.
     """
@@ -414,7 +414,10 @@ class PullRequestRoutingSerializer(DataclassSerializer):
         extra_kwargs = {
             "head_sha": {"help_text": "The head commit the record is for. It can be older than the pull request head."},
             "trigger": {
-                "help_text": "What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'."
+                "help_text": (
+                    "What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', "
+                    "'approval_retracted' or 'safety_net'."
+                )
             },
             "claim_expired": {
                 "help_text": (
@@ -866,9 +869,12 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
     """
 
     provider = serializers.CharField(
-        required=False, help_text="SCM provider this config talks to. Defaults to 'github'."
+        required=False,
+        help_text="SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it.",
     )
-    repository = serializers.CharField(help_text="Repository full name, e.g. 'PostHog/posthog'.")
+    repository = serializers.CharField(
+        help_text="Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it."
+    )
     enabled = serializers.BooleanField(
         required=False, help_text="Whether stamphog actively reviews pull requests for this repo."
     )
@@ -1189,7 +1195,10 @@ class RoutingRunSerializer(DataclassSerializer):
             "pr_number": {"help_text": "Pull request number."},
             "head_sha": {"help_text": "The head commit the run routed."},
             "trigger": {
-                "help_text": "What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'."
+                "help_text": (
+                    "What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', "
+                    "'approval_retracted' or 'safety_net'."
+                )
             },
             "fork": {"help_text": "Whether the pull request came from a fork, which skips the model."},
             "model": {"help_text": "The model the cut request reached. Blank when no request reached the gateway."},
