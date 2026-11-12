@@ -300,19 +300,18 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
             ({key: None}, 0, 0),
             ({}, 0, 0),
         ]
-        if not declared:
-            cases.extend(
-                ({key: item}, 0, 0)
-                for item in (
-                    [],
-                    {},
-                    [5],
-                    {"child": ""},
-                    {"escaped": '\u0001"\\\t', "url": "https://example.com/path", "number": 2**63},
-                    "[5]",
-                    1.5,
-                )
+        cases.extend(
+            ({key: item}, 0, 0)
+            for item in (
+                [],
+                {},
+                [5],
+                {"child": ""},
+                {"escaped": '\u0001"\\\t', "url": "https://example.com/path", "number": 2**63},
+                "[5]",
+                1.5,
             )
+        )
         rows = sync_execute(
             f"SELECT {printed}, {read}, {fallback_sql}, {has_key_sql}, {null_tests_sql} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS {column}) AS events",
             {**context.values, "documents": [json.dumps(doc) for doc, _, _ in cases], "json_type": json_type},
@@ -326,9 +325,9 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
         for (_, read_value, fallback_result, has_key_result, null_tests_result), (document, _, _) in zip(rows, cases):
             assert fallback_result == tuple(int(read_value == value) for value in fallback_values)
             sent = document.get(key)
-            # A declared String column stores a sent "" the same as a missing key, and ClickHouse's JSON type keeps
-            # no path for an empty object, so both read as missing.
-            if sent is None or sent == {} or (declared and sent == ""):
+            # A declared String column stores a sent "" the same as a missing key, and a Dynamic path keeps nothing for
+            # an empty object, so both read as missing. A declared String column keeps an empty object as the text {}.
+            if sent is None or (sent == {} and not declared) or (declared and sent == ""):
                 assert read_value is None
             elif isinstance(sent, (list, dict)):
                 assert json.loads(read_value) == sent
