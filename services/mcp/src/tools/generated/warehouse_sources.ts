@@ -722,6 +722,9 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
         }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/`,

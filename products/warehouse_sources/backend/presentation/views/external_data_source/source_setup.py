@@ -8,10 +8,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models, transaction
 from django.db.models import Q, TextChoices
-from django.utils import timezone
 
 import temporalio
 from anthropic import APIConnectionError
@@ -292,6 +290,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "API could not reach the database. Null otherwise."
         ),
     )
+    payload = credential_store.SourceUpdatePayloadSerializer(
+        write_only=True,
+        required=False,
+        help_text=(
+            "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do "
+            "not go through the request. Send {'credential_id': '<uuid>'}."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -325,6 +331,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "api_version",
             "api_version_deprecation",
             "connection_warning",
+            "payload",
         ]
         read_only_fields = [
             "id",
@@ -544,6 +551,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             validated_data["prefix"] = normalized_prefix
         else:
             validated_data["prefix"] = instance.prefix
+
+        stored_credential: PendingSourceCredential | None = None
+        update_payload = validated_data.pop("payload", None)
+        if update_payload is not None:
+            try:
+                stored_credential = credential_store.find_stored_credential(
+                    team_id=instance.team_id,
+                    user=cast(User, self.context["request"].user),
+                    credential_id=update_payload["credential_id"],
+                    source_type=instance.source_type,
+                )
+            except credential_store.StoredCredentialUnavailableError as error:
+                raise ValidationError({"payload": {"credential_id": str(error)}})
+            # The stored values go through the same path as job_inputs from the settings form. They win over
+            # inline keys, as on create, so a caller can't override what the user entered.
+            validated_data["job_inputs"] = {**validated_data.get("job_inputs", {}), **stored_credential.payload}
 
         try:
             existing_job_inputs = SourceInputsStore.load(instance)
@@ -855,6 +878,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     credentials_reference=requested_reference,
                 )
             updated_source: ExternalDataSource = super().update(instance, validated_data)
+            if stored_credential is not None:
+                # Stored credentials are single-use. A concurrent update that used the same credential first
+                # deleted it, so roll this update back.
+                deleted_count, _ = (
+                    PendingSourceCredential.objects.for_team(instance.team_id).filter(pk=stored_credential.pk).delete()
+                )
+                if not deleted_count:
+                    raise ValidationError(
+                        {"payload": {"credential_id": f"Stored credential '{stored_credential.pk}' was already used"}}
+                    )
         cast(Any, updated_source)._connection_warning = connection_warning
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
@@ -1174,40 +1207,26 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.
 
         Lets the create and setup flows reference credentials the user entered on the connect page
-        instead of passing secrets inline. Only credentials the requesting user stored resolve —
-        ids are listable within a team, so without the owner check any member could consume a
-        teammate's stashed secrets into a source they control. Returns the (possibly merged)
-        payload, the resolved credential (which the caller deletes once consumed — stored
-        credentials are single-use), and a 400 Response to return as-is on a lookup miss or
-        source-type mismatch.
+        instead of passing secrets inline. `credential_store.find_stored_credential` does the lookup and
+        its checks. Returns the (possibly merged) payload, the resolved credential (which the caller
+        deletes once consumed — stored credentials are single-use), and a 400 Response to return as-is
+        on a lookup miss or source-type mismatch.
         """
         credential_id = payload.pop("credential_id", None)
         if credential_id is None:
             return credential_store.ResolvedStoredCredential(payload=payload, credential=None, error_response=None)
         try:
-            credential = PendingSourceCredential.objects.for_team(self.team_id).get(
-                id=credential_id, created_by=cast(User, self.request.user), expires_at__gt=timezone.now()
+            credential = credential_store.find_stored_credential(
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                credential_id=credential_id,
+                source_type=source_type,
             )
-        except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
+        except credential_store.StoredCredentialUnavailableError as error:
             return credential_store.ResolvedStoredCredential(
                 payload=payload,
                 credential=None,
-                error_response=Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Stored credential '{credential_id}' not found or expired"},
-                ),
-            )
-        if credential.source_type != source_type:
-            return credential_store.ResolvedStoredCredential(
-                payload=payload,
-                credential=None,
-                error_response=Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": f"Stored credential '{credential_id}' is for "
-                        f"'{credential.source_type}', not '{source_type}'"
-                    },
-                ),
+                error_response=Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(error)}),
             )
         # Stored credentials win over inline keys so an agent can't override what the user entered.
         return credential_store.ResolvedStoredCredential(
@@ -1278,6 +1297,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 "source_type": instance.source_type,
                 "created_via": instance.created_via,
                 "source_id": str(instance.pk),
+                "used_stored_credential": "payload" in serializer.validated_data,
             },
             team=self.team,
             request=self.request,

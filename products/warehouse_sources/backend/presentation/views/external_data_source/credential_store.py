@@ -8,6 +8,7 @@ from typing import Any, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -71,7 +72,10 @@ class SourceCredentialCreateSerializer(serializers.Serializer):
 
 class SourceCredentialSerializer(serializers.Serializer):
     credential_id = serializers.UUIDField(
-        help_text="Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source."
+        help_text=(
+            "Stored credential id. Pass it as {'credential_id': <id>} in the payload of the setup endpoint to "
+            "create a source, or of a source update to reconnect an existing source."
+        )
     )
     source_type = serializers.CharField(help_text="The source type the stored credentials are for.")
     created_at = serializers.DateTimeField(help_text="When the credentials were stored.")
@@ -142,6 +146,44 @@ class DatabaseSchemaRequestSerializer(serializers.Serializer):
     source_type = SourceTypeField(
         help_text="The source type to validate against.",
     )
+
+
+class SourceUpdatePayloadSerializer(serializers.Serializer):
+    credential_id = serializers.UUIDField(
+        help_text=(
+            "Id of a stored credential to reconnect this source with. The user enters new connection details on the "
+            "page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. "
+            "Only the user who stored the credential can use it, and it must be for this source's source_type and "
+            "not expired. Its values replace the source's connection details, then the connection is checked. The "
+            "stored credential is deleted when the update succeeds."
+        ),
+    )
+
+
+class StoredCredentialUnavailableError(Exception):
+    pass
+
+
+def find_stored_credential(
+    *, team_id: int, user: User, credential_id: Any, source_type: str
+) -> PendingSourceCredential:
+    """Return the unexpired stored credential that `user` stored in the team for `source_type`.
+
+    Only the user who stored a credential can use it. Ids are listable within a team, so without the
+    owner check any member could put a teammate's stored secrets into a source they control.
+    Raises `StoredCredentialUnavailableError` with a message for the caller.
+    """
+    try:
+        credential = PendingSourceCredential.objects.for_team(team_id).get(
+            id=credential_id, created_by=user, expires_at__gt=timezone.now()
+        )
+    except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
+        raise StoredCredentialUnavailableError(f"Stored credential '{credential_id}' not found or expired")
+    if credential.source_type != source_type:
+        raise StoredCredentialUnavailableError(
+            f"Stored credential '{credential_id}' is for '{credential.source_type}', not '{source_type}'"
+        )
+    return credential
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -328,7 +370,8 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
         The link opens a minimal connect page rendering the source's full connection form — OAuth options
         included — with no table selection and no source creation. The user authenticates in their browser,
         secrets never pass through the agent, and the agent finishes setup afterwards by passing the stored
-        credential id to data-warehouse-source-setup.
+        credential id to data-warehouse-source-setup. To reconnect an existing source, the agent passes the
+        id in the payload of a source update instead.
         """
         source_type = request.query_params.get("source_type")
         if not source_type:
@@ -357,6 +400,10 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
             f"&utm_source={get_event_source(request).value}"
         )
         create_step = 'call data-warehouse-source-setup with {"credential_id": <id>} in the payload'
+        reconnect_step = (
+            " To reconnect or rotate the credentials of an existing source instead, call "
+            'external-data-sources-partial-update with {"payload": {"credential_id": <id>}}.'
+        )
         migration_item_id = request.query_params.get("migration_item_id")
         if migration_item_id and not migrations.is_migration_import_enabled(
             self.team, getattr(request.user, "distinct_id", None)
@@ -378,6 +425,7 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
             connect_url += f"&migration_id={item.migration_id}&migration_item_id={item.id}"
             # The apply tool creates the source with the planned tables, prefix and schedule.
             create_step = f'call warehouse-migration-item-apply with {{"item_id": "{item.id}", "credential_id": <id>}}'
+            reconnect_step = ""
 
         data = {
             "source_type": source_type,
@@ -388,7 +436,7 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
                 "paste credentials or tokens into the chat. The page only stores the connection details; it does "
                 "not create the source. Once the user confirms they're done, find the stored credential id via "
                 f"data-warehouse-stored-credentials-list (source_type='{source_type}', newest first) and "
-                f"{create_step}. Stored credentials are "
+                f"{create_step}.{reconnect_step} Stored credentials are "
                 "single-use, expire after 24 hours, and are only visible to and consumable by the PostHog user "
                 "who entered them — so the page must be filled by the same user this session authenticates as."
             ),
