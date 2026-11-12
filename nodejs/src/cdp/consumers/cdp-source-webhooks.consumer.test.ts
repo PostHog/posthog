@@ -601,6 +601,21 @@ describe('SourceWebhooksConsumer', () => {
                 ])
             })
 
+            it('answers from the produce alone when its team is in intake async mode', async () => {
+                hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: { event: 'my-event', distinct_id: 'test-distinct-id' },
+                })
+
+                expect(res.status).toEqual(201)
+                expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
+                ).toEqual([expect.objectContaining({ value: expect.objectContaining({ kind: 'workflow-webhook' }) })])
+            })
+
             it('should add logs and metrics', async () => {
                 const res = await doPostRequest({
                     webhookId: hogFlow.id,

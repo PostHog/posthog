@@ -10,7 +10,7 @@ import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
 import { IntakeProducer, intakeModeOf } from '../intake/intake-producer'
-import { Claim, Committed, Recalled, Run, RunIntake, keyedRunId } from '../intake/run-intake'
+import { Claim, Committed, Produced, Recalled, Run, RunIntake, keyedRunId } from '../intake/run-intake'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
@@ -46,6 +46,13 @@ const DISALLOWED_HEADERS = [
 ]
 
 const IDEMPOTENCY_KEY_MAX_LENGTH = 255
+
+// A sender retries on 503, so a run the broker did not ack gets another attempt.
+const INTAKE_FAILURE_STATUS: Record<Exclude<Produced, 'accepted'>, number> = {
+    unavailable: 503,
+    too_large: 413,
+    invalid: 400,
+}
 
 const getFirstHeaderValue = (value: string | string[] | undefined): string | undefined => {
     return Array.isArray(value) ? value[0] : value
@@ -385,6 +392,14 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     return { result: functionResult, queuedInvocationId: null }
                 }
 
+                if (this.runIntake.modeOf(hogFlow.team_id) === 'async') {
+                    return await this.produceRun(run, functionResult, {
+                        answerDuplicate,
+                        addLog,
+                        addMetric,
+                    })
+                }
+
                 if (scopedIdempotencyKey) {
                     const recalled = await this.recallQuietly({ runId: invocationId, fingerprint: hogFlow.id }, hogFlow)
                     if (recalled.status !== 'absent') {
@@ -505,6 +520,35 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 queuedInvocationId: null,
             }
         }
+    }
+
+    private async produceRun(
+        run: Run,
+        functionResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        hooks: {
+            answerDuplicate: () => HogFlowTriggerOutcome
+            addLog: (level: LogEntryLevel, message: string) => void
+            addMetric: (metric: Pick<MinimalAppMetric, 'metric_kind' | 'metric_name' | 'count'>) => void
+        }
+    ): Promise<HogFlowTriggerOutcome> {
+        if (run.claim) {
+            const claim = { runId: run.invocation.id, fingerprint: run.claim.fingerprint }
+            const recalled = await this.runIntake.recallWithin(claim, 'workflow-webhook')
+            if (recalled.status !== 'absent') {
+                return hooks.answerDuplicate()
+            }
+        }
+        const produced = await this.runIntake.produce(run)
+        functionResult.finished = false
+        if (produced !== 'accepted') {
+            const status = INTAKE_FAILURE_STATUS[produced]
+            hooks.addLog('error', `Could not queue the run (${status}): ${produced}`)
+            hooks.addMetric({ metric_kind: 'failure', metric_name: 'trigger_failed', count: 1 })
+            functionResult.execResult = { httpResponse: { status, body: { status: `intake_${produced}` } } }
+            return { result: functionResult, queuedInvocationId: null }
+        }
+        hooks.addMetric({ metric_kind: 'other', metric_name: 'triggered', count: 1 })
+        return { result: functionResult, queuedInvocationId: run.invocation.id }
     }
 
     // The claim made at launch still deduplicates the run, so a failed lookup only costs an earlier answer.
