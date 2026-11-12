@@ -154,12 +154,23 @@ describe('castSyncFrequency', () => {
         expect(schema.parse(input)).toBe(expected)
     })
 
-    it.each([['fortnightly'], ['2h'], ['1min'], ['90min'], ['never'], [''], [60], [null]] as const)(
-        'rejects %s so the enum check still reports the valid values',
-        (input) => {
-            expect(() => schema.parse(input)).toThrow()
-        }
-    )
+    it.each([
+        ['fortnightly'],
+        ['2h'],
+        ['1min'],
+        ['90min'],
+        ['never'],
+        [''],
+        [60],
+        [null],
+        ['-5min'],
+        ['+5min'],
+        ['1-2h'],
+        ['5-15min'],
+        ['9'.repeat(5000) + 'min'],
+    ] as const)('rejects %s so the enum check still reports the valid values', (input) => {
+        expect(() => schema.parse(input)).toThrow()
+    })
 })
 
 describe('readParamAliases', () => {

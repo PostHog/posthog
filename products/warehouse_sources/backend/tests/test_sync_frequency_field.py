@@ -84,6 +84,12 @@ class TestSyncFrequencyField(SimpleTestCase):
             ("every",),
             ("",),
             ("hour hour",),
+            ("-5min",),
+            ("+5min",),
+            ("1-2h",),
+            ("5-15min",),
+            ("9" * 5000 + "min",),
+            ("9" * 7 + "min",),
         ]
     )
     def test_unknown_value_lists_the_valid_values(self, value):

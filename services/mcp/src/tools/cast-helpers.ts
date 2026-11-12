@@ -106,14 +106,14 @@ export const castSyncFrequency = (v: unknown): unknown => {
     if (typeof v !== 'string') {
         return v
     }
-    const key = v.replace(/[\s_-]+/g, '').toLowerCase()
+    const key = v.trim().toLowerCase()
     if (Object.values(SYNC_FREQUENCY_BY_MINUTES).includes(key)) {
         return key
     }
     if (key in SYNC_FREQUENCY_WORDS) {
         return SYNC_FREQUENCY_WORDS[key]
     }
-    const match = /^(?:every)?(\d+)([a-z]+)$/.exec(key)
+    const match = /^(?:every[\s_-]*)?(\d{1,6})[\s_-]*([a-z]+)$/.exec(key)
     const unitMinutes = match ? MINUTES_PER_UNIT[match[2]!] : undefined
     if (match && unitMinutes !== undefined) {
         return SYNC_FREQUENCY_BY_MINUTES[Number(match[1]) * unitMinutes] ?? v

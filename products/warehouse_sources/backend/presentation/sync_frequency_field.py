@@ -55,8 +55,7 @@ _MINUTES_PER_UNIT = {
     "month": 30 * 24 * 60,
     "months": 30 * 24 * 60,
 }
-_DURATION_PATTERN = re.compile(r"^(?:every)?(\d+)([a-z]+)$")
-_SEPARATORS = re.compile(r"[\s_\-]+")
+_DURATION_PATTERN = re.compile(r"^(?:every[\s_-]*)?(\d{1,6})[\s_-]*([a-z]+)$")
 
 SYNC_FREQUENCY_HELP_TEXT = (
     "How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is "
@@ -76,7 +75,7 @@ _INVALID_CHOICE_ERROR = (
 
 def normalize_sync_frequency(value: str) -> str:
     """The canonical frequency for a common spelling, or the input unchanged when none matches."""
-    key = _SEPARATORS.sub("", value).lower()
+    key = value.strip().lower()
     if key in _MINUTES_BY_FREQUENCY:
         return key
     if key in _WORD_SYNONYMS:
@@ -97,7 +96,7 @@ class SyncFrequencyField(serializers.ChoiceField):
 
     def to_internal_value(self, data: Any) -> str:
         if isinstance(data, str):
-            if _SEPARATORS.sub("", data).lower() == "never":
+            if data.strip().lower() == "never":
                 raise ValidationError(NEVER_SYNC_FREQUENCY_ERROR)
             data = normalize_sync_frequency(data)
         return super().to_internal_value(data)
