@@ -28,7 +28,7 @@ Both regions post to that webhook. `WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL` and `WEE
 When either one is unset, the send activity sends no digest, logs which setting is missing, counts the run in `weekly_digest_workflows_send_failed` with the reason `not_configured`, and fails without a retry.
 A dry run sends nothing, so it runs without them.
 The secret goes in the `Authorization` header, so only the digest send can start the workflow.
-Each post carries an `Idempotency-Key` made from the digest key and the user id, so a retried post starts no second run.
+Each post carries an `Idempotency-Key` made from the digest key, the organization UUID and the user UUID, so a retried post starts no second run. The webhook drops any repeat of a key, so a member of two organizations needs a key per organization to get both digests.
 An organization stays unsent when a post fails after its retries, so the next attempt resends it.
 All send batches share one token bucket in the digest Redis that keeps posts to about 3,000 a minute, and the send waits when that Redis can't answer.
 The webhook refuses a body above 512,000 bytes, and a project can create thousands of events in a week. The Workflows payload carries the first six new event definitions and their total in `new_event_definitions_count`, which is what the email shows.

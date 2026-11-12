@@ -774,7 +774,6 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
     ):
         run_sync(send_weekly_digest_batch, _send_input(organization, digest, common_input, dry_run=dry_run))
 
-    # The Customer.io destination listens for this event, so capturing it would send a second email.
     assert "transactional email" not in [call.kwargs.get("event") for call in capture.call_args_list]
     assert session.post.call_count == expect_post
     record = MessagingRecord.objects.get(campaign_key=digest.key)
@@ -788,9 +787,8 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
     assert post.kwargs["headers"] == {
         "Authorization": "Bearer test-webhook-secret",
         "Content-Type": "application/json",
-        "Idempotency-Key": f"{digest.key}:{subscribed.uuid}",
+        "Idempotency-Key": f"{digest.key}:{organization.id}:{subscribed.uuid}",
     }
-    # The digest holds UUIDs and datetimes, so the body must be encoded before it reaches requests.
     body = json.loads(post.kwargs["data"])
     assert body["event"] == "weekly digest ready"
     assert body["distinct_id"] == (subscribed.distinct_id or subscribed.email)
@@ -893,7 +891,6 @@ def test_send_weekly_digest_batch_stops_sending_once_the_activity_is_cancelled(
         )
 
     assert session.post.call_count == 1
-    # The next attempt resends the organization, and the Idempotency-Key stops a second email to the member it reached.
     assert MessagingRecord.objects.get(campaign_key=digest.key).sent_at is None
 
 

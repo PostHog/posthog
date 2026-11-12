@@ -1097,8 +1097,7 @@ def _record_workflows_send_failure(reason: str) -> None:
 
 
 def _require_workflows_webhook(logger: FilteringBoundLogger) -> None:
-    # The webhook is the only way the digest goes out. A retry cannot fix a missing setting, so the run fails
-    # at once and names it.
+    # A retry cannot fix a missing setting, so the run fails at once.
     missing = [name for name in WORKFLOWS_WEBHOOK_SETTINGS if not getattr(settings, name)]
     if not missing:
         return
@@ -1154,8 +1153,7 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
     workflows_session = requests.Session()
 
     def record_sent(records: list[tuple[str, MessagingRecord]]) -> None:
-        # A cancellation can reach this from an organization's `finally` after only some of its members got a
-        # post. The next attempt resends every organization in the batch, and the Idempotency-Key stops repeats.
+        # A cancellation can land here from an organization's `finally` after only some of its members got a post.
         _raise_if_cancelled()
         # An organization with a failed post keeps sent_at empty, so the next attempt resends it.
         delivered = [record for organization_id, record in records if organization_id not in failed_organization_ids]
@@ -1266,8 +1264,11 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                     continue
                                 _wait_for_workflows_post(r, input.digest.key)
                                 partial = True
-                                # Both regions post to one workflow and user ids repeat across regions, so the key uses the UUID.
-                                _post_to_workflows(workflows_session, encoded_body, f"{input.digest.key}:{user.uuid}")
+                                # The webhook drops any repeat of a key on the workflow, and a member of two organizations
+                                # gets a digest for each. Both regions post to one workflow, so the key uses UUIDs, not ids.
+                                _post_to_workflows(
+                                    workflows_session, encoded_body, f"{input.digest.key}:{organization.id}:{user.uuid}"
+                                )
                             except WorkflowsWebhookError:
                                 failed_organization_ids.add(str(organization.id))
                                 raise
