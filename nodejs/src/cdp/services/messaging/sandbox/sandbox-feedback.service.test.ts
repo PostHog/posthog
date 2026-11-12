@@ -522,6 +522,16 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             })
         })
 
+        it('counts a soft bounce once when SNS retries its notice', async () => {
+            const body = notification(sesRecord(team.id, transientBounce()))
+
+            await post(body)
+            const res = await post(body)
+
+            expect(res.status).toBe(200)
+            expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, transient_bounce_count: 1 }])
+        })
+
         it.each([
             { label: 'a delivery', eventTimeTeams: () => '', deliveredSecondsAfterNow: 1 },
             {
