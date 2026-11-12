@@ -572,10 +572,11 @@ tools:
             primary_key_columns). Do not call 'external-data-sources-check-cdc-prerequisites-create' first: it needs the
             database connection details and cannot read the stored ones. This tool checks the prerequisites itself and
             lists any that fail. It starts no table sync by itself. It creates the replication slot (and the publication
-            in posthog mode), stores the CDC settings, and creates the extraction and cleanup schedules. Use cdc_management_mode='posthog' (default) when the database user can manage replication, or
-            'self_managed' when the customer created the publication already and passes its name in
-            cdc_publication_name. Fails with a 400 when the source type has no CDC support, the prerequisites are not
-            met (the errors are listed), or the source is unreachable, and with a 409 if CDC is already on (use
+            in posthog mode), stores the CDC settings, and creates the extraction and cleanup schedules. Use
+            cdc_management_mode='posthog' (default) when the database user can manage replication, or 'self_managed'
+            when the customer created the publication already and passes its name in cdc_publication_name. Fails with a
+            400 when the source type has no CDC support, the prerequisites are not met (the errors are listed), or the
+            source is unreachable, and with a 409 if CDC is already on (use
             'external-data-sources-update-cdc-settings-create' to tune it). Returns {success, schedules_ready};
             schedules_ready=false means CDC is on but scheduling failed, and it recovers when the first table is
             switched to cdc. Management mode and slot or publication names cannot be changed later: disable and enable
