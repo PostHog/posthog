@@ -10,6 +10,34 @@
 import * as zod from 'zod'
 
 /**
+ * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
+ * @summary Prepare attachment uploads
+ */
+export const messagingAttachmentsUploadsCreateBodyFilesItemSha256RegExp = new RegExp('^[0-9a-f]{64}$')
+
+export const messagingAttachmentsUploadsCreateBodyFilesMax = 10
+
+export const MessagingAttachmentsUploadsCreateBody = /* @__PURE__ */ zod.object({
+    files: zod
+        .array(
+            zod.object({
+                sha256: zod
+                    .string()
+                    .regex(messagingAttachmentsUploadsCreateBodyFilesItemSha256RegExp)
+                    .describe(
+                        "SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it."
+                    ),
+                size: zod.number().min(1).describe('Size of the file in bytes.'),
+            })
+        )
+        .min(1)
+        .max(messagingAttachmentsUploadsCreateBodyFilesMax)
+        .describe(
+            'The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.'
+        ),
+})
+
+/**
  * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `messaging_preference:write` scope, which cannot send email. A key with `hog_flow:write` also works, but that scope can send transactional email too.
  * @summary Set a recipient's topic preferences
  */
@@ -40,7 +68,7 @@ export const MessagingPreferencesCreateBody = /* @__PURE__ */ zod.object({
  * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
-export const messagingSendEmailCreateBodyTemplateKeyMax = 400
+export const messagingSendEmailCreateBodyTemplateKeyMax = 256
 
 export const messagingSendEmailCreateBodyTemplateKeyRegExp = new RegExp('^[a-zA-Z0-9_-]+$')
 export const messagingSendEmailCreateBodyDistinctIdMax = 400
@@ -51,6 +79,7 @@ export const messagingSendEmailCreateBodyCcTwoMax = 10
 
 export const messagingSendEmailCreateBodyBccTwoMax = 10
 
+export const messagingSendEmailCreateBodyAttachmentsItemSha256RegExp = new RegExp('^[0-9a-f]{64}$')
 export const messagingSendEmailCreateBodyAttachmentsItemFilenameMax = 255
 
 export const messagingSendEmailCreateBodyAttachmentsItemContentTypeMax = 78
@@ -81,7 +110,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
         .optional()
         .describe(
-            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
+            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only, at most 256 characters. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
         ),
     distinct_id: zod
         .string()
@@ -118,13 +147,18 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
     attachments: zod
         .array(
             zod.object({
+                sha256: zod
+                    .string()
+                    .regex(messagingSendEmailCreateBodyAttachmentsItemSha256RegExp)
+                    .describe(
+                        'SHA-256 of a file uploaded through `POST \/api\/projects\/{project_id}\/messaging\/attachments\/uploads\/`, as 64 lowercase hex characters.'
+                    ),
                 filename: zod
                     .string()
                     .max(messagingSendEmailCreateBodyAttachmentsItemFilenameMax)
                     .describe(
                         'File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.'
                     ),
-                content: zod.string().describe("The file's bytes as standard base64, without line breaks."),
                 content_type: zod
                     .string()
                     .max(messagingSendEmailCreateBodyAttachmentsItemContentTypeMax)
@@ -144,13 +178,45 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingSendEmailCreateBodyAttachmentsMax)
         .nullish()
         .describe(
-            "Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
+            "Files attached to the email your code rendered: up to 10, each uploaded first through `POST \/api\/projects\/{project_id}\/messaging\/attachments\/uploads\/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
         ),
     capture_engagement: zod
         .boolean()
         .optional()
         .describe(
-            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.'
+            "Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says."
+        ),
+    tracking: zod
+        .union([
+            zod.boolean(),
+            zod.object({
+                opens: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether PostHog adds its open pixel to the email. Defaults to true.'),
+                clicks: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether the email's links go through a redirect that counts clicks. Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with `data-ph-no-track` keeps its own address."
+                    ),
+                engagement: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true."
+                    ),
+            }),
+        ])
+        .optional()
+        .describe(
+            "What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body."
+        ),
+    sensitive: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive."
         ),
     from: zod
         .string()
@@ -1503,4 +1569,42 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe('Who the email is for, used to attribute engagement events.'),
+})
+
+/**
+ * Change the description, the tags or the linked source file. The content always comes from your code, so it can't change here.
+ * @summary Update an email sent from code
+ */
+export const transactionalCodeEmailsPartialUpdateBodyDescriptionMax = 1000
+
+export const transactionalCodeEmailsPartialUpdateBodyTagsItemMax = 255
+
+export const transactionalCodeEmailsPartialUpdateBodyTagsMax = 10
+
+export const transactionalCodeEmailsPartialUpdateBodySourceUrlOneMax = 2048
+
+export const transactionalCodeEmailsPartialUpdateBodySourceUrlTwoMax = 0
+
+export const TransactionalCodeEmailsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    description: zod
+        .string()
+        .max(transactionalCodeEmailsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('What the email is for.'),
+    tags: zod
+        .array(zod.string().max(transactionalCodeEmailsPartialUpdateBodyTagsItemMax))
+        .max(transactionalCodeEmailsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags for organizing transactional emails. Replaces the current tags. Send an empty list to remove them all.'
+        ),
+    source_url: zod
+        .union([
+            zod.url().max(transactionalCodeEmailsPartialUpdateBodySourceUrlOneMax).nullable(),
+            zod.string().max(transactionalCodeEmailsPartialUpdateBodySourceUrlTwoMax),
+        ])
+        .optional()
+        .describe(
+            'A link to the file in your repository that sends this email, such as a GitHub or GitLab file link. Must start with http:\/\/ or https:\/\/. Send null or an empty string to unlink it.'
+        ),
 })

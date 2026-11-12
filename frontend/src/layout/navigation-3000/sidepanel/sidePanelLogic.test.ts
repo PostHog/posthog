@@ -8,6 +8,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { todayContextPanelLogic } from '~/layout/today/todayContextPanelLogic'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
@@ -63,11 +64,17 @@ describe('sidePanelLogic', () => {
     })
 
     it('only offers the Discussion tab on scenes that have an activity scope', async () => {
+        const todayPanel = todayContextPanelLogic()
+        todayPanel.mount()
+
         await navigate(urls.eventDefinitions())
         expect(logic.values.enabledTabs).not.toContain(SidePanelTab.Discussion)
+        expect(todayPanel.values.panelTabs).not.toContain(SidePanelTab.Discussion)
 
         await navigate(urls.eventDefinition('1'))
         expect(logic.values.enabledTabs).toContain(SidePanelTab.Discussion)
+        // The Today top bar shows Discussion as its first button.
+        expect(todayPanel.values.panelTabs[0]).toBe(SidePanelTab.Discussion)
     })
 
     it('closes a context-bound tab when navigating to a different scene', async () => {

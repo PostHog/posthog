@@ -7,7 +7,10 @@ import { setTimeout as sleep } from 'timers/promises'
 import { processState, signal, terminate } from './processes'
 import { Role, RoleSpec } from './roles'
 
+const EXIT_REPORTED_WITHIN_MS = 2000
 const STATE_POLL_MS = 20
+
+const isRunning = (child: ChildProcess): boolean => child.exitCode === null && child.signalCode === null
 
 export type RoleExit = {
     role: Role
@@ -101,7 +104,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
                 at: new Date().toISOString(),
                 code,
                 signal,
-                byValve: killedByValve.has(child),
+                byValve: killedByValve.has(child) && signal === 'SIGKILL',
             })
             relaunchLater(spec)
         })
@@ -118,23 +121,32 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             stopping = true
             restarts.forEach(clearTimeout)
             restarts.clear()
-            const running = [...children.values()]
+            const running = [...children.entries()]
             children.clear()
-            const exited = running
-                .filter((child) => child.exitCode === null && child.signalCode === null)
-                .map((child) => once(child, 'exit'))
+            const exited = running.filter(([, child]) => isRunning(child)).map(([, child]) => once(child, 'exit'))
             await terminate(
-                { groups: running.flatMap((child) => (child.pid ? [child.pid] : [])), pids: [] },
+                { groups: running.flatMap(([, child]) => (child.pid ? [child.pid] : [])), pids: [] },
                 options.graceMs
             )
-            await Promise.all(exited)
+            await Promise.race([Promise.all(exited), sleep(EXIT_REPORTED_WITHIN_MS, undefined, { ref: false })])
+            const survivors = running.filter(([, child]) => isRunning(child))
+            if (survivors.length > 0) {
+                throw new Error(
+                    `${survivors.map(([role, child]) => `${role} (pid ${child.pid})`).join(', ')} did not exit after SIGKILL; a process stuck in uninterruptible I/O can outlive it. Check them with \`ps -o pid,stat,cmd -p ${survivors.map(([, child]) => child.pid).join(',')}\` and wait for them to exit, then run the scenario again.`
+                )
+            }
         },
 
         async kill(role, withinMs) {
             const child = runningChild(role)
             killedByValve.add(child)
-            const exited = once(child, 'exit').then(() => true)
-            process.kill(-child.pid, 'SIGKILL')
+            const exited = once(child, 'exit').then(([, signal]) => signal === 'SIGKILL')
+            try {
+                process.kill(-child.pid, 'SIGKILL')
+            } catch (error) {
+                killedByValve.delete(child)
+                throw error
+            }
             const gaveUp = new AbortController()
             const outcome = await Promise.race([
                 exited,

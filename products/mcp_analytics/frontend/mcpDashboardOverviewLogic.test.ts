@@ -25,6 +25,7 @@ import {
     buildDailyActivity,
     buildKPIs,
     rankToolsByErrorRate,
+    rankToolsByP95,
     buildToolDailySeries,
     type DashboardLayout,
     deltaPct,
@@ -356,21 +357,37 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('rankToolsByErrorRate', () => {
-        const tool = (name: string, total_calls: number, error_rate_pct: number): ToolRow => ({
+    describe('ranking tools', () => {
+        const tool = (name: string, total_calls: number, error_rate_pct: number, p95_duration_ms = 0): ToolRow => ({
             tool: name,
             total_calls,
             errors: Math.round((total_calls * error_rate_pct) / 100),
             error_rate_pct,
-            p95_duration_ms: 0,
+            p95_duration_ms,
         })
 
         it.each([
             ['skips a tool with too few calls to rank', [tool('one-call', 1, 100), tool('busy', 500, 4)], ['busy']],
             ['ranks qualifying tools by error rate', [tool('a', 20, 5), tool('b', 40, 10)], ['b', 'a']],
             ['returns nothing when no tool qualifies', [tool('a', 19, 50)], []],
-        ])('%s', (_name, rows, expected) => {
+        ])('by error rate %s', (_name, rows, expected) => {
             expect(rankToolsByErrorRate(rows).map((r) => r.tool)).toEqual(expected)
+        })
+
+        it.each([
+            [
+                'skips a tool with too few calls to rank',
+                [tool('one-call', 1, 0, 90_000), tool('busy', 500, 0, 800)],
+                ['busy'],
+            ],
+            ['ranks qualifying tools by p95', [tool('a', 20, 0, 300), tool('b', 40, 0, 2500)], ['b', 'a']],
+            [
+                'skips a tool whose calls carry no duration',
+                [tool('untimed', 500, 0, 0), tool('timed', 30, 0, 50)],
+                ['timed'],
+            ],
+        ])('by p95 %s', (_name, rows, expected) => {
+            expect(rankToolsByP95(rows).map((r) => r.tool)).toEqual(expected)
         })
     })
 

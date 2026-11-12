@@ -18,7 +18,10 @@ export const manifest: ProductManifest = {
             href: urls.marketingAnalyticsApp(),
             searchKeywords: ['ad spend', 'roas', 'utm', 'attribution', 'paid ads'],
             iconType: 'marketing_analytics' as FileSystemIconType,
-            iconColor: ['var(--color-product-marketing-analytics-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-marketing-analytics-light)',
+                'var(--color-product-marketing-analytics-dark)',
+            ] as FileSystemIconColor,
             tags: ['beta'],
             flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
             sceneKey: 'MarketingAnalytics',

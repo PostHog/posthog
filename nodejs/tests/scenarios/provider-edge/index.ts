@@ -26,14 +26,14 @@ export type { CardFault, FaultRule } from './faults'
 export { SesThrottleParams } from './faults'
 export type { SesAttachment, SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
-export type { TruthAttachment, TruthMessage, TruthPage, TruthRecord } from './truth'
+export type { TruthAttachment, TruthHead, TruthMessage, TruthPage, TruthRecord } from './truth'
 
 export const WEBHOOK_HOST = 'hooks.example.com'
 
 const FAULT_OBSERVED_WITHIN_MS = 10_000
 const FAULT_POLL_MS = 100
 
-export type FaultHold = { observed(released?: AbortSignal): Promise<boolean>; release(): Promise<void> }
+export type FaultHold = { observed(holdEnds?: AbortSignal): Promise<boolean>; release(): Promise<void> }
 
 export type ProviderEdgeOptions = {
     port: number
@@ -110,7 +110,13 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         }
         if (fault?.answer.kind === 'status') {
             const { answer } = fault.answer
-            truth.append({ kind: 'ses.send', status: answer.status, fault: fault.name, ...correlation, detail: {} })
+            truth.append({
+                kind: 'ses.send',
+                status: answer.status,
+                fault: fault.name,
+                ...correlation,
+                detail: { errorType: answer.type },
+            })
             return sesError(answer)
         }
         const messageId = `provider-edge-${truth.records.length + 1}`
@@ -177,6 +183,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         switch (`${req.method} ${faultId === undefined ? url.pathname : '/_faults/:id'}`) {
             case `POST ${SEND_EMAIL_PATH}`:
                 return sendEmail(body)
+            case 'GET /_truth/head':
+                return { status: 200, body: truth.head() }
             case 'GET /_health':
                 return { status: 200, body: { ok: true } }
             case 'GET /_truth':
@@ -292,11 +300,11 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         hold: (rule) => {
             const id = faults.add(rule)
             return {
-                observed: async (released) => {
+                observed: async (holdEnds) => {
                     const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
                     const answeredInWindow = (): boolean => (faults.firstAppliedAt(id) ?? Infinity) <= deadline
-                    while (Date.now() <= deadline && !released?.aborted && !answeredInWindow()) {
-                        await sleep(FAULT_POLL_MS, undefined, { signal: released }).catch(() => undefined)
+                    while (Date.now() <= deadline && !holdEnds?.aborted && !answeredInWindow()) {
+                        await sleep(FAULT_POLL_MS, undefined, { signal: holdEnds }).catch(() => undefined)
                     }
                     return answeredInWindow()
                 },
