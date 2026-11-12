@@ -76,7 +76,7 @@ from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
-from products.product_analytics.backend.models.insight import InsightViewed
+from products.product_analytics.backend.models.insight import InsightAgentRead, InsightViewed
 from products.product_analytics.backend.presentation.insight import (
     InsightSerializer,
     InsightViewSet,
@@ -1797,6 +1797,31 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"tile_type": "insight", "insight_type": "stickiness", "dashboard_id": dashboard_id},
             team=ANY,
             request=ANY,
+        )
+
+    @parameterized.expand(
+        [
+            ("an agent", {"X-PostHog-Client": "mcp"}, False, 1),
+            ("an agent by short id", {"X-PostHog-Client": "mcp"}, True, 1),
+            ("the web app", {}, False, 0),
+            ("the desktop app", {"User-Agent": "posthog/desktop.hog.dev/1.0"}, False, 0),
+        ]
+    )
+    def test_agent_reads_are_recorded_for_the_reader(
+        self, _name: str, headers: dict[str, str], by_short_id: bool, recorded: int
+    ) -> None:
+        insight_id, insight_json = self.dashboard_api.create_insight({})
+        path = (
+            f"/api/projects/{self.team.id}/insights/?short_id={insight_json['short_id']}"
+            if by_short_id
+            else f"/api/projects/{self.team.id}/insights/{insight_id}"
+        )
+
+        self.client.get(path, headers=headers)
+
+        self.assertEqual(
+            InsightAgentRead.objects.for_team(self.team.id).filter(user=self.user, insight_id=insight_id).count(),
+            recorded,
         )
 
     @patch("products.product_analytics.backend.presentation.insight.report_user_action")

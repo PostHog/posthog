@@ -282,7 +282,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     '/mcp-analytics/missing-capabilities': ['MCPAnalytics', 'mcpAnalyticsMissingCapabilities'],
     '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
-    '/mcp-registry': ['MCPRegistry', 'mcpRegistry'],
     '/mcp-servers/server/:id': ['McpGatewayServer', 'mcpGatewayServer'],
     '/mcp-servers/agent/:id': ['McpGatewayAgent', 'mcpGatewayAgent'],
     '/mcp-servers/member/:id': ['McpGatewayMember', 'mcpGatewayMember'],
@@ -299,6 +298,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
     '/pulse': ['Pulse', 'pulse'],
+    '/releases': ['ReleaseCalendar', 'releases'],
+    '/releases/list': ['Releases', 'releaseList'],
+    '/releases/:id': ['Release', 'release'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
     '/replay-vision/:id/goal': ['ReplayVisionScannerEditor', 'replayVisionScannerGoal'],
@@ -372,6 +374,7 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/etl': ['PipelineOverview', 'pipelineOverview'],
     '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
+    '/web/content-autopilot/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
     '/heatmaps': ['Heatmaps', 'heatmaps'],
     '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
     '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
@@ -402,10 +405,12 @@ export const productRoutes: Record<string, [string, string]> = {
     '/transactional/suppression': ['Transactional', 'transactional'],
     '/transactional/reputation': ['Transactional', 'transactional'],
     '/transactional/settings': ['Transactional', 'transactional'],
+    '/transactional/webhooks': ['Transactional', 'transactional'],
     '/transactional/new': ['Transactional', 'transactional'],
     '/transactional/log': ['Transactional', 'transactional'],
     '/transactional/metrics': ['Transactional', 'transactional'],
     '/transactional/log/:id': ['TransactionalEmailLogEntry', 'transactionalEmailLogEntry'],
+    '/transactional/code-emails/:id': ['TransactionalCodeEmail', 'transactionalCodeEmail'],
     '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
@@ -1109,11 +1114,6 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'mcp_analytics',
     },
-    MCPRegistry: {
-        name: 'MCP registry',
-        projectBased: true,
-        description: 'Find an MCP server for a task, ranked by whether it answers and how well it works.',
-    },
     McpGateway: {
         projectBased: true,
         name: 'MCP servers',
@@ -1174,6 +1174,13 @@ export const productConfiguration: Record<string, any> = {
             'Your always-on product manager: spots growth opportunities and shows how to move the numbers that matter.',
         iconType: 'activity',
     },
+    ReleaseCalendar: {
+        name: 'Release calendar',
+        projectBased: true,
+        description: 'One row for each release, with its flags, experiments and early access.',
+    },
+    Releases: { name: 'Releases', projectBased: true },
+    Release: { name: 'Release', projectBased: true },
     ReplayVision: {
         name: 'Replay vision',
         projectBased: true,
@@ -1374,6 +1381,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Send emails from your code with one API call',
     },
     TransactionalEmailLogEntry: { name: 'Transactional', iconType: 'transactional', projectBased: true },
+    TransactionalCodeEmail: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     WorkflowsEmailDomain: { name: 'Workflows', iconType: 'workflows', projectBased: true },
 }
 
@@ -1837,7 +1845,6 @@ export const productUrls = {
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
     mcpAnalyticsMissingCapabilities: (): string => '/mcp-analytics/missing-capabilities',
     mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
-    mcpRegistry: (): string => '/mcp-registry',
     mcpGateway: (): string => '/mcp-servers',
     mcpGatewayTab: (tab: string): string => `/mcp-servers/${tab}`,
     mcpGatewayServer: (id: string, scope?: string): string =>
@@ -1932,6 +1939,9 @@ export const productUrls = {
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
     pulse: (): string => '/pulse',
+    releases: (): string => '/releases',
+    releaseList: (): string => '/releases/list',
+    release: (id: string): string => `/releases/${id}`,
     replay: (
         tab?: ReplayTabs,
         filters?: Partial<RecordingUniversalFilters>,
@@ -2059,6 +2069,7 @@ export const productUrls = {
     webAnalyticsLive: (): string => `/web/live`,
     webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
     webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
+    webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/content-autopilot/prompts/${id}`,
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmapNew: (params?: string): string =>
@@ -2078,12 +2089,13 @@ export const productUrls = {
     broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
-    transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
+    transactional: (tab?: MessagingNavTabKey | 'webhooks'): string => `/transactional${tab ? `/${tab}` : ''}`,
     transactionalNew: (): string => '/transactional/new',
     transactionalLog: (): string => '/transactional/log',
     transactionalMetrics: (): string => '/transactional/metrics',
     transactionalEmailLogEntry: (messageId: string): string => `/transactional/log/${messageId}`,
     transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
+    transactionalCodeEmail: (id: string): string => `/transactional/code-emails/${id}`,
     broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
 }
 
@@ -2119,7 +2131,7 @@ export const fileSystemTypes = {
         name: 'Dashboard',
         iconType: 'dashboard' as FileSystemIconType,
         href: (ref: string) => urls.dashboard(ref),
-        iconColor: ['var(--color-product-dashboards-light)'],
+        iconColor: ['var(--color-product-dashboards-light)', 'var(--color-product-dashboards-dark)'],
         filterKey: 'dashboard',
     },
     early_access_feature: {
@@ -2146,7 +2158,7 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.experiment(ref),
         listHref: () => urls.experiments(),
         listSearchParam: 'search',
-        iconColor: ['var(--color-product-experiments-light)'],
+        iconColor: ['var(--color-product-experiments-light)', 'var(--color-product-experiments-dark)'],
         filterKey: 'experiment',
     },
     feature_flag: {
@@ -2155,7 +2167,7 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.featureFlag(ref),
         listHref: () => urls.featureFlags(),
         listSearchParam: 'search',
-        iconColor: ['var(--color-product-feature-flags-light)'],
+        iconColor: ['var(--color-product-feature-flags-light)', 'var(--color-product-feature-flags-dark)'],
         filterKey: 'feature_flag',
     },
     insight: {
@@ -2164,7 +2176,7 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.insightView(ref as InsightShortId),
         listHref: () => urls.savedInsights(),
         listSearchParam: 'search',
-        iconColor: ['var(--color-product-product-analytics-light)'],
+        iconColor: ['var(--color-product-product-analytics-light)', 'var(--color-product-product-analytics-dark)'],
         filterKey: 'insight',
     },
     'insight/bi': {
@@ -2203,7 +2215,7 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.survey(ref),
         listHref: () => urls.surveys(),
         listSearchParam: 'search',
-        iconColor: ['var(--color-product-surveys-light)'],
+        iconColor: ['var(--color-product-surveys-light)', 'var(--color-product-surveys-dark)'],
         filterKey: 'survey',
     },
     task: {
@@ -2217,7 +2229,10 @@ export const fileSystemTypes = {
     workflows: {
         name: 'Workflow',
         iconType: 'workflows',
-        iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-workflows-light)',
+            'var(--color-product-workflows-dark)',
+        ] as FileSystemIconColor,
         href: (ref: string) => urls.workflow(ref, 'workflow'),
         listHref: () => urls.workflows(),
         filterKey: 'workflows',
@@ -2258,7 +2273,10 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         type: 'dashboard',
         href: urls.dashboards() + '#newDashboard=modal',
         iconType: 'dashboard' as FileSystemIconType,
-        iconColor: ['var(--color-product-dashboards-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-dashboards-light)',
+            'var(--color-product-dashboards-dark)',
+        ] as FileSystemIconColor,
         sceneKey: 'Dashboard',
         sceneKeys: ['Dashboards', 'Dashboard'],
     },
@@ -2305,7 +2323,10 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         type: 'experiment',
         href: urls.experiment('new'),
         iconType: 'experiment',
-        iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-experiments-light)',
+            'var(--color-product-experiments-dark)',
+        ] as FileSystemIconColor,
         sceneKeys: ['Experiments', 'Experiment'],
     },
     {
@@ -2313,7 +2334,10 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         type: 'feature_flag',
         href: urls.featureFlag('new'),
         iconType: 'feature_flag',
-        iconColor: ['var(--color-product-feature-flags-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-feature-flags-light)',
+            'var(--color-product-feature-flags-dark)',
+        ] as FileSystemIconColor,
     },
     {
         path: `Insight/Funnel`,
@@ -2409,7 +2433,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         type: 'survey',
         href: urls.surveyWizard('new'),
         iconType: 'survey',
-        iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-surveys-light)', 'var(--color-product-surveys-dark)'] as FileSystemIconColor,
     },
     {
         path: 'Worksheet',
@@ -2534,6 +2558,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Broadcast',
             'Transactional',
             'TransactionalEmailLogEntry',
+            'TransactionalCodeEmail',
             'WorkflowsEmailDomain',
         ],
     },
@@ -2670,7 +2695,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.ANALYTICS,
         type: 'dashboard',
         iconType: 'dashboard',
-        iconColor: ['var(--color-product-dashboards-light)'],
+        iconColor: ['var(--color-product-dashboards-light)', 'var(--color-product-dashboards-dark)'],
         href: urls.dashboards(),
         searchKeywords: ['boards'],
         searchTabs: [
@@ -2693,6 +2718,41 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.dataCatalog(),
         searchKeywords: ['semantic layer', 'metrics', 'data dictionary', 'glossary', 'governance'],
         searchTabs: [
+            {
+                name: 'Tables & views',
+                href: urls.dataCatalog('tables'),
+                requiredFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+                searchKeywords: [
+                    'models',
+                    'materialized views',
+                    'materialization',
+                    'data modeling',
+                    'sql views',
+                    'saved queries',
+                ],
+            },
+            {
+                name: 'Lineage',
+                href: urls.dataCatalog('lineage'),
+                requiredFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+                searchKeywords: ['dag', 'dependencies'],
+            },
+            {
+                name: 'Data quality',
+                href: urls.dataCatalog('data-quality'),
+                requiredFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+                searchKeywords: ['data tests', 'checks', 'freshness'],
+            },
+            {
+                name: 'Usage',
+                href: urls.dataCatalog('usage'),
+                requiredFlags: [
+                    FEATURE_FLAGS.TODAY_RAIL_NAV,
+                    FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+                    FEATURE_FLAGS.DATA_MODELING_USAGE,
+                ],
+                searchKeywords: ['bytes read', 'cpu'],
+            },
             { name: 'Relationships', href: urls.dataCatalog('relationships') },
             { name: 'Certifications', href: urls.dataCatalog('certifications') },
         ],
@@ -2710,7 +2770,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
         alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
         iconType: 'data_warehouse',
-        iconColor: ['var(--color-product-data-warehouse-light)'],
+        iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
         sceneKey: 'DataOps',
         sceneKeys: [
             'DataOps',
@@ -2733,7 +2793,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.DATA_WAREHOUSE],
         category: ProductItemCategory.TOOLS,
         iconType: 'data_pipeline',
-        iconColor: ['var(--color-product-data-warehouse-light)'],
+        iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
         href: urls.etlOverview(),
         searchKeywords: ['etl', 'syncs', 'sync health'],
         flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
@@ -2875,7 +2935,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Holdout groups', href: urls.experiments(ExperimentsTabs.Holdouts) },
         ],
         iconType: 'experiment',
-        iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-experiments-light)',
+            'var(--color-product-experiments-dark)',
+        ] as FileSystemIconColor,
         sceneKey: 'Experiments',
         sceneKeys: ['Experiments', 'Experiment'],
     },
@@ -2954,7 +3017,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         visualOrder: 1,
         type: 'llm_analytics',
         iconType: 'llm_analytics' as FileSystemIconType,
-        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-llm-analytics-light)',
+            'var(--color-product-llm-analytics-dark)',
+        ] as FileSystemIconColor,
         href: urls.aiObservabilityDashboard(),
         searchKeywords: ['llm analytics', 'llm observability', 'llm costs', 'token usage'],
         searchTabs: [
@@ -3064,7 +3130,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.marketingAnalyticsApp(),
         searchKeywords: ['ad spend', 'roas', 'utm', 'attribution', 'paid ads'],
         iconType: 'marketing_analytics' as FileSystemIconType,
-        iconColor: ['var(--color-product-marketing-analytics-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-marketing-analytics-light)',
+            'var(--color-product-marketing-analytics-dark)',
+        ] as FileSystemIconColor,
         tags: ['beta'],
         flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
         sceneKey: 'MarketingAnalytics',
@@ -3167,7 +3236,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Notifications', href: urls.savedInsights(SavedInsightsTabs.Notifications) },
         ],
         iconType: 'product_analytics',
-        iconColor: ['var(--color-product-product-analytics-light)'],
+        iconColor: ['var(--color-product-product-analytics-light)', 'var(--color-product-product-analytics-dark)'],
         sceneKey: 'SavedInsights',
         sceneKeys: ['SavedInsights', 'Insight'],
     },
@@ -3259,7 +3328,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.DATA,
         type: 'sql',
         iconType: 'sql_editor',
-        iconColor: ['var(--color-product-data-warehouse-light)'],
+        iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
         href: urls.sqlEditor(),
         searchKeywords: ['sql', 'hogql', 'hogsql', 'query editor'],
         sceneKey: 'SQLEditor',
@@ -3318,7 +3387,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchKeywords: ['feedback', 'nps', 'csat', 'polls'],
         searchTabs: [{ name: 'Notifications', href: urls.surveys('notifications') }],
         iconType: 'survey',
-        iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-surveys-light)', 'var(--color-product-surveys-dark)'] as FileSystemIconColor,
         sceneKey: 'Surveys',
         sceneKeys: ['Survey', 'Surveys'],
     },
@@ -3415,6 +3484,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Broadcast',
             'Transactional',
             'TransactionalEmailLogEntry',
+            'TransactionalCodeEmail',
             'WorkflowsEmailDomain',
         ],
     },
@@ -3459,7 +3529,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.WEB_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
         iconType: 'web_analytics',
-        iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-web-analytics-light)',
+            'var(--color-product-web-analytics-dark)',
+        ] as FileSystemIconColor,
         href: urls.webAnalytics(),
         searchKeywords: ['traffic', 'pageviews', 'visitors', 'bounce rate', 'referrers'],
         searchTabs: [
@@ -3527,7 +3600,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'workflows',
         category: ProductItemCategory.MESSAGING,
         iconType: 'workflows',
-        iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-workflows-light)',
+            'var(--color-product-workflows-dark)',
+        ] as FileSystemIconColor,
         sceneKey: 'Workflows',
         sceneKeys: [
             'Workflows',
@@ -3537,6 +3613,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Broadcast',
             'Transactional',
             'TransactionalEmailLogEntry',
+            'TransactionalCodeEmail',
             'WorkflowsEmailDomain',
         ],
     },
@@ -3681,6 +3758,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         ],
         sceneKey: 'Models',
         sceneKeys: ['Models'],
+        hiddenWhenFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
     },
     {
         path: 'Property definitions',

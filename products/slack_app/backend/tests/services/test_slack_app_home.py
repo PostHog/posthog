@@ -13,10 +13,12 @@ import sys
 import json
 import importlib
 from dataclasses import dataclass
+from datetime import UTC, datetime, time
 from types import ModuleType
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import ValidationError
@@ -36,6 +38,7 @@ from products.slack_app.backend.logic.interview_recruitment import (
 )
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
+    SlackDailyFocus,
     SlackSettings,
     SlackThreadTaskMapping,
     SlackUserProfileCache,
@@ -49,6 +52,8 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_RESET_PROJECT_PERSONAL,
     ACTION_SET_AUTO_MODEL_CHOICE,
     ACTION_SET_CHANNEL_WELCOME_MODE,
+    ACTION_SET_DAILY_FOCUS,
+    ACTION_SET_DAILY_FOCUS_TIME,
     ACTION_SET_FEATURE_TIPS,
     ACTION_SET_PROJECT_WORKSPACE,
     ACTION_SET_THREAD_JOIN_MODE,
@@ -69,6 +74,7 @@ from products.slack_app.backend.services.slack_app_home import (
     MODAL_BLOCK_REASONING_EFFORT,
     MODAL_BLOCK_RUNTIME_ADAPTER,
     AccountState,
+    DailyFocusHomeState,
     GitHubAccount,
     GitHubState,
     OwnPlanState,
@@ -496,6 +502,7 @@ class TestRenderHomeView:
             own_plan=OwnPlanState(connected=True, settings_url="https://app.example.com/settings"),
             thread_join_mode=ThreadJoinMode.ASK_PER_THREAD,
             feature_tips_enabled=auto_model_choice,
+            daily_focus=DailyFocusHomeState(enabled=auto_model_choice, at=time(9, 0), zone="Europe/Prague"),
             interview_invite=invite_section(INVITE_MESSAGE, book_button(1, "home")),
         )
 
@@ -706,6 +713,101 @@ class TestFeatureTipsToggle:
 
         assert (get_state(SLACK_WORKSPACE_ID, "U001").opted_out_at is None) is checked
         assert mock_slack_client.views_publish.called
+
+
+class TestDailyFocusControls:
+    @pytest.mark.parametrize(
+        "scopes, action, stored, expected_next_run",
+        [
+            (
+                "search:read.public",
+                {"selected_options": [{"value": "on"}]},
+                True,
+                datetime(2026, 11, 10, 8, 0, tzinfo=UTC),
+            ),
+            # Off keeps the row, so a later onboarding does not turn it back on.
+            ("search:read.public", {"selected_options": []}, True, None),
+            # The link cannot search, so a stale view must not turn on a run that cannot work.
+            ("users:read", {"selected_options": [{"value": "on"}]}, False, None),
+        ],
+    )
+    def test_the_checkbox_turns_the_daily_work_focus_on_and_off(
+        self,
+        slack_integration,
+        mock_slack_client,
+        flag_on,
+        link_user,
+        scopes,
+        action,
+        stored,
+        expected_next_run,
+    ):
+        self._link(slack_integration, link_user, scopes)
+        action = {"action_id": ACTION_SET_DAILY_FOCUS, **action}
+
+        with time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False):
+            self._click(action)
+
+        row = (
+            SlackDailyFocus.objects.unscoped()
+            .filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
+            .first()
+        )
+        assert (row is not None) is stored
+        assert (row.next_run_at if row else None) == expected_next_run
+
+    @pytest.mark.parametrize(
+        "last_run_at, expected_next_run",
+        [
+            # Still today, because the click at 13:00 in Prague comes before 14:30.
+            (datetime(2026, 11, 6, 8, 0, tzinfo=UTC), datetime(2026, 11, 9, 13, 30, tzinfo=UTC)),
+            # Today's 09:00 run already went out, so the new time starts tomorrow, not with a second DM today.
+            (datetime(2026, 11, 9, 8, 0, tzinfo=UTC), datetime(2026, 11, 10, 13, 30, tzinfo=UTC)),
+        ],
+    )
+    def test_a_new_time_moves_the_next_run(
+        self, slack_integration, mock_slack_client, flag_on, link_user, last_run_at, expected_next_run
+    ):
+        self._link(slack_integration, link_user, "search:read.public")
+        SlackDailyFocus.objects.for_team(slack_integration.team_id).create(
+            team_id=slack_integration.team_id,
+            slack_workspace_id=SLACK_WORKSPACE_ID,
+            slack_user_id="U001",
+            integration_id=slack_integration.id,
+            next_run_at=datetime(2026, 11, 10, 8, 0, tzinfo=UTC),
+            last_run_at=last_run_at,
+        )
+
+        with time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False):
+            self._click({"action_id": ACTION_SET_DAILY_FOCUS_TIME, "selected_time": "14:30"})
+
+        row = SlackDailyFocus.objects.unscoped().get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
+        assert row.at == time(14, 30)
+        assert row.next_run_at == expected_next_run
+
+    def _link(self, slack_integration, link_user, scopes: str) -> None:
+        user = User.objects.create_and_join(slack_integration.team.organization, "daily@example.com", None)
+        link_user(user, slack_user_id="U001", slack_team_id=SLACK_WORKSPACE_ID, user_scopes=scopes)
+        # Fresh at the pinned noon below, so the click reads the timezone without calling Slack.
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration,
+            slack_user_id="U001",
+            tz="Europe/Prague",
+            refreshed_at=datetime(2026, 11, 9, 11, 30, tzinfo=UTC),
+        )
+
+    def _click(self, action: dict) -> None:
+        payload = {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [action],
+        }
+        with (
+            patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False),
+            patch("products.slack_app.backend.logic.daily_focus.capture_slack_event"),
+        ):
+            handle_ai_preferences_block_action(payload, action)
 
 
 class TestChannelWelcomePicker:

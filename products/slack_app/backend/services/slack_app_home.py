@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Any, Literal
 
 from django.conf import settings
@@ -36,6 +36,15 @@ from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled, is_slack_app_oauth_enabled
+from products.slack_app.backend.logic.daily_focus import (
+    cached_zone,
+    can_run_daily_focus,
+    parse_clock,
+    resolve_daily_focus,
+    set_daily_focus_time,
+    turn_off_daily_focus,
+    turn_on_daily_focus,
+)
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import get_state, record_feature_used, set_tips_enabled
 from products.slack_app.backend.logic.interview_recruitment import INVITE_MESSAGE, book_button, invite_section
@@ -117,6 +126,8 @@ ACTION_SET_UNTAGGED_QUESTION_MODE = "slack_app_home:set_untagged_question_mode"
 ACTION_SET_CHANNEL_WELCOME_MODE = "slack_app_home:set_channel_welcome_mode"
 ACTION_SET_AUTO_MODEL_CHOICE = "slack_app_home:set_auto_model_choice"
 ACTION_SET_FEATURE_TIPS = "slack_app_home:set_feature_tips"
+ACTION_SET_DAILY_FOCUS = "slack_app_home:set_daily_focus"
+ACTION_SET_DAILY_FOCUS_TIME = "slack_app_home:set_daily_focus_time"
 # URL buttons: Slack opens the link itself and posts a block_actions payload we
 # only ack — the ids exist so the clicks still reach the usage-analytics capture.
 ACTION_GITHUB_SETTINGS = "slack_app_home:github_settings"
@@ -147,6 +158,8 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_SET_CHANNEL_WELCOME_MODE,
         ACTION_SET_AUTO_MODEL_CHOICE,
         ACTION_SET_FEATURE_TIPS,
+        ACTION_SET_DAILY_FOCUS,
+        ACTION_SET_DAILY_FOCUS_TIME,
         ACTION_GITHUB_SETTINGS,
         ACTION_CONNECT_ACCOUNT,
     }
@@ -472,6 +485,7 @@ def render_home_view(
     own_plan: OwnPlanState | None = None,
     thread_join_mode: ThreadJoinMode | None = None,
     feature_tips_enabled: bool | None = None,
+    daily_focus: DailyFocusHomeState | None = None,
     has_project_access: bool = True,
     account_settings_url: str | None = None,
     interview_invite: dict | None = None,
@@ -504,6 +518,9 @@ def render_home_view(
         reply_blocks.extend(_feature_tips_section_blocks(feature_tips_enabled))
     if reply_blocks:
         blocks.extend([{"type": "divider"}, _home_heading("Reply settings", "messages-square"), *reply_blocks])
+
+    if daily_focus is not None:
+        blocks.extend([{"type": "divider"}, *_daily_focus_section_blocks(daily_focus)])
 
     accounts = _linked_accounts_section_blocks(account_state, github_state, own_plan)
     if accounts:
@@ -959,6 +976,7 @@ def _personal_section_blocks(run_defaults: RunDefaultsState) -> list[dict]:
 
 AUTO_MODEL_CHOICE_VALUE = "on"
 FEATURE_TIPS_VALUE = "on"
+DAILY_FOCUS_VALUE = "on"
 
 
 def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
@@ -990,6 +1008,37 @@ def _feature_tips_section_blocks(enabled: bool) -> list[dict]:
     if enabled:
         checkbox["initial_options"] = [option]
     return [{"type": "actions", "elements": [checkbox]}]
+
+
+def _daily_focus_section_blocks(state: DailyFocusHomeState) -> list[dict]:
+    option = {
+        "text": {"type": "mrkdwn", "text": "*Send me a daily work focus*"},
+        "description": {"type": "mrkdwn", "text": "Every workday at the time you pick."},
+        "value": DAILY_FOCUS_VALUE,
+    }
+    checkbox: dict[str, Any] = {"type": "checkboxes", "action_id": ACTION_SET_DAILY_FOCUS, "options": [option]}
+    if state.enabled:
+        checkbox["initial_options"] = [option]
+    timepicker = {
+        "type": "timepicker",
+        "action_id": ACTION_SET_DAILY_FOCUS_TIME,
+        "initial_time": state.at.strftime("%H:%M"),
+        "placeholder": {"type": "plain_text", "text": "Pick a time"},
+    }
+    where = f"your Slack timezone ({state.zone})" if state.zone else "your Slack timezone"
+    return [
+        _home_heading("Daily work focus", "calendar-clock"),
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "I read your Slack messages since the last workday and DM you where I can help. "
+                "On a quiet day you get no DM.",
+            },
+        },
+        {"type": "actions", "elements": [checkbox, timepicker]},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Times are in {where}."}]},
+    ]
 
 
 def _own_plan_blocks(state: OwnPlanState) -> list[dict]:
@@ -1762,6 +1811,22 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         republish()
         return HttpResponse(status=200)
 
+    if action_id == ACTION_SET_DAILY_FOCUS:
+        if can_run_daily_focus(integration, slack_user_id):
+            if any(option.get("value") == DAILY_FOCUS_VALUE for option in action.get("selected_options") or []):
+                turn_on_daily_focus(integration, slack_user_id, source="home")
+            else:
+                turn_off_daily_focus(integration, slack_user_id, source="home")
+        republish()
+        return HttpResponse(status=200)
+
+    if action_id == ACTION_SET_DAILY_FOCUS_TIME:
+        picked = parse_clock(action.get("selected_time"))
+        if picked is not None and can_run_daily_focus(integration, slack_user_id):
+            set_daily_focus_time(integration, slack_user_id, picked)
+        republish()
+        return HttpResponse(status=200)
+
     if action_id == ACTION_SET_CHANNEL_WELCOME_MODE:
         slack = SlackIntegration(integration)
         if not _is_admin(slack, integration, slack_user_id):
@@ -2228,6 +2293,7 @@ def _build_home_view(
         own_plan=own_plan,
         thread_join_mode=(resolve_thread_join_mode(integration, slack_user_id) if home_user is not None else None),
         feature_tips_enabled=get_state(integration.integration_id, slack_user_id).opted_out_at is None,
+        daily_focus=_resolve_daily_focus_state(integration, slack_user_id) if home_user is not None else None,
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
@@ -2542,6 +2608,24 @@ def _resolve_account_state(integration: WorkspaceIntegration, slack_user_id: str
         )
         link_url = None
     return AccountState(enabled=True, linked_email=None, link_url=link_url)
+
+
+@dataclass(frozen=True)
+class DailyFocusHomeState:
+    enabled: bool
+    at: time
+    # Empty until the person's Slack profile is cached with a timezone.
+    zone: str
+
+
+def _resolve_daily_focus_state(integration: WorkspaceIntegration, slack_user_id: str) -> DailyFocusHomeState | None:
+    """None when the daily work focus cannot run for the person. Reads the cached timezone, so the Home render makes
+    no Slack call."""
+    if not can_run_daily_focus(integration, slack_user_id):
+        return None
+    daily = resolve_daily_focus(integration.integration_id, slack_user_id)
+    zone = cached_zone(integration.id, slack_user_id)
+    return DailyFocusHomeState(enabled=bool(daily.enabled), at=daily.at, zone=zone.key if zone else "")
 
 
 def _resolve_home_user(integration: WorkspaceIntegration, slack_user_id: str) -> User | None:

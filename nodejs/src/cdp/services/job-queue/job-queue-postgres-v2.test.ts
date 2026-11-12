@@ -36,6 +36,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
+            ENCRYPTION_SALT_KEYS: '',
         }
         const queue = new CyclotronJobQueuePostgresV2(500, config)
 
@@ -77,6 +78,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             reschedule: jest.fn().mockResolvedValue(undefined),
             cancel: jest.fn().mockResolvedValue(undefined),
             heartbeat: jest.fn().mockResolvedValue(undefined),
+            defer: jest.fn().mockResolvedValue(undefined),
             ...overrides,
         }
     }
@@ -210,6 +212,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             const config: any = {
                 CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
                 CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
+                ENCRYPTION_SALT_KEYS: '',
             }
             const queue = new CyclotronJobQueuePostgresV2(500, config)
 

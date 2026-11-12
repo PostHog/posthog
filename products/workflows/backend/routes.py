@@ -14,6 +14,7 @@ from products.workflows.backend.presentation.views import (
     push_token_imports,
     workflow_classifications,
     workflow_data_suggestions,
+    workflow_email_sandbox,
     workflow_imports,
     workflow_message_opt_outs,
     workflow_scout_runs,
@@ -55,6 +56,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_sending_rules",
         workflow_sending_rules.WorkflowSendingRulesViewSet,
         "project_workflow_sending_rules",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_email_sandbox",
+        workflow_email_sandbox.WorkflowEmailSandboxViewSet,
+        "project_workflow_email_sandbox",
         ["team_id"],
     )
     routers.projects.register(

@@ -8,6 +8,7 @@ import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import {
     ErrorCode,
     findPostHogPermissionError,
+    findTransportError,
     hasTimeoutCause,
     MissingOrganizationContextError,
     MissingProjectContextError,
@@ -396,6 +397,7 @@ export class StateManager {
                 tag: 'mcp',
                 team: 'posthog_ai',
                 context,
+                transport_failure: findTransportError(error)?.failure,
                 ...extra,
                 suppress_analytics: apiKey?.suppress_analytics === true,
             })

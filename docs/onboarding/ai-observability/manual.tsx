@@ -52,7 +52,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'Node.js' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="npm install posthog-node" />
+                                                <CodeBlock language="bash" code="npm install posthog-node@5" />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
@@ -99,7 +99,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'Python' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="pip install posthog" />
+                                                <CodeBlock language="bash" code='pip install "posthog<8"' />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
@@ -236,7 +236,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                 <Markdown>### 1. Install</Markdown>
                                                 <CodeBlock
                                                     language="bash"
-                                                    code="composer require posthog/posthog-php"
+                                                    code='composer require "posthog/posthog-php:^4.0"'
                                                 />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>

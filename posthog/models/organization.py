@@ -967,12 +967,9 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
 def clean_up_alert_subscriptions_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
-    from products.alerts.backend.models.alert import AlertSubscription
+    from products.alerts.backend.facade.api import remove_member_subscriptions
 
-    deleted_count, _ = AlertSubscription.objects.filter(
-        user=instance.user,
-        alert_configuration__team__organization_id=instance.organization_id,
-    ).delete()
+    deleted_count = remove_member_subscriptions(user_id=instance.user_id, organization_id=instance.organization_id)
 
     if deleted_count > 0:
         logger.info(
