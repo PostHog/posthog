@@ -893,9 +893,8 @@ export class RerunPaginatorService {
             // with "No recipient identifier found". Dropping it makes the
             // action re-enter fresh, so inputs re-render against the current
             // config, which is what a rerun intends anyway.
-            // The cohort lookup and render timeout counters are dropped too. A run that aborted after
-            // its last attempt would otherwise restart with no retries left, and the leftover
-            // cohortLookupFailed flag would turn an unrelated error on that step into an abort.
+            // Drop the cohort lookup and render timeout state too, so the rerun gets fresh retries and a
+            // stale cohortLookupFailed flag can't turn an unrelated error on that step into an abort.
             const {
                 hogFunctionState: _stripped,
                 awaitingResume: _awaitingResume,

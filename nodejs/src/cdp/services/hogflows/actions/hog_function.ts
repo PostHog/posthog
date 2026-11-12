@@ -110,8 +110,7 @@ const readWarnings = (resumeResult: unknown): string[] => {
 // Unlabelled: how often a step degrades fleet-wide. Which flow and field goes to the warn log.
 export const RENDER_TIMEOUT_RETRY_DELAYS_SECONDS = [10, 60, 300]
 
-// 'retried' re-runs the step after a backoff, 'failed' means every attempt ran out of time and the
-// step failed. Only 'failed' loses the message.
+// Only 'failed' loses the message.
 export const counterHogflowRenderTimeout = new Counter({
     name: 'cdp_hogflow_render_timeout_total',
     help: 'Workflow steps whose inputs ran out of render time, by outcome.',
@@ -676,8 +675,7 @@ export class HogFunctionHandler implements ActionHandler {
     }
 }
 
-// Nothing has been sent or counted against a cap before the inputs render, so re-running the step
-// is safe. Once the attempts run out the error is rethrown and the step fails as before.
+// Re-running is safe: nothing is sent or counted against a cap before the inputs render.
 function retryOrFailRenderTimeout(
     invocation: CyclotronJobInvocationHogFlow,
     action: Action,

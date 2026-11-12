@@ -587,8 +587,7 @@ for (const reason of [...LIQUID_LIMIT_REASONS.map(([, reason]) => reason), 'data
 const liquidFailureReason = (message: string, kind: HogVMErrorKind): string =>
     LIQUID_LIMIT_REASONS.find(([text]) => message.includes(text))?.[1] ?? kind
 
-// The time limit is the one budget a stalled worker can trip on a template that renders fine on
-// another attempt. The other limits fail the same way every time.
+// Only the time limit can pass on another attempt. The other limits fail the same way every time.
 export const isLiquidRenderTimeout = (error: unknown): boolean =>
     error instanceof Error && isHogLimitError(error) && liquidFailureReason(error.message, 'limit') === 'time'
 
