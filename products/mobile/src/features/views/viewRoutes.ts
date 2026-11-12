@@ -1,9 +1,19 @@
 import type { QueryKey } from '@tanstack/react-query'
 import type { Href } from 'expo-router'
 
-import type { PinDisplayMode, ViewEntry, ViewRef } from '@/model/views'
+import type { PinDisplayMode, ViewEntry, ViewRef, WebBreakdown, WebTileId } from '@/model/views'
 
-const ENTRIES: readonly ViewEntry[] = ['pinned', 'recent', 'browse', 'search', 'deep_link', 'dashboard', 'widget']
+// The entries a route can carry. `tab` never travels in a route: the tab screen names itself.
+const ENTRIES: readonly ViewEntry[] = [
+    'pinned',
+    'recent',
+    'browse',
+    'search',
+    'deep_link',
+    'dashboard',
+    'widget',
+    'web_analytics',
+]
 const MODES: readonly PinDisplayMode[] = ['row', 'number', 'chart']
 
 /** How a view was opened. Sent with `mobile_view_opened`, so it travels in the route. */
@@ -43,6 +53,21 @@ export function insightHref(shortId: string, params: InsightRouteParams = {}): H
 
 export function webAnalyticsHref(open: ViewOpenParams = {}): Href {
     return { pathname: '/views/web-analytics', params: openParams(open) }
+}
+
+export function liveHref(open: ViewOpenParams = {}): Href {
+    return { pathname: '/views/live', params: openParams(open) }
+}
+
+export function webAnalyticsListHref(tile: WebTileId, breakdown: WebBreakdown): Href {
+    return { pathname: '/views/web-analytics/list', params: { tile, breakdown } }
+}
+
+const WEB_TILE_IDS: readonly WebTileId[] = ['pages', 'sources', 'devices', 'locations']
+
+export function webTileParam(value: string | string[] | undefined): WebTileId {
+    const first = Array.isArray(value) ? value[0] : value
+    return WEB_TILE_IDS.find((tile) => tile === first) ?? 'pages'
 }
 
 /** The route of a native view, from a pin, Recent, Browse or search row. Null for kinds that open on the web. */

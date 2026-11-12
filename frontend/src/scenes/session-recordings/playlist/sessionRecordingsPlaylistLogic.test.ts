@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -196,6 +197,44 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 .toDispatchActions(['loadSessionRecordingsSuccess', 'setSelectedRecordingId'])
                 .toMatchValues({ selectedRecordingId: bRecording.id, watchNextRequested: false })
             expect(router.values.searchParams).not.toHaveProperty('watchNext')
+        })
+    })
+
+    describe('loading older pages of only live recordings', () => {
+        const page = (index: number, ongoing: boolean, hasNext: boolean): Record<string, unknown> => ({
+            has_next: hasNext,
+            next_cursor: `cursor-${index}`,
+            results: [{ ...aRecording, id: `recording-${index}`, ongoing }],
+        })
+
+        it.each([
+            { name: 'stops at the cap', watchLayout: true, lastPage: null, requests: 5 },
+            { name: 'stops when there is no next page', watchLayout: true, lastPage: 2, requests: 3 },
+            { name: 'does not continue outside the watch layout', watchLayout: false, lastPage: null, requests: 2 },
+        ])('$name', async ({ watchLayout, lastPage, requests }) => {
+            let served = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings': () => {
+                        const index = served++
+                        return [200, page(index, index > 0, index !== lastPage)]
+                    },
+                },
+            })
+            clearMemoizedListResponses()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_WATCH_LAYOUT]: 'compact' })
+            logic = sessionRecordingsPlaylistLogic({ logicKey: `live-pages-${requests}`, watchLayout })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+            logic.actions.maybeLoadSessionRecordings('older')
+            await expectLogic(logic).toDispatchActions(
+                Array.from({ length: requests - 1 }, () => 'loadSessionRecordingsSuccess')
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(served).toBe(requests)
         })
     })
 
@@ -819,6 +858,19 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 .toMatchValues({
                     filters: { ...getDefaultFilters(), filter_group: filterGroup },
                 })
+        })
+
+        it("leaves another scene's array of filters in the URL alone", async () => {
+            const webAnalyticsFilters = [
+                { type: 'session', key: '$channel_type', value: 'AI', operator: PropertyOperator.Exact },
+            ]
+
+            await expectLogic(logic, () => {
+                router.actions.push('/web', { filters: webAnalyticsFilters })
+            })
+                .toNotHaveDispatchedActions(['setFilters'])
+                .toMatchValues({ filters: getDefaultFilters() })
+            expect(router.values.searchParams.filters).toEqual(webAnalyticsFilters)
         })
 
         describe('session_ids filter', () => {
@@ -1499,6 +1551,46 @@ describe('sessionRecordingsPlaylistLogic', () => {
             initKeaTests()
             featureFlagLogic.mount()
         }
+
+        it.each([
+            { accountValue: true, storageFails: false, expected: true, expectedDefault: true },
+            { accountValue: 'false', storageFails: false, expected: false, expectedDefault: false },
+            { accountValue: true, storageFails: true, expected: true, expectedDefault: false },
+        ])(
+            'opens with filter_test_accounts $expected when the account value is $accountValue and storage fails: $storageFails',
+            async ({ accountValue, storageFails, expected, expectedDefault }) => {
+                persistFilters(props, { ...DEFAULT_RECORDING_FILTERS, date_from: '-7d', filter_test_accounts: false })
+                if (storageFails) {
+                    const setItem = Storage.prototype.setItem
+                    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+                        this: Storage,
+                        storageKey: string,
+                        value: string
+                    ) {
+                        if (storageKey.endsWith('__replay_filter_test_accounts')) {
+                            throw new DOMException('Storage is full', 'QuotaExceededError')
+                        }
+                        setItem.call(this, storageKey, value)
+                    })
+                }
+                userLogic.mount()
+                userLogic.actions.loadUserSuccess({
+                    ...MOCK_DEFAULT_USER,
+                    ui_configuration: {
+                        version: 1,
+                        session_replay: { filter_test_accounts: accountValue as boolean },
+                    },
+                })
+
+                logic = sessionRecordingsPlaylistLogic(props)
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.filters).toMatchObject({ date_from: '-7d', filter_test_accounts: expected })
+                expect(getDefaultFilters().filter_test_accounts).toBe(expectedDefault)
+                expect(localStorage.getItem('default_filter_test_accounts')).toBeNull()
+            }
+        )
 
         it('resets a malformed persisted filters value to defaults on mount', async () => {
             persistFilters(props, { filter_group: 'not-a-group', duration: 'nope' })

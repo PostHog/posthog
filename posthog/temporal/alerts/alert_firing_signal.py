@@ -3,12 +3,15 @@
 The investigation agent emits its own `analytics` / `anomaly_investigation` signal after the verdict.
 This path covers the alerts it never investigates, for teams whose product analytics source has the
 `all_firing_alerts` scope. It emits one signal per firing episode, from the check that starts it.
+Both stacks use it: the insight stack for the alerts it owns, and the alerts platform for the rest.
 """
 
 from __future__ import annotations
 
 import enum
 import asyncio
+from collections.abc import Callable
+from datetime import datetime
 
 import structlog
 import posthoganalytics
@@ -26,6 +29,7 @@ from posthog.token_bucket import BucketUnavailable, Budget, consume, refund
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.facade.signal_extras import AnalyticsAlertFiringSignalExtra
 from products.signals.backend.facade.source_configs import (
@@ -91,6 +95,11 @@ def _source_id(alert_id: str, alert_check_id: str) -> str:
     return f"{alert_id}:{alert_check_id}"
 
 
+def signals_every_firing(team_id: int) -> bool:
+    """Whether the team's analytics source turns firings the agent never investigates into signals."""
+    return get_analytics_alert_scope(team_id=team_id) == _ALL_FIRING_ALERTS
+
+
 def alert_firing_skip_reason(
     alert: AlertConfiguration, *, previous_state: str, new_state: str
 ) -> AlertFiringSkipReason | None:
@@ -101,6 +110,37 @@ def alert_firing_skip_reason(
         # The agent's verdict decides for these alerts, in both scopes.
         return AlertFiringSkipReason.INVESTIGATED
     return None
+
+
+@frozen
+class FiringAlert:
+    """What the gates and the payload read about an alert: an insight stack row, or a platform alert
+    with no row behind it."""
+
+    team: Team
+    id: str
+    name: str
+    insight: Insight
+    detector_config: dict | None = None
+
+    @classmethod
+    def of(cls, alert: AlertConfiguration) -> FiringAlert:
+        return cls(
+            team=alert.team,
+            id=str(alert.id),
+            name=alert.name,
+            insight=alert.insight,
+            detector_config=alert.detector_config,
+        )
+
+
+@frozen
+class FiringStart:
+    """The check that started a firing episode: an insight stack check, or a platform evaluation."""
+
+    check_id: str
+    started_at: datetime
+    triggered_dates: tuple[str, ...] = ()
 
 
 @frozen
@@ -122,16 +162,69 @@ def prepare_alert_firing_signal(
     Call it from a thread, after the check is committed and outside the alert row lock.
     It charges the cap, and `dispatch_alert_firing_signal` refunds the charge when nothing is sent.
     """
+    triggered_dates = alert_check.triggered_dates if isinstance(alert_check.triggered_dates, list) else []
+    firing = FiringStart(
+        check_id=str(alert_check.id),
+        started_at=alert_check.created_at,
+        triggered_dates=tuple(str(date) for date in triggered_dates),
+    )
+    return _prepare_logged(
+        FiringAlert.of(alert),
+        firing,
+        breaches=breaches or [],
+        skip_reason=alert_firing_skip_reason(alert, previous_state=previous_state, new_state=alert_check.state),
+        resumes_interrupted_episode=lambda: (
+            previous_state == AlertState.ERRORED and _resumes_interrupted_episode(alert, alert_check)
+        ),
+    )
+
+
+def prepare_platform_firing_signal(
+    alert: FiringAlert,
+    firing: FiringStart,
+    *,
+    breaches: list[str],
+    investigated: bool,
+    resumes_interrupted_episode: Callable[[], bool] = lambda: False,
+) -> AlertFiringSignal | None:
+    """The same as `prepare_alert_firing_signal`, for a firing the alerts platform recorded.
+
+    `resumes_interrupted_episode` runs after the cheap gates, as the insight stack's read does.
+    Never raises.
+    A retried emission skips a firing that an earlier attempt already sent or dropped, so it spends
+    no second token of the cap.
+    """
+    if _outcome_settled(_source_id(str(alert.id), firing.check_id)):
+        return None
+    return _prepare_logged(
+        alert,
+        firing,
+        breaches=breaches,
+        skip_reason=AlertFiringSkipReason.INVESTIGATED if investigated else None,
+        resumes_interrupted_episode=resumes_interrupted_episode,
+    )
+
+
+def _prepare_logged(
+    alert: FiringAlert,
+    firing: FiringStart,
+    *,
+    breaches: list[str],
+    skip_reason: AlertFiringSkipReason | None,
+    resumes_interrupted_episode: Callable[[], bool],
+) -> AlertFiringSignal | None:
+    signal = None
     try:
-        skip_reason, signal = _prepare(alert, alert_check, previous_state=previous_state, breaches=breaches or [])
+        if skip_reason is None:
+            skip_reason, signal = _prepare(
+                alert, firing, breaches=breaches, resumes_interrupted_episode=resumes_interrupted_episode
+            )
     except Exception:
-        logger.exception(
-            "alert_firing.signal_prepare_failed", alert_id=str(alert.id), alert_check_id=str(alert_check.id)
-        )
+        logger.exception("alert_firing.signal_prepare_failed", alert_id=str(alert.id), alert_check_id=firing.check_id)
         return None
     if skip_reason is not None and skip_reason not in _UNLOGGED_SKIP_REASONS:
-        _log_skip(alert.team_id, str(alert.id), str(alert_check.id), skip_reason)
-        _record_outcome(alert.team, str(alert.id), str(alert_check.id), skip_reason)
+        _log_skip(alert.team.id, alert.id, firing.check_id, skip_reason)
+        _record_outcome(alert.team, alert.id, firing.check_id, skip_reason)
     return signal
 
 
@@ -232,6 +325,14 @@ def _claims_outcome(source_id: str) -> bool:
         return True
 
 
+def _outcome_settled(source_id: str) -> bool:
+    """Whether an earlier attempt already recorded this episode's outcome. Without Redis it is not."""
+    try:
+        return bool(get_client().exists(_outcome_key(source_id)))
+    except RedisError:
+        return False
+
+
 def _resumes_interrupted_episode(alert: AlertConfiguration, alert_check: AlertCheck) -> bool:
     """Whether the checks before this one, ignoring errored checks, end in a firing check.
 
@@ -250,22 +351,23 @@ def _resumes_interrupted_episode(alert: AlertConfiguration, alert_check: AlertCh
 
 
 def _prepare(
-    alert: AlertConfiguration, alert_check: AlertCheck, *, previous_state: str, breaches: list[str]
+    alert: FiringAlert,
+    firing: FiringStart,
+    *,
+    breaches: list[str],
+    resumes_interrupted_episode: Callable[[], bool],
 ) -> tuple[AlertFiringSkipReason | None, AlertFiringSignal | None]:
-    skip_reason = alert_firing_skip_reason(alert, previous_state=previous_state, new_state=alert_check.state)
-    if skip_reason is not None:
-        return skip_reason, None
     source = get_source_config(
-        team_id=alert.team_id, source_product=SIGNAL_SOURCE_PRODUCT, source_type=_SOURCE_CONFIG_TYPE
+        team_id=alert.team.id, source_product=SIGNAL_SOURCE_PRODUCT, source_type=_SOURCE_CONFIG_TYPE
     )
     if source is None or not source.enabled:
         return AlertFiringSkipReason.SOURCE_DISABLED, None
-    if get_analytics_alert_scope(team_id=alert.team_id) != _ALL_FIRING_ALERTS:
+    if get_analytics_alert_scope(team_id=alert.team.id) != _ALL_FIRING_ALERTS:
         return AlertFiringSkipReason.SCOPE, None
-    if previous_state == AlertState.ERRORED and _resumes_interrupted_episode(alert, alert_check):
+    if resumes_interrupted_episode():
         return AlertFiringSkipReason.NOT_NEW_EPISODE, None
     filter_outcome = evaluate_alert_filter(
-        get_analytics_alert_name_patterns(team_id=alert.team_id),
+        get_analytics_alert_name_patterns(team_id=alert.team.id),
         alert_name=alert.name,
         insight_name=alert.insight.name or alert.insight.derived_name,
     )
@@ -280,12 +382,12 @@ def _prepare(
     signal = AlertFiringSignal(
         team=team,
         alert_id=str(alert.id),
-        alert_check_id=str(alert_check.id),
+        alert_check_id=firing.check_id,
         description=build_signal_description(alert, breaches),
-        extra=build_signal_extra(alert, alert_check, breaches),
+        extra=build_signal_extra(alert, firing, breaches),
     )
     # Charged last, so a failure above spends no token.
-    decision = consume(cap_key(alert.team_id), CAP_BUDGET)
+    decision = consume(cap_key(alert.team.id), CAP_BUDGET)
     if isinstance(decision, BucketUnavailable):
         # Fails closed: the cap exists to bound spend during the rollout, and the signal is best effort.
         return AlertFiringSkipReason.CAP_UNAVAILABLE, None
@@ -294,32 +396,29 @@ def _prepare(
     return None, signal
 
 
-def _detector_type(alert: AlertConfiguration) -> str:
+def _detector_type(alert: FiringAlert) -> str:
     return (alert.detector_config or {}).get("type") or "threshold"
 
 
-def build_signal_extra(alert: AlertConfiguration, alert_check: AlertCheck, breaches: list[str]) -> dict:
+def build_signal_extra(alert: FiringAlert, firing: FiringStart, breaches: list[str]) -> dict:
     insight = alert.insight
-    triggered_dates = alert_check.triggered_dates
     extra = AnalyticsAlertFiringSignalExtra(
         alert_id=str(alert.id),
         alert_name=alert.name or "Unnamed alert",
         insight_id=str(insight.id),
-        alert_check_id=str(alert_check.id),
+        alert_check_id=firing.check_id,
         detector_type=_detector_type(alert),
         breaches=breaches[:_MAX_BREACHES],
-        episode_started_at=alert_check.created_at.isoformat(),
-        url=absolute_uri(f"/project/{alert.team_id}/insights/{insight.short_id}?alert_id={alert.id}"),
+        episode_started_at=firing.started_at.isoformat(),
+        url=absolute_uri(f"/project/{alert.team.id}/insights/{insight.short_id}?alert_id={alert.id}"),
         insight_name=insight.name or None,
         insight_short_id=insight.short_id or None,
-        triggered_dates=(
-            [str(date) for date in triggered_dates] if isinstance(triggered_dates, list) and triggered_dates else None
-        ),
+        triggered_dates=list(firing.triggered_dates) or None,
     )
     return extra.model_dump(exclude_none=True)
 
 
-def build_signal_description(alert: AlertConfiguration, breaches: list[str]) -> str:
+def build_signal_description(alert: FiringAlert, breaches: list[str]) -> str:
     """Human-readable text embedded for grouping. It names the alert and the insight, then the breaches."""
     insight = alert.insight
     metric = f" on {insight.name}" if insight.name else ""

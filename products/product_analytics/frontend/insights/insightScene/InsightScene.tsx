@@ -3,8 +3,6 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -19,7 +17,6 @@ import { InsightSkeleton } from 'products/product_analytics/frontend/insights/in
 
 export function InsightScene(): JSX.Element {
     const { insightId, insight, insightLoading, insightMode, dashboardId } = useValues(insightSceneLogic)
-    const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
 
     useAttachedContext(
         insight?.short_id && insight?.query
@@ -34,10 +31,6 @@ export function InsightScene(): JSX.Element {
             isDataVisualizationNode(insight?.query) &&
             insightMode === ItemMode.Edit
         ) {
-            if (isBIVisualizationNode(insight.query) && !biEnabled) {
-                router.actions.replace(withBackLink(urls.insightView(insightId)))
-                return
-            }
             const editorUrl = isBIVisualizationNode(insight.query) ? urls.businessIntelligence : urls.sqlEditor
             router.actions.push(
                 editorUrl({
@@ -46,7 +39,7 @@ export function InsightScene(): JSX.Element {
                 })
             )
         }
-    }, [insightId, insight?.query, insightMode, dashboardId, biEnabled])
+    }, [insightId, insight?.query, insightMode, dashboardId])
 
     if (
         insightId === 'new' ||

@@ -13,6 +13,7 @@ import { MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT } from '../feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 import { MCPToolCallRow } from './MCPToolCallRow'
+import { MCPToolCallRowShell } from './MCPToolCallRowShell'
 import { formatDuration, sessionDurationMs, shortenSessionId } from './utils'
 
 function MetaBadge({ icon, label }: { icon: React.ReactNode; label: React.ReactNode }): JSX.Element {
@@ -33,6 +34,54 @@ function IdTooltip({ label, value }: { label: string; value: string }): JSX.Elem
     )
 }
 
+const MAX_TOOL_CALL_SKELETONS = 8
+
+function ToolCallRowSkeletons({ count }: { count: number }): JSX.Element {
+    return (
+        <ol className="flex flex-col gap-2 list-none pl-0" aria-hidden>
+            {Array.from({ length: count }, (_, i) => (
+                <MCPToolCallRowShell key={i}>
+                    <div className="flex h-4 items-center justify-between gap-2">
+                        <LemonSkeleton className="h-3 w-32" />
+                        <LemonSkeleton className="h-3 w-20" />
+                    </div>
+                    <div className="flex h-4 items-center pl-5">
+                        <LemonSkeleton className="h-3 w-3/5" />
+                    </div>
+                </MCPToolCallRowShell>
+            ))}
+        </ol>
+    )
+}
+
+function MCPSessionDetailSkeleton(): JSX.Element {
+    return (
+        <div className="flex flex-col h-full min-h-0" aria-busy>
+            <header className="flex flex-col gap-2 shrink-0 border-b border-primary px-3 pt-3 pb-2">
+                <div className="flex items-center gap-2">
+                    <LemonSkeleton.Circle className="h-9 w-9" />
+                    <div className="flex flex-col flex-1 gap-1">
+                        <LemonSkeleton className="h-4 w-40" />
+                        <LemonSkeleton className="h-3 w-56" />
+                    </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                    {['w-28', 'w-20', 'w-14', 'w-28'].map((width, i) => (
+                        <LemonSkeleton key={i} className={`h-5 rounded-full ${width}`} />
+                    ))}
+                </div>
+            </header>
+            <section className="flex-1 min-h-0 overflow-hidden px-3 py-3">
+                <ToolCallRowSkeletons count={4} />
+            </section>
+            <hr className="shrink-0 border-t border-primary my-0" />
+            <footer className="shrink-0 px-3 py-3">
+                <LemonSkeleton className="h-6 w-48" />
+            </footer>
+        </div>
+    )
+}
+
 export function MCPSessionDetail(): JSX.Element {
     const {
         selectedSession,
@@ -40,10 +89,14 @@ export function MCPSessionDetail(): JSX.Element {
         selectedSessionIntent,
         isSelectedSessionGenerating,
         dateFilter,
+        sessionsLoading,
     } = useValues(mcpSessionsLogic)
     const { generateIntent, loadMoreToolCalls, loadToolCalls } = useActions(mcpSessionsLogic)
 
     if (!selectedSession) {
+        if (sessionsLoading) {
+            return <MCPSessionDetailSkeleton />
+        }
         return (
             <div className="flex h-full items-center justify-center text-sm text-secondary p-6 text-center">
                 Pick a session to step through its tool calls.
@@ -61,84 +114,62 @@ export function MCPSessionDetail(): JSX.Element {
     // The panel's view of the selected session's calls: the list, whether more pages exist, whether
     // the first page is still loading (skeleton), and whether a "Load more" append is in flight.
     const { calls: toolCalls, hasNext, loading, loadingMore, error } = selectedSessionToolCalls
+    const skeletonCount = Math.min(calls || 1, MAX_TOOL_CALL_SKELETONS)
 
     return (
         <div className="flex flex-col h-full min-h-0">
             <header className="flex flex-col gap-2 shrink-0 border-b border-primary px-3 pt-3 pb-2">
                 <div className="flex items-center gap-2 min-w-0">
-                    {loading ? (
-                        <LemonSkeleton.Circle className="h-9 w-9" />
-                    ) : (
-                        <div
-                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-                                identifiedPerson ? 'bg-accent/20 text-accent' : 'bg-surface-secondary text-secondary'
+                    <div
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                            identifiedPerson ? 'bg-accent/20 text-accent' : 'bg-surface-secondary text-secondary'
+                        }`}
+                    >
+                        <IconUser className="text-2xl" />
+                    </div>
+                    <div className="flex flex-col min-w-0 flex-1 gap-1">
+                        <span
+                            className={`truncate font-semibold ${
+                                identifiedPerson ? 'text-default text-sm' : 'font-mono text-xs text-secondary'
                             }`}
                         >
-                            <IconUser className="text-2xl" />
-                        </div>
-                    )}
-                    <div className="flex flex-col min-w-0 flex-1 gap-1">
-                        {loading ? (
-                            <>
-                                <LemonSkeleton className="h-4 w-40" />
-                                <LemonSkeleton className="h-3 w-28" />
-                            </>
-                        ) : (
-                            <>
-                                <span
-                                    className={`truncate font-semibold ${
-                                        identifiedPerson ? 'text-default text-sm' : 'font-mono text-xs text-secondary'
-                                    }`}
-                                >
-                                    {primaryLabel}
-                                </span>
-                                {selectedSession.distinct_id ? (
-                                    <CopyToClipboardInline
-                                        explicitValue={selectedSession.distinct_id}
-                                        description="distinct id"
-                                        iconSize="xsmall"
-                                        tooltipMessage={
-                                            <IdTooltip label="Distinct ID" value={selectedSession.distinct_id} />
-                                        }
-                                        className="truncate font-mono text-[11px] text-secondary"
-                                    >
-                                        {selectedSession.distinct_id}
-                                    </CopyToClipboardInline>
-                                ) : null}
-                            </>
-                        )}
+                            {primaryLabel}
+                        </span>
+                        {selectedSession.distinct_id ? (
+                            <CopyToClipboardInline
+                                explicitValue={selectedSession.distinct_id}
+                                description="distinct id"
+                                iconSize="xsmall"
+                                tooltipMessage={<IdTooltip label="Distinct ID" value={selectedSession.distinct_id} />}
+                                className="truncate font-mono text-[11px] text-secondary"
+                            >
+                                {selectedSession.distinct_id}
+                            </CopyToClipboardInline>
+                        ) : null}
                     </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
-                    {loading ? (
-                        <LemonSkeleton repeat={4} className="h-5 w-20 rounded-full" />
-                    ) : (
-                        <>
-                            {selectedSession.mcp_client_name ? (
-                                <MetaBadge icon={<IconSparkles />} label={selectedSession.mcp_client_name} />
-                            ) : null}
-                            <MetaBadge icon={<IconBolt />} label={`${calls} tool call${calls === 1 ? '' : 's'}`} />
-                            <MetaBadge icon={<IconClock />} label={formatDuration(durationMs)} />
-                            <CopyToClipboardInline
-                                explicitValue={selectedSession.session_id}
-                                description="session id"
-                                iconSize="xsmall"
-                                tooltipMessage={<IdTooltip label="Session ID" value={selectedSession.session_id} />}
-                                className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono"
-                            >
-                                {shortenSessionId(selectedSession.session_id)}
-                            </CopyToClipboardInline>
-                        </>
-                    )}
+                    {selectedSession.mcp_client_name ? (
+                        <MetaBadge icon={<IconSparkles />} label={selectedSession.mcp_client_name} />
+                    ) : null}
+                    <MetaBadge icon={<IconBolt />} label={`${calls} tool call${calls === 1 ? '' : 's'}`} />
+                    <MetaBadge icon={<IconClock />} label={formatDuration(durationMs)} />
+                    <CopyToClipboardInline
+                        explicitValue={selectedSession.session_id}
+                        description="session id"
+                        iconSize="xsmall"
+                        tooltipMessage={<IdTooltip label="Session ID" value={selectedSession.session_id} />}
+                        className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono"
+                    >
+                        {shortenSessionId(selectedSession.session_id)}
+                    </CopyToClipboardInline>
                 </div>
             </header>
 
             <section className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
                 {loading ? (
-                    <div className="flex flex-col gap-2">
-                        <LemonSkeleton repeat={3} className="h-16 w-full" />
-                    </div>
+                    <ToolCallRowSkeletons count={skeletonCount} />
                 ) : error ? (
                     <div className="flex flex-col items-start gap-2 text-sm text-secondary">
                         Could not load this session's tool calls.
@@ -166,7 +197,7 @@ export function MCPSessionDetail(): JSX.Element {
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => loadMoreToolCalls()}
+                                    onClick={() => loadMoreToolCalls(selectedSession.session_id)}
                                     disabled={loadingMore}
                                     data-attr="mcp-session-load-more-tool-calls"
                                 >
@@ -182,9 +213,7 @@ export function MCPSessionDetail(): JSX.Element {
             <hr className="shrink-0 border-t border-primary my-0" />
 
             <footer className="shrink-0 bg-gradient-to-br from-accent/15 via-accent/5 to-surface-primary px-3 py-3">
-                {loading ? (
-                    <LemonSkeleton className="h-7 w-48" />
-                ) : selectedSessionIntent ? (
+                {selectedSessionIntent ? (
                     <>
                         <div className="flex items-center gap-2 mb-1.5">
                             <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent">

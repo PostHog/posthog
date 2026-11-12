@@ -499,6 +499,12 @@ class AnthropicAdapter:
         except anthropic.APIConnectionError:
             return (LLMProviderKey.State.ERROR, "Could not connect to Anthropic")
         except Exception as e:
+            # An empty credit balance comes back as a plain request error, which would read as a glitch to retry.
+            if _is_quota_or_billing_error(e):
+                return (
+                    LLMProviderKey.State.ERROR,
+                    "The Anthropic account is out of credits. Add credits, then validate again.",
+                )
             logger.exception(f"Anthropic key validation error: {e}")
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 

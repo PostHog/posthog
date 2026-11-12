@@ -469,6 +469,12 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
         return Some(PropertyValueType::String);
     }
 
+    if key == "$feature_flag_variant_key" {
+        // The key of the variant that a feature flag rule assigned. A key can be spelled like a
+        // boolean or a date ("true", "2026-01-01"), and experiment analysis matches it as a string.
+        return Some(PropertyValueType::String);
+    }
+
     if key == "$mcp_protocol_version" {
         // MCP protocol revisions are named by date ("2025-11-25") but are identifiers, and some
         // aren't dates at all ("draft"). As DateTime they read back as midnight timestamps.

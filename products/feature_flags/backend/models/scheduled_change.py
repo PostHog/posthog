@@ -70,6 +70,7 @@ class ScheduledChange(RootTeamMixin, models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["scheduled_at", "executed_at"]),
+            models.Index(fields=["team", "model_name", "record_id"], name="sched_change_team_record_idx"),
         ]
         db_table = "posthog_scheduledchange"
 

@@ -138,6 +138,7 @@ fn setup_router_for_mode(
         None, // ai_byte_rate_limiter
         None, // replay_overflow_limiter
         8,    // capture_v1_scatter_gather_min_batch
+        true, // capture_v1_legacy_property_splice
         None, // ai_gateway_signing_secret
         None, // ingestion_warning_emitter
     );

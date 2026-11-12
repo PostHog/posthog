@@ -937,6 +937,30 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(custom_shortcut.ref, new_path)
         self.assertEqual(custom_shortcut.path, "Pinned work")
 
+    @parameterized.expand(
+        [
+            ("itself", "Parent/Parent"),
+            ("own_subfolder", "Parent/Child/Parent"),
+            ("own_subfolder_with_leading_separator", "/Parent/Child/Parent"),
+        ]
+    )
+    def test_move_folder_into_itself_is_rejected(self, _name: str, new_path: str) -> None:
+        folder = FileSystem.objects.create(team=self.team, path="Parent", type="folder", created_by=self.user)
+        child = FileSystem.objects.create(team=self.team, path="Parent/Child", type="folder", created_by=self.user)
+        file = FileSystem.objects.create(
+            team=self.team, path="Parent/Child/Flag", type="feature_flag", created_by=self.user
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{folder.pk}/move", {"new_path": new_path}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(
+            sorted(FileSystem.objects.filter(team=self.team).values_list("path", flat=True)),
+            sorted([folder.path, child.path, file.path]),
+        )
+
     def test_count_of_files(self):
         """
         Moving a folder should update all child paths correctly.
@@ -2838,6 +2862,7 @@ class TestFileSystemSerializerInputValidation(SimpleTestCase):
             ("meta_too_large", {"path": "a", "type": "doc", "meta": {"k": "x" * (MAX_META_BYTES + 1)}}, "meta"),
             ("path_too_long", {"path": "x" * (MAX_PATH_LENGTH + 1), "type": "doc"}, "path"),
             ("path_too_many_segments", {"path": "/".join(["s"] * (MAX_PATH_SEGMENTS + 1)), "type": "doc"}, "path"),
+            ("path_only_slashes", {"path": "/ //", "type": "doc"}, "path"),
         ]
     )
     def test_rejects_out_of_bounds_input(self, _name: str, payload: dict[str, Any], field: str) -> None:
@@ -2858,6 +2883,19 @@ class TestFileSystemSerializerInputValidation(SimpleTestCase):
         serializer = FileSystemSerializer(data=payload)
 
         self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("leading_trailing_and_double_slashes", "/a//b/", "a/b"),
+            ("blank_segment", "a/   /b", "a/b"),
+            ("escaped_slash_kept", "a/Q4 \\/ Q1", "a/Q4 \\/ Q1"),
+        ]
+    )
+    def test_normalizes_path(self, _name: str, path: str, expected: str) -> None:
+        serializer = FileSystemSerializer(data={"path": path, "type": "doc"})
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["path"], expected)
 
 
 class TestFileSystemInputValidationAPI(APIBaseTest):
@@ -2884,6 +2922,23 @@ class TestFileSystemInputValidationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertEqual(FileSystem.objects.filter(team=self.team).count(), 1)
+
+    def test_move_stores_a_normalized_path_under_its_folder(self):
+        item_id = self.client.post(self.url, {"path": "Start", "type": "doc"}).json()["id"]
+
+        response = self.client.post(f"{self.url}{item_id}/move/", {"new_path": "/Demo//Deep/Item/"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(FileSystem.objects.get(id=item_id).path, "Demo/Deep/Item")
+        self.assertTrue(FileSystem.objects.filter(team=self.team, path="Demo/Deep", type="folder").exists())
+
+    def test_move_to_a_blank_path_is_rejected(self):
+        item_id = self.client.post(self.url, {"path": "Start", "type": "doc"}).json()["id"]
+
+        response = self.client.post(f"{self.url}{item_id}/move/", {"new_path": "   "})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(FileSystem.objects.get(id=item_id).path, "Start")
 
     @parameterized.expand([("too_many_segments", "s/" * (MAX_PATH_SEGMENTS + 1)), ("too_long", "x" * 4001)])
     def test_undo_delete_rejects_an_unbounded_restore_path(self, _name: str, path: str):

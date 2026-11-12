@@ -201,7 +201,7 @@ def run_metrics_sql(
         query_type="MetricsSQLQuery",
         query=query,
         team=team,
-        workload=Workload.LOGS,
+        workload=Workload.METRICS,
         settings=_QUERY_SETTINGS,
     )
     columns = [str(column) for column in response.columns or []]
@@ -306,7 +306,7 @@ def run_metrics_sql_values(
         query_type="MetricsSQLVariableQuery",
         query=query,
         team=team,
-        workload=Workload.LOGS,
+        workload=Workload.METRICS,
         settings=_QUERY_SETTINGS,
     )
     return [str(row[0]) for row in response.results or [] if row and row[0] is not None]

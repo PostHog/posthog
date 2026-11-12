@@ -80,6 +80,55 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert pages == [[str(ids[2]), str(ids[1])], [str(ids[0]), str(self.message_template.id)]]
 
+    @parameterized.expand(
+        [
+            ("all", "", {"Test Template", "Password reset", "Receipt"}),
+            ("transactional", "?transactional=true", {"Password reset", "Receipt"}),
+            ("not transactional", "?transactional=false", {"Test Template"}),
+        ]
+    )
+    def test_list_filters_templates_by_transactional(self, _name: str, query: str, expected: set[str]) -> None:
+        for name in ("Password reset", "Receipt"):
+            MessageTemplate.objects.create(
+                team=self.team, name=name, type="email", transactional_hog_flow_id=UUID(int=len(name))
+            )
+        MessageTemplate.objects.filter(id=self.other_team_template.id).update(transactional_hog_flow_id=UUID(int=1))
+        MessageTemplate.objects.create(
+            team=self.team, name="Deleted", type="email", transactional_hog_flow_id=UUID(int=2), deleted=True
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{query}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == len(expected)
+        assert {row["name"] for row in response.json()["results"]} == expected
+
+    @parameterized.expand([("full", "", True), ("basic", "&basic=true", False)])
+    def test_list_leaves_out_content_only_for_basic_rows(self, _name: str, query: str, has_content: bool) -> None:
+        drafted = MessageTemplate.objects.create(
+            team=self.team,
+            name="Password reset",
+            type="email",
+            content={"email": {"subject": "Reset", "html": "<p>Reset</p>"}},
+            draft_content={"email": {"subject": "Reset now"}},
+            transactional_hog_flow_id=UUID(int=1),
+            created_by=self.user,
+        )
+        MessageTemplate.objects.create(
+            team=self.team, name="Receipt", type="email", transactional_hog_flow_id=UUID(int=2)
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/?transactional=true{query}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        rows = {row["name"]: row for row in response.json()["results"]}
+        assert {name: row["has_draft"] for name, row in rows.items()} == {"Password reset": True, "Receipt": False}
+        assert rows["Password reset"]["id"] == str(drafted.id)
+        assert rows["Password reset"]["transactional_hog_flow_id"] == str(UUID(int=1))
+        assert rows["Password reset"]["created_by"]["id"] == self.user.id
+        assert all(("content" in row) == has_content for row in rows.values())
+        assert all(("draft_content" in row) == has_content for row in rows.values())
+
     def test_tags_round_trip_through_create_update_and_list(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",

@@ -306,9 +306,28 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
 }
 
-.TodayPulseCard .TodayChange {
+.TodayPulseCard .TodayChange,
+.TodayPulse__value .TodayChange {
     font-size: inherit;
     color: inherit;
+}
+
+.TodayPulse__verdict {
+    display: block;
+    height: 22px;
+    margin-top: 4px;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 22px;
+    color: var(--today-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    @container main-content (max-width: 600px) {
+        height: 24px;
+        margin-top: auto;
+        line-height: 24px;
+    }
 }
 
 .TodayPulse__spark {
@@ -336,6 +355,49 @@ html[data-today-transition]::view-transition-new(root) {
     margin: 0;
     font-size: 15px;
     color: var(--today-muted);
+}
+
+.TodayPromptRow__actions {
+    gap: 4px;
+}
+
+.TodayWatchedNote {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin: 2px 0 0;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--today-muted);
+}
+
+.TodayWatchedNote__icons {
+    --icon-stack-size: 18px;
+    --icon-stack-step: 12px;
+    --icon-stack-spread: 13px;
+
+    flex-shrink: 0;
+
+    .quill-icon-stack__item {
+        border-width: 2px;
+        border-radius: 5px;
+    }
+
+    .quill-icon-stack__item svg {
+        width: 10px;
+        height: 10px;
+    }
+}
+
+.TodayStarterSuggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+
+    button {
+        color: var(--today-ink);
+    }
 }
 
 .TodayHome__noteLink {
@@ -708,10 +770,6 @@ html[data-today-transition]::view-transition-new(root) {
     margin: 0 -12px;
     list-style: none;
 
-    &--explore {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
     @container main-content (max-width: 700px) {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -780,6 +838,10 @@ html[data-today-transition]::view-transition-new(root) {
         @container main-content (max-width: 480px) {
             flex-shrink: 0;
         }
+    }
+
+    .TodayJumpList--explore & {
+        white-space: normal;
     }
 }
 
@@ -1030,4 +1092,11 @@ html[data-today-transition]::view-transition-new(root) {
         animation-duration: 1ms !important;
         animation-iteration-count: 1 !important;
     }
+}
+
+.TodayHome__composer {
+    padding: 8px;
+    margin: 28px -8px 0;
+    background: color-mix(in oklab, var(--foreground) 4.5%, transparent);
+    border-radius: calc(var(--radius-sm) + 8px);
 }

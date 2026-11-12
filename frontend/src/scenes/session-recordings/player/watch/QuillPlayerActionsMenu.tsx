@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconDownload, IconEllipsis, IconNotebook, IconTrash } from '@posthog/icons'
+import { IconCheck, IconDownload, IconEllipsis, IconNotebook, IconTrash } from '@posthog/icons'
 import {
     AlertDialog,
     AlertDialogContent,
@@ -16,6 +16,7 @@ import {
 } from '@posthog/quill'
 
 import { getVideoExportDisabledReason } from 'lib/components/ExportButton/exportStatus'
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -58,7 +59,13 @@ function AddToNotebookItem(): JSX.Element {
     )
 }
 
-export function QuillPlayerActionsMenu({ extraItems = [] }: { extraItems?: LemonMenuItems }): JSX.Element {
+export function QuillPlayerActionsMenu({
+    extraItems = [],
+    filled = false,
+}: {
+    extraItems?: LemonMenuItems
+    filled?: boolean
+}): JSX.Element {
     const { logicProps, isMuted, hasReachedExportFullVideoLimit, sessionPlayerData } =
         useValues(sessionRecordingPlayerLogic)
     const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile, setMuted } =
@@ -66,6 +73,7 @@ export function QuillPlayerActionsMenu({ extraItems = [] }: { extraItems?: Lemon
     const { skipInactivitySetting } = useValues(playerSettingsLogic)
     const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
     const [confirmDelete, setConfirmDelete] = useState(false)
+    const floatingContainer = useFloatingContainer()
 
     const exportAccessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Export,
@@ -83,13 +91,12 @@ export function QuillPlayerActionsMenu({ extraItems = [] }: { extraItems?: Lemon
             label: 'Skip inactivity',
             tooltip: 'Skip inactive parts of the recording',
             onClick: () => setSkipInactivitySetting(!skipInactivitySetting),
-            active: skipInactivitySetting,
+            sideIcon: skipInactivitySetting ? <IconCheck className="ml-auto" /> : undefined,
             'data-attr': 'skip-inactivity-menu-item',
         },
         {
             label: isMuted ? 'Unmute audio' : 'Mute audio',
             onClick: () => setMuted(!isMuted),
-            active: false,
             'data-attr': 'mute-audio-menu-item',
         },
         isStandardMode && {
@@ -131,11 +138,18 @@ export function QuillPlayerActionsMenu({ extraItems = [] }: { extraItems?: Lemon
         <>
             <DropdownMenu>
                 <DropdownMenuTrigger
-                    render={<Button size="icon-sm" aria-label="More actions" data-attr="player-meta-more-menu" />}
+                    render={
+                        <Button
+                            size={filled ? 'icon' : 'icon-sm'}
+                            variant={filled ? 'secondary' : 'default'}
+                            aria-label="More actions"
+                            data-attr="player-meta-more-menu"
+                        />
+                    }
                 >
                     <IconEllipsis />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" container={floatingContainer}>
                     <QuillMenuItems items={items} />
                 </DropdownMenuContent>
             </DropdownMenu>

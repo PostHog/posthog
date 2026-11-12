@@ -128,7 +128,7 @@ describe('AgentsRoster', () => {
         const errorTracking = document.querySelector('[data-source="error_tracking"]') as HTMLElement
         expect(await within(errorTracking).findByLabelText('Arm Error tracking')).toBeInTheDocument()
         if (enabled && armed) {
-            expect(await within(errorTracking).findByText('$1.50')).toBeInTheDocument()
+            expect(await within(errorTracking).findByText('150 credits')).toBeInTheDocument()
             const support = document.querySelector('[data-source="conversations"]') as HTMLElement
             expect(within(support).queryByText('Not tracked')).not.toBeInTheDocument()
             expect(usageRequests).toHaveBeenCalledTimes(1)

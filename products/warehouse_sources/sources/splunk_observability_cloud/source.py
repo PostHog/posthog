@@ -70,7 +70,7 @@ class SplunkObservabilityCloudSource(
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Splunk Observability Cloud",
             releaseStatus=ReleaseStatus.BETA,
-            caption="""Sync your Splunk Observability Cloud (formerly SignalFx) detectors, alert history, events, SLOs, synthetic test runs, dashboards, and metric metadata into the PostHog Data warehouse.
+            caption="""Sync your Splunk Observability Cloud (formerly SignalFx) detectors, alert history, events, audit events, SLOs, synthetic tests and their runs, dashboards, roles, clients, and metric metadata into the PostHog Data warehouse.
 
 You need an access token with **API** permission — an org access token or a user session token both work. Create one under **Settings > Access tokens** in Splunk Observability Cloud. Your realm (e.g. `us0`, `eu0`) is shown on your profile page.
 
@@ -150,6 +150,20 @@ To sync the optional `metric_time_series` table, also provide a [SignalFlow prog
                 return (
                     "Detector alerts and custom events for the whole organization. The first sync reads all "
                     "events that Splunk Observability Cloud still keeps"
+                )
+            if endpoint == "audit_events":
+                return (
+                    "Audit trail of API requests and configuration changes. Off by default because it needs an "
+                    "access token whose user has the READ_AUDIT_EVENTS capability"
+                )
+            if endpoint == "roles":
+                return (
+                    "Role definitions. Off by default because listing roles needs an access token with the admin role"
+                )
+            if endpoint == "clients":
+                return (
+                    "OpAMP agents and collectors registered with the organization. Off by default because the "
+                    "client inventory is not enabled for every organization"
                 )
             if endpoint == "synthetic_runs":
                 return (

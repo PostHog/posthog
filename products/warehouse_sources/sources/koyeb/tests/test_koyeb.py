@@ -1,6 +1,8 @@
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
+from unittest.mock import patch
+
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.koyeb._config import KoyebSourceConfig
@@ -44,25 +46,44 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
+            ("invalid_token", 401, False, "invalid or has been revoked"),
+            ("unauthorized_token", 403, False, "not authorized for this organization"),
+            ("not_found", 404, False, "couldn't verify your Koyeb API token"),
+            ("server_error", 500, False, "couldn't verify your Koyeb API token"),
         ]
     )
-    def test_status_mapping(self, _name: str, status: int, expected_ok: bool, expected_error: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))) as network:
+    def test_status_mapping(
+        self, _name: str, status: int, expected_ok: bool, expected_error_fragment: str | None
+    ) -> None:
+        with (
+            scripted_network(always(ScriptedResponse(status=status))) as network,
+            patch("products.warehouse_sources.sources.koyeb.koyeb.capture_exception") as mock_capture,
+        ):
             ok, error = validate_credentials("token")
 
         assert ok is expected_ok
-        assert error == expected_error
-        assert {request.path for request in network.requests_log} == {"/v1/account/profile"}
+        if expected_error_fragment is None:
+            assert error is None
+        else:
+            assert error is not None and expected_error_fragment in error
+            assert not any(char.isdigit() for char in error)
+        assert mock_capture.call_count == (1 if status in (404, 500) else 0)
+        assert {request.path for request in network.requests_log} == {"/v1/apps"}
+        assert all(request.param("limit") == "1" for request in network.requests_log)
         assert all(request.headers["authorization"] == "Bearer token" for request in network.requests_log)
 
-    def test_transport_error_is_invalid(self) -> None:
+    def test_transport_error_is_not_verified(self) -> None:
         # validate_via_probe swallows any transport failure and reports "not validated".
-        with scripted_network(always(ConnectionError("boom"))) as network:
+        with (
+            scripted_network(always(ConnectionError("boom"))) as network,
+            patch("products.warehouse_sources.sources.koyeb.koyeb.capture_exception") as mock_capture,
+        ):
             ok, error = validate_credentials("token")
 
         assert ok is False
-        assert error == "Could not reach the Koyeb API"
-        assert {request.path for request in network.requests_log} == {"/v1/account/profile"}
+        assert error is not None and "couldn't verify your Koyeb API token" in error
+        mock_capture.assert_not_called()
+        assert {request.path for request in network.requests_log} == {"/v1/apps"}
 
 
 class TestPagination:

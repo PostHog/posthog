@@ -140,15 +140,19 @@ def with_unique_prefixes(
     items = list(items)
     taken = {(item.proposal.source_type, item.proposal.prefix) for item in items if item.proposal is not None}
     used: set[tuple[ExternalDataSourceType, str]] = set(reserved)
+    # Where the suffix search for each prefix stopped, so many clashes on one name stay linear. Both sets only grow,
+    # so every smaller suffix is still taken.
+    next_suffix: dict[tuple[ExternalDataSourceType, str], int] = {}
     unique: list[PlannedItem] = []
     for item in items:
         proposal = item.proposal
         if proposal is not None:
             key = (proposal.source_type, proposal.prefix)
             if key in used:
-                count = 2
-                while (proposal.source_type, f"{proposal.prefix}_{count}") in taken | used:
+                count = next_suffix.get(key, 2)
+                while (candidate := (proposal.source_type, f"{proposal.prefix}_{count}")) in taken or candidate in used:
                     count += 1
+                next_suffix[key] = count + 1
                 prefix = f"{proposal.prefix}_{count}"
                 used.add((proposal.source_type, prefix))
                 item = dataclasses.replace(
@@ -303,8 +307,7 @@ def _plan_tables(
             caveats.append(
                 f"`{table.name}` keeps history in Fivetran. PostHog keeps only the latest version of each row."
             )
-        if any(column.hashed for column in table.columns):
-            caveats.append(f"`{table.name}` hashes some columns in Fivetran. PostHog syncs them unhashed.")
+        _plan_hashing(table, caveats)
         planned_names.add(name)
         schemas.append(
             ProposedSchema(
@@ -367,6 +370,19 @@ def _plan_disabled_columns(table: VendorTable, caps: SourceCapabilities, caveats
             )
         return ()
     return disabled
+
+
+def plan_table_restrictions(
+    table: VendorTable, posthog_name: str, caps: SourceCapabilities, caveats: list[str]
+) -> tuple[tuple[str, ...], tuple[ProposedRowFilter, ...]]:
+    """The column exclusions and row filters PostHog keeps when it syncs `table` as `posthog_name`."""
+    _plan_hashing(table, caveats)
+    return _plan_disabled_columns(table, caps, caveats), _plan_row_filters(table, posthog_name, caps, caveats)
+
+
+def _plan_hashing(table: VendorTable, caveats: list[str]) -> None:
+    if any(column.hashed for column in table.columns):
+        caveats.append(f"`{table.name}` hashes some columns in Fivetran. PostHog syncs them unhashed.")
 
 
 def _plan_row_filters(
@@ -480,6 +496,12 @@ def _plan_destination(
     caveats: list[str],
 ) -> ProposedDestination | None:
     if destination is None:
+        if connection.destination_id:
+            # An agent upload can leave the destination out.
+            caveats.append(
+                "PostHog did not get this connection's Fivetran destination, so it suggests no destination "
+                "and reads a Fivetran time of day as UTC."
+            )
         return None
     destination_type = catalog.match_destination(provider, destination.service)
     if destination_type is None:

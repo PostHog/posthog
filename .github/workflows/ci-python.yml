@@ -559,12 +559,12 @@ jobs:
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
                         pytest bin/test/test_semgrep_ratchet.py -v
 
-                  - name: Run granian shared socket tests
+                  - name: Run granian launcher tests
                     shell: bash
                     # The bin_scripts filter includes uv.lock, so every granian upgrade runs this.
                     run: |
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
-                        pytest bin/test/test_granian_shared_socket.py -v --junitxml=junit-granian-shared-socket.xml
+                        pytest bin/test/test_granian_shared_socket.py bin/test/test_granian_preload.py -v --junitxml=junit-granian-shared-socket.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

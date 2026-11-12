@@ -577,8 +577,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         *,
         partial: bool = False,
         serializer_class: type[TaskWriteSerializer] = TaskWriteSerializer,
+        instance=None,
     ) -> TaskWriteSerializer:
         serializer = serializer_class(
+            instance=instance,
             data=data,
             partial=partial,
             context={"team": self.team, "team_id": self.team.id, "request": self.request},
@@ -598,6 +600,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. By default, each row includes description. Pass basic=true for a summary row that omits description and includes description_preview, its first 1000 characters. Use the search parameter to match description text server-side.",
     )
     def list(self, request, *args, **kwargs):
+        basic = getattr(request, "validated_query_data", {}).get("basic", False)
         filters = {key: request.query_params.get(key) for key in request.query_params}
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
@@ -609,7 +612,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         all_team_tasks = bool(getattr(request, "validated_query_data", {}).get("all_team_tasks"))
         bypass_visibility = all_team_tasks and _can_bypass_visibility(request, self.team_id)
         tasks = tasks_facade._list_tasks_queryset(
-            self.team_id, self._user_id(), filters=filters, bypass_visibility=bypass_visibility
+            self.team_id, self._user_id(), filters=filters, bypass_visibility=bypass_visibility, basic=basic
         ).exclude(id__in=_hidden_scout_trial_task_ids(request, self.team_id))
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
@@ -617,7 +620,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tag_queries(is_scout_experiment=True)
         # Description bodies dominate the list payload. A summary surface asks for basic=true
         # and gets the smaller rows without them.
-        basic = getattr(request, "validated_query_data", {}).get("basic", False)
         serializer_class = TaskBasicSerializer if basic else TaskSerializer
         return self.get_paginated_response(
             serializer_class(
@@ -1114,9 +1116,24 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             and authenticator.access_token.sandbox_task_id is not None
         ):
             raise PermissionDenied("Task agents cannot move tasks between channels.")
-        serializer = self._write_serializer(request.data, partial=True)
+        if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
+            raise NotFound()
+        current = tasks_facade.get_task_repository_state(pk, self.team_id, self._user_id())
+        if current is None:
+            raise NotFound()
+        serializer = self._write_serializer(request.data, partial=True, instance=current)
         task = tasks_facade.update_task(
-            pk, self.team_id, self._user_id(), validated_data=dict(serializer.validated_data)
+            pk,
+            self.team_id,
+            self._user_id(),
+            validated_data=dict(serializer.validated_data),
+            expected_repository_state=(
+                current.repository,
+                current.repositories,
+                current.github_integration,
+                current.github_user_integration,
+                current.repository_integration,
+            ),
         )
         if task is None:
             raise NotFound()
@@ -2470,6 +2487,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if outcome == "gitlab_unsupported":
+            raise ValidationError("GitLab task runs are not available yet.")
         if outcome == "ownership_changed":
             return Response(
                 TaskRunErrorResponseSerializer(
@@ -5325,11 +5344,10 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         query = SandboxCustomImageListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         origin_product = query.validated_data.get("origin_product")
-        if origin_product and not tasks_facade.sandbox_custom_images_enabled(
+        origin_allowed = not origin_product or tasks_facade.sandbox_custom_images_enabled(
             self.team_id, request.user.id, origin_product=origin_product
-        ):
-            raise PermissionDenied("Custom sandbox images cannot run for tasks from this origin")
-        images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id)
+        )
+        images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id) if origin_allowed else []
         page = self.paginate_queryset(images)
         if page is not None:
             return self.get_paginated_response(SandboxCustomImageSerializer(page, many=True).data)

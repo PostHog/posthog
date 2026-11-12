@@ -10,7 +10,8 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.integrations import IntegrationManager, IntegrationPatch, observability, register_source_kinds, usages
-from posthog.integrations.accessors import IntegrationReader, OAuthAccessor
+from posthog.integrations.accessors import OAuthAccessor
+from posthog.integrations.backend import DjangoBackend
 from posthog.integrations.contracts import IntegrationInUse, IntegrationNotFound, IntegrationUsage
 from posthog.integrations.enums import AuthType
 from posthog.models import Team
@@ -225,7 +226,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
     def test_async_form_counts_the_same_operation(self) -> None:
         before = _counts("get", "named", "github", "oauth", "not_found")
 
-        with patch.object(IntegrationReader, "_row", side_effect=IntegrationNotFound("missing")):
+        with patch.object(DjangoBackend, "get", side_effect=IntegrationNotFound("missing")):
             with self.assertRaises(IntegrationNotFound):
                 async_to_sync(IntegrationManager.github.oauth.aget)(self.team_id, self.github_id)
 
@@ -248,6 +249,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
             ("fresh", 10, None, False, "", "fresh"),
             ("expired", 800, None, False, "", "refreshed"),
             ("stale_token", 10, "old", True, "", "stale_token"),
+            ("expired_and_the_caller_holds_the_stored_token", 800, "old", True, "", "refreshed"),
             ("failed_refresh_sets_errors", 800, None, True, "TOKEN_REFRESH_FAILED", "error"),
             ("raising_refresh", 800, None, True, "raise", "error"),
         ]
@@ -264,12 +266,12 @@ class TestIntegrationsSdkMetrics(BaseTest):
         )
         before = _sample(TOKEN_REFRESH, kind="resend", result=result)
 
-        def refresh(oauth: OauthIntegration) -> None:
+        def refresh(oauth: OauthIntegration) -> IntegrationPatch:
             if errors == "raise":
                 raise RuntimeError("provider down")
-            oauth.integration.errors = errors
+            return IntegrationPatch(errors=errors)
 
-        with patch.object(OauthIntegration, "refresh_access_token", autospec=True, side_effect=refresh) as mocked:
+        with patch.object(OauthIntegration, "token_refresh_patch", autospec=True, side_effect=refresh) as mocked:
             try:
                 OAuthAccessor(kind="resend").refresh_access_token(self.team_id, row.id, stale_access_token=stale)
             except RuntimeError:

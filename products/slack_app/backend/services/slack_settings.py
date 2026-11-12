@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal, TypeVar
+from uuid import UUID
 
 from django.db import models, transaction
 from django.utils import timezone
@@ -318,6 +319,29 @@ def update_onboarding(
         row.save(update_fields=["onboarding", "updated_at"])
 
 
+def reset_onboarding(settings_ids: list[UUID]) -> int:
+    """Forget the onboarding of these settings rows, so each person gets a new thread on their next trigger, and a new
+    work focus the next time they link their account. Returns how many rows had an onboarding to forget."""
+    from products.slack_app.backend.models import SlackSettings
+
+    return SlackSettings.objects.filter(id__in=settings_ids, onboarding__isnull=False).update(
+        onboarding=None, updated_at=timezone.now()
+    )
+
+
+def onboarding_status_label(stored: object) -> str:
+    """One short line for staff tools: where the person's onboarding stands."""
+    state = parse_onboarding(stored)
+    # The work focus stores its outcome in the same field, which is not an onboarding that started.
+    if state is None or (state.started_at is None and state.root_ts is None):
+        return "Not started"
+    if state.completed:
+        return "Nothing to set up" if state.completed_reason == "nothing_to_set_up" else "Done"
+    if state.root_status:
+        return f"In progress, {state.root_status}"
+    return "Starting"
+
+
 def has_chosen_untagged_followup_mode(slack_workspace_id: str, slack_user_id: str) -> bool:
     """Whether this person picked a mode, as opposed to getting the ``ASK`` default."""
     from products.slack_app.backend.models import SlackSettings
@@ -366,6 +390,8 @@ __all__ = [
     "parse_onboarding",
     "has_chosen_channel_welcome_mode",
     "has_chosen_untagged_followup_mode",
+    "onboarding_status_label",
+    "reset_onboarding",
     "resolve_onboarding",
     "update_onboarding",
     "AIPreferences",

@@ -32,7 +32,7 @@ def _export_trace_json(asset: "ExportedAsset") -> None:
 
 
 def _trace_export_content_path(*, team_id: int, asset_id: int, export_context: Mapping[str, object]) -> str | None:
-    from products.ai_observability.backend.presentation.trace_exports import (  # noqa: PLC0415 -- keeps the trace API off the Django startup path
+    from products.ai_observability.backend.presentation.views.trace_exports import (  # noqa: PLC0415 -- keeps the trace API off the Django startup path
         trace_export_content_path,
     )
 

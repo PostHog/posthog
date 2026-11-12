@@ -231,6 +231,17 @@ jobs:
                   message: 'Release approved. Preparing posthog-cli version bump.'
                   emoji_reaction: 'white_check_mark'
 
+            - name: Notify Slack - Superseded
+              continue-on-error: true
+              if: steps.recheck-changesets.outputs.has-changesets == 'false' && needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Superseded by a newer release. Nothing left to release from this run.'
+                  emoji_reaction: 'fast_forward'
+
             - name: Install Rust
               if: steps.recheck-changesets.outputs.has-changesets == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -365,6 +376,7 @@ jobs:
                   RELEASE_COMMIT: ${{ steps.commit-release.outputs.commit-hash }}
                   RELEASE_BRANCH: chore/release-posthog-cli
                   REPOSITORY: ${{ github.repository }}
+                  SLACK_TS: ${{ needs.notify-approval-needed.outputs.slack_ts }}
               run: |
                   body_file="$RUNNER_TEMP/release-pr.md"
                   cat > "$body_file" <<EOF
@@ -388,6 +400,11 @@ jobs:
 
                   **Autonomy:** Fully autonomous
                   EOF
+
+                  # The run that publishes this release reads the marker to reply in the approval thread.
+                  if [ -n "$SLACK_TS" ]; then
+                      printf '\n<!-- slack-thread-ts: %s -->\n' "$SLACK_TS" >> "$body_file"
+                  fi
 
                   release_owner=${REPOSITORY%%/*}
                   existing_prs=$(gh api --paginate "repos/$REPOSITORY/pulls?state=open&base=master&head=$release_owner:$RELEASE_BRANCH" --jq '.[].number')
@@ -512,6 +529,7 @@ jobs:
             new-version: ${{ steps.release-metadata.outputs.new-version }}
             release-tag: ${{ steps.release-metadata.outputs.release-tag }}
             release-commit: ${{ steps.release-metadata.outputs.release-commit }}
+            slack_ts: ${{ steps.release-metadata.outputs.slack_ts }}
         steps:
             - name: Checkout repository
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -578,6 +596,14 @@ jobs:
                   echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
                   echo "release-tag=$release_tag" >> "$GITHUB_OUTPUT"
                   echo "release-commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+                  # The run that prepared this release stored its approval thread in the pull request body.
+                  # A missing or malformed marker only skips the Slack replies.
+                  slack_ts=$(printf '%s' "$pr_data" | jq -r '
+                      [(.body // "") | split("\n")[] | rtrimstr("\r")
+                          | capture("^<!-- slack-thread-ts: (?<ts>[0-9]+\\.[0-9]+) -->$").ts]
+                      | if length == 1 then .[0] else empty end' || true)
+                  echo "slack_ts=$slack_ts" >> "$GITHUB_OUTPUT"
 
             - name: Send failure event to PostHog
               if: ${{ failure() }}
@@ -693,7 +719,10 @@ jobs:
             # - N "local" tasks that build each platform's binaries and platform-specific installers
             matrix: ${{ fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix }}
         runs-on: ${{ matrix.runner }}
-        timeout-minutes: 30
+        # Sized for a slow x86_64-apple-darwin run, not a typical one. That runner
+        # can take twice as long for the same build, and a job that reaches this
+        # limit is cancelled, which skips every publish job.
+        timeout-minutes: 40
         container: ${{ matrix.container && matrix.container.image || null }}
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -799,6 +828,10 @@ jobs:
               # Dogfooding only: a failed symbol upload degrades our own error
               # tracking, and must not block shipping the CLI to users.
               continue-on-error: true
+              # continue-on-error does not apply when the job reaches its own
+              # timeout-minutes, which cancels the whole job. This limit fails
+              # only this step, before the job reaches that timeout.
+              timeout-minutes: 8
               shell: bash
               env:
                   POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
@@ -816,12 +849,21 @@ jobs:
                   symbols_dir="$RUNNER_TEMP/posthog-cli-symbols"
                   mkdir -p "$symbols_dir"
 
+                  # dist builds with --target, so `cargo run` without it uses another
+                  # target directory and compiles the whole CLI again. Use a packaged
+                  # binary when this runner can execute it. The aarch64 Linux targets
+                  # are cross-built on an x86_64 runner, so they cannot.
+                  uploader=(cargo run --manifest-path cli/Cargo.toml --profile dist --)
                   for target in $TARGETS; do
                       package_dir="target/distrib/posthog-cli-$target"
                       target_symbols_dir="$symbols_dir/$target"
                       mkdir -p "$target_symbols_dir"
                       cp "$package_dir/posthog-cli" "$target_symbols_dir/posthog-cli"
+                      if "$package_dir/posthog-cli" --version >/dev/null; then
+                          uploader=("$package_dir/posthog-cli")
+                      fi
                   done
+                  echo "Uploading with: ${uploader[*]}"
 
                   # Cargo builds into cli/target (the cargo workspace root is cli/),
                   # while repo-root target/ only holds cargo-dist's staging area, so
@@ -832,7 +874,7 @@ jobs:
                       cp -R -L "$dsym" "$symbols_dir/$(basename "$(dirname "$dsym")")-posthog-cli.dSYM"
                   done < <(find -L target cli/target -type d -name 'posthog-cli.dSYM' -print0)
 
-                  cargo run --manifest-path cli/Cargo.toml --profile dist -- \
+                  "${uploader[@]}" \
                       symbol-sets upload --directory "$symbols_dir" \
                       --release-name posthog-cli \
                       --release-version "$RELEASE_VERSION"
@@ -1258,27 +1300,27 @@ jobs:
 
     notify-released:
         name: Notify Slack - Release Published
-        needs: [notify-approval-needed, release, host-release, publish-npm, publish-homebrew, publish-cargo]
+        needs: [release, host-release, publish-npm, publish-homebrew, publish-cargo]
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && (needs.publish-homebrew.result == 'success' || needs.publish-homebrew.result == 'skipped') && (needs.publish-cargo.result == 'success' || needs.publish-cargo.result == 'skipped') && needs.notify-approval-needed.outputs.slack_ts != ''
+        if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && (needs.publish-homebrew.result == 'success' || needs.publish-homebrew.result == 'skipped') && (needs.publish-cargo.result == 'success' || needs.publish-cargo.result == 'skipped') && needs.release.outputs.slack_ts != ''
         steps:
             - name: Notify Slack - Release Published
               uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
               with:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  thread_ts: ${{ needs.release.outputs.slack_ts }}
                   message: 'posthog-cli release ${{ needs.release.outputs.new-version }} published for ${{ needs.release.outputs.release-tag }}.'
                   emoji_reaction: 'rocket'
 
     # cargo-dist generates the jobs below, so per-job failure steps do not survive `dist generate`,
     # and the 7-target matrix would alert 7 times. The release job stays out of the condition: a
     # rejected approval marks it failed, and a rejection must not raise a release-failure alert.
+    # A retired runner label or a build timeout ends a job as cancelled, not failed, so both count.
     notify-publish-failed:
         name: Notify Slack - Publish Failed
         needs:
-            - notify-approval-needed
             - release
             - plan-release
             - build-local-artifacts
@@ -1290,9 +1332,13 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: >-
-            always() && (needs.plan-release.result == 'failure' || needs.build-local-artifacts.result == 'failure'
-            || needs.build-global-artifacts.result == 'failure' || needs.host-release.result == 'failure'
-            || needs.publish-npm.result == 'failure' || needs.publish-homebrew.result == 'failure' || needs.publish-cargo.result == 'failure')
+            always() && (contains(fromJSON('["failure", "cancelled"]'), needs.plan-release.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.build-local-artifacts.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.build-global-artifacts.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.host-release.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.publish-npm.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.publish-homebrew.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.publish-cargo.result))
         steps:
             - name: Collect failed jobs
               id: failure-metadata
@@ -1302,7 +1348,7 @@ jobs:
                   set -euo pipefail
 
                   failed_jobs=$(printf '%s' "$NEEDS_JSON" | jq -r '
-                      to_entries | map(select(.value.result == "failure") | .key) | join(", ")
+                      to_entries | map(select(.value.result == "failure" or .value.result == "cancelled") | .key) | join(", ")
                   ')
                   [ -n "$failed_jobs" ] || failed_jobs='unknown'
                   echo "failed-jobs=$failed_jobs" >> "$GITHUB_OUTPUT"
@@ -1331,11 +1377,11 @@ jobs:
 
             - name: Notify Slack - Failed
               continue-on-error: true # A Slack outage must not hide the PostHog alert
-              if: needs.notify-approval-needed.outputs.slack_ts != ''
+              if: needs.release.outputs.slack_ts != ''
               uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
               with:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  thread_ts: ${{ needs.release.outputs.slack_ts }}
                   message: "❌ Failed to publish `posthog-cli@v${{ needs.release.outputs.new-version || 'unknown' }}` (${{ steps.failure-metadata.outputs.failed-jobs }}). <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>"
                   emoji_reaction: 'x'

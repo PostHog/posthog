@@ -2,7 +2,7 @@ import './LLMPromptPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored rising prompt-fetches series for the stat card sparkline.
 const SPARK_LINE = 'M 0 31 L 10 29.5 L 20 30.2 L 30 27 L 40 27.8 L 50 24.5 L 60 25.4 L 70 21 L 80 19.5 L 90 16 L 100 14'
@@ -18,7 +18,7 @@ const SPARK_AREA = `${SPARK_LINE} L 100 40 L 0 40 Z`
  * grids and crossfaded, so promoting never changes the layout's size.
  */
 export function LLMPromptPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('PromptPreview', isStatic && 'PromptPreview--static')}>

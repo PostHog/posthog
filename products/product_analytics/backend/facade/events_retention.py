@@ -12,6 +12,8 @@ from posthog.models.user import User
 from products.product_analytics.backend import events_retention
 from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention, ProjectEventsRetention
 
+NOT_A_STANDARD_PERIOD_MESSAGE = events_retention.NOT_A_STANDARD_PERIOD_MESSAGE
+
 
 def organization_events_retention(organization: Organization) -> OrganizationEventsRetention:
     """The organization's period and the periods its admins can set."""

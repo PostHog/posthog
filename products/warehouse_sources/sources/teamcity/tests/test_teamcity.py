@@ -167,6 +167,17 @@ class TestGetRowsTopLevel:
         assert isinstance(result.raised, ValueError)
         assert result.requests == []
 
+    def test_unpaginated_users_list_sends_no_count_and_parses_last_login(self) -> None:
+        # /users returns the whole list with no nextHref, so a `count` would silently truncate it.
+        result = _driver().run(
+            "users",
+            _pages({"user": [{"id": 1, "username": "jdoe", "lastLogin": "20260715T160948+0000"}]}),
+        )
+
+        assert result.requests[0].path == "/app/rest/users"
+        assert result.requests[0].param("locator") is None
+        assert result.rows == [{"id": 1, "username": "jdoe", "lastLogin": datetime(2026, 7, 15, 16, 9, 48, tzinfo=UTC)}]
+
     def test_incremental_changes_cursor_uses_since_change(self) -> None:
         result = _driver().run(
             "changes",
@@ -322,6 +333,53 @@ class TestGetRowsFanOut:
         assert _locator_of(result.requests[2]) == "build:(id:11),count:1000"
         assert [r["build_id"] for r in result.rows] == [10, 11]
         assert result.rows[0]["build_finish_date"] == datetime(2026, 7, 15, 16, 9, 48, tzinfo=UTC)
+
+    def test_build_statistics_address_the_build_in_the_path(self) -> None:
+        result = _driver().run(
+            "build_statistics",
+            _pages(
+                {
+                    "build": [
+                        {"id": 10, "finishDate": "20260715T160948+0000"},
+                        {"id": 11, "finishDate": "20260715T170000+0000"},
+                    ]
+                },
+                {
+                    "count": 2,
+                    "property": [{"name": "BuildDuration", "value": "1200"}, {"name": "ArtifactsSize", "value": "5"}],
+                },
+                {"count": 0},
+            ),
+        )
+
+        assert [r.path for r in result.requests[1:]] == [
+            "/app/rest/builds/id:10/statistics",
+            "/app/rest/builds/id:11/statistics",
+        ]
+        assert all(r.param("locator") is None for r in result.requests[1:])
+        assert result.rows == [
+            {
+                "name": "BuildDuration",
+                "value": "1200",
+                "build_id": 10,
+                "build_finish_date": datetime(2026, 7, 15, 16, 9, 48, tzinfo=UTC),
+            },
+            {
+                "name": "ArtifactsSize",
+                "value": "5",
+                "build_id": 10,
+                "build_finish_date": datetime(2026, 7, 15, 16, 9, 48, tzinfo=UTC),
+            },
+        ]
+
+    def test_build_statistics_reject_a_non_numeric_build_id(self) -> None:
+        result = _driver().run(
+            "build_statistics",
+            _pages({"build": [{"id": "../../users", "finishDate": "20260715T160948+0000"}]}),
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert len(result.requests) == 1
 
     def test_incremental_cursor_windows_the_parent_builds_walk(self) -> None:
         result = _driver().run(

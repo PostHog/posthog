@@ -1,11 +1,11 @@
 import { useMemo } from 'react'
 
 import { type ChartTheme, type TooltipContext } from '@posthog/quill-charts'
-import { Skeleton } from '@posthog/quill-primitives'
 
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { Card, CardState } from '../dashboard/Card'
+import { ChartSkeleton } from '../dashboard/ChartSkeleton'
 import { ChartTooltip } from '../dashboard/ChartTooltip'
 import { formatNumber } from '../dashboard/formatters'
 import { ShareBarChart, type ShareBarRow } from '../dashboard/ShareBarChart'
@@ -38,12 +38,14 @@ export function FacetShareCard({
     loading,
     failed,
     theme,
+    maxVisibleRows,
 }: {
     title: string
     rows: WindowFacetRow[]
     loading: boolean
     failed: boolean
     theme: ChartTheme
+    maxVisibleRows?: number
 }): JSX.Element | null {
     const shownRows = useMemo(() => topFacetRows(rows, MAX_ROWS), [rows])
     const totalCalls = useMemo(() => shownRows.reduce((sum, row) => sum + row.calls, 0), [shownRows])
@@ -70,10 +72,18 @@ export function FacetShareCard({
             <CardState
                 loading={loading}
                 isEmpty={rows.length === 0}
-                skeleton={<Skeleton className="h-48 w-full" />}
+                className="min-h-48"
+                skeleton={<ChartSkeleton kind="shares" />}
                 empty={failed ? <LoadErrorMessage /> : <NoDataMessage />}
             >
-                <ShareBarChart rows={chartRows} totalCalls={totalCalls} theme={theme} tooltip={renderTooltip} />
+                <ShareBarChart
+                    rows={chartRows}
+                    totalCalls={totalCalls}
+                    theme={theme}
+                    tooltip={renderTooltip}
+                    maxVisibleRows={maxVisibleRows}
+                    label={title}
+                />
             </CardState>
         </Card>
     )

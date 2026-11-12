@@ -10,7 +10,7 @@ import { createTestTeamFixture } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_FLOW_MASK_EXAMPLES } from '../_tests/examples'
-import { createCohortMembershipEvent, createKafkaMessage } from '../_tests/fixtures'
+import { createCohortMembershipEvent, createKafkaMessage, createSweepFloorRecord } from '../_tests/fixtures'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
 import { CyclotronJobInvocationHogFlow } from '../types'
@@ -152,6 +152,22 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
 
         expect(globals).toHaveLength(1)
         expect(await invalidTeamIdErrors()).toBe(before + 1)
+    })
+
+    it('skips a control record without counting a parse error, and keeps the rest of the batch', async () => {
+        const parseErrors = async (): Promise<number> =>
+            (await counterParseError.get()).values.reduce((sum, v) => sum + v.value, 0)
+        await insertHogFlow(hub.postgres, cohortFlow(42, 'entered'))
+        const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+        const before = await parseErrors()
+
+        const globals = await processor._parseKafkaBatch([
+            createKafkaMessage(createSweepFloorRecord({ team_id: team.id, cohort_id: 42 })),
+            createKafkaMessage(change),
+        ])
+
+        expect(globals.map((g) => g.person?.id)).toEqual([change.person_id])
+        expect(await parseErrors()).toBe(before)
     })
 
     it("loads a team's workflows once per batch, however many changes the batch holds for it", async () => {

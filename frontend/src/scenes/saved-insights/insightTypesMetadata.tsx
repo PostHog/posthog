@@ -628,6 +628,26 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: false,
     },
+    [NodeKind.AccountActivityMatrixQuery]: {
+        name: 'Account activity matrix',
+        icon: IconTableChart,
+        inMenu: false,
+    },
+    [NodeKind.BookActivityMatrixQuery]: {
+        name: 'Book activity matrix',
+        icon: IconTableChart,
+        inMenu: false,
+    },
+    [NodeKind.BookActivityPeopleQuery]: {
+        name: 'Book activity people',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.BookActivityFirstsQuery]: {
+        name: 'Book activity first use',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.EndpointsUsageOverviewQuery]: {
         name: 'Endpoints usage overview',
         icon: IconPieChart,
@@ -681,6 +701,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MCPProtocolVersionBreakdownQuery]: {
         name: 'MCP protocol version breakdown',
         description: 'MCP tool-call activity grouped by negotiated protocol revision.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPDashboardQuery]: {
+        name: 'MCP dashboard',
+        description: 'Every section of the MCP Analytics dashboard in one request.',
         icon: IconPieChart,
         inMenu: false,
     },

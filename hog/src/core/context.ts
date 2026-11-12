@@ -1,8 +1,16 @@
-import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
+import type { ApiToolLibrary, SkillsLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { PostHogApi } from '@/posthog/api'
-import { resolveCredentials, type Credentials } from '@/posthog/credentials'
+import {
+    loginQuery,
+    posthogPath,
+    resolveCredentials,
+    type CredentialOptions,
+    type Credentials,
+} from '@/posthog/credentials'
+import { parseProjectId } from '@/posthog/ids'
 import { KeySession } from '@/posthog/key-session'
+import type { LoginQuery } from '@/posthog/login/choose'
 import { canStepUp } from '@/posthog/scope-challenge'
 
 import type { Mode } from './agent'
@@ -11,6 +19,7 @@ import { loadConfig, type LoadedConfig } from './config'
 import type { GlobalOptions } from './globals'
 import type { Prompts } from './prompts'
 import type { Runtime } from './runtime'
+import { SKILL_COMMANDS } from './skill-commands'
 import { Telemetry } from './telemetry'
 
 // What a command's `run` gets besides its own arguments and options. It has no output on
@@ -21,6 +30,7 @@ export class Context {
     private keySession?: Promise<KeySession>
     private loaded?: Promise<LoadedConfig | undefined>
     private tools?: Promise<ApiToolLibrary>
+    private skillsLibrary?: Promise<SkillsLibrary>
     private stepUpRunning?: Promise<boolean>
 
     constructor(
@@ -67,6 +77,15 @@ export class Context {
         return run
     }
 
+    // Forgets posthog.json and the credentials, after the command wrote either one, so the next call
+    // reads them again. The telemetry for this run then belongs to the new login.
+    reload(): void {
+        this.loaded = undefined
+        this.credentialsRequest = undefined
+        this.keySession = undefined
+        this.api = undefined
+    }
+
     // The nearest posthog.json, or undefined when there is none. Throws `invalid_config` when it
     // doesn't match the schema.
     config(): Promise<LoadedConfig | undefined> {
@@ -79,16 +98,40 @@ export class Context {
         return this.tools
     }
 
+    // The PostHog agent skills, saved in ~/.posthog/skills for when a download fails. Without a home
+    // folder, the skills still download and nothing is saved.
+    skills(): Promise<SkillsLibrary> {
+        this.skillsLibrary ??= this.runtime.loadSkills({
+            cacheDir: posthogPath(this.runtime, 'skills'),
+            commands: SKILL_COMMANDS,
+            // The downloads go to GitHub, not PostHog, so --rate-limit doesn't count them.
+            fetch: (url, init) => this.runtime.fetch(url, { ...init, skipRateLimit: true }),
+        })
+        return this.skillsLibrary
+    }
+
+    private async credentialOptions(): Promise<CredentialOptions> {
+        const loaded = await this.config()
+        const projectId = loaded?.config.projectId
+
+        return {
+            ...this.globals,
+            configPath: loaded?.path,
+            configHost: loaded?.config.host,
+            configProjectId: projectId === undefined ? undefined : parseProjectId(projectId),
+        }
+    }
+
     // Throws `not_authenticated` when there are none.
     credentials(): Promise<Credentials> {
-        this.credentialsRequest ??= this.config().then((loaded) =>
-            resolveCredentials(this.runtime, {
-                ...this.globals,
-                configHost: loaded?.config.host,
-                configProjectId: loaded?.config.projectId?.toString(),
-            })
+        this.credentialsRequest ??= this.credentialOptions().then((options) =>
+            resolveCredentials(this.runtime, options)
         )
         return this.credentialsRequest
+    }
+
+    async loginQuery(): Promise<LoginQuery> {
+        return loginQuery(this.runtime, await this.credentialOptions())
     }
 
     // The key every client of this command sends, so they share its renewals.

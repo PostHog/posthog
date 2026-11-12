@@ -13,6 +13,8 @@ from products.tasks.backend import model_catalog
 PR_STATES = ("open", "draft", "merged", "closed")
 CI_STATUSES = ("passing", "failing", "pending", "none")
 
+TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
+
 # Host prefix of the PR URLs written to ``TaskRun.output['pr_url']`` — GitHub's ``html_url``.
 # ``task_run_github_pr_run_idx`` is a partial index on exactly this prefix test, and Postgres only
 # skips the JSONB scan while a query repeats the predicate verbatim, so readers filtering on the
@@ -42,6 +44,7 @@ DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG = "tasks-hogland-hotplug-golden"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
+GITLAB_TASKS_FEATURE_FLAG = "tasks-gitlab"
 REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 PI_ACP_FEATURE_FLAG = "pi-acp"
 TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"

@@ -16,14 +16,21 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
-from posthog.models.utils import RootTeamMixin, UUIDModel
+from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDModel
 
 from products.feature_flags.backend.facade.filters import (
     CohortRestrictionBlocker,
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
 )
-from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, experiment_rule_from_filters
+from products.feature_flags.backend.facade.rules import (
+    ExperimentRuleConfig,
+    ExperimentRuleError,
+    experiment_rule_from_filters,
+    experiment_rule_from_snapshot,
+    experiment_rule_snapshot,
+    same_rule_id,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -47,8 +54,28 @@ EXPOSURE_FROZEN_GROUP_MARKER = "Added automatically when the experiment exposure
 # Why an experiment's exposure can't be frozen right now. Experiment-state reasons plus the
 # flag-shape reasons computed flag-side by group_cohort_restriction_blocker.
 ExposureFreezeBlocker = (
-    Literal["draft", "stopped", "paused", "already_frozen", "no_flag", "flag_deleted"] | CohortRestrictionBlocker
+    Literal["draft", "stopped", "paused", "already_frozen", "no_flag", "flag_deleted", "flag_rule"]
+    | CohortRestrictionBlocker
 )
+
+
+class LiveExperimentManager(RootTeamManager):
+    """Experiments the API still shows, which is every row whose `deleted` is not true.
+
+    This is a manager rather than a filter because the flag ownership table in
+    `products/feature_flags/backend/ownership.py` reads each owning relation through a named
+    manager, so only a manager can keep a deleted experiment out of it.
+
+    `deleted` is nullable, and `filter_experiments_queryset` counts a null as live, so this
+    excludes true instead of keeping false. An experiment a user can still open must keep its
+    flag, because that page is where the user unlinks it.
+
+    Inherits `RootTeamManager` because `RootTeamMixin` makes that the default manager, and a manager
+    on the model that does not inherit it would lose the project-scoped team rewriting.
+    """
+
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
 
 
 class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
@@ -162,6 +189,11 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
     # The immutable first-start snapshot preserves the rule and relevant flag context after winner shipping.
     feature_flag_rule_snapshot = models.JSONField(null=True, blank=True)
 
+    # Django puts a locally declared manager first, so without this line `live_objects` becomes
+    # the default manager and hides soft-deleted rows from readers such as restore.
+    objects = RootTeamManager()  # type: ignore[misc]
+    live_objects = LiveExperimentManager()
+
     class Meta:
         db_table = "posthog_experiment"
         constraints = [
@@ -185,10 +217,34 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         return self.name or "Untitled"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        self._assert_rule_snapshot_before_start()
         self.status = self.computed_status
         if "update_fields" in kwargs:
             kwargs["update_fields"] = [*list(kwargs["update_fields"]), "status"]
         super().save(*args, **kwargs)
+
+    def _assert_rule_snapshot_before_start(self) -> None:
+        """The launch paths write the rule snapshot. This stops any other write from starting a rule-linked
+        experiment without one, because a started experiment cannot get its snapshot afterwards.
+
+        It reads the instance dict, so a deferred field costs no query. A deferred field is one this
+        save cannot have changed.
+        """
+        loaded = self.__dict__
+        if loaded.get("feature_flag_rule_id") is None or loaded.get("start_date") is None:
+            return
+        if "feature_flag_rule_snapshot" in loaded and loaded["feature_flag_rule_snapshot"] is None:
+            raise ValueError("An experiment on a feature flag rule cannot start without its rule snapshot")
+
+    @property
+    def is_rule_linked(self) -> bool:
+        """Whether the experiment runs on one rule of a config version 2 feature flag.
+
+        This is the only decision between the two analysis contracts. Do not read it from the flag's
+        current config format or from an event name: a legacy experiment stays legacy when its flag
+        changes, and a rule-linked experiment stays rule-linked after its rule is replaced or removed.
+        """
+        return self.feature_flag_rule_id is not None
 
     @property
     def is_launched(self) -> bool:
@@ -269,6 +325,9 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         # paused). The group stamps survive, so resuming lands back in the frozen state.
         if not self.feature_flag.active:
             return False
+        # A freeze stamps v1 release groups, which a rule-linked experiment's flag does not have.
+        if self.is_rule_linked:
+            return False
         # Enrollment is closed only when EVERY release group is stamped, so that add/edit groups
         # surfaces as the experiment reverting to "running".
         return groups_carry_restriction_marker(self.feature_flag.filters or {}, marker_key=EXPOSURE_FROZEN_GROUP_KEY)
@@ -298,6 +357,8 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
             return "no_flag"
         if self.feature_flag.deleted:
             return "flag_deleted"
+        if self.is_rule_linked:
+            return "flag_rule"
         # The flag-shape preconditions (group aggregation, evaluation order, empty groups) live
         # flag-side in group_cohort_restriction_blocker. Fail closed rather than freeze partially.
         flag_blocker = group_cohort_restriction_blocker(self.feature_flag.filters or {})
@@ -336,7 +397,11 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         return self.feature_flag.key_without_tombstone()
 
     def get_analytics_metadata(self) -> dict[str, Any]:
-        variants = self.feature_flag.variants
+        try:
+            variants = experiment_variants(self)
+        except ExperimentRuleError:
+            # A draft whose rule was removed still reports its lifecycle events.
+            variants = []
 
         return {
             "experiment_id": self.id,
@@ -411,11 +476,63 @@ def get_experiment_rule(experiment: Experiment) -> ExperimentRuleConfig:
     """The experiment's normalized rule config — the single home for experiment-to-rule resolution.
 
     A v1 flag hosting an experiment is one implicit experiment rule, so this reads the
-    whole linked flag through the flag-side derivation. When the rule-level flag model
-    lands, this resolves the flag rule carrying this experiment's id instead — consumers
-    are untouched.
+    whole linked flag through the flag-side derivation.
+
+    A rule-linked experiment reads the one rule that `feature_flag_rule_id` names. Before the
+    launch that is the rule as the flag holds it now. From the launch on it is the snapshot
+    taken then, so results do not change when the rule is edited, replaced or removed. It
+    raises `ExperimentRuleError` when the rule or the snapshot cannot be read, and never falls
+    back to the legacy reading or to the flag's current config.
     """
-    return experiment_rule_from_filters(experiment.feature_flag.filters or {})
+    if not experiment.is_rule_linked:
+        return experiment_rule_from_filters(experiment.feature_flag.filters or {})
+    snapshot = (
+        experiment.feature_flag_rule_snapshot
+        if experiment.is_launched
+        else build_rule_snapshot(experiment.feature_flag, experiment.feature_flag_rule_id)
+    )
+    rule = experiment_rule_from_snapshot(snapshot)
+    if not same_rule_id(rule.rule_id, experiment.feature_flag_rule_id):
+        raise ExperimentRuleError(f"The rule snapshot of experiment {experiment.id} holds another rule")
+    return rule
+
+
+def build_rule_snapshot(feature_flag: Any, rule_id: Any) -> dict[str, Any]:
+    """The snapshot of one experiment rule of a config version 2 flag, as the flag holds it now.
+
+    Raises `ExperimentRuleError` when the flag has no experiment rule with this ID, and
+    `ConfigFormatError` when the flag is not config version 2.
+    """
+    return experiment_rule_snapshot(
+        feature_flag.filters or {},
+        str(rule_id),
+        flag_id=feature_flag.id,
+        flag_key=feature_flag.key_without_tombstone(),
+        flag_version=feature_flag.version,
+    )
+
+
+def experiment_variants(experiment: Experiment) -> list[dict]:
+    """The variants an experiment analyses, as v1 variant dicts (`key`, `rollout_percentage`).
+
+    A legacy experiment reads the flag's variants, as before. A rule-linked experiment reads its
+    rule (see `get_experiment_rule`, which also says when this raises).
+    """
+    if not experiment.is_rule_linked:
+        return experiment.feature_flag.variants
+    return get_experiment_rule(experiment).variants
+
+
+def exposure_flag_key(feature_flag: Any, rule: ExperimentRuleConfig | None) -> str:
+    """The flag key that an experiment's exposure events carry.
+
+    A legacy experiment (`rule` is None) reads the flag's current key, as before. A rule-linked
+    experiment reads the key its rule holds, which from the launch on is the key in the snapshot:
+    a flag renamed later keeps the results it had. Exposures sent under a later key do not count.
+    """
+    if rule is not None and rule.flag_key is not None:
+        return rule.flag_key
+    return feature_flag.key_without_tombstone()
 
 
 LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
@@ -595,8 +712,9 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         MANUAL = "manual", "Manual"
         AGENT_MCP = "agent_mcp", "Agent (MCP)"
         COLD_RUN = "cold_run", "Cold Run"
-        # The frontend refreshes a running experiment on page load when its latest results are older than its
-        # staleness threshold. Advances the window to now, so every metric recomputes.
+        # The frontend refreshes results on page load when they stop more than its staleness threshold before the
+        # window end, which is now for a running experiment and the end date for a stopped one. Advances the window to
+        # that end, so every metric recomputes.
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
         # Deprecated: feature no longer available.
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"

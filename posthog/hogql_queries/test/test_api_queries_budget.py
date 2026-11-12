@@ -18,10 +18,13 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import (
     API_QUERIES_BUDGET_BALANCE_HISTOGRAM,
     API_QUERIES_BUDGET_LIMITED_COUNTER,
+    ExecutionMode,
     get_api_queries_budget_status,
     get_query_runner,
 )
 from posthog.models.team.team_event_volume import TeamEventVolume
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, add_limited_team_tokens
 
 
 @override_settings(API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR=3600, API_QUERIES_BUDGET_CAPACITY_HOURS=1)
@@ -203,12 +206,35 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
         finally:
             reset_query_tags()
 
+    def test_refused_run_reports_a_refusal_not_a_failure(self):
+        self._drain()
+        runner = self._runner()
+        tag_queries(api_queries_budgeted=True)
+        try:
+            with (
+                patch("posthog.hogql_queries.query_runner._api_queries_budget_enforcement_enabled", return_value=True),
+                patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
+                pytest.raises(APIQueriesBudgetExceeded),
+            ):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        finally:
+            reset_query_tags()
+
+        failed_props = next(call.args[1] for call in report.call_args_list if call.args[0] == "query execution failed")
+        assert (failed_props["outcome"], failed_props["error_category"], failed_props["failed_in"]) == (
+            "refused",
+            "rate_limited",
+            "rate_limiters",
+        )
+
     def test_concurrency_limit_ignores_billing_quota_limited_teams(self):
         # get_api_queries_concurrency_limit reads the plain `posthog.settings` module
         # (not django.conf.settings), so @override_settings on the class doesn't reach it.
         runner = self._runner()
-        with (
-            patch("posthog.hogql_queries.query_runner.settings.API_QUERIES_ENABLED", True),
-            patch("ee.billing.quota_limiting.list_limited_team_attributes", return_value=[self.team.api_token]),
-        ):
+        add_limited_team_tokens(
+            QuotaResource.API_QUERIES,
+            {self.team.api_token: int(timezone.now().timestamp()) + 3600},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        with patch("posthog.hogql_queries.query_runner.settings.API_QUERIES_ENABLED", True):
             assert runner.get_api_queries_concurrency_limit() != 0

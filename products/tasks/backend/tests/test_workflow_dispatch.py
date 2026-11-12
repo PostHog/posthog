@@ -832,6 +832,50 @@ class TestWorkflowDispatchPersistence(TestCase):
         self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.DEAD)
         self.assertEqual(materialize_due_scheduled_task_runs(10), 0)
 
+    def test_due_run_on_task_deleted_out_of_band_is_cancelled(self) -> None:
+        now = django_timezone.now()
+        deleted_task = Task.objects.create(
+            team=self.team,
+            created_by=self.task_run.task.created_by,
+            title="Deleted task",
+            description="Deleted without the scheduled-run cleanup",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        state = {
+            "pending_dispatch": {
+                "user_id": self.task_run.task.created_by_id,
+                "create_pr": False,
+                "posthog_mcp_scopes": "full",
+            }
+        }
+        orphaned = TaskRun.objects.create(
+            task=deleted_task,
+            team=self.team,
+            status=TaskRun.Status.NOT_STARTED,
+            scheduled_at=now - timedelta(minutes=2),
+            state=state,
+        )
+        live = TaskRun.objects.create(
+            task=self.task_run.task,
+            team=self.team,
+            status=TaskRun.Status.NOT_STARTED,
+            scheduled_at=now - timedelta(minutes=1),
+            state=state,
+        )
+        Task.objects.filter(id=deleted_task.id).update(deleted=True, deleted_at=now)
+
+        self.assertEqual(materialize_due_scheduled_task_runs(10), 1)
+
+        orphaned.refresh_from_db()
+        live.refresh_from_db()
+        self.assertEqual(orphaned.status, TaskRun.Status.CANCELLED)
+        self.assertIsNotNone(orphaned.completed_at)
+        assert orphaned.error_message is not None
+        self.assertIn("canceled because the task was deleted", orphaned.error_message)
+        self.assertFalse(TaskWorkflowDispatch.objects.unscoped().filter(task_run=orphaned).exists())
+        self.assertEqual(live.status, TaskRun.Status.QUEUED)
+        self.assertEqual(materialize_due_scheduled_task_runs(10), 0)
+
     @parameterized.expand(
         [
             ("already_started_keeps_run_alive", WorkflowAlreadyStartedError("wf", "process-task"), "queued"),

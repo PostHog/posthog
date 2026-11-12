@@ -8,8 +8,7 @@ from dateutil import parser
 from posthog.models import Tag
 from posthog.models.activity_logging.activity_log import Change, changes_between
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -17,8 +16,8 @@ class TestChangesBetweenInsights(BaseTest):
     def test_a_change_of_insight_dashboard_can_be_logged(self) -> None:
         insight_before = self._an_insight_with(name="name", tagged_items=[])
         insight_after = self._an_insight_with(name="name", tagged_items=[])
-        dashboard = Dashboard.objects.create(team=self.team, name="the dashboard")
-        DashboardTile.objects.create(insight=insight_after, dashboard=dashboard)
+        dashboard_id = create_dashboard(team_id=self.team.id, name="the dashboard")
+        create_insight_tile(dashboard_id=dashboard_id, insight_id=insight_after.id)
 
         actual = changes_between(model_type="Insight", previous=insight_before, current=insight_after)
         expected = [
@@ -29,7 +28,7 @@ class TestChangesBetweenInsights(BaseTest):
                 before=[],
                 after=[
                     {
-                        "dashboard": {"id": dashboard.id, "name": dashboard.name},
+                        "dashboard": {"id": dashboard_id, "name": "the dashboard"},
                         "insight": {"id": insight_after.id},
                         "text": None,
                         "button_tile": None,

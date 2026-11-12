@@ -68,8 +68,11 @@ class SplunkObservabilityCloudEndpointConfig:
     fan_out_over_detectors: bool = False
     # Fan out one request series per synthetic test (path holds a {test_id} placeholder).
     fan_out_over_synthetic_tests: bool = False
-    # Rows come from the org-wide event search, which caps each query at 10,000 results.
+    # Rows come from a time-windowed search that caps each query at 10,000 results
+    # (the org-wide event search, the audit events search).
     is_event_search: bool = False
+    # Names of the epoch-ms start/end query params of a windowed search.
+    window_params: tuple[str, str] = ("start_time", "end_time")
     # Rows stream from a SignalFlow computation instead of a REST list endpoint.
     uses_signalflow: bool = False
     # Stable datetime field to partition by; only endpoints whose rows are immutable
@@ -168,6 +171,45 @@ SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpoint
         partition_key="timestamp",
         incremental_lookback_seconds=LATE_ROW_LOOKBACK_SECONDS,
     ),
+    # Who changed what in the org (AUDIT and CUSTOMER_AUDIT categories), sorted by
+    # timestamp ascending by default. Off by default: the token's user needs the
+    # READ_AUDIT_EVENTS capability, and the API answers 404 where the feature is not enabled.
+    "audit_events": SplunkObservabilityCloudEndpointConfig(
+        name="audit_events",
+        path="/audit/events",
+        extra_params={"sortBy": "timestamp"},
+        incremental_fields=_TIMESTAMP_INCREMENTAL_FIELD,
+        is_event_search=True,
+        window_params=("startTime", "endTime"),
+        partition_key="timestamp",
+        incremental_lookback_seconds=LATE_ROW_LOOKBACK_SECONDS,
+        should_sync_default=False,
+    ),
+    # Role definitions. One unpaged request that only an admin token may make, so off by default.
+    "roles": SplunkObservabilityCloudEndpointConfig(
+        name="roles",
+        path="/role",
+        response_style="list",
+        pagination="none",
+        should_sync_default=False,
+    ),
+    # OpAMP agents and collectors registered with the org. An explicit sort keeps offset
+    # pages stable. Off by default: the API answers 403 where the feature is not enabled.
+    "clients": SplunkObservabilityCloudEndpointConfig(
+        name="clients",
+        path="/fm-service/v1/clients",
+        data_key="clients",
+        primary_keys=["instance_uid"],
+        extra_params={"sort_key": "instance_uid"},
+        should_sync_default=False,
+    ),
+    # Synthetic test definitions; also the parent list of the synthetic_runs fan-out.
+    "synthetic_tests": SplunkObservabilityCloudEndpointConfig(
+        name="synthetic_tests",
+        path="/synthetics/tests",
+        data_key="tests",
+        pagination="page",
+    ),
     "synthetic_locations": SplunkObservabilityCloudEndpointConfig(
         name="synthetic_locations",
         path="/synthetics/locations",
@@ -201,14 +243,6 @@ SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS: dict[str, SplunkObservabilityCloudEndpoint
         should_sync_default=False,
     ),
 }
-
-# Parent list for the synthetic_runs fan-out. Not a table of its own.
-SYNTHETIC_TESTS_LIST = SplunkObservabilityCloudEndpointConfig(
-    name="synthetic_tests",
-    path="/synthetics/tests",
-    data_key="tests",
-    pagination="page",
-)
 
 ENDPOINTS = tuple(SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS.keys())
 
