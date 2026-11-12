@@ -36,7 +36,6 @@ def require_email_status_read(team: Any) -> None:
 
 
 def require_scheduled_sends(team: Any) -> None:
-    # A field error, not a 404: the route works, and the same email goes out once it leaves out `scheduled_at`.
     if not _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG):
         raise serializers.ValidationError(
             {

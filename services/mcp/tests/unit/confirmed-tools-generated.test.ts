@@ -35,6 +35,7 @@ const confirmedEmail = {
     subject: 'Hi',
     html: '<p>Hi</p>',
     reply_to: ['support@example.com'],
+    scheduled_at: '2026-11-13T09:00:00+02:00',
     capture_engagement: false,
 }
 

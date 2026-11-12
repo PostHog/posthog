@@ -14,7 +14,6 @@ from django.core.exceptions import (
 from django.core.validators import validate_email
 from django.db import transaction
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
 import structlog
 import posthoganalytics
@@ -519,15 +518,10 @@ class ScheduledAtField(serializers.DateTimeField):
         "no_offset": "Add a timezone offset to the time, such as `Z` or `+02:00`, so PostHog knows when to send it."
     }
 
-    def to_internal_value(self, value: Any) -> datetime:
-        # DRF reads a time without an offset in the server's timezone, which is not the caller's.
-        try:
-            parsed = parse_datetime(value) if isinstance(value, str) else None
-        except ValueError:
-            parsed = None
-        if parsed is not None and parsed.tzinfo is None:
+    def enforce_timezone(self, value: datetime) -> datetime:
+        if timezone.is_naive(value):
             self.fail("no_offset")
-        return super().to_internal_value(value)
+        return super().enforce_timezone(value)
 
 
 CODE_SEND_FIELDS = (
@@ -1459,7 +1453,6 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         )
 
 
-# The usage brief's delay buckets, so that scheduled sends and workflow delays compare.
 LEAD_TIME_BUCKETS = (
     (timedelta(hours=1), "under_1h"),
     (timedelta(days=1), "1h_to_24h"),
@@ -1471,7 +1464,6 @@ LEAD_TIME_BUCKETS = (
 
 def _lead_time(request: Any) -> dict[str, Any]:
     if not hasattr(request, "validated_data"):
-        # The time didn't parse, so how far ahead it was asked for is unknown.
         asked = "scheduled_at" in _sent_fields(request.data)
         return (
             {"scheduled": None, "lead_time_bucket": None} if asked else {"scheduled": False, "lead_time_bucket": "now"}

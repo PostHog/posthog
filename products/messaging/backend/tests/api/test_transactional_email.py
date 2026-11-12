@@ -2,7 +2,7 @@ import re
 import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any, get_args
 from uuid import UUID, uuid4
@@ -109,6 +109,7 @@ class FakeCdpApi:
     def __init__(self, *, takes_attachments: bool = True) -> None:
         self.received: list[dict[str, Any]] = []
         self._queued: list[dict[str, Any]] = []
+        self._replies: dict[str, dict[str, Any]] = {}
         self._accepted = {
             field: keys for field, keys in ACCEPTED_SEND_KEYS.items() if takes_attachments or field != "attachments"
         }
@@ -122,8 +123,10 @@ class FakeCdpApi:
             yield self
 
     def _run(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
-        self.received.append(json.loads(request.body or "{}"))
-        return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self.received)}"})
+        payload = json.loads(request.body or "{}")
+        self.received.append(payload)
+        status_code, reply = self._queue(payload, f"invocation-{len(self.received)}")
+        return status_code, {}, json.dumps(reply)
 
     def _send(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
         payload = json.loads(request.body or "{}")
@@ -134,8 +137,29 @@ class FakeCdpApi:
             issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
         if issues:
             return 400, {}, json.dumps({"error": json.dumps(issues)})
-        self._queued.append(payload)
-        return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self._queued)}"})
+        status_code, reply = self._queue(payload, f"invocation-{len(self._queued) + 1}")
+        if status_code == 202 and not reply["replayed"]:
+            self._queued.append(payload)
+        return status_code, {}, json.dumps(reply)
+
+    def _queue(self, payload: dict[str, Any], invocation_id: str) -> tuple[int, dict[str, Any]]:
+        key = payload.get("idempotency_key")
+        if key in self._replies:
+            return 202, {**self._replies[key], "replayed": True}
+        requested = datetime.fromisoformat(payload["scheduled_at"]) if payload.get("scheduled_at") else None
+        now = datetime.now(UTC)
+        if requested and requested > now + timedelta(days=30):
+            return 400, {"error": "invalid_scheduled_at", "reason": "too_far"}
+        scheduled_at = requested if requested and requested > now else None
+        reply = {
+            "invocation_id": invocation_id,
+            "status": "scheduled" if scheduled_at else "queued",
+            "scheduled_at": scheduled_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z") if scheduled_at else None,
+            "replayed": False,
+        }
+        if key:
+            self._replies[key] = reply
+        return 202, reply
 
     def emails(self) -> list[dict[str, Any]]:
         return [self._email(payload["send"]) for payload in self._queued]
@@ -990,7 +1014,8 @@ class TestTransactionalEmail(APIBaseTest):
                 "template_id_in_another_offset",
                 "send_email",
                 "2026-11-13T09:00:00+02:00",
-                (202, {"invocation_id": "i-1", "status": "scheduled", "scheduled_at": "2026-11-13T07:00:00.000Z"}),
+                "2026-11-13T07:00:00Z",
+                202,
                 {"status": "scheduled", "scheduled_at": "2026-11-13T07:00:00Z"},
                 "1h_to_24h",
             ),
@@ -998,16 +1023,17 @@ class TestTransactionalEmail(APIBaseTest):
                 "template_key",
                 "code",
                 "2026-11-20T09:00:00Z",
-                (202, {"invocation_id": "i-1", "status": "scheduled", "scheduled_at": "2026-11-20T09:00:00.000Z"}),
+                "2026-11-20T09:00:00Z",
+                202,
                 {"status": "scheduled", "scheduled_at": "2026-11-20T09:00:00Z"},
                 "7d_to_30d",
             ),
-            # The CDP service owns the time rules, so a time that passed goes out now.
             (
                 "a_time_that_passed",
                 "send_email",
                 "2026-11-12T11:00:00Z",
-                (202, {"invocation_id": "i-1", "status": "queued", "scheduled_at": None}),
+                "2026-11-12T11:00:00Z",
+                202,
                 {"status": "queued", "scheduled_at": None},
                 "now",
             ),
@@ -1015,7 +1041,8 @@ class TestTransactionalEmail(APIBaseTest):
                 "more_than_30_days_ahead",
                 "code",
                 "2026-12-31T09:00:00Z",
-                (400, {"error": "invalid_scheduled_at", "reason": "too_far"}),
+                "2026-12-31T09:00:00Z",
+                400,
                 {
                     "code": "invalid_scheduled_at",
                     "attr": "scheduled_at",
@@ -1027,24 +1054,48 @@ class TestTransactionalEmail(APIBaseTest):
     )
     @time_machine.travel("2026-11-12T12:00:00Z", tick=False)
     def test_schedules_a_send_for_the_time_it_names(
-        self, mock_post, _flag, capture, _name, route, scheduled_at, cdp_answer, expected, lead_time_bucket
+        self, mock_post, _flag, capture, _name, route, scheduled_at, cdp_receives, status_code, expected, bucket
     ):
-        cdp_status, cdp_body = cdp_answer
-        mock_post.return_value = MagicMock(status_code=cdp_status, json=lambda: cdp_body)
         psak = self._psak_client(["transactional_email:write"])
 
-        if route == "code":
-            response = psak.post(self.send_email_url, self._code_send(scheduled_at=scheduled_at), format="json")
-            posted = json.loads(mock_post.call_args.kwargs["data"])
-        else:
-            response = self._send(psak, route, {**self.body, "scheduled_at": scheduled_at})
-            posted = mock_post.call_args.kwargs["json"]
+        with FakeCdpApi().serving(mock_post) as cdp:
+            if route == "code":
+                response = psak.post(self.send_email_url, self._code_send(scheduled_at=scheduled_at), format="json")
+            else:
+                response = self._send(psak, route, {**self.body, "scheduled_at": scheduled_at})
 
-        assert response.status_code == cdp_status, response.json()
+        assert response.status_code == status_code, response.json()
         assert {key: response.json()[key] for key in expected} == expected
-        assert posted["scheduled_at"] == datetime.fromisoformat(scheduled_at).astimezone(UTC).isoformat()
+        received = [datetime.fromisoformat(payload["scheduled_at"]) for payload in cdp.received]
+        assert received == [datetime.fromisoformat(cdp_receives)]
         reported = capture.call_args.kwargs["properties"]
-        assert (reported["scheduled"], reported["lead_time_bucket"]) == (lead_time_bucket != "now", lead_time_bucket)
+        assert (reported["scheduled"], reported["lead_time_bucket"]) == (bucket != "now", bucket)
+
+    def test_a_retry_after_the_scheduled_time_answers_queued(self, mock_post, _flag, _capture):
+        psak = self._psak_client(["transactional_email:write"])
+        body = {**self.body, "scheduled_at": "2026-11-12T13:00:00Z"}
+        headers = {"Idempotency-Key": "reminder:user-1"}
+
+        with (
+            time_machine.travel("2026-11-12T12:00:00Z", tick=False) as traveller,
+            FakeCdpApi().serving(mock_post) as cdp,
+        ):
+            first = self._send(psak, "send_email", body, headers=headers)
+            traveller.shift(timedelta(hours=2))
+            retry = self._send(psak, "send_email", body, headers=headers)
+
+        fields = ("message_id", "status", "scheduled_at", "replayed")
+        assert [response.status_code for response in (first, retry)] == [202, 202], retry.json()
+        assert [{key: response.json()[key] for key in fields} for response in (first, retry)] == [
+            {
+                "message_id": "invocation-1",
+                "status": "scheduled",
+                "scheduled_at": "2026-11-12T13:00:00Z",
+                "replayed": False,
+            },
+            {"message_id": "invocation-1", "status": "queued", "scheduled_at": None, "replayed": True},
+        ]
+        assert len(cdp.received) == 2
 
     @parameterized.expand(
         [

@@ -237,7 +237,6 @@ class QueuedEmail:
     replayed: bool = False
     # The total size of the email's files, as the CDP service verified them. None when it didn't say.
     attachment_bytes: int | None = None
-    # When the CDP service holds the email until. None when it goes out now, also for a time that already passed.
     scheduled_at: datetime | None = None
 
     @property

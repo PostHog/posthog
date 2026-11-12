@@ -6,12 +6,13 @@ import json
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import datetime
 from email.utils import parseaddr
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from django.db import connection, transaction
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import requests
@@ -616,8 +617,7 @@ def _send_payload(
         # The CDP service holds the key, because only it knows whether the email was queued.
         payload["idempotency_key"] = idempotency_key
     if scheduled_at is not None:
-        # The CDP service fingerprints the time for the Idempotency-Key, so one instant always sends as one string.
-        payload["scheduled_at"] = scheduled_at.astimezone(UTC).isoformat()
+        payload["scheduled_at"] = scheduled_at.isoformat()
     return payload
 
 
@@ -743,9 +743,10 @@ def _queue(
 def _scheduled_at(answer: dict[str, Any]) -> datetime | None:
     value = answer.get("scheduled_at")
     try:
-        return parse_datetime(value) if isinstance(value, str) else None
+        scheduled_at = parse_datetime(value) if isinstance(value, str) else None
     except ValueError:
         return None
+    return scheduled_at if scheduled_at and scheduled_at > timezone.now() else None
 
 
 def _attachment_refusal(refusal_code: str | None, answer: dict[str, Any]) -> TransactionalEmailError | None:
