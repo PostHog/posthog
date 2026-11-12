@@ -7,6 +7,7 @@ never verified. The channels of an abandoned setup stay, and verifying again reg
 from __future__ import annotations
 
 import time
+import random
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
@@ -17,6 +18,7 @@ from django.db.models import Max
 from django.db.models.functions import Lower
 from django.utils import timezone
 
+import requests
 import structlog
 
 from posthog.dataclasses import frozen
@@ -59,6 +61,16 @@ class CleanupResult:
     deleted: int
     failed: int
     pruned_registrations: int
+    throttled: bool
+
+
+class _MailgunThrottled(Exception):
+    pass
+
+
+def _raise_if_throttled(error: Exception) -> None:
+    if isinstance(error, requests.HTTPError) and error.response is not None and error.response.status_code == 429:
+        raise _MailgunThrottled from error
 
 
 def _mailgun_created_at(item: dict[str, Any]) -> datetime | None:
@@ -178,10 +190,13 @@ def _prune_registrations(mailgun_domains: list[dict[str, Any]], now: datetime) -
 
     pruned = 0
     # The listing pages by offset, so it can skip a domain that another region deletes during the scan.
-    for registration_id, domain, registered_id, registered_at in suspects[:MAX_PRUNE_CHECKS_PER_RUN]:
+    for registration_id, domain, registered_id, registered_at in random.sample(
+        suspects, min(len(suspects), MAX_PRUNE_CHECKS_PER_RUN)
+    ):
         try:
             current = get_domain(domain)
-        except Exception:
+        except Exception as error:
+            _raise_if_throttled(error)
             logger.exception("mailgun_domain_cleanup_prune_lookup_failed", domain=domain)
             continue
         if _registration_gone(registered_id, current):
@@ -202,7 +217,8 @@ def _delete_if_unchanged(domain: str, mailgun_domain_id: str, reason: str, kept:
         delete_domain(domain)
         logger.info("mailgun_domain_cleanup_deleted", domain=domain, reason=reason)
         return True
-    except Exception:
+    except Exception as error:
+        _raise_if_throttled(error)
         logger.exception("mailgun_domain_cleanup_delete_failed", domain=domain, reason=reason)
         return None
     finally:
@@ -214,33 +230,40 @@ def cleanup_mailgun_domains(*, dry_run: bool, max_deletions: int = MAX_DELETIONS
     mailgun_domains = list_domains()
     adoptable = _adoptable_registrations(mailgun_domains)
     scan = _scan_orphans(mailgun_domains, now, adoptable)
-    candidates = list(scan.owned)[:max_deletions]
-    abandoned_setups = list(scan.abandoned)[: max_deletions - len(candidates)]
+    # A random batch, so domains that fail every run cannot hold back the rest.
+    candidates = random.sample(list(scan.owned), min(len(scan.owned), max_deletions))
+    abandoned_setups = random.sample(list(scan.abandoned), min(len(scan.abandoned), max_deletions - len(candidates)))
     kept = scan.kept
 
     deleted = 0
     failed = 0
     pruned = 0
     adopted = 0
+    throttled = False
+    outcomes: list[bool | None] = []
     if not dry_run:
         for domain, mailgun_domain_id in adoptable.items():
             adopted += MailgunDomainRegistration.objects.filter(domain=domain, mailgun_domain_id="").update(
                 mailgun_domain_id=mailgun_domain_id
             )
-        pruned = _prune_registrations(mailgun_domains, now)
-        outcomes: list[bool | None] = []
-        for domain in candidates:
-            # A connect may have saved a channel for this domain since the snapshot.
-            if EmailChannel.objects.filter(domain__iexact=domain, kind=EmailChannelKind.SUPPORT).exists():
-                kept["claimed_during_run"] += 1
-                continue
-            outcomes.append(_delete_if_unchanged(domain, scan.owned[domain], "orphan", kept))
-        for domain in abandoned_setups:
-            # A channel may have verified, or a new channel may have joined the domain, since the snapshot.
-            if domain not in _abandoned_setup_domains(now - ABANDONED_SETUP_AGE, domain):
-                kept["setup_resumed_during_run"] += 1
-                continue
-            outcomes.append(_delete_if_unchanged(domain, scan.abandoned[domain], "abandoned_setup", kept))
+        try:
+            pruned = _prune_registrations(mailgun_domains, now)
+            for domain in candidates:
+                # A connect may have saved a channel for this domain since the snapshot.
+                if EmailChannel.objects.filter(domain__iexact=domain, kind=EmailChannelKind.SUPPORT).exists():
+                    kept["claimed_during_run"] += 1
+                    continue
+                outcomes.append(_delete_if_unchanged(domain, scan.owned[domain], "orphan", kept))
+            for domain in abandoned_setups:
+                # A channel may have verified, or a new channel may have joined the domain, since the snapshot.
+                if domain not in _abandoned_setup_domains(now - ABANDONED_SETUP_AGE, domain):
+                    kept["setup_resumed_during_run"] += 1
+                    continue
+                outcomes.append(_delete_if_unchanged(domain, scan.abandoned[domain], "abandoned_setup", kept))
+        except _MailgunThrottled:
+            # The account is shared with live email setup, so leave the rest of the batch to the next run.
+            throttled = True
+            logger.warning("mailgun_domain_cleanup_throttled")
         deleted = outcomes.count(True)
         failed = outcomes.count(None)
 
@@ -254,4 +277,5 @@ def cleanup_mailgun_domains(*, dry_run: bool, max_deletions: int = MAX_DELETIONS
         deleted=deleted,
         failed=failed,
         pruned_registrations=pruned,
+        throttled=throttled,
     )

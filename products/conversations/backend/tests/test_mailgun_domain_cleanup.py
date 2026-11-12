@@ -3,10 +3,11 @@ from email.utils import format_datetime
 from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 
 from posthog.models.instance_setting import override_instance_config
@@ -165,3 +166,22 @@ class TestMailgunDomainCleanup(BaseTest):
         assert MailgunDomainRegistration.objects.get(domain=DOMAIN).mailgun_domain_id == (
             "mg-1" if should_adopt else ""
         )
+
+    def test_stops_the_batch_when_mailgun_throttles(self) -> None:
+        domains = ["a.example.com", "b.example.com"]
+        for domain in domains:
+            self._register(domain)
+        throttled = requests.HTTPError(response=MagicMock(status_code=429))
+
+        with (
+            override_instance_config("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", ""),
+            patch(f"{SERVICE}.list_domains", return_value=[_mailgun_domain(d, "unverified") for d in domains]),
+            patch(f"{SERVICE}.get_domain", side_effect=throttled) as get_domain,
+            patch(f"{SERVICE}.delete_domain") as delete_domain,
+            patch(f"{SERVICE}.DELETE_PAUSE_SECONDS", 0),
+        ):
+            result = cleanup_mailgun_domains(dry_run=False)
+
+        assert result.throttled
+        assert get_domain.call_count == 1
+        delete_domain.assert_not_called()

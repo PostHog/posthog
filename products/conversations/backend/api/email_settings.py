@@ -358,16 +358,14 @@ def _reregister_expired_sibling_domain(team: Team, domain: str) -> MailgunDnsRec
 
     The Mailgun domain cleanup removes the registration of a setup that never verified, but keeps its
     channels. A new registration gets new DNS records, so every channel on the domain gets them too.
-    Returns None when the sibling's records still apply or the refresh failed.
+    Returns None when the sibling's records still apply. Raises when Mailgun fails, because the
+    sibling's records are no longer valid.
     """
     try:
         if mailgun_get_domain(domain) is not None:
             return None
         dns_records = mailgun_add_domain(domain)
     except MailgunNotConfigured:
-        return None
-    except Exception:
-        logger.exception("email_connect_reregister_expired_domain_failed", team_id=team.id, domain=domain)
         return None
 
     EmailChannel.objects.filter(
@@ -646,7 +644,16 @@ class EmailConnectView(APIView):
             if sibling:
                 dns_records = sibling.dns_records
                 if not sibling.domain_verified:
-                    dns_records = _reregister_expired_sibling_domain(team, domain) or dns_records
+                    try:
+                        dns_records = _reregister_expired_sibling_domain(team, domain) or dns_records
+                    except Exception:
+                        logger.exception(
+                            "email_connect_reregister_expired_domain_failed", team_id=team.id, domain=domain
+                        )
+                        return Response(
+                            {"error": "Failed to register domain for sending. Please try again later."},
+                            status=502,
+                        )
             else:
                 try:
                     dns_records = mailgun_add_domain(domain)

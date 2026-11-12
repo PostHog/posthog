@@ -357,4 +357,5 @@ def cleanup_mailgun_domains(dry_run: bool = False) -> None:
         deleted=result.deleted,
         failed=result.failed,
         pruned_registrations=result.pruned_registrations,
+        throttled=result.throttled,
     )

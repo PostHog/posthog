@@ -842,6 +842,34 @@ class TestEmailMultiConfig(BaseTest):
             expected,
         ]
 
+    @patch("products.conversations.backend.api.email_settings.mailgun_get_domain", return_value=None)
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_same_domain_fails_when_registering_the_dropped_domain_again_fails(
+        self, _mock_setting: MagicMock, mock_add_domain: MagicMock, _mock_get_domain: MagicMock
+    ):
+        mock_add_domain.return_value = {"sending_dns_records": [{"record_type": "TXT", "value": "old"}]}
+        self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+        mock_add_domain.side_effect = Exception("mailgun down")
+
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "billing@example.com", "from_name": "Billing"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 502
+        assert list(EmailChannel.objects.filter(team=self.team).values_list("from_email", flat=True)) == [
+            "support@example.com"
+        ]
+
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",
