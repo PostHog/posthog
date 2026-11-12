@@ -42,6 +42,7 @@ import {
     postgresServersOf,
     scratchSchema,
     seekFailures,
+    terminateRoleConnections,
     withPostgres,
 } from './stack'
 import { createSupervisor } from './supervisor'
@@ -76,6 +77,42 @@ const runner = proc(SELF, SELF, 'node scenarios run smoke', PLAIN_ENV)
 
 const writeFake = (file: string, body: string): void => {
     writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
+}
+
+const startPostgresRelay = async (
+    upstreamUrl: string
+): Promise<{ url: string; unnamedSessions(): number; close(): Promise<void> }> => {
+    const upstream = new URL(upstreamUrl)
+    const names: (string | undefined)[] = []
+    const sockets = new Set<net.Socket>()
+    const server = net.createServer((client) => {
+        sockets.add(client)
+        client.once('data', (startup: Buffer) => {
+            client.pause()
+            const fields = startup.subarray(8).toString('utf8').split('\0')
+            const at = fields.indexOf('application_name')
+            names.push(at === -1 ? undefined : fields[at + 1])
+            const relay = net.connect(Number(upstream.port || 5432), upstream.hostname, () => {
+                relay.write(startup)
+                client.pipe(relay).pipe(client)
+            })
+            sockets.add(relay)
+            relay.on('error', () => client.destroy())
+        })
+        client.on('error', () => undefined)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const url = new URL(upstreamUrl)
+    url.hostname = '127.0.0.1'
+    url.port = String((server.address() as net.AddressInfo).port)
+    return {
+        url: url.toString(),
+        unnamedSessions: () => names.filter((name) => name === undefined).length,
+        close: async () => {
+            sockets.forEach((socket) => socket.destroy())
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        },
+    }
 }
 
 const sendThrough = async (edgeUrl: string): Promise<string> => {
@@ -1393,7 +1430,9 @@ describe('scenario environment', () => {
             expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: true })])
         }, 30_000)
 
-        it("drops the roles' Postgres connections and spares every other one", async () => {
+        it("drops the roles' Postgres connections on every server they use and spares every other one", async () => {
+            const secondServer = await startPostgresRelay(cyclotronUrl)
+            process.env.CYCLOTRON_NODE_DATABASE_URL = secondServer.url
             environment = environmentOf()
             await environment.up()
             const connect = async (
@@ -1410,9 +1449,11 @@ describe('scenario environment', () => {
             const cyclotron = await connect(`scenario-${tag}`)
             const bystander = await connect(`bystander-${tag}`)
             try {
+                const unnamedBefore = secondServer.unnamedSessions()
                 const actuation = await environment.actuate({ kind: 'pg.terminate', share: 1 })
 
                 expect(await actuation.observed()).toBe(true)
+                expect(secondServer.unnamedSessions()).toBeGreaterThan(unnamedBefore)
                 await Promise.all([pool.ended, cyclotron.ended])
                 const alive = await withPostgres(
                     async (client) =>
@@ -1428,8 +1469,38 @@ describe('scenario environment', () => {
                 await actuation.release()
             } finally {
                 await Promise.all([pool, cyclotron, bystander].map(({ client }) => client.end().catch(() => undefined)))
+                await secondServer.close()
             }
         }, 30_000)
+
+        it("drops the dose's share of the roles' Postgres connections, rounded up", async () => {
+            const tag = `${process.pid}-${Date.now()}`
+            const sessions = await Promise.all(
+                [1, 2, 3].map(async (n) => {
+                    const client = new Client({
+                        connectionString: templatesUrl,
+                        application_name: `scenario-${tag}-${n}`,
+                    })
+                    let ended = false
+                    client.on('error', () => (ended = true))
+                    await client.connect()
+                    return { client, ended: () => ended }
+                })
+            )
+            try {
+                const terminated = await terminateRoleConnections(templatesUrl, 0.5)
+
+                await waitForExpect(() => expect(sessions.filter(({ ended }) => ended())).toHaveLength(2))
+                const answered = await Promise.all(
+                    sessions
+                        .filter(({ ended }) => !ended())
+                        .map(async ({ client }) => (await client.query<{ one: number }>('SELECT 1 AS one')).rows[0].one)
+                )
+                expect({ terminated, answered }).toEqual({ terminated: 2, answered: [1] })
+            } finally {
+                await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
+            }
+        })
 
         it('freezes a role on a valve, sees it stopped, and resumes the same process on release', async () => {
             const role = 'cdp-cyclotron-worker-hogflow'

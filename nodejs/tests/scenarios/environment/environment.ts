@@ -281,6 +281,7 @@ export function createEnvironment({
             caDir: path.join(stateDir, 'edge-ca'),
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
+        postgresServers = postgresServersOf(specs[0], postgresUrl)
         const api = specs.filter((spec) => spec.role === 'cdp-api')
         const others = specs.filter((spec) => spec.role !== 'cdp-api')
         await supervisor.start(api)
