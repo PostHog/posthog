@@ -2243,7 +2243,13 @@
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
   
       -- TTL: rows are automatically deleted after expires_at
-      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+  
+      -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+      -- existing column, so the table can be a deletion target without storing anything twice.
+      timestamp DateTime64(6, 'UTC') ALIAS first_exposure_time,
+      uuid UUID ALIAS exposure_event_uuid,
+      inserted_at DateTime64(6, 'UTC') ALIAS computed_at
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_experiment_exposures_preaggregated', cityHash64(entity_id))
   
   '''
@@ -2280,7 +2286,13 @@
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
   
       -- TTL: rows are automatically deleted after expires_at
-      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+  
+      -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+      -- existing column, so the table can be a deletion target without storing anything twice.
+      -- The sweep also reads `timestamp`, which this table already has.
+      uuid UUID ALIAS event_uuid,
+      inserted_at DateTime64(6, 'UTC') ALIAS computed_at
   ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_experiment_metric_events_preaggregated', cityHash64(entity_id))
   
   '''
@@ -8449,7 +8461,13 @@
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
   
       -- TTL: rows are automatically deleted after expires_at
-      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+  
+      -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+      -- existing column, so the table can be a deletion target without storing anything twice.
+      timestamp DateTime64(6, 'UTC') ALIAS first_exposure_time,
+      uuid UUID ALIAS exposure_event_uuid,
+      inserted_at DateTime64(6, 'UTC') ALIAS computed_at
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.experiment_exposures_preaggregated', '{replica}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
@@ -8491,7 +8509,13 @@
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
   
       -- TTL: rows are automatically deleted after expires_at
-      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+  
+      -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+      -- existing column, so the table can be a deletion target without storing anything twice.
+      -- The sweep also reads `timestamp`, which this table already has.
+      uuid UUID ALIAS event_uuid,
+      inserted_at DateTime64(6, 'UTC') ALIAS computed_at
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.experiment_metric_events_preaggregated', '{replica}-{shard}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
@@ -14489,7 +14513,13 @@
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
   
       -- TTL: rows are automatically deleted after expires_at
-      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+  
+      -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+      -- existing column, so the table can be a deletion target without storing anything twice.
+      timestamp DateTime64(6, 'UTC') ALIAS first_exposure_time,
+      uuid UUID ALIAS exposure_event_uuid,
+      inserted_at DateTime64(6, 'UTC') ALIAS computed_at
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.experiment_exposures_preaggregated', '{replica}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
@@ -14531,7 +14561,13 @@
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
   
       -- TTL: rows are automatically deleted after expires_at
-      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+  
+      -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+      -- existing column, so the table can be a deletion target without storing anything twice.
+      -- The sweep also reads `timestamp`, which this table already has.
+      uuid UUID ALIAS event_uuid,
+      inserted_at DateTime64(6, 'UTC') ALIAS computed_at
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.experiment_metric_events_preaggregated', '{replica}-{shard}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)

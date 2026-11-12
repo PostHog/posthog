@@ -1910,6 +1910,18 @@ database "posthog" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
     }
+    column "timestamp" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "first_exposure_time"
+    }
+    column "uuid" {
+      type  = "UUID"
+      alias = "exposure_event_uuid"
+    }
+    column "inserted_at" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "computed_at"
+    }
     engine "distributed" {
       cluster_name    = "posthog"
       remote_database = "posthog"
@@ -1959,6 +1971,14 @@ database "posthog" {
     column "expires_at" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
+    }
+    column "uuid" {
+      type  = "UUID"
+      alias = "event_uuid"
+    }
+    column "inserted_at" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "computed_at"
     }
     engine "distributed" {
       cluster_name    = "aux"
@@ -5851,6 +5871,18 @@ database "posthog" {
     column "expires_at" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
+    }
+    column "timestamp" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "first_exposure_time"
+    }
+    column "uuid" {
+      type  = "UUID"
+      alias = "exposure_event_uuid"
+    }
+    column "inserted_at" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "computed_at"
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated"

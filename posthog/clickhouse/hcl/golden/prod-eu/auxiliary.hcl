@@ -577,6 +577,14 @@ database "posthog" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
     }
+    column "uuid" {
+      type  = "UUID"
+      alias = "event_uuid"
+    }
+    column "inserted_at" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "computed_at"
+    }
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -3116,6 +3124,14 @@ database "posthog" {
     column "expires_at" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
+    }
+    column "uuid" {
+      type  = "UUID"
+      alias = "event_uuid"
+    }
+    column "inserted_at" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "computed_at"
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.experiment_metric_events_preaggregated"

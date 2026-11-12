@@ -161,6 +161,14 @@ database "posthog" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
     }
+    column "uuid" {
+      type  = "UUID"
+      alias = "event_uuid"
+    }
+    column "inserted_at" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "computed_at"
+    }
   }
   table "_ingestion_warnings_v2_columns" {
     abstract = true
