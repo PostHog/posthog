@@ -161,7 +161,10 @@ class SourceUpdatePayloadSerializer(serializers.Serializer):
 
 
 class StoredCredentialUnavailableError(Exception):
-    pass
+    def __init__(self, message: str, *, stored_source_type: str | None = None) -> None:
+        super().__init__(message)
+        # Set when the credential exists but is for another source type.
+        self.stored_source_type = stored_source_type
 
 
 def find_stored_credential(
@@ -178,10 +181,14 @@ def find_stored_credential(
             id=credential_id, created_by=user, expires_at__gt=timezone.now()
         )
     except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
-        raise StoredCredentialUnavailableError(f"Stored credential '{credential_id}' not found or expired")
+        raise StoredCredentialUnavailableError(
+            f"Stored credential '{credential_id}' not found or expired. "
+            "List your valid stored credentials with data-warehouse-stored-credentials-list."
+        )
     if credential.source_type != source_type:
         raise StoredCredentialUnavailableError(
-            f"Stored credential '{credential_id}' is for '{credential.source_type}', not '{source_type}'"
+            f"Stored credential '{credential_id}' is for '{credential.source_type}', not '{source_type}'.",
+            stored_source_type=credential.source_type,
         )
     return credential
 
