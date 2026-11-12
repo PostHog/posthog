@@ -25,7 +25,7 @@ use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
 };
 use crate::router;
-use crate::router::BATCH_BODY_SIZE;
+use crate::router::{AI_BODY_SIZE, BATCH_BODY_SIZE};
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
@@ -217,7 +217,7 @@ pub async fn build_components(
     // event individually, so we should instead allow for some small multiple of our max compressed
     // body size to be unpacked. If a single event is still too big, we'll drop it at kafka send time.
     let event_payload_max_bytes = match config.capture_mode {
-        CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => BATCH_BODY_SIZE * 5,
+        CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => EVENT_PAYLOAD_MAX_BYTES,
         CaptureMode::Recordings => ingestion_message_max_bytes as usize,
     };
 
@@ -436,6 +436,13 @@ fn ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max_bytes: 
     // `0` disables the ceiling, so there is no ordering to be wrong about.
     ceiling != 0 && ceiling >= producer_message_max_bytes as u64
 }
+
+const EVENT_PAYLOAD_MAX_BYTES: usize = BATCH_BODY_SIZE * 5;
+
+const _: () = assert!(
+    EVENT_PAYLOAD_MAX_BYTES >= AI_BODY_SIZE,
+    "the AI batch route decompresses into the analytics budget"
+);
 
 fn warn_if_ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max_bytes: u32) {
     if ai_ceiling_exceeds_producer_cap(config, producer_message_max_bytes) {

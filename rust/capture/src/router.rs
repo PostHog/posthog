@@ -28,6 +28,7 @@ use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
+use crate::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
 use crate::config::CaptureMode;
 use crate::metrics_middleware::track_metrics;
 use crate::quota_limiters::CaptureQuotaLimiter;
@@ -39,6 +40,10 @@ use metrics_exporter_prometheus::PrometheusHandle;
 pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB
 
 const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB
+
+/// One event at the shared ceiling, plus the 10% multipart allows for framing.
+pub const AI_BODY_SIZE: usize =
+    (AI_MAX_EVENT_BYTES_CEILING + AI_MAX_EVENT_BYTES_CEILING / 10) as usize;
 
 /// A route group's wire-body ceiling, carried as a request extension.
 ///
@@ -160,6 +165,13 @@ async fn index() -> &'static str {
     "capture"
 }
 
+fn v1_body_limit(capture_mode: CaptureMode, configured: usize) -> usize {
+    match capture_mode {
+        CaptureMode::Ai => configured.max(AI_BODY_SIZE),
+        CaptureMode::Events | CaptureMode::Import | CaptureMode::Recordings => configured,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 'static>(
     timesource: TZ,
@@ -213,8 +225,14 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_max_event_bytes,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
-        capture_v1_max_compressed_body_bytes,
-        capture_v1_max_decompressed_body_bytes,
+        capture_v1_max_compressed_body_bytes: v1_body_limit(
+            capture_mode,
+            capture_v1_max_compressed_body_bytes,
+        ),
+        capture_v1_max_decompressed_body_bytes: v1_body_limit(
+            capture_mode,
+            capture_v1_max_decompressed_body_bytes,
+        ),
         overflow_limiter,
         ai_events_overflow_limiter,
         ai_byte_rate_limiter,
@@ -270,8 +288,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // ingress can route them to the capture-ai deployment and keep AI and
     // analytics workloads isolated. Its own router rather than a member of
     // `batch_router` so capture-ai can serve this path without also serving the
-    // analytics batch and event routes, and rather than a member of `ai_router`
-    // so it keeps the batch body limit instead of the larger multipart one.
+    // analytics batch and event routes.
     let ai_batch_router = Router::new()
         .route(
             "/i/v0/ai/batch",
@@ -285,8 +302,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
-        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
+        .layer(DefaultBodyLimit::max(AI_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(AI_BODY_SIZE)));
 
     let event_router = Router::new()
         .route(
@@ -503,6 +520,21 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
 #[cfg(test)]
 mod tests {
     use std::time::Duration as StdDuration;
+
+    use super::{v1_body_limit, AI_BODY_SIZE};
+    use crate::config::CaptureMode;
+
+    #[rstest::rstest]
+    #[case::ai_raises_a_smaller_value(CaptureMode::Ai, 20_971_520, AI_BODY_SIZE)]
+    #[case::ai_keeps_a_larger_value(CaptureMode::Ai, 104_857_600, 104_857_600)]
+    #[case::analytics_keeps_its_value(CaptureMode::Events, 10_485_760, 10_485_760)]
+    fn v1_body_limits_carry_a_ceiling_sized_event_only_on_capture_ai(
+        #[case] mode: CaptureMode,
+        #[case] configured: usize,
+        #[case] expected: usize,
+    ) {
+        assert_eq!(v1_body_limit(mode, configured), expected);
+    }
 
     #[tokio::test]
     async fn test_body_chunk_timeout_fires_on_stalled_upload() {
