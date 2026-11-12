@@ -1,7 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, frozen
 
 # Together AI platform API (https://docs.together.ai/reference). Every list endpoint is a single
 # GET under https://api.together.xyz/v1 that returns the whole collection in one response — no
@@ -28,7 +28,7 @@ FINE_TUNE_FANOUT = DependentEndpointConfig(
 )
 
 
-@dataclass
+@frozen
 class TogetherAIEndpointConfig:
     name: str
     # Path under the API root, e.g. "/fine-tunes", or an absolute URL for an endpoint outside it.
