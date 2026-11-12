@@ -15025,6 +15025,22 @@
         },
         "feature_flag": "workflows-supabase-auth-emails"
     },
+    "suppressions-add": {
+        "description": "Suppress one or more email addresses (up to 1000 per call) so no workflow sends to them. Use this to migrate a suppression list from another email provider, such as Resend or SendGrid: page through the provider's list and send each page in one call instead of adding addresses one at a time. Set reason to bounce for bounced or invalid addresses (these also block transactional email), complaint for spam reports, and manual for anything else. Addresses that already have an entry keep it, so repeating a call is safe.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Add email addresses to the suppression list",
+        "title": "Add email addresses to the suppression list",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_suppressions/bulk_add_suppressions/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-bulk-suppressions-mcp"
+    },
     "survey-create": {
         "description": "Creates a new survey in the project. For the draft, targeting, preview, and launch workflow, load the creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow. For in-app surveys, start with a single choice or rating question and put any open-text question after it, because surveys that open with open text get far fewer responses. For a popover, recommend showing it after the event it asks about, and ask before adding a trigger or audience the user did not request. Survey content is public: anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or other private detail in a survey. For substantial visual changes, preview the final draft once before launch if browser access is already available. Skip browser checks for small edits.",
         "category": "Surveys",
