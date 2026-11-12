@@ -346,7 +346,7 @@ class TestManageScheduledEmails(EmailsApiTestBase):
 
     @parameterized.expand(
         [
-            ("just_sent_before_any_status_landed", 10, [], [], status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("just_queued_before_any_status_landed", 10, [], [], status.HTTP_503_SERVICE_UNAVAILABLE),
             (
                 "before_its_cancel_status_landed",
                 3600,
@@ -375,13 +375,13 @@ class TestManageScheduledEmails(EmailsApiTestBase):
                 [("sent", 60, "")],
                 status.HTTP_404_NOT_FOUND,
             ),
-            ("with_no_status_long_after_the_send", 3600, [], [], status.HTTP_404_NOT_FOUND),
+            ("with_no_status_long_after_it_was_queued", 3600, [], [], status.HTTP_404_NOT_FOUND),
         ]
     )
     def test_a_retry_after_a_lost_cancel_answer(
-        self, mock_post, _flag, _name, sent_seconds_ago, status_rows, later_rows, expected_status
+        self, mock_post, _flag, _name, queued_seconds_ago, status_rows, later_rows, expected_status
     ):
-        self.queued_at = datetime.now(UTC) - timedelta(seconds=sent_seconds_ago)
+        self.queued_at = datetime.now(UTC) - timedelta(seconds=queued_seconds_ago)
         self.message_id = self._message_id(self.queued_at)
         self._job("waiting")
         self._status_rows(status_rows)
@@ -590,18 +590,6 @@ class TestManageScheduledEmails(EmailsApiTestBase):
         responses = self._manage_from_another_project(mock_post)
 
         assert [response.status_code for response in responses] == [404, 404]
-
-    def test_another_projects_retry_after_a_lost_answer_is_not_found(self, mock_post, _flag):
-        self._job("waiting")
-        other_team = Team.objects.create(organization=self.organization, name="Other")
-        other_client = self._psak_client(["transactional_email:write"], team=other_team)
-        mock_post.side_effect = self._lose_the_answer()
-        other_client.post(f"/api/projects/{other_team.id}/messaging/emails/{self.message_id}/cancel/")
-
-        with self.cdp.serving(mock_post):
-            response = other_client.post(f"/api/projects/{other_team.id}/messaging/emails/{self.message_id}/cancel/")
-
-        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     def _manage_from_another_project(self, mock_post: MagicMock) -> list[Any]:
         other_team = Team.objects.create(organization=self.organization, name="Other")

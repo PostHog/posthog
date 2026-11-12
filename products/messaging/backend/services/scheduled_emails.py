@@ -46,11 +46,11 @@ def cancel_email(team_id: int, message_id: UUID) -> None:
     try:
         response = _call(lambda: cancel_scheduled_email(team_id, str(message_id)), "cancel", team_id, message_id)
     except DeliveryUnavailable:
-        _write_cancel_mark(team_id, message_id, _CancelMark.ATTEMPTED, keep_existing=True)
+        _mark_attempted_unless_canceled(team_id, message_id)
         raise
     refusal = _refusal_code(response)
     if response.status_code == 200:
-        _write_cancel_mark(team_id, message_id, _CancelMark.CANCELED, keep_existing=False)
+        _mark_canceled(team_id, message_id)
         return
     if response.status_code == 409 and refusal == "already_sending":
         raise AlreadySending()
@@ -82,13 +82,17 @@ def _cancel_mark_key(team_id: int, message_id: UUID) -> str:
     return f"transactional_email_canceled:{team_id}:{message_id}"
 
 
-def _write_cancel_mark(team_id: int, message_id: UUID, mark: _CancelMark, *, keep_existing: bool) -> None:
-    key, timeout = _cancel_mark_key(team_id, message_id), int(_CANCEL_MARK_TTL.total_seconds())
+def _mark_canceled(team_id: int, message_id: UUID) -> None:
+    _write_cancel_mark(cache.set, team_id, message_id, _CancelMark.CANCELED)
+
+
+def _mark_attempted_unless_canceled(team_id: int, message_id: UUID) -> None:
+    _write_cancel_mark(cache.add, team_id, message_id, _CancelMark.ATTEMPTED)
+
+
+def _write_cancel_mark(write: Callable[..., Any], team_id: int, message_id: UUID, mark: _CancelMark) -> None:
     try:
-        if keep_existing:
-            cache.add(key, mark.value, timeout=timeout)
-        else:
-            cache.set(key, mark.value, timeout=timeout)
+        write(_cancel_mark_key(team_id, message_id), mark.value, timeout=int(_CANCEL_MARK_TTL.total_seconds()))
     except Exception:
         logger.exception(
             "transactional_email_cancel_mark_write_failed", team_id=team_id, message_id=str(message_id), mark=mark
