@@ -40,6 +40,8 @@ def _log_change(team: Team, user: User, was_impersonated: bool, change: Change) 
         item_id=team.id,
         activity="updated",
         detail=Detail(name=str(team.name), changes=[change]),
+        # Without strict, the audit insert runs after the commit and a failure there is swallowed.
+        strict=True,
     )
 
 

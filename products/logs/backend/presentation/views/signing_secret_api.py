@@ -5,7 +5,7 @@ from typing import Any, cast
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -64,6 +64,15 @@ class _SessionOnlyPermission(BasePermission):
         return isinstance(request.successful_authenticator, SessionAuthentication)
 
 
+class _LogsAccessPermission(BasePermission):
+    # "INTERNAL" also turns off the resource-level access check, so this class checks Logs access itself.
+    message = "You don't have access to Logs in this project."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        level = "viewer" if request.method in SAFE_METHODS else "editor"
+        return cast(Any, view).user_access_control.check_access_level_for_resource("logs", level)
+
+
 class _SingletonSchema(PostHogAutoSchema):
     """A project has one signing secret, so ``list`` must not wrap the response in an array."""
 
@@ -77,7 +86,12 @@ class LogsSigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     pagination_class = None
     serializer_class = LogsSigningSecretSerializer
-    permission_classes = [_SessionOnlyPermission, TimeSensitiveActionPermission, TeamMemberStrictManagementPermission]
+    permission_classes = [
+        _SessionOnlyPermission,
+        TimeSensitiveActionPermission,
+        TeamMemberStrictManagementPermission,
+        _LogsAccessPermission,
+    ]
 
     @extend_schema(
         responses=LogsSigningSecretSerializer,
