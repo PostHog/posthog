@@ -184,6 +184,31 @@ describe('IdempotencyKeys', () => {
         expect(ttlSeconds).toBeGreaterThan((96 * HOUR_MS) / 1000 - 60)
     })
 
+    it('keeps the exact expiry when a run it recorded is recorded again with a shorter window', async () => {
+        await keys.reserve(1, key, 'request-a', 'lease-1')
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-1')
+        const redisKey = keys['redisKey'](1, key)
+        // Below the half second, so rounding the expiry to whole seconds would shorten it.
+        const expiryMs = 100 * HOUR_MS + 400
+        await valkey.useClient({ name: 'test-ttl' }, (client) => client.pexpire(redisKey, expiryMs))
+
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-2')
+
+        const pttl = await valkey.useClient({ name: 'test-ttl' }, (client) => client.pttl(redisKey))
+        expect(pttl).toBeGreaterThan(expiryMs - 100)
+    })
+
+    it('leaves a record without an expiry without one when its run is recorded again', async () => {
+        const redisKey = keys['redisKey'](1, key)
+        await valkey.useClient({ name: 'test-ttl' }, (client) =>
+            client.set(redisKey, JSON.stringify({ fingerprint: 'request-a', invocationId: 'run-1', queued: true }))
+        )
+
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-2')
+
+        expect(await valkey.useClient({ name: 'test-ttl' }, (client) => client.pttl(redisKey))).toEqual(-1)
+    })
+
     it('frees a key only for the request that holds it', async () => {
         await keys.reserve(1, key, 'request-a', 'run-1')
 

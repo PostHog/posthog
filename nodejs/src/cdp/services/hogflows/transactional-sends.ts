@@ -59,6 +59,8 @@ import {
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 const SCHEDULED_AT_FINGERPRINT_MARKER = 'scheduled_at'
 const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
+// Pods' clocks disagree, so a run's row can read as created a little after this pod saw it exist.
+const CLOCK_SKEW_MARGIN_MS = 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 const RUN_SCOPE = 'transactional-email'
@@ -375,6 +377,9 @@ export class TransactionalSends {
             }
             throw error
         }
+        // The run's row exists by now, and a reschedule can move it up to its created time plus the limit, so its record
+        // in Valkey lasts at least that long.
+        const latestRescheduleAt = new Date(Date.now() + MAX_SCHEDULE_AHEAD_MS + CLOCK_SKEW_MARGIN_MS)
         if (committed.outcome !== 'created' && idempotencyKey) {
             // Recorded in Valkey too, because an older pod reads only Valkey and would queue a second run. A mismatch
             // records the other send under this lease, with its fingerprint from the claim's own transaction, so an
@@ -395,8 +400,7 @@ export class TransactionalSends {
                     leaseToken,
                     replayed ? attachmentTotals : undefined,
                     replayed ? scheduledAt?.toISOString() : undefined,
-                    // The other send may be scheduled up to the latest time this one could be, so keep it that long.
-                    !replayed || scheduledAt ? latestDueAt : undefined,
+                    !replayed || scheduledAt ? latestRescheduleAt : undefined,
                     replayed ? senderKind : undefined
                 )
             }
@@ -422,7 +426,7 @@ export class TransactionalSends {
                 leaseToken,
                 attachmentTotals,
                 scheduledAt?.toISOString(),
-                scheduledAt ? latestDueAt : undefined,
+                scheduledAt ? latestRescheduleAt : undefined,
                 senderKind
             )
         }

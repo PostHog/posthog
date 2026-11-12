@@ -3066,6 +3066,29 @@ describe('CDP API', () => {
                     ).toMatchObject({ status: 'replayed', invocationId: sent.body.invocation_id })
                 })
 
+                it('keeps the record past the latest a reschedule can move the winner to, even when it was created after this request', async () => {
+                    const sent = await sendKeyedOn('transactional_email', { ...body, scheduled_at: inDays(5) })
+                    // The winner's row reads as created after this request built its own send, as with pod clock skew
+                    // or a request that waited before claiming. A reschedule may move the winner to that created time
+                    // plus 30 days.
+                    const { rows } = await cyclotron.query<{ created_ms: number }>(
+                        `UPDATE cyclotron_jobs SET created = created + interval '30 minutes' WHERE id = $1
+                         RETURNING (extract(epoch FROM created) * 1000)::float8 AS created_ms`,
+                        [sent.body.invocation_id]
+                    )
+                    const latestDueMs = rows[0].created_ms + 30 * DAY_MS
+                    await forgetValkeyRecord(keyed.idempotency_key as string)
+                    jest.spyOn(queue, 'findIdempotencyKey').mockResolvedValueOnce(null)
+
+                    const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
+
+                    expect(res.status).toEqual(422)
+                    const ttlMs = await valkey().useClient({ name: 'test' }, (client) =>
+                        client.pttl(valkeyKey(keyed.idempotency_key as string))
+                    )
+                    expect(Date.now() + ttlMs!).toBeGreaterThan(latestDueMs + DAY_MS)
+                })
+
                 it('replays the id an older pod queued and recorded only in Valkey', async () => {
                     const sent = await sendKeyed()
                     const key = valkeyKey(keyed.idempotency_key as string)

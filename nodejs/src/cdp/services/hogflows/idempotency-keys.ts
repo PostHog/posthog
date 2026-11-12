@@ -23,8 +23,8 @@ const RELEASE_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.deco
 // Records the queued run when the key is absent or still holds this request's reservation. The key is
 // absent when the queue write took longer than the pending TTL, and the run is queued all the same.
 // It also rewrites a record of the same run, which an earlier attempt can leave without its answer.
-// It never shortens the record's TTL, so a scheduled send keeps its longer replay window.
-const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) local owner = v and cjson.decode(v).invocationId if (not v) or owner == ARGV[2] or owner == ARGV[4] then redis.call('SET', KEYS[1], ARGV[1], 'PX', math.max(tonumber(ARGV[3]) * 1000, redis.call('PTTL', KEYS[1]))) return 1 end return 0`
+// It never shortens the record's expiry, to the millisecond, so a scheduled send keeps its longer replay window.
+const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) local owner = v and cjson.decode(v).invocationId if (not v) or owner == ARGV[2] or owner == ARGV[4] then local ttl = tonumber(ARGV[3]) local current = redis.call('PTTL', KEYS[1]) if current == -2 then redis.call('SET', KEYS[1], ARGV[1], 'PX', ttl) else redis.call('SET', KEYS[1], ARGV[1], 'KEEPTTL') if current >= 0 and ttl > current then redis.call('PEXPIRE', KEYS[1], ttl) end end return 1 end return 0`
 const CLIENT_NAMES = { mark_queued: 'idempotency-mark-queued', replay_until: 'idempotency-replay-until' }
 const MARK_QUEUED_INLINE_ATTEMPTS = 2
 const MARK_QUEUED_RETRY_FIRST_DELAY_MS = 250
@@ -339,7 +339,7 @@ export class IdempotencyKeys {
         { redisKey, value, leaseToken, expiresAt }: PendingCompletion,
         operation: 'mark_queued' | 'replay_until' = 'mark_queued'
     ): Promise<void> {
-        const ttlSeconds = Math.ceil((expiresAt - Date.now()) / 1000)
+        const ttlMs = Math.max(1, Math.ceil(expiresAt - Date.now()))
         const written = await this.timed(
             operation,
             () =>
@@ -350,7 +350,7 @@ export class IdempotencyKeys {
                         redisKey,
                         JSON.stringify(value),
                         leaseToken,
-                        ttlSeconds,
+                        ttlMs,
                         value.invocationId
                     )
                 ) ?? Promise.resolve(null)
