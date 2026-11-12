@@ -29,6 +29,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
+from posthog.dataclasses import frozen
 from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.kafka_client.routing import get_profile_settings
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_INGESTION
@@ -54,11 +55,17 @@ def _parse_timestamp(raw: str) -> datetime:
     return parsed
 
 
-def _parse_property(raw: str) -> tuple[str, str]:
+@frozen
+class _PropertyFilter:
+    key: str
+    value: str
+
+
+def _parse_property(raw: str) -> _PropertyFilter:
     key, separator, value = raw.partition("=")
     if not separator or not key:
         raise ArgumentTypeError(f"{raw!r} is not in KEY=VALUE form.")
-    return key, value
+    return _PropertyFilter(key=key, value=value)
 
 
 class Command(BaseCommand):
@@ -125,7 +132,10 @@ class Command(BaseCommand):
             team = Team.objects.get(pk=options["team_id"])
         except Team.DoesNotExist as error:
             raise CommandError(f"Project {options['team_id']} does not exist.") from error
-        criteria = ReplayCriteria(token=team.api_token, properties=dict(options["properties"]))
+        criteria = ReplayCriteria(
+            token=team.api_token,
+            properties={property_filter.key: property_filter.value for property_filter in options["properties"]},
+        )
 
         live_run: bool = options["live_run"]
         topic: str = options["topic"]
