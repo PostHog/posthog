@@ -1,5 +1,5 @@
 import { AddressInfo, Server, Socket, connect, createServer } from 'net'
-import { Message } from 'node-rdkafka'
+import { CODES, Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
@@ -206,6 +206,9 @@ describe('CrashGuard', () => {
     const unavailable = () => Object.assign(new Error('personhog unavailable'), { isRetriable: true })
     const failOnDependency = () => Promise.reject(unavailable())
     const failOnDependencyInBackground = () => Promise.resolve({ backgroundTask: Promise.reject(unavailable()) })
+    const kafkaTimedOut = () =>
+        Object.assign(new Error('Local: Message timed out'), { code: CODES.ERRORS.ERR__MSG_TIMED_OUT })
+    const failOnKafkaInBackground = () => Promise.resolve({ backgroundTask: Promise.reject(kafkaTimedOut()) })
     const failOnDependencyAfterCorruptingTheKey = async () => {
         await valkey.useClient({ name: 'test' }, (client) => client.set(batchAttemptsKey(group, 0, 0), 'corrupt'))
         throw unavailable()
@@ -224,6 +227,7 @@ describe('CrashGuard', () => {
             '3',
             1,
         ],
+        ['a Kafka delivery in the background task', 'enforce', failOnKafkaInBackground, setAside, 'background', '3', 1],
         [
             'a dependency, and Valkey refuses the take back,',
             'shadow',

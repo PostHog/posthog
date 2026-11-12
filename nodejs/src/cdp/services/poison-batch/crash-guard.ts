@@ -1,4 +1,4 @@
-import { Message } from 'node-rdkafka'
+import { CODES, Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import type { CommonConfig } from '~/common/config'
@@ -123,6 +123,19 @@ type BatchStart = { partition: number; start: number; last: number; messages: nu
 /** highestOffset is the highest offset that any attempt from this start fetched, this one included. */
 type CountedStart = BatchStart & { attempts: number; highestOffset: number }
 
+// librdkafka reports a broker outage on a produce as a delivery error that has no isRetriable flag.
+const KAFKA_OUTAGE_CODES: ReadonlySet<number> = new Set([
+    CODES.ERRORS.ERR__MSG_TIMED_OUT,
+    CODES.ERRORS.ERR__TIMED_OUT,
+    CODES.ERRORS.ERR__TRANSPORT,
+    CODES.ERRORS.ERR__ALL_BROKERS_DOWN,
+])
+
+const isDependencyError = (error: unknown): boolean => {
+    const { isRetriable, code } = (error ?? {}) as { isRetriable?: unknown; code?: unknown }
+    return isRetriable === true || (typeof code === 'number' && KAFKA_OUTAGE_CODES.has(code))
+}
+
 const batchStarts = (messages: Message[]): BatchStart[] => {
     const starts = new Map<number, BatchStart>()
     for (const { partition, offset } of messages) {
@@ -181,7 +194,7 @@ export class CrashGuard {
      * 5. clear: when the background task of the consume finishes, delete the counts of the consumed partitions.
      *
      * A crash at any step leaves the counts in place. The next start of the worker fetches the same offsets
-     * and counts them again. A retriable dependency error in the set aside, the consume or its background
+     * and counts them again. A dependency error in the set aside, the consume or its background
      * task calls uncount, so an outage does not count toward a set aside.
      */
     public async run(
@@ -228,13 +241,13 @@ export class CrashGuard {
         return { backgroundTask: cleared ? done.then(() => this.clear(cleared)) : done }
     }
 
-    // A personhog or Postgres outage fails every batch at its offset, which would read as poison.
+    // A personhog, Postgres or Kafka outage fails every batch at its offset, which would read as poison.
     // Other errors, and crashes that kill the process before this catch, keep their count.
     private async uncountOnDependencyError<T>(counted: CountedStart[] | null, work: Promise<T>): Promise<T> {
         try {
             return await work
         } catch (error) {
-            if (counted && (error as { isRetriable?: unknown } | undefined)?.isRetriable === true) {
+            if (counted && isDependencyError(error)) {
                 await this.uncount(counted)
             }
             throw error
@@ -242,7 +255,7 @@ export class CrashGuard {
     }
 
     /**
-     * Subtracts the attempt that count added, after a retriable dependency error. The batch then fails and
+     * Subtracts the attempt that count added, after a dependency error. The batch then fails and
      * replays, but the replay does not move it closer to a set aside. A failure here only logs, because the
      * batch already fails with the original error.
      */
