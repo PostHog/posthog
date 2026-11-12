@@ -411,18 +411,21 @@ def test_finds_the_metric_names_of_an_expression(expr: str, expected: list[str])
 
 
 @pytest.mark.parametrize(
-    "expr, expected, changed_meaning",
+    "expr, expected",
     [
-        ("rate(a[$__rate_interval]) + increase(b[${__interval}])", "rate(a) + increase(b)", False),
-        ("increase(a[$__range])", "increase(a)", True),
-        ("increase(a[${__range_s}s]) / increase(b[${__range_ms}ms])", "increase(a) / increase(b)", True),
-        ("rate(a[5m])", "rate(a[5m])", False),
-        ('rate(a{path="[$__interval]"}[1m])', 'rate(a{path="[$__interval]"}[1m])', False),
+        ("rate(a[$__rate_interval]) + increase(b[${__interval}])", "rate(a) + increase(b)"),
+        # The query runner fills the dashboard range, so it stays.
+        ("increase(a[$__range])", "increase(a[$__range])"),
+        (
+            "increase(a[${__range_s}s]) / increase(b[${__range_ms}ms])",
+            "increase(a[${__range_s}s]) / increase(b[${__range_ms}ms])",
+        ),
+        ("rate(a[5m])", "rate(a[5m])"),
+        ('rate(a{path="[$__interval]"}[1m])', 'rate(a{path="[$__interval]"}[1m])'),
     ],
 )
-def test_rewrites_grafana_ranges_to_the_query_step(expr: str, expected: str, changed_meaning: bool) -> None:
-    rewrite = strip_grafana_ranges(expr)
-    assert (rewrite.expr, rewrite.changed_meaning) == (expected, changed_meaning)
+def test_rewrites_grafana_step_ranges_to_the_query_step(expr: str, expected: str) -> None:
+    assert strip_grafana_ranges(expr) == expected
 
 
 @pytest.mark.parametrize(
