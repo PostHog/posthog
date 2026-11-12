@@ -1,7 +1,9 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import api, { ApiError } from 'lib/api'
 import { promiseResolveReject } from 'lib/utils/async'
+import { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -12,8 +14,8 @@ import {
     dataNodeLogic,
 } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
 import { ABANDONED_QUERY_GRACE_PERIOD, RESPONSE_CACHE_TTL } from './responseCache'
@@ -71,6 +73,37 @@ describe('dataNodeLogic', () => {
         initKeaTests()
     })
     afterEach(() => logic?.unmount())
+
+    it('shares the dashboard queue capacity with other tile loads', async () => {
+        const loadQueue = new TaskQueue(3)
+        const dashboardLoad = promiseResolveReject<void>()
+        const occupied = loadQueue.run(() => dashboardLoad.promise)
+        const response = { results: [[1]], columns: ['value'] }
+        const queryResult = promiseResolveReject<typeof response>()
+        mockedQuery.mockReset()
+        mockedQuery.mockReturnValue(queryResult.promise)
+        const queries = [1, 2, 3].map((id) =>
+            dataNodeLogic({
+                key: `dashboard-queue-${id}`,
+                query: setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: `SELECT ${id}` }),
+                loadQueue,
+            })
+        )
+        const unmounts = queries.map((query) => query.mount())
+        try {
+            await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(2))
+            dashboardLoad.resolve()
+            await occupied
+            await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(3))
+            queryResult.resolve(response)
+            await Promise.all(queries.map((query) => expectLogic(query).toFinishAllListeners()))
+            expect(queries.map((query) => query.values.response)).toEqual([response, response, response])
+        } finally {
+            dashboardLoad.resolve()
+            queryResult.resolve(response)
+            unmounts.forEach((unmount) => unmount())
+        }
+    })
 
     it.each(['pending', 'failed'] as const)('restores a retained query after another query is %s', async (state) => {
         const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
@@ -334,6 +367,30 @@ describe('dataNodeLogic', () => {
             .toMatchValues({ responseLoading: true, response: null })
             .delay(0)
             .toMatchValues({ responseLoading: false, response: partial({ results: results3 }) })
+    })
+
+    it.each([
+        ['runs a query with a valid regex filter', '^/api/.*', false, 1],
+        ['skips a query with an invalid regex filter', '(?=lookahead)', false, 0],
+        ['skips a query cancelled during the load', '^/api/cancelled', true, 0],
+    ])('%s once the RE2 engine loads', async (_name, pattern, cancel, expectedCalls) => {
+        mockedQuery.mockResolvedValueOnce({ results: [] })
+        logic = dataNodeLogic({
+            key: `regex-${pattern}`,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+                properties: [{ type: 'event', key: '$current_url', operator: 'regex', value: pattern }],
+            }),
+        })
+        logic.mount()
+        if (cancel) {
+            logic.actions.cancelQuery()
+        }
+
+        await expectLogic(logic).toFinishAllListeners()
+        await waitFor(() => expect(logic.values.responseLoading).toBe(false))
+        expect(performQuery).toHaveBeenCalledTimes(expectedCalls)
     })
 
     it('reports the query kind to its collection when the query arrives after mount', async () => {

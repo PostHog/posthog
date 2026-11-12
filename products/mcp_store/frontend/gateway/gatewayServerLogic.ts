@@ -57,6 +57,12 @@ export type AgentToolPolicyState = 'approved' | 'do_not_use'
 
 export const TOOL_PREVIEW_LIMIT = 10
 
+export interface ToolPolicyGroup {
+    key: 'read_only' | 'write_or_delete'
+    label: string
+    policies: ResolvedToolPolicyApi[]
+}
+
 function currentProjectId(): string {
     return String(teamLogic.values.currentTeamId)
 }
@@ -157,6 +163,7 @@ export interface gatewayServerLogicValues {
     teamToolPoliciesLoading: boolean
     toolPolicies: ResolvedToolPolicyApi[]
     toolPoliciesLoading: boolean
+    toolPolicyGroups: ToolPolicyGroup[] | null
     toolSearch: string
     toolsExpanded: boolean
 }
@@ -418,6 +425,7 @@ export interface gatewayServerLogicMeta {
             toolsExpanded: boolean,
             toolSearch: string
         ) => ResolvedToolPolicyApi[]
+        toolPolicyGroups: (filteredToolPolicies: ResolvedToolPolicyApi[]) => ToolPolicyGroup[] | null
         availableScopes: (
             server: MCPGatewayServerApi | null,
             serviceAccounts: MCPServiceAccountApi[],
@@ -783,6 +791,19 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
                 toolsExpanded || toolSearch.trim()
                     ? filteredToolPolicies
                     : filteredToolPolicies.slice(0, TOOL_PREVIEW_LIMIT),
+        ],
+        toolPolicyGroups: [
+            (s) => [s.filteredToolPolicies],
+            (filteredToolPolicies: ResolvedToolPolicyApi[]): ToolPolicyGroup[] | null => {
+                const readOnly = filteredToolPolicies.filter((policy) => policy.is_read_only)
+                const writeOrDelete = filteredToolPolicies.filter((policy) => !policy.is_read_only)
+                return readOnly.length && writeOrDelete.length
+                    ? [
+                          { key: 'read_only', label: 'Read-only tools', policies: readOnly },
+                          { key: 'write_or_delete', label: 'Write or delete tools', policies: writeOrDelete },
+                      ]
+                    : null
+            },
         ],
         // Members always manage their own policy. Admins can also manage the
         // team baseline, and agent scopes follow the team setting.

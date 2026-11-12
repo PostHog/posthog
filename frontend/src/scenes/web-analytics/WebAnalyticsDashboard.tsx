@@ -1,3 +1,5 @@
+import '~/queries/nodes/InsightViz/InsightViz.scss'
+
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import React, { Suspense, useEffect, useState } from 'react'
@@ -664,13 +666,12 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
         case ProductTab.HEALTH:
         case ProductTab.LIVE:
             return null
-        case ProductTab.BOT_ANALYTICS:
-            return <BotAnalyticsFilters tabs={tabs} />
         case ProductTab.PAGE_PERFORMANCE:
             return <PagePerformanceFilters tabs={tabs} />
         case ProductTab.AGENTS:
             return <AgentAnalyticsFilters tabs={tabs} />
         case ProductTab.CONTENT_AUTOPILOT:
+        case ProductTab.BOT_ANALYTICS:
             return null
         default:
             return <WebAnalyticsFilters tabs={tabs} />
@@ -698,10 +699,6 @@ const MainContent = (): JSX.Element => {
         )
     }
 
-    if (productTab === ProductTab.BOT_ANALYTICS) {
-        return <BotAnalyticsTiles />
-    }
-
     if (productTab === ProductTab.PAGE_PERFORMANCE) {
         return <PagePerformance />
     }
@@ -710,11 +707,32 @@ const MainContent = (): JSX.Element => {
         return <AgentAnalytics />
     }
 
-    if (productTab === ProductTab.CONTENT_AUTOPILOT) {
-        return <ContentAutopilot />
+    if (productTab === ProductTab.CONTENT_AUTOPILOT || productTab === ProductTab.BOT_ANALYTICS) {
+        return <AiVisibility />
     }
 
     return <Tiles />
+}
+
+const AiVisibility = (): JSX.Element => {
+    const { productTab } = useValues(webAnalyticsLogic)
+    const { setProductTab } = useActions(webAnalyticsLogic)
+
+    return (
+        <ContentAutopilot
+            bots={{
+                active: productTab === ProductTab.BOT_ANALYTICS,
+                open: () => setProductTab(ProductTab.BOT_ANALYTICS),
+                close: () => setProductTab(ProductTab.CONTENT_AUTOPILOT),
+                content: (
+                    <div className="flex flex-col gap-2">
+                        <BotAnalyticsFilters tabs={<></>} />
+                        <BotAnalyticsTiles />
+                    </div>
+                ),
+            }}
+        />
+    )
 }
 
 const BotAnalyticsTiles = (): JSX.Element => {
@@ -766,29 +784,6 @@ const liveTab = (): { key: ProductTab; label: string | JSX.Element; link: string
             key: ProductTab.LIVE,
             label: 'Live',
             link: urls.webAnalyticsLive(),
-        },
-    ]
-}
-
-const botAnalyticsTab = (
-    featureFlags: FeatureFlagsSet
-): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
-        return []
-    }
-
-    return [
-        {
-            key: ProductTab.BOT_ANALYTICS,
-            label: (
-                <div className="flex items-center gap-1">
-                    Bots
-                    <LemonTag type="completion" className="uppercase">
-                        Alpha
-                    </LemonTag>
-                </div>
-            ),
-            link: urls.webAnalyticsBotAnalytics(),
         },
     ]
 }
@@ -849,7 +844,7 @@ const contentAutopilotTab = (
             key: ProductTab.CONTENT_AUTOPILOT,
             label: (
                 <div className="flex items-center gap-1">
-                    Content autopilot
+                    AI visibility
                     <LemonTag type="completion" className="uppercase">
                         Alpha
                     </LemonTag>
@@ -968,7 +963,8 @@ const WebAnalyticsTabs = (): JSX.Element => {
 
     return (
         <LemonTabs<ProductTab>
-            activeKey={productTab}
+            // Bots lives inside AI visibility, so its route keeps that tab active.
+            activeKey={productTab === ProductTab.BOT_ANALYTICS ? ProductTab.CONTENT_AUTOPILOT : productTab}
             onChange={setProductTab}
             tabs={[
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
@@ -983,7 +979,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     link: '/web/page-reports',
                 },
                 ...liveTab(),
-                ...botAnalyticsTab(featureFlags),
                 ...pagePerformanceTab(featureFlags),
                 ...agentAnalyticsTab(featureFlags),
                 ...contentAutopilotTab(featureFlags),

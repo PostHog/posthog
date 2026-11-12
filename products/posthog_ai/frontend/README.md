@@ -41,7 +41,7 @@ Pick the **lowest tier** that does the job.
 | ------------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner`   | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker workspace for inline hosts)                                                                                                                                                                 | "Just show a run" → `ReadonlyRunSurface` (inbox embeds). "Drive a run / custom layout" → `RunSurface` (tasks). "Embed the `/tasks` workspace" → `EmbeddedRunner` (Max). |
 | **2 — Compound primitives**    | `api/primitives` + `api/composer` + `api/dataWidgets` | `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `AttachedContextBar`, task navigation items and filters, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces; `api/composer` holds `Composer.*` and the quill composer frame | Custom layout, shared navigation, or a bespoke/compact thread. An input box alone imports only `api/composer`. Chart and recording widgets use `api/dataWidgets`.       |
-| **3 — Headless logic + types** | `api/logics` + `api/types`                            | `runStreamLogic`, `runInteractionLogic`, `tasksLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers, context injection (`attachedContextLogic`, `useAttachedContext`, `contextPickerLogic`), tool-stream subscriptions (`toolStreamEventsLogic`, `useToolStreamListener`); folded-thread, task, and tool types | Status badge, automation, context injection, task navigation, tool-event listeners — no presenters or registry.                                                         |
+| **3 — Headless logic + types** | `api/logics` + `api/types`                            | `runStreamLogic`, `runInteractionLogic`, `tasksLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers, context injection (`useAttachedContext`, `contextPickerLogic`), tool-stream subscriptions (`toolStreamEventsLogic`, `useToolStreamListener`); folded-thread, task, and tool types                         | Status badge, automation, context injection, task navigation, tool-event listeners — no presenters or registry.                                                         |
 | **4 — Extension seam**         | `api/tools`                                           | `toolRegistry`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                                                                                                                                                       | Your product renders tool cards (insights, dashboards…). Declare them in your product list and include it in the central manifest.                                      |
 
 The Tier 1 surfaces are built on `api/primitives` (Tier 2), which consumes the headless
@@ -249,7 +249,7 @@ useAttachedContext([{ type: 'insight', key: insight.short_id, label: insight.nam
 
 JSX-only call sites can render `<AttachedContextProvider items={...} />` (`api/primitives`) instead.
 
-From a kea logic, connect to `attachedContextLogic` and register through a disposable (the repo-preferred
+From a kea logic, connect to the shell-owned `attachedContextLogic` (`~/layout/ai/attachedContextLogic`) and register through a disposable (the repo-preferred
 teardown idiom — see `/using-kea-disposables`); the returned cleanup deregisters on unmount, no
 `beforeUnmount` needed. Pass `pauseOnPageHidden: false`: the registration costs nothing while idle, and the
 default hide-pause would silently drop context from a queued follow-up that flushes while the tab is hidden.
@@ -286,11 +286,12 @@ import { AttachedContextBar } from 'products/posthog_ai/frontend/api/primitives'
 ```
 
 The @-button opens a `TaxonomicPopover` over events/actions/insights/dashboards/notebooks/error-tracking
-issues; a selection becomes a flat `{ type, key, label }` ref in `contextPickerLogic` (`api/logics`) — no
-entity loading, the agent fetches details. The chips render **everything** in `contextItems`, whatever
-provider contributed it. Closing a chip the picker owns removes the pick; closing any other provider's chip
+issues; a selection becomes a flat `{ type, key, label }` ref through `contextPickerLogic` (`api/logics`) — no
+entity loading, the agent fetches details. In a new chat the chips render your picks and **everything** in
+`contextItems`, whatever provider contributed it. A started chat freezes its chips: pass `taskId` to `AttachedContextChips` or
+`QuillAttachedContextChips` to show what `chatContextLogic` holds for that chat. Closing a chip the picker owns removes the pick; closing any other provider's chip
 dismisses that key (`attachedContextLogic.dismissContext`), which sticks even while the provider keeps
-re-registering the item — re-picking it through the popover restores it.
+re-registering the item — re-picking it through the popover adds it back as a pick.
 
 ### React to the agent invoking a tool
 

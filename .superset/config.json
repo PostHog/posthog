@@ -1,0 +1,4 @@
+{
+    "setup": ["bin/devbox-worktree-hook created superset"],
+    "teardown": ["bin/devbox-worktree-hook removing"]
+}

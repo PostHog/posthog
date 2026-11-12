@@ -9,6 +9,7 @@ import { Button } from '@posthog/quill'
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -26,6 +27,7 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getPrimaryPropertyForEvent, hasTaxonomyPrimaryProperty } from 'lib/utils/events'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
@@ -35,7 +37,6 @@ import {
     definitionLogic,
 } from 'scenes/data-management/definition/definitionLogic'
 import { PropertyAccessControl } from 'scenes/data-management/definition/PropertyAccessControl'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -44,7 +45,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { tagsModel } from '~/models/tagsModel'
 import { isCoreFilter } from '~/taxonomy/helpers'
 import { AvailableFeature, ObjectMediaPreview } from '~/types'
 
@@ -64,7 +64,6 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
     const { definitionLoading, definitionMissing, isProperty, singular } = useValues(definitionLogicInstance)
     const { editDefinition } = useValues(logic)
     const { saveDefinition } = useActions(logic)
-    const { tags, tagsLoading } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { reportMediaPreviewUploaded } = useActions(eventUsageLogic)
@@ -75,6 +74,8 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
     const showHiddenOption = 'hidden' in editDefinition
 
     const { previews, previewsLoading } = useValues(definitionLogicInstance)
+    // A preview without a URL has nothing to show, and the delete handler below matches previews by URL
+    const visiblePreviews = previews?.filter((p: ObjectMediaPreview) => p.media_url) ?? []
     const { createMediaPreview, deleteMediaPreview } = useActions(definitionLogicInstance)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
@@ -195,11 +196,10 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                                     {({ value, onChange }) => (
                                         <ObjectTags
                                             className="definition-tags"
-                                            saving={definitionLoading || tagsLoading}
+                                            saving={definitionLoading}
                                             tags={value || []}
                                             onChange={(tags) => onChange(tags)}
                                             style={{ marginBottom: 4 }}
-                                            tagsAvailable={tags}
                                         />
                                     )}
                                 </LemonField>
@@ -211,6 +211,21 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                                 <LemonTextArea value={editDefinition.description} />
                             </LemonField>
                         </div>
+
+                        {'owner' in editDefinition && (
+                            <div className="ph-ignore-input">
+                                <LemonField name="owner" label="Owner" className="w-60" data-attr="definition-owner">
+                                    {({ value, onChange }) => (
+                                        <MemberSelect
+                                            value={value?.id ?? null}
+                                            onChange={onChange}
+                                            defaultLabel="No owner"
+                                            data-attr="definition-owner-select"
+                                        />
+                                    )}
+                                </LemonField>
+                            </div>
+                        )}
 
                         {/* Allow uploading media previews only for custom events; not that useful for properties or autocapture events */}
                         {objectStorageAvailable && !isProperty && !isCoreFilter(editDefinition.name) && (
@@ -252,12 +267,12 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                                             />
                                         </div>
 
-                                        {(previewsLoading || (previews && previews.length > 0)) && (
+                                        {(previewsLoading || visiblePreviews.length > 0) && (
                                             <ImageCarousel
                                                 loading={previewsLoading}
-                                                imageUrls={previews?.map((p: ObjectMediaPreview) => p.media_url) ?? []}
+                                                imageUrls={visiblePreviews.map((p: ObjectMediaPreview) => p.media_url)}
                                                 onDelete={(url: string) => {
-                                                    const preview = previews.find(
+                                                    const preview = visiblePreviews.find(
                                                         (p: ObjectMediaPreview) => p.media_url === url
                                                     )
                                                     if (preview) {

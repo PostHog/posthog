@@ -6,14 +6,11 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
-import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import {
-    CYCLOTRON_COUNTER_MAX,
-    CyclotronV2CleanupResult,
-    CyclotronV2DequeuedJob,
-    CyclotronV2JanitorConfig,
-} from './types'
+import { QUEUE_DEPTHS_SQL } from './due-rows-sql'
+import { v2JobToInvocation } from './job-codec'
+import { createCyclotronPool } from './pg-pool'
+import { CYCLOTRON_COUNTER_MAX, CyclotronV2CleanupResult, CyclotronV2JanitorConfig } from './types'
 
 // Stable, low-cardinality `error_kind` stamped on the failed invocation result
 // the janitor writes when it gives up on a poison pill. Lets operators target
@@ -75,9 +72,20 @@ const conversionWatchersSweptCounter = new Counter({
     help: 'Expired conversion watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
 })
 
+const idempotencyKeysSweptCounter = new Counter({
+    name: 'cdp_cyclotron_v2_idempotency_keys_swept',
+    help: 'Expired idempotency key rows deleted by the janitor.',
+})
+
 const queueDepthGauge = new Gauge({
     name: 'cdp_cyclotron_v2_queue_depth',
     help: 'Number of available jobs per queue',
+    labelNames: ['queue'],
+})
+
+const queueOldestDueAgeGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_queue_oldest_due_age_ms',
+    help: 'Milliseconds since the oldest available job per queue became due (its scheduled time). 0 when the queue has no due jobs.',
     labelNames: ['queue'],
 })
 
@@ -93,11 +101,7 @@ interface PoisonRow {
     created: string
     parent_run_id: string | null
     state: Buffer | null
-    distinct_id: string | null
-    person_id: string | null
-    action_id: string | null
     janitor_touch_count: number
-    transition_count: number
 }
 
 export class CyclotronV2Janitor {
@@ -123,7 +127,7 @@ export class CyclotronV2Janitor {
         // refuses to drop a job it can't record a recovery row for.
         private invocationResults?: HogInvocationResultsService
     ) {
-        this.pool = new Pool({
+        this.pool = createCyclotronPool('janitor', {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 5,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
@@ -170,6 +174,7 @@ export class CyclotronV2Janitor {
         // sweep touches a different table and swallows its own errors, so running it up front keeps
         // expired watchers draining even while cyclotron cleanup is failing.
         await this.sweepExpiredConversionWatchers()
+        await this.sweepExpiredIdempotencyKeys()
 
         const deletedCounts = await this.cleanupTerminalJobs()
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
@@ -289,8 +294,7 @@ export class CyclotronV2Janitor {
 
         const result = await this.pool.query<PoisonRow>(
             `SELECT id, team_id, function_id, queue_name, priority, scheduled, created,
-                    parent_run_id, state, distinct_id, person_id, action_id,
-                    janitor_touch_count, transition_count
+                    parent_run_id, state, janitor_touch_count
              FROM cyclotron_jobs
              WHERE status = 'running'
                AND COALESCE(last_heartbeat, $1) <= $1
@@ -414,7 +418,7 @@ export class CyclotronV2Janitor {
     // `hogFlow` carries only the id the lifecycle row needs (function_id), while
     // the rerun path rebuilds the full flow from the function id on replay.
     private poisonRowToInvocation(row: PoisonRow): CyclotronJobInvocationHogFlow {
-        const job: CyclotronV2DequeuedJob = {
+        const invocation = v2JobToInvocation({
             id: row.id,
             teamId: row.team_id,
             functionId: row.function_id,
@@ -423,20 +427,9 @@ export class CyclotronV2Janitor {
             scheduled: DateTime.fromISO(row.scheduled, { zone: 'utc' }),
             created: DateTime.fromISO(row.created, { zone: 'utc' }),
             parentRunId: row.parent_run_id,
-            transitionCount: row.transition_count,
             state: row.state,
-            distinctId: row.distinct_id,
-            personId: row.person_id,
-            actionId: row.action_id,
             cancelRequestedAt: null,
-            ack: () => Promise.resolve(),
-            fail: () => Promise.resolve(),
-            reschedule: () => Promise.resolve(),
-            cancel: () => Promise.resolve(),
-            heartbeat: () => Promise.resolve(),
-            bulkCreateAndCheckIn: () => Promise.resolve({ newJobIds: [] }),
-        }
-        const invocation = v2JobToInvocation(job)
+        })
         return { ...invocation, hogFlow: { id: invocation.functionId } } as CyclotronJobInvocationHogFlow
     }
 
@@ -502,34 +495,53 @@ export class CyclotronV2Janitor {
      * and it must not stop the janitor finishing its cyclotron work. The report matters because the
      * catch hides the failure from the run otherwise — a persistent one grows the table unbounded.
      */
-    async sweepExpiredConversionWatchers(): Promise<number> {
+    sweepExpiredConversionWatchers(): Promise<number> {
+        return this.sweepExpiredRows('conversion_watchers', conversionWatchersSweptCounter)
+    }
+
+    // Keeps a key while its job exists, so a repeat cannot insert a second job with the same id.
+    sweepExpiredIdempotencyKeys(): Promise<number> {
+        return this.sweepExpiredRows(
+            'cyclotron_idempotency_keys',
+            idempotencyKeysSweptCounter,
+            'AND NOT EXISTS (SELECT 1 FROM cyclotron_jobs WHERE cyclotron_jobs.id = cyclotron_idempotency_keys.id)'
+        )
+    }
+
+    // SKIP LOCKED keeps the sweep from waiting on a writer, and the outer expiry check spares a row renewed meanwhile.
+    private async sweepExpiredRows(
+        table: 'conversion_watchers' | 'cyclotron_idempotency_keys',
+        sweptCounter: Counter,
+        keepCondition = ''
+    ): Promise<number> {
         try {
             const result = await this.pool.query(
-                `DELETE FROM conversion_watchers
+                `DELETE FROM ${table}
                  WHERE id IN (
-                     SELECT id FROM conversion_watchers WHERE expires_at <= NOW() LIMIT $1
-                 )`,
+                     SELECT id FROM ${table}
+                     WHERE expires_at <= NOW() ${keepCondition}
+                     LIMIT $1
+                     FOR UPDATE SKIP LOCKED
+                 )
+                 AND expires_at <= NOW()`,
                 [this.cleanupBatchSize]
             )
             const deleted = result.rowCount ?? 0
             if (deleted > 0) {
-                conversionWatchersSweptCounter.inc(deleted)
-                logger.info('CyclotronV2Janitor swept expired conversion watchers', { count: deleted })
+                sweptCounter.inc(deleted)
+                logger.info('CyclotronV2Janitor swept expired rows', { table, count: deleted })
             }
             return deleted
         } catch (err) {
-            logger.error('CyclotronV2Janitor conversion watcher sweep failed', { error: String(err) })
+            logger.error('CyclotronV2Janitor sweep failed', { table, error: String(err) })
             captureException(err)
             return 0
         }
     }
 
     async measureQueueDepths(): Promise<Map<string, number>> {
-        const result = await this.pool.query<{ queue_name: string; count: string }>(
-            `SELECT queue_name, COUNT(*) as count
-             FROM cyclotron_jobs
-             WHERE status = 'available' AND scheduled <= NOW()
-             GROUP BY queue_name`
+        const result = await this.pool.query<{ queue_name: string; count: string; oldest_due_age_ms: number }>(
+            QUEUE_DEPTHS_SQL
         )
 
         const depths = new Map<string, number>()
@@ -538,6 +550,7 @@ export class CyclotronV2Janitor {
             depths.set(row.queue_name, count)
             this.seenQueues.add(row.queue_name)
             queueDepthGauge.labels({ queue: row.queue_name }).set(count)
+            queueOldestDueAgeGauge.labels({ queue: row.queue_name }).set(row.oldest_due_age_ms)
         }
 
         // GROUP BY returns no row for a queue that is empty. Without the write below,
@@ -548,6 +561,7 @@ export class CyclotronV2Janitor {
         for (const queue of this.seenQueues) {
             if (!depths.has(queue)) {
                 queueDepthGauge.labels({ queue }).set(0)
+                queueOldestDueAgeGauge.labels({ queue }).set(0)
             }
         }
 

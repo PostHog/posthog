@@ -25,7 +25,6 @@ export interface WarehouseAlertTargetOption {
     label: string
 }
 
-// The list endpoint has no source kind filter, so the logic reads every page and filters here.
 const PAGE_SIZE = 100
 
 export interface WarehouseAlertsLogicProps {
@@ -127,7 +126,11 @@ export const warehouseAlertsLogic = kea<warehouseAlertsLogicType>([
                     const results: PlatformAlertConfigurationApi[] = []
                     let offset = 0
                     while (true) {
-                        const page = await platformAlertsList(projectId, { limit: PAGE_SIZE, offset })
+                        const page = await platformAlertsList(projectId, {
+                            source_kind: props.kind,
+                            limit: PAGE_SIZE,
+                            offset,
+                        })
                         breakpoint()
                         results.push(...page.results)
                         offset += page.results.length

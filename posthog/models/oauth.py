@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
@@ -19,6 +19,7 @@ from oauth2_provider.generators import generate_client_id
 from oauth2_provider.models import (
     AbstractAccessToken,
     AbstractApplication,
+    AbstractDeviceGrant,
     AbstractGrant,
     AbstractIDToken,
     AbstractRefreshToken,
@@ -73,7 +74,6 @@ class TokenEndpointAuthMethod(enum.Enum):
 
 class ProvisioningSigning(enum.Enum):
     NOT_REQUIRED = "not_required"
-    GRACE = "grace"
     REQUIRED = "required"
 
     def request_tag(self, *, signed: bool) -> str:
@@ -81,7 +81,6 @@ class ProvisioningSigning(enum.Enum):
             return "signed"
         return {
             ProvisioningSigning.NOT_REQUIRED: "unsigned_exempt",
-            ProvisioningSigning.GRACE: "unsigned_grace",
             ProvisioningSigning.REQUIRED: "refused",
         }[self]
 
@@ -98,6 +97,18 @@ def is_loopback_host(hostname: str | None) -> bool:
         if len(parts) == 4 and all(part.isdigit() and 0 <= int(part) <= 255 for part in parts):
             return True
     return False
+
+
+OIDC_SIGNING_KEY_MISSING_MESSAGE = (
+    "OAuth is not set up on this PostHog instance. "
+    "Ask the instance admin to set the OIDC_RSA_PRIVATE_KEY environment variable to an RSA private key in PEM format."
+)
+
+
+def oidc_signing_key_configured() -> bool:
+    # Every OAuth client PostHog creates (CIMD, DCR, toolbar) uses RS256, and OAuthApplication.clean()
+    # rejects RS256 without this key, so no client can be created or updated while it is unset.
+    return bool(oauth2_settings.OIDC_RSA_PRIVATE_KEY)
 
 
 class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore[django-manager-missing]
@@ -143,6 +154,17 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     # First-party apps skip the OAuth consent screen and can use direct token exchange
     is_first_party: models.BooleanField = models.BooleanField(
         default=False, help_text="True if this is a first-party PostHog application that skips OAuth consent"
+    )
+
+    # Set only by PostHog staff in the admin. No CIMD field, DCR field or API sets it, so a
+    # client cannot opt itself in and a metadata refresh never changes it.
+    supports_step_up: models.BooleanField = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "True if this client handles an insufficient_scope challenge by asking the user for more scopes. "
+            "Its tokens then get a WWW-Authenticate challenge naming the required scopes on a missing-scope 403."
+        ),
     )
 
     auth_brand: models.CharField = models.CharField(
@@ -358,29 +380,12 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return self.token_endpoint_auth_method is TokenEndpointAuthMethod.PRIVATE_KEY_JWT
 
     @property
-    def provisioning_unsigned_allowed_until(self) -> datetime | None:
-        provisioning = self.provisioning
-        if provisioning.unsigned_allowed_until is not None:
-            return provisioning.unsigned_allowed_until
-        # Rows promoted before partner_since was recorded fall back to their creation date.
-        became_partner = provisioning.partner_since or self.created or timezone.now()
-        if became_partner < settings.PROVISIONING_SIGNING_REQUIRED_SINCE:
-            return settings.PROVISIONING_UNSIGNED_GRACE_UNTIL
-        return None
-
-    @property
     def provisioning_signing(self) -> ProvisioningSigning:
         provisioning = self.provisioning
         if not self.is_provisioning_partner or not (
             provisioning.can_create_accounts or provisioning.pays_for_customers
         ):
             return ProvisioningSigning.NOT_REQUIRED
-        # Grace covers partners that have not switched yet. Once a partner publishes a key it signs from then on.
-        if self.uses_private_key_jwt_auth:
-            return ProvisioningSigning.REQUIRED
-        allowed_until = self.provisioning_unsigned_allowed_until
-        if allowed_until is not None and timezone.now() < allowed_until:
-            return ProvisioningSigning.GRACE
         return ProvisioningSigning.REQUIRED
 
     @property
@@ -405,7 +410,12 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
             # Note: We do not support HS256 since we don't want to store the client secret in plaintext
             models.CheckConstraint(condition=models.Q(algorithm="RS256"), name="enforce_rs256_algorithm"),
             models.CheckConstraint(
-                condition=models.Q(authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE),
+                condition=models.Q(
+                    authorization_grant_type__in=[
+                        AbstractApplication.GRANT_AUTHORIZATION_CODE,
+                        AbstractApplication.GRANT_DEVICE_CODE,
+                    ]
+                ),
                 name="enforce_supported_grant_types",
             ),
         ]
@@ -521,7 +531,7 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
             for origin in allowed_origins:
                 origin_validator(origin)
 
-        if self.algorithm == AbstractApplication.RS256_ALGORITHM and not oauth2_settings.OIDC_RSA_PRIVATE_KEY:
+        if self.algorithm == AbstractApplication.RS256_ALGORITHM and not oidc_signing_key_configured():
             raise ValidationError("You must set OIDC_RSA_PRIVATE_KEY to use RSA algorithm")
 
         if self.algorithm == AbstractApplication.HS256_ALGORITHM and (
@@ -534,6 +544,14 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     def save(self, *args, **kwargs):
         self.full_clean()
         super().save(*args, **kwargs)
+
+    def allows_grant_type(self, *grant_types: str) -> bool:
+        # The device grant's approval page can only show a client's self-declared name, so a device
+        # client works only while PostHog staff keep it verified. This covers starting a grant,
+        # redeeming one and refreshing its tokens.
+        if self.authorization_grant_type == self.GRANT_DEVICE_CODE and not self.is_verified:
+            return False
+        return super().allows_grant_type(*grant_types)
 
     def get_allowed_schemes(self) -> list[str]:
         """Extract unique schemes from the application's registered redirect URIs, filtering out blocked schemes."""
@@ -576,6 +594,14 @@ class OAuthAccessToken(AbstractAccessToken):
             models.Index(fields=["token"], name="oauthaccesstoken_token_idx"),
         ]
 
+    def save(self, *args, **kwargs):
+        # Copied from the application at every mint, refresh included, so a staff change to the
+        # app reaches existing connections at their next refresh. Done here so every mint path,
+        # including partner provisioning and direct mints, carries it.
+        if self._state.adding and self.application_id is not None:
+            self.supports_step_up = self.application.supports_step_up
+        super().save(*args, **kwargs)
+
     @classmethod
     def with_scope(cls, scope: str) -> models.QuerySet["OAuthAccessToken"]:
         return cls.objects.alias(scope_tokens=oauth_scope_tokens_expression()).filter(
@@ -607,6 +633,8 @@ class OAuthAccessToken(AbstractAccessToken):
         related_name="+",
         db_index=True,
     )
+
+    supports_step_up: models.BooleanField = models.BooleanField(default=False, db_default=False)
 
     # Optional user-facing label set at mint time. Carried across refreshes so
     # it persists for the life of the connection, not just one rotated token.
@@ -703,6 +731,46 @@ class OAuthGrant(AbstractGrant):
         related_name="+",
         db_index=True,
     )
+
+
+class OAuthDeviceGrant(AbstractDeviceGrant):
+    """An RFC 8628 device authorization request, from the device code a client polls with to the
+    person who approves it on the approval page.
+
+    Swapped in for DOT's model because a CIMD `client_id` is a URL longer than DOT's 100
+    characters, a PostHog scope list is longer than DOT's 64, and the grant has to carry the
+    project the person picked, which the token is then scoped to.
+    """
+
+    class Meta(AbstractDeviceGrant.Meta):
+        verbose_name = "OAuth Device Grant"
+        verbose_name_plural = "OAuth Device Grants"
+        swappable = "OAUTH2_PROVIDER_DEVICE_GRANT_MODEL"
+        # The cleanup job deletes grants by expiry.
+        indexes = [models.Index(fields=["expires"], name="oauthdevicegrant_expires_idx")]
+        # `device_code` is already unique=True, so DOT's extra constraint would only add a second
+        # unique index on the same column.
+        constraints: list[models.BaseConstraint] = []
+
+    # No database constraint, so creating this table takes no lock on posthog_user. The ORM
+    # still cascades a user delete to their grants.
+    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="oauth_device_grants",
+        db_constraint=False,
+    )
+    client_id: models.CharField = models.CharField(max_length=2048, db_index=True)
+    user_code: models.CharField = models.CharField(max_length=100, db_index=True)
+    # The scopes the client asked for, already clamped to the application's ceiling. The token
+    # gets these, never the scopes the client sends when it polls.
+    scope: models.TextField = models.TextField(null=True)
+    # The requested scopes the person can't remove at approval, such as the new scopes of a step-up.
+    required_scope: models.TextField = models.TextField(null=True, blank=True)
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
+    created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
 
 
 def mint_oauth_access_token(
@@ -852,8 +920,10 @@ def revoke_oauth_session(
         with transaction.atomic():
             lock_oauth_connection(user_id=user.pk, application_id=application.pk)
 
-            # Delete all grants for this user+application
+            # Delete all grants for this user+application, including approved device grants the
+            # client hasn't redeemed yet
             OAuthGrant.objects.filter(user=user, application=application).delete()
+            OAuthDeviceGrant.objects.filter(user=user, client_id=application.client_id).delete()
 
             # Delete, rather than revoke, every refresh token for this user+application. Absence is
             # what makes the revoke stick: `validate_refresh_token` looks a token up by value and
@@ -866,6 +936,33 @@ def revoke_oauth_session(
 
             # Delete all access tokens for this user+application
             OAuthAccessToken.objects.filter(user=user, application=application).delete()
+
+
+def revoke_oauth_refresh_family(refresh_token: OAuthRefreshToken) -> None:
+    """End one login: delete every refresh token in the token's rotation family, and the access
+    tokens they issued.
+
+    Use this for an RFC 7009 revoke from a client that rotates refresh tokens. Rotation links each
+    access token to a refresh token of its family, so the user's other logins with the same client
+    keep working. Rows are deleted, not marked revoked, for the reason `revoke_oauth_session`
+    gives. A token without a family or a user falls back to `revoke_oauth_session`."""
+    if refresh_token.token_family is None or refresh_token.user_id is None:
+        revoke_oauth_session(refresh_token=refresh_token)
+        return
+    with transaction.atomic():
+        lock_oauth_connection(user_id=refresh_token.user_id, application_id=refresh_token.application_id)
+        family = OAuthRefreshToken.objects.filter(token_family=refresh_token.token_family)
+        family_rows = list(family.values_list("pk", "access_token_id"))
+        # Two indexed lookups rather than one OR across a join, which can't use either index.
+        access_token_ids = {access_token_id for _, access_token_id in family_rows if access_token_id}
+        access_token_ids.update(
+            OAuthAccessToken.objects.filter(source_refresh_token_id__in=[pk for pk, _ in family_rows]).values_list(
+                "pk", flat=True
+            )
+        )
+        # Refresh tokens go first, so a failure part way can't leave one able to mint a new access token.
+        family.delete()
+        OAuthAccessToken.objects.filter(pk__in=access_token_ids).delete()
 
 
 def revoke_oauth_token_family(refresh_token: OAuthRefreshToken) -> None:
@@ -982,14 +1079,16 @@ def revoke_application_sessions(application: "OAuthApplication") -> None:
     token in autocommit, before its own transaction takes the row lock, so the bulk update
     here would otherwise miss the tokens that racing refresh is about to create.
 
-    Grants are deleted before the token sweep: a racing code exchange locks its grant row at
-    mint (`_reject_code_exchange_racing_revoke`), so deleting grants first makes this
+    Grants, device grants included, are deleted before the token sweep: a racing code or device
+    code exchange locks its grant row at mint (`_reject_code_exchange_racing_revoke`, and the
+    device token view), so deleting grants first makes this
     transaction block on that lock and re-snapshot the token sweep after the mint commits.
     Sweeping tokens first would let the racing mint's tokens escape the sweep."""
     now = timezone.now()
     with transaction.atomic():
         OAuthApplication.objects.filter(pk=application.pk).update(sessions_revoked_at=now)
         OAuthGrant.objects.filter(application=application).delete()
+        OAuthDeviceGrant.objects.filter(client_id=application.client_id).delete()
         OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
         OAuthAccessToken.objects.filter(application=application).delete()
 

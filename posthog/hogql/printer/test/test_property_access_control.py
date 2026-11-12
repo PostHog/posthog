@@ -2,21 +2,56 @@ import uuid
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, cleanup_materialized_columns, materialized
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebBouncesDimensionalPreAggregatedTable,
+    WebStatsDimensionalPreAggregatedTable,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.restricted_properties import WEB_DIMENSIONAL_MIRRORED_COLUMNS
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.event.util import create_event
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
+
+# Columns that hold no event or session property value: keys and aggregate states.
+_WEB_DIMENSIONAL_UNMIRRORED_COLUMNS = frozenset(
+    {
+        "period_bucket",
+        "team_id",
+        "job_id",
+        "persons_uniq_state",
+        "pageviews_count_state",
+        "sessions_uniq_state",
+        "bounces_count_state",
+        "total_session_duration_state",
+        "total_session_count_state",
+    }
+)
+
+
+class TestWebDimensionalMirrorCoverage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("stats", WebStatsDimensionalPreAggregatedTable),
+            ("bounces", WebBouncesDimensionalPreAggregatedTable),
+        ]
+    )
+    def test_every_dimension_column_is_mapped_or_listed_safe(self, _name: str, table_class: type) -> None:
+        dimension_columns = table_class().fields.keys() - _WEB_DIMENSIONAL_UNMIRRORED_COLUMNS
+
+        assert dimension_columns - WEB_DIMENSIONAL_MIRRORED_COLUMNS.keys() == set()
 
 
 class TestRestrictPropertiesInHogQL(BaseTest):
@@ -124,7 +159,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
             modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
         )
         sql, _ = prepare_and_print_ast(parse_select(query), context=context, dialect="clickhouse")
-        assert "getSubcolumn" not in sql
+        assert "customer" not in sql
 
     def test_allowed_property_not_affected(self):
         PropertyAccessControl.objects.create(
@@ -396,10 +431,11 @@ class TestRestrictPropertiesInHogQL(BaseTest):
             ("tokens", "$ai_input_tokens", "a.input_tokens"),
             ("cost", "$ai_total_cost_usd", "a.total_cost_usd"),
             ("error", "$ai_is_error", "a.is_error"),
+            ("state length", "$ai_input_state", "a.input_state_length", "input_state.size"),
         ]
     )
     def test_ai_column_and_nested_reads_use_the_canonical_property_rule(
-        self, _name: str, property_name: str, expression: str
+        self, _name: str, property_name: str, expression: str, printed_column: str | None = None
     ) -> None:
         self.event_prop.name = property_name
         self.event_prop.save()
@@ -415,7 +451,45 @@ class TestRestrictPropertiesInHogQL(BaseTest):
 
         assert "NULL AS restricted_value" in sql
         assert "JSONExtract" not in sql
-        assert expression.split("[")[0] not in sql
+        assert (printed_column or expression.split("[")[0]) not in sql
+
+    @parameterized.expand(
+        [
+            ("stats_pathname", "web_stats_dimensional_preaggregated", "pathname", "$pathname"),
+            ("stats_viewport", "web_stats_dimensional_preaggregated", "viewport_width", "$viewport_width"),
+            ("bounces_country", "web_bounces_dimensional_preaggregated", "country_code", "$geoip_country_code"),
+            ("bounces_metadata", "web_bounces_dimensional_preaggregated", "mat_metadata_backend", "metadata.backend"),
+            ("stats_metadata_parent", "web_stats_dimensional_preaggregated", "mat_metadata_loggedIn", "metadata"),
+            ("stats_entry_pathname", "web_stats_dimensional_preaggregated", "entry_pathname", "$pathname"),
+            ("bounces_end_pathname", "web_bounces_dimensional_preaggregated", "end_pathname", "$pathname"),
+            ("stats_end_pathname_url", "web_stats_dimensional_preaggregated", "end_pathname", "$current_url"),
+            (
+                "bounces_referring_domain",
+                "web_bounces_dimensional_preaggregated",
+                "referring_domain",
+                "$referring_domain",
+            ),
+            ("stats_utm_source", "web_stats_dimensional_preaggregated", "utm_source", "utm_source"),
+        ]
+    )
+    def test_web_dimensional_columns_use_the_source_property_rule(
+        self, _name: str, table_name: str, column: str, property_name: str
+    ) -> None:
+        self.event_prop.name = property_name
+        self.event_prop.save()
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        sql = self._compile_select(
+            f"SELECT {column} AS restricted_value, host FROM {table_name} WHERE {column} = 'x' OR {column} IS NULL"
+        )
+
+        assert "NULL AS restricted_value" in sql
+        assert f"{table_name}.{column}" not in sql
+        assert f"{table_name}.host" in sql
 
     def test_ai_json_content_is_not_an_event_property(self) -> None:
         PropertyAccessControl.objects.create(

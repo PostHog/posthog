@@ -24,6 +24,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, is_smtp_email_service_available
+from posthog.helpers.email_utils import email_domain
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -39,6 +40,7 @@ from products.conversations.backend.mailgun import (
     add_domain as mailgun_add_domain,
     delete_domain as mailgun_delete_domain,
     get_domain as mailgun_get_domain,
+    mime_bytes_with_crlf,
     send_mime,
     verify_domain as mailgun_verify_domain,
 )
@@ -582,7 +584,9 @@ class EmailConnectView(APIView):
             if owner.id != user.id and not is_admin:
                 return Response({"error": "You can only connect your own email address."}, status=403)
 
-        domain = from_email.split("@")[1]
+        domain = email_domain(from_email)
+        if domain is None:
+            return Response({"error": "Enter a valid email address, like hello@example.com."}, status=400)
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
         if not inbound_domain:
             return Response(
@@ -842,7 +846,7 @@ class EmailSendTestView(APIView):
         )
         email_message.attach_alternative(html_body, "text/html")
 
-        mime_bytes = email_message.message().as_bytes(linesep="\r\n")
+        mime_bytes = mime_bytes_with_crlf(email_message)
 
         try:
             send_mime(config.domain, mime_bytes, recipients=[user.email])

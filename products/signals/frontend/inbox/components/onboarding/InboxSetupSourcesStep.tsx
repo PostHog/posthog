@@ -9,28 +9,17 @@ import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AutonomySettingGroup } from '../config/AutonomySettingGroup'
 import { AutonomySettingRow } from '../config/AutonomySettingRow'
-import { DataSourceSetup } from '../config/DataSourceSetup'
 
 export function InboxSetupSourcesStep(): JSX.Element {
-    const { sources, draft, ready, saving, sourceSetupSource } = useValues(inboxSetupLogic)
-    const { toggleSource, setSourceSetupSource, finishSourceSetup } = useActions(inboxSetupLogic)
+    const { sources, draft, ready, saving } = useValues(inboxSetupLogic)
+    const { toggleSource } = useActions(inboxSetupLogic)
     const { productStatusBySource, enablingProduct } = useValues(signalSourcesLogic)
     const { enableSourceProduct } = useActions(signalSourcesLogic)
-    const productsNeedingSetup = sources.filter((source) => !source.available && !source.warehouseSource)
-    if (sourceSetupSource) {
-        return (
-            <DataSourceSetup
-                source={sourceSetupSource}
-                onComplete={finishSourceSetup}
-                onCancel={() => setSourceSetupSource(null)}
-                completing={saving}
-            />
-        )
-    }
+    const productsNeedingSetup = sources.filter((source) => !source.available)
     return (
         <GuidedWizardSection
             title="Choose what to watch"
-            description="Signals from these sources tell Self-Driving when something needs a closer look."
+            description="Signals from these sources tell Self-driving when something needs a closer look."
             descriptionClassName="text-sm"
         >
             {!ready ? (
@@ -51,7 +40,11 @@ export function InboxSetupSourcesStep(): JSX.Element {
                                                   item.enabled
                                           )
                                 return (
-                                    <div key={source.definition.source} className="flex items-center gap-3 py-4">
+                                    // A label so clicking the name or description toggles the switch too.
+                                    <label
+                                        key={source.definition.source}
+                                        className="flex items-center gap-3 py-4 cursor-pointer"
+                                    >
                                         {Icon && <Icon className="text-xl shrink-0" />}
                                         <div className="flex-1 min-w-0">
                                             <h3 className="m-0 text-sm font-semibold">{source.definition.label}</h3>
@@ -64,14 +57,14 @@ export function InboxSetupSourcesStep(): JSX.Element {
                                             aria-label={`Enable ${source.definition.label}`}
                                             data-attr={`inbox-setup-source-${source.definition.source}`}
                                         />
-                                    </div>
+                                    </label>
                                 )
                             })}
                     </div>
                     {!sources.some((source) => source.available) && (
                         <p>
                             No products are sending usable signals yet. Enable a product below or choose a scout in the
-                            next step. You need at least one source or scout to activate Self-Driving.
+                            next step. You need at least one source or scout to activate Self-driving.
                         </p>
                     )}
                     {productsNeedingSetup.length > 0 && (
@@ -95,11 +88,12 @@ export function InboxSetupSourcesStep(): JSX.Element {
                                                         size="small"
                                                         loading={enablingProduct === product.enablement}
                                                         disabledReason={
-                                                            saving ||
+                                                            product.enableDisabledReason ??
+                                                            (saving ||
                                                             (enablingProduct !== null &&
                                                                 enablingProduct !== product.enablement)
                                                                 ? 'Finishing setup changes'
-                                                                : undefined
+                                                                : undefined)
                                                         }
                                                         onClick={() => enableSourceProduct(product.enablement!)}
                                                     >

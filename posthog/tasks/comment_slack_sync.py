@@ -9,8 +9,9 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import slack_files_to_placeholder_lines, slack_to_content_and_rich_content
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
+from posthog.integrations import IntegrationManager
 from posthog.models.comment import Comment, CommentSlackThread
-from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API
+from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API, OBSERVATION_COMMENT_SCOPES
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.integration import SlackIntegration
 from posthog.models.team import Team
@@ -122,7 +123,7 @@ def _mark_reply_synced(reply: Comment, ts: object) -> None:
 
 
 def _reply_skip_reason(reply: Comment) -> str | None:
-    if reply.scope in COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API:
+    if reply.scope in COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API or reply.scope in OBSERVATION_COMMENT_SCOPES:
         return "protected_scope"
     item_context = reply.item_context if isinstance(reply.item_context, dict) else {}
     if item_context.get("from_slack"):
@@ -152,10 +153,7 @@ def mirror_comment_reply_to_slack(self: Task, comment_id: str) -> None:
         return
 
     mirror = (
-        CommentSlackThread.objects.for_team(comment.team_id)
-        .filter(source_comment_id=comment.source_comment_id)
-        .select_related("integration")
-        .first()
+        CommentSlackThread.objects.for_team(comment.team_id).filter(source_comment_id=comment.source_comment_id).first()
     )
     if mirror is None:
         return
@@ -167,7 +165,8 @@ def mirror_comment_reply_to_slack(self: Task, comment_id: str) -> None:
 
     author_name, author_email = slack_author_from_user(comment.created_by)
     try:
-        client = SlackIntegration(mirror.integration).client
+        slack_row = IntegrationManager.slack.any.get(mirror.team_id, mirror.integration_id)
+        client = SlackIntegration(slack_row).client
         posted_ts = post_comment_to_slack_thread(
             client=client,
             channel=mirror.slack_channel_id,
@@ -202,19 +201,14 @@ def ingest_slack_discussion_reply(
     seconds and this path makes a ``users.info`` call. Idempotent per source Slack message
     ts, so task retries and duplicate event deliveries can't create duplicate comments.
     """
-    mirror = (
-        CommentSlackThread.objects.unscoped()
-        .filter(id=comment_slack_thread_id)
-        .select_related("integration__team")
-        .first()
-    )
-    if mirror is None:
+    mirror = CommentSlackThread.objects.unscoped().filter(id=comment_slack_thread_id).select_related("team").first()
+    if mirror is None or mirror.scope in OBSERVATION_COMMENT_SCOPES:
         return
     # message_ts is the idempotency key; without it a redelivered event would duplicate the
     # comment (the enqueuing side already refuses these — this is the fail-closed backstop).
     if not message_ts:
         return
-    team = mirror.integration.team
+    team = mirror.team
     if _sync_killed(team.id):
         return
 
@@ -253,12 +247,13 @@ def ingest_slack_discussion_reply(
             )
 
     try:
-        client = SlackIntegration(mirror.integration).client
+        slack_row = IntegrationManager.slack.any.get(mirror.team_id, mirror.integration_id)
+        client = SlackIntegration(slack_row).client
         client.timeout = 10
         # The profile feeds the workspace-membership trust check below — namespace the cache by
         # this integration's workspace so a colliding user id from another workspace (Slack
         # Connect) can't be served from a stale entry.
-        user_info = resolve_slack_user(client, slack_user_id, workspace=mirror.integration.integration_id or "")
+        user_info = resolve_slack_user(client, slack_user_id, workspace=slack_row.integration_id or "")
     except Exception as exc:
         raise self.retry(exc=exc)
 
@@ -313,16 +308,15 @@ def backfill_comment_slack_thread(comment_slack_thread_id: str) -> None:
     BACKFILL_SLEEP_BUDGET_SECONDS waiting out rate limits, then reschedules itself for the rest.
     That keeps one big discussion from occupying a shared worker for an unbounded stretch.
     """
-    mirror = (
-        CommentSlackThread.objects.unscoped().filter(id=comment_slack_thread_id).select_related("integration").first()
-    )
+    mirror = CommentSlackThread.objects.unscoped().filter(id=comment_slack_thread_id).first()
     if mirror is None or not mirror.source_comment_id or not mirror.slack_thread_ts:
         return
     if _sync_killed(mirror.team_id):
         return
 
     try:
-        client = SlackIntegration(mirror.integration).client
+        slack_row = IntegrationManager.slack.any.get(mirror.team_id, mirror.integration_id)
+        client = SlackIntegration(slack_row).client
     except Exception:
         logger.warning("comment_slack_backfill_client_failed", comment_slack_thread_id=comment_slack_thread_id)
         return

@@ -15,12 +15,19 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
 )
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
-from products.experiments.backend.health.checks.srm import reads_flag_history, srm
+from products.experiments.backend.health.checks.srm import (
+    reads_flag_history,
+    reads_segments,
+    segments_first_exposed_after,
+    srm,
+)
 from products.experiments.backend.health.context import (
     ExposureEvents,
+    ExposureSegment,
     ExposureTotals,
     FlagHistoryNotCheckedReason,
     HealthContext,
@@ -31,10 +38,12 @@ from products.experiments.backend.health.skips import (
     NEEDS_VARIANTS,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
+    SPLIT_CHANGED_AFTER_END,
     CheckSkip,
     not_applicable,
 )
 from products.experiments.backend.health.test.factories import ENDED, RUNNING, RUNNING_CONTEXT, Status, flag_history
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.feature_flags.backend.facade.edits import SplitChange, parse_variants
 
 LAUNCHED_AT = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
@@ -43,6 +52,12 @@ FIRST_CHANGE = "September 12, 2026 at 3:04 PM CEST"
 SECOND_CHANGE = "September 12, 2026 at 3:21 PM CEST"
 THIRD_CHANGE = "September 12, 2026 at 3:38 PM CEST"
 MIXED_ASSIGNMENTS = "A sample ratio mismatch or users in more than one variant can come from this change."
+
+MOVE_START_DATE = (
+    ExperimentHealthFindingActionKind.MOVE_START_DATE,
+    ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,
+)
+HISTORY_ONLY = (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,)
 
 EVERYONE = [{"properties": [], "rollout_percentage": 100}]
 TARGETED = [{"properties": [{"key": "plan", "value": "pro", "type": "person"}], "rollout_percentage": 100}]
@@ -65,7 +80,7 @@ def _context(
     groups: list[dict[str, Any]] = EVERYONE,
     exposed_before_first: bool | None = True,
     exposed_between: bool | None = None,
-    launched_at: datetime = LAUNCHED_AT,
+    start_date: datetime = LAUNCHED_AT,
     first_change_at: datetime = FIRST_CHANGE_AT,
     archived: bool = False,
     deleted: bool = False,
@@ -88,7 +103,7 @@ def _context(
         flag=parse_flag_state(active=True, deleted=deleted, groups=groups, variants=splits[-1]),
         flag_history=flag_history(
             changes,
-            launched_at=launched_at,
+            start_date=start_date,
             exposed_before_first=exposed_before_first,
             exposed_between={ExperimentHealthFlagChangeKind.SPLIT: exposed_between},
             not_checked=not_checked,
@@ -114,7 +129,7 @@ class TestSplitChangedMidRun(TestCase):
                 f"The split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
                 "People exposed before the change may have switched variants, so the results mix two assignments. "
                 f"Reset the experiment, or move its start date to {FIRST_CHANGE} to analyze only the people exposed "
-                f"after the change. {MIXED_ASSIGNMENTS}",
+                f"after the change. {RESET_EFFECT} {MIXED_ASSIGNMENTS}",
             ),
             (
                 "suggested_start_rounded_up_to_the_next_minute",
@@ -123,24 +138,24 @@ class TestSplitChangedMidRun(TestCase):
                 f"The split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
                 "People exposed before the change may have switched variants, so the results mix two assignments. "
                 "Reset the experiment, or move its start date to September 12, 2026 at 3:05 PM CEST to analyze "
-                f"only the people exposed after the change. {MIXED_ASSIGNMENTS}",
+                f"only the people exposed after the change. {RESET_EFFECT} {MIXED_ASSIGNMENTS}",
             ),
             (
                 "rebalanced_with_unknown_exposure",
                 _context(EVEN, UNEVEN, exposed_before_first=None),
                 ("rebalanced", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f"The split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
-                "The change came 3 hours after launch. "
+                "The change came 3 hours after the start date. "
                 "People exposed before the change may have switched variants, so the results mix two assignments. "
                 f"Reset the experiment, or move its start date to {FIRST_CHANGE} to analyze only the people exposed "
-                f"after the change. {MIXED_ASSIGNMENTS}",
+                f"after the change. {RESET_EFFECT} {MIXED_ASSIGNMENTS}",
             ),
             (
                 "rebalanced_before_4_people",
                 _context(EVEN, UNEVEN, exposed_units=4),
                 ("rebalanced", ExperimentHealthFindingSeverity.INFO, "E3"),
                 f"The split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
-                "The change came 3 hours after launch, when 4 people had been exposed. Move the start date to "
+                "The change came 3 hours after the start date, when 4 people had been exposed. Move the start date to "
                 f"{FIRST_CHANGE} so the results count only exposures after it.",
             ),
             (
@@ -150,21 +165,22 @@ class TestSplitChangedMidRun(TestCase):
                 f"The split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
                 "People exposed before the change may have switched variants, so the results mix two assignments. "
                 f"Reset the experiment, or move its start date to {FIRST_CHANGE} to analyze only the people exposed "
-                f"after the change. {MIXED_ASSIGNMENTS}",
+                f"after the change. {RESET_EFFECT} {MIXED_ASSIGNMENTS}",
             ),
             (
                 "rebalanced_before_any_group",
                 _context(EVEN, UNEVEN, exposed_units=0, counts_groups=True),
                 ("rebalanced", ExperimentHealthFindingSeverity.INFO, "E3"),
                 f"The split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
-                "The change came 3 hours after launch, when no group had been exposed.",
+                "The change came 3 hours after the start date, when no group had been exposed.",
+                HISTORY_ONLY,
             ),
             (
                 "variant_zeroed_before_4_groups",
                 _context(THREE_WAY, BLUE_ZEROED, exposed_units=4, counts_groups=True),
                 ("variant_zeroed", ExperimentHealthFindingSeverity.INFO, "E3"),
                 f'Variant "blue" was set to 0% on {FIRST_CHANGE} (from control 34% / test 33% / blue 33% to '
-                "control 50% / test 50% / blue 0%). The change came 3 hours after launch, when 4 groups had been "
+                "control 50% / test 50% / blue 0%). The change came 3 hours after the start date, when 4 groups had been "
                 f"exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
                 'No new users get "blue".',
             ),
@@ -175,6 +191,10 @@ class TestSplitChangedMidRun(TestCase):
                 f'Variant "test" was set to 100% of the split on {FIRST_CHANGE}, while the experiment is still '
                 'running. From then on, the split assigns everyone to variant "test". End the experiment with a '
                 f"conclusion, or restore the split. {MIXED_ASSIGNMENTS}",
+                (
+                    ExperimentHealthFindingActionKind.END_EXPERIMENT,
+                    ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,
+                ),
             ),
             (
                 "variant_removed",
@@ -182,7 +202,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("variant_removed", ExperimentHealthFindingSeverity.WARNING, "E4"),
                 f'Variant "blue" was removed on {FIRST_CHANGE} (from control 34% / test 33% / blue 33% to '
                 'control 50% / test 50%). The results leave out people who saw only "blue", and people who had '
-                f'"blue" may now get another variant. Reset the experiment, or move its start date to {FIRST_CHANGE}. '
+                f'"blue" may now get another variant. Reset the experiment, or move its start date to {FIRST_CHANGE}. {RESET_EFFECT} '
                 f"{MIXED_ASSIGNMENTS}",
             ),
             (
@@ -191,7 +211,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("variant_added", ExperimentHealthFindingSeverity.WARNING, "E4"),
                 f'Variant "blue" was added on {FIRST_CHANGE} (from control 50% / test 50% to control 34% / '
                 "test 33% / blue 33%). People exposed before the change may have switched variants. Reset the "
-                f"experiment, or move its start date to {FIRST_CHANGE}. {MIXED_ASSIGNMENTS}",
+                f"experiment, or move its start date to {FIRST_CHANGE}. {RESET_EFFECT} {MIXED_ASSIGNMENTS}",
             ),
             (
                 "variant_zeroed",
@@ -199,7 +219,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("variant_zeroed", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f'Variant "blue" was set to 0% on {FIRST_CHANGE} (from control 34% / test 33% / blue 33% to '
                 "control 50% / test 50% / blue 0%). People exposed before the change may have switched variants, "
-                f'and no new users get "blue". Reset the experiment, or move its start date to {FIRST_CHANGE}. '
+                f'and no new users get "blue". Reset the experiment, or move its start date to {FIRST_CHANGE}. {RESET_EFFECT} '
                 f"{MIXED_ASSIGNMENTS}",
             ),
             (
@@ -208,7 +228,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("reordered", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f"The order of the variants changed on {FIRST_CHANGE} (from control 50% / test 50% to test 50% / "
                 "control 50%). The order decides who gets which variant, so people exposed before the change may "
-                f"have switched variants. Reset the experiment, or move its start date to {FIRST_CHANGE}. "
+                f"have switched variants. Reset the experiment, or move its start date to {FIRST_CHANGE}. {RESET_EFFECT} "
                 f"{MIXED_ASSIGNMENTS}",
             ),
             (
@@ -218,6 +238,10 @@ class TestSplitChangedMidRun(TestCase):
                 f'Variant "test" was set to 100% of the split on {FIRST_CHANGE}, while the experiment is still '
                 'running. From then on, the split assigns everyone to variant "test". End the experiment with a '
                 f"conclusion, or restore the split. {MIXED_ASSIGNMENTS}",
+                (
+                    ExperimentHealthFindingActionKind.END_EXPERIMENT,
+                    ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,
+                ),
             ),
             (
                 "several_changes_days_after_launch",
@@ -226,14 +250,15 @@ class TestSplitChangedMidRun(TestCase):
                     _split(("control", 70), ("test", 30)),
                     _split(("control", 60), ("test", 40)),
                     UNEVEN,
-                    launched_at=LAUNCHED_AT - timedelta(days=8),
+                    start_date=LAUNCHED_AT - timedelta(days=8),
                 ),
                 ("rebalanced", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f"The split changed 3 times between {FIRST_CHANGE} and {THIRD_CHANGE}, from control 50% / "
-                "test 50% to control 80% / test 20%. The first change came 8 days after launch. People exposed "
+                "test 50% to control 80% / test 20%. The first change came 8 days after the start date. People exposed "
                 "before the changes may have switched variants, so the results mix two assignments. Reset the "
                 f"experiment, or move its start date to {THIRD_CHANGE} to analyze only the people exposed after the "
-                "changes. A sample ratio mismatch or users in more than one variant can come from these changes.",
+                f"changes. {RESET_EFFECT} A sample ratio mismatch or users in more than one variant can come from these "
+                "changes.",
             ),
             (
                 "reverted_with_exposures_in_between",
@@ -241,14 +266,15 @@ class TestSplitChangedMidRun(TestCase):
                 ("reverted", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f"The split was set to control 0% / test 100% on {FIRST_CHANGE} and set back to control 50% / "
                 f"test 50% on {SECOND_CHANGE}. People exposed in between may have switched variants. Move the start "
-                f"date to {SECOND_CHANGE}, or reset the experiment.",
+                f"date to {SECOND_CHANGE}, or reset the experiment."
+                f" {RESET_EFFECT}",
             ),
             (
                 "reverted_before_4_people",
                 _context(EVEN, SHIPPED, EVEN, exposed_between=True, exposed_units=4),
                 ("reverted", ExperimentHealthFindingSeverity.INFO, "E3"),
                 f"The split was set to control 0% / test 100% on {FIRST_CHANGE} and set back to control 50% / "
-                f"test 50% on {SECOND_CHANGE}. The last change came 3 hours after launch, when 4 people had been "
+                f"test 50% on {SECOND_CHANGE}. The last change came 3 hours after the start date, when 4 people had been "
                 f"exposed. Move the start date to {SECOND_CHANGE} so the results count only exposures after it.",
             ),
             (
@@ -257,7 +283,8 @@ class TestSplitChangedMidRun(TestCase):
                 ("reverted", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f"The split was set to control 0% / test 100% on {FIRST_CHANGE} and set back to control 50% / "
                 f"test 50% on {SECOND_CHANGE}. People exposed in between may have switched variants. Move the start "
-                f"date to {SECOND_CHANGE}, or reset the experiment.",
+                f"date to {SECOND_CHANGE}, or reset the experiment."
+                f" {RESET_EFFECT}",
             ),
             (
                 "reverted_without_exposures_in_between",
@@ -265,6 +292,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("reverted", ExperimentHealthFindingSeverity.INFO, "E3"),
                 f"The split was set to control 0% / test 100% on {FIRST_CHANGE} and set back 17 minutes later. "
                 "Nobody was exposed in between.",
+                HISTORY_ONLY,
             ),
             (
                 "reverted_through_a_flag_without_variants",
@@ -272,7 +300,8 @@ class TestSplitChangedMidRun(TestCase):
                 ("reverted", ExperimentHealthFindingSeverity.WARNING, "E3"),
                 f"The split was set to no variants on {FIRST_CHANGE} and set back to control 50% / test 50% on "
                 f"{SECOND_CHANGE}. People exposed in between may have switched variants. Move the start date to "
-                f"{SECOND_CHANGE}, or reset the experiment.",
+                f"{SECOND_CHANGE}, or reset the experiment."
+                f" {RESET_EFFECT}",
             ),
         ]
     )
@@ -282,6 +311,7 @@ class TestSplitChangedMidRun(TestCase):
         ctx: HealthContext,
         expected: tuple[str, ExperimentHealthFindingSeverity, str],
         expected_detail: str,
+        expected_actions: tuple[ExperimentHealthFindingActionKind, ...] = MOVE_START_DATE,
     ) -> None:
         finding = split_changed_mid_run(ctx)
 
@@ -289,13 +319,14 @@ class TestSplitChangedMidRun(TestCase):
         self.assertEqual(finding.code, ExperimentHealthFindingCode.SPLIT_CHANGED_MID_RUN)
         self.assertEqual((finding.subcode, finding.severity, finding.diagnostic_ref), expected)
         self.assertEqual(finding.detail, expected_detail)
-        self.assertEqual(finding.actions, (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,))
+        self.assertEqual(finding.actions, expected_actions)
 
     @parameterized.expand(
         [
             (
                 "unknown_exposure",
                 _context(EVEN, UNEVEN, exposed_before_first=None),
+                None,
                 {
                     "change_count": 1,
                     "first_changed_at": "2026-09-12T13:04:00+00:00",
@@ -303,13 +334,47 @@ class TestSplitChangedMidRun(TestCase):
                     "from": "control 50% / test 50%",
                     "to": "control 80% / test 20%",
                     "exposed_before_change": None,
-                    "seconds_after_launch": 11040,
+                    "seconds_after_start": 11040,
                     "units_exposed_before_last_change": None,
+                    "suggested_start_date": "2026-09-12T13:04:00+00:00",
+                },
+            ),
+            (
+                "suggested_start_rounded_up_to_the_next_minute",
+                _context(EVEN, UNEVEN, first_change_at=FIRST_CHANGE_AT + timedelta(seconds=45)),
+                None,
+                {
+                    "change_count": 1,
+                    "first_changed_at": "2026-09-12T13:04:45+00:00",
+                    "last_changed_at": "2026-09-12T13:04:45+00:00",
+                    "from": "control 50% / test 50%",
+                    "to": "control 80% / test 20%",
+                    "exposed_before_change": True,
+                    "seconds_after_start": 11085,
+                    "units_exposed_before_last_change": None,
+                    "suggested_start_date": "2026-09-12T13:05:00+00:00",
+                },
+            ),
+            (
+                "suggested_start_after_the_last_change",
+                _context(EVEN, _split(("control", 70), ("test", 30)), UNEVEN),
+                None,
+                {
+                    "change_count": 2,
+                    "first_changed_at": "2026-09-12T13:04:00+00:00",
+                    "last_changed_at": "2026-09-12T13:21:00+00:00",
+                    "from": "control 50% / test 50%",
+                    "to": "control 80% / test 20%",
+                    "exposed_before_change": True,
+                    "seconds_after_start": 11040,
+                    "units_exposed_before_last_change": None,
+                    "suggested_start_date": "2026-09-12T13:21:00+00:00",
                 },
             ),
             (
                 "few_exposed",
                 _context(EVEN, UNEVEN, exposed_units=4),
+                None,
                 {
                     "change_count": 1,
                     "first_changed_at": "2026-09-12T13:04:00+00:00",
@@ -317,45 +382,47 @@ class TestSplitChangedMidRun(TestCase):
                     "from": "control 50% / test 50%",
                     "to": "control 80% / test 20%",
                     "exposed_before_change": True,
-                    "seconds_after_launch": 11040,
+                    "seconds_after_start": 11040,
                     "units_exposed_before_last_change": 4,
+                    "suggested_start_date": "2026-09-12T13:04:00+00:00",
                 },
             ),
             (
                 "not_checked",
-                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
+                "exposure_action",
                 {
-                    "reason": "exposure_filters",
                     "change_count": 1,
                     "first_changed_at": "2026-09-12T13:04:00+00:00",
                     "last_changed_at": "2026-09-12T13:04:00+00:00",
                     "from": "control 50% / test 50%",
                     "to": "control 80% / test 20%",
                     "exposed_before_change": None,
-                    "seconds_after_launch": 11040,
+                    "seconds_after_start": 11040,
                 },
             ),
             (
                 "not_checked_without_history_access",
                 _context(EVEN, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
-                {"reason": "no_history_access"},
+                "no_history_access",
+                {},
             ),
         ]
     )
-    def test_evidence(self, _name: str, ctx: HealthContext, expected: dict[str, Any]) -> None:
+    def test_evidence(self, _name: str, ctx: HealthContext, reason: str | None, expected: dict[str, Any]) -> None:
         finding = _split_code_finding(ctx)
 
         assert isinstance(finding, ExperimentHealthFinding)
-        self.assertEqual(finding.evidence, expected)
+        self.assertEqual((finding.reason, finding.evidence), (reason, expected))
 
     @parameterized.expand(
         [
             (
-                "exposure_filters",
-                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                "exposure_action",
+                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
                 f"The variant split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
-                "This check can't tell whether anyone was exposed before the change, because the exposure criteria "
-                "filter by properties. Review the change in the flag history.",
+                "This check can't tell whether anyone was exposed before the change, because exposures come from an "
+                "action. Review the change in the flag history.",
             ),
             (
                 "exposure_action_after_several_changes",
@@ -396,7 +463,7 @@ class TestSplitChangedMidRun(TestCase):
                 "too_many_saves",
                 _context(EVEN, not_checked=FlagHistoryNotCheckedReason.TOO_MANY_SAVES),
                 "This check can't see whether the flag's variant split, key, bucketing or release conditions changed "
-                "after launch, because the flag was saved more than 100 times since launch. Review the flag history.",
+                "after launch, because the flag was saved more than 100 times since the start date. Review the flag history.",
                 (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,),
                 "The flag history was not checked",
             ),
@@ -460,7 +527,7 @@ class TestSplitChangedMidRun(TestCase):
             ),
             (
                 "rollout_not_checked",
-                _context(EVEN, SHIPPED, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                _context(EVEN, SHIPPED, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
                 FIRST_CHANGE,
                 "control 50% / test 50%",
             ),
@@ -499,6 +566,8 @@ def _totals(after_change: dict[str, int], *, counts_groups: bool = False) -> Exp
         },
         hours_since_launch=72,
         counts_groups=counts_groups,
+        filters_test_accounts=False,
+        has_positive_test_account_filter=False,
     )
 
 
@@ -514,6 +583,14 @@ ACTIVATION_EVENTS = ExposureEvents(
     activation="checkout",
 )
 PLAIN_TITLE = "Users are not split across variants as configured"
+WHILE_EXPOSED = (
+    "The variant split changed after launch while users were exposed, and some of them got their variants from another "
+    "split, which can cause this."
+)
+NOT_CHECKED_CAUSE = (
+    "The variant split changed after launch, and users exposed before the change got their variants from another "
+    "split, which can cause this."
+)
 
 
 class TestSrmAfterSplitChange(TestCase):
@@ -533,6 +610,56 @@ class TestSrmAfterSplitChange(TestCase):
                 _context(EVEN, UNEVEN, exposed_units=5),
                 _totals({"control": 250, "test": 250}),
                 ("split_changed", "don't match the current split either (p < 0.001), so look for another cause too."),
+            ),
+            (
+                "retest_fails_in_one_library",
+                _context(EVEN, UNEVEN, exposed_units=5),
+                replace(
+                    _totals({"control": 250, "test": 250}),
+                    segments=(
+                        ExposureSegment(
+                            dimension=ExposureSegmentDimension.LIBRARY,
+                            value="web",
+                            exposed_by_variant={"control": 800, "test": 200},
+                        ),
+                        ExposureSegment(
+                            dimension=ExposureSegmentDimension.LIBRARY,
+                            value="posthog-node",
+                            exposed_by_variant={"control": 50, "test": 450},
+                        ),
+                    ),
+                ),
+                (
+                    "split_changed",
+                    "so look for another cause too. The mismatch comes from users whose first exposure was sent by the "
+                    '"posthog-node" library. Check that the code there sends the exposure for every user in every '
+                    "variant. Follow the steps in",
+                ),
+            ),
+            (
+                "retest_fails_on_a_page_of_the_variant_short_after_the_change",
+                _context(EVEN, UNEVEN, exposed_units=5),
+                replace(
+                    _totals({"control": 1800, "test": 200}),
+                    segments=(
+                        ExposureSegment(
+                            dimension=ExposureSegmentDimension.LIBRARY,
+                            value="web",
+                            exposed_by_variant={"control": 1800, "test": 200},
+                        ),
+                        ExposureSegment(
+                            dimension=ExposureSegmentDimension.PAGE,
+                            value="/plans",
+                            exposed_by_variant={"control": 1790, "test": 20},
+                        ),
+                        ExposureSegment(
+                            dimension=ExposureSegmentDimension.PAGE,
+                            value="/plans-redesign",
+                            exposed_by_variant={"control": 10, "test": 180},
+                        ),
+                    ),
+                ),
+                ("split_changed", 'Users first exposed on the page "/plans-redesign" are almost all in "test"'),
             ),
             (
                 "too_few_for_a_retest",
@@ -566,7 +693,22 @@ class TestSrmAfterSplitChange(TestCase):
             ),
             (
                 "history_not_checked",
-                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
+                _totals(MATCHES_THE_NEW_SPLIT),
+                (
+                    "split_changed",
+                    "The users first exposed after the day of the change match the current split (p = 1).",
+                ),
+            ),
+            (
+                "not_checked_change_before_the_first_day_of_exposures",
+                _context(
+                    EVEN,
+                    UNEVEN,
+                    not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION,
+                    start_date=FIRST_CHANGE_AT - timedelta(days=2),
+                    first_change_at=FIRST_CHANGE_AT - timedelta(days=1),
+                ),
                 _totals(MATCHES_THE_NEW_SPLIT),
                 (None, PLAIN_TITLE),
             ),
@@ -588,24 +730,165 @@ class TestSrmAfterSplitChange(TestCase):
         self.assertEqual((outcome.subcode, outcome.severity), (subcode, ExperimentHealthFindingSeverity.WARNING))
         self.assertIn(text, f"{outcome.title} {outcome.detail}")
 
-    @parameterized.expand([("failing_test", 0.00001, True), ("passing_test", 0.01, False)])
-    def test_reads_the_flag_history_only_for_a_mismatch(self, _name: str, p_value: float, expected: bool) -> None:
+    @parameterized.expand(
+        [
+            ("failing_test", RUNNING_CONTEXT, MATCHES_THE_NEW_SPLIT, 0.00001, (True, True, None)),
+            ("passing_test", RUNNING_CONTEXT, MATCHES_THE_NEW_SPLIT, 0.01, (False, False, None)),
+            (
+                "split_change_explains_it",
+                _context(EVEN, UNEVEN, exposed_units=5),
+                MATCHES_THE_NEW_SPLIT,
+                0.00001,
+                (True, False, FIRST_CHANGE_AT.date()),
+            ),
+            (
+                "split_change_with_a_failed_retest",
+                _context(EVEN, UNEVEN, exposed_units=5),
+                {"control": 250, "test": 250},
+                0.00001,
+                (True, True, FIRST_CHANGE_AT.date()),
+            ),
+            (
+                "split_change_not_checked_with_a_failed_retest",
+                _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
+                {"control": 250, "test": 250},
+                0.00001,
+                (True, True, FIRST_CHANGE_AT.date()),
+            ),
+            (
+                "activation",
+                replace(RUNNING_CONTEXT, exposure_events=ACTIVATION_EVENTS),
+                MATCHES_THE_NEW_SPLIT,
+                0.00001,
+                (True, False, None),
+            ),
+        ]
+    )
+    def test_reads_the_flag_history_and_the_segments_only_for_a_mismatch(
+        self,
+        _name: str,
+        ctx: HealthContext,
+        after_change: dict[str, int],
+        p_value: float,
+        expected: tuple[bool, bool, date | None],
+    ) -> None:
+        ctx = replace(ctx, exposures=replace(_totals(after_change), sample_ratio_mismatch_p_value=p_value))
+
+        self.assertEqual((reads_flag_history(ctx), reads_segments(ctx), segments_first_exposed_after(ctx)), expected)
+
+    @parameterized.expand(
+        [
+            (
+                "same_skew_before_the_change",
+                {"control": 600, "test": 400},
+                {"control": 0, "test": 0},
+                (None, True, None),
+                "The variant split changed after launch, but the users first exposed before the change show the same "
+                "mismatch as those first exposed after it, so the change doesn't explain it.",
+            ),
+            (
+                "another_skew_before_the_change",
+                {"control": 500, "test": 500},
+                {"control": 0, "test": 0},
+                ("split_changed", True, date(2026, 9, 14)),
+                "don't match the current split either (p < 0.001), so look for another cause too.",
+            ),
+            (
+                "another_skew_on_the_change_day",
+                {"control": 600, "test": 400},
+                {"control": 5000, "test": 0},
+                ("split_changed", True, date(2026, 9, 14)),
+                "don't match the current split either (p < 0.001), so look for another cause too.",
+            ),
+        ]
+    )
+    def test_rules_out_a_split_change_when_the_skew_predates_it(
+        self,
+        _name: str,
+        before_change: dict[str, int],
+        on_change_day: dict[str, int],
+        expected: tuple[str | None, bool, date | None],
+        text: str,
+    ) -> None:
+        after_change = {"control": 600, "test": 400}
+        days = {date(2026, 9, 12): before_change, date(2026, 9, 14): on_change_day, date(2026, 9, 15): after_change}
+        total_exposures = {variant: sum(day[variant] for day in days.values()) for variant in after_change}
+        whole_run = sum(total_exposures.values())
+        totals = replace(
+            _totals(after_change),
+            total_exposures=total_exposures,
+            sample_ratio_expected={"control": 0.8 * whole_run, "test": 0.2 * whole_run},
+            daily_exposures={
+                variant: {day: day_counts[variant] for day, day_counts in days.items()} for variant in after_change
+            },
+        )
         ctx = replace(
-            RUNNING_CONTEXT,
-            exposures=replace(_totals(MATCHES_THE_NEW_SPLIT), sample_ratio_mismatch_p_value=p_value),
+            _context(EVEN, UNEVEN, exposed_units=5, first_change_at=datetime(2026, 9, 14, 13, 4, tzinfo=UTC)),
+            exposures=totals,
         )
 
-        self.assertEqual(reads_flag_history(ctx), expected)
+        outcome = srm(ctx)
 
-    def test_names_the_cause_the_evidence_and_the_next_step(self) -> None:
-        outcome = srm(replace(_context(EVEN, UNEVEN, exposed_units=5), exposures=_totals(MATCHES_THE_NEW_SPLIT)))
+        assert isinstance(outcome, ExperimentHealthFinding)
+        self.assertEqual((outcome.subcode, reads_segments(ctx), segments_first_exposed_after(ctx)), expected)
+        self.assertIn(text, outcome.detail)
+
+    @parameterized.expand(
+        [
+            (
+                "running",
+                RUNNING,
+                None,
+                ' Follow the steps in "The variant split changed after launch" to fix the results.',
+            ),
+            ("ended_after_the_change", ENDED, FIRST_CHANGE_AT + timedelta(days=3), ""),
+            (
+                "not_checked",
+                RUNNING,
+                None,
+                f" Move the start date to {FIRST_CHANGE}, or reset the experiment. A reset returns the experiment to "
+                "draft, and once you launch it again, the results count only exposures from then on.",
+                FlagHistoryNotCheckedReason.EXPOSURE_ACTION,
+                NOT_CHECKED_CAUSE,
+            ),
+            (
+                "not_checked_ended_after_the_change",
+                ENDED,
+                FIRST_CHANGE_AT + timedelta(days=3),
+                f" Move the start date to {FIRST_CHANGE}.",
+                FlagHistoryNotCheckedReason.EXPOSURE_ACTION,
+                NOT_CHECKED_CAUSE,
+            ),
+        ]
+    )
+    def test_names_the_cause_the_evidence_and_the_next_step(
+        self,
+        _name: str,
+        status: Status,
+        ended_at: datetime | None,
+        next_step: str,
+        not_checked: FlagHistoryNotCheckedReason | None = None,
+        cause: str = WHILE_EXPOSED,
+    ) -> None:
+        ctx = replace(
+            _context(EVEN, UNEVEN, status=status, exposed_units=5, not_checked=not_checked), ended_at=ended_at
+        )
+
+        outcome = srm(replace(ctx, exposures=_totals(MATCHES_THE_NEW_SPLIT)))
 
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual(outcome.title, "Users are not split as configured after a split change")
         self.assertEqual(
             outcome.detail,
             "The distribution of users across variants doesn't match your current rollout percentages (p < 0.001). "
-            "The variant split changed after launch while users were exposed, and some of them got their variants "
-            "from another split, which can cause this. The users first exposed after the day of the change match the "
-            'current split (p = 1). Follow the steps in "The variant split changed after launch" to fix the results.',
+            f"{cause} The users first exposed after the day of the change match the current split (p = 1).{next_step}",
         )
+
+    def test_leaves_out_a_split_that_changed_after_the_end(self) -> None:
+        ctx = replace(
+            _context(EVEN, UNEVEN, status=ENDED, exposed_units=5), ended_at=FIRST_CHANGE_AT - timedelta(hours=1)
+        )
+
+        outcome = srm(replace(ctx, exposures=_totals(MATCHES_THE_NEW_SPLIT)))
+
+        self.assertEqual(outcome, not_applicable(SPLIT_CHANGED_AFTER_END))

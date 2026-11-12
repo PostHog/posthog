@@ -1,4 +1,6 @@
+import json
 import datetime
+import dataclasses
 
 import pytest
 
@@ -11,28 +13,100 @@ import pyarrow.parquet as pq
 from posthog import settings
 
 from products.signals.backend.ranking.features import (
+    CONTENT_COLUMNS,
     EMBEDDING_DIMENSIONS,
+    PROJECT_VECTOR_KINDS,
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
+    REPORT_FACT_FEATURE_NAMES,
+    REPORT_FACT_GROUPS,
+    REPORT_SCORED_FACTS_EXTRA,
     REPORT_SOURCES_EXTRA,
+    report_fact_matrix,
 )
+from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
+from products.signals.backend.ranking.serving_manifest import ONNX_MODEL_FILE, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.common import partition_object_key
-from products.signals.dags.inbox_ranking.dataset.dag import SIGNAL_EMBEDDINGS_SCHEMA, SIGNAL_EMBEDDINGS_TABLE
-from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, report_matrix
-from products.signals.dags.inbox_ranking.nn import experiments
-from products.signals.dags.inbox_ranking.nn.dag import NN_EXAMPLES_TABLE
-from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES
-from products.signals.dags.inbox_ranking.nn.model import vs_baseline_block
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    EMBEDDINGS_TABLE,
+    LABELS_TABLE,
+    SCORED_FACTS_SCHEMA,
+    SCORED_FACTS_TABLE,
+    SIGNAL_EMBEDDINGS_SCHEMA,
+    SIGNAL_EMBEDDINGS_TABLE,
+    USER_INTERACTIONS_SCHEMA,
+    USER_INTERACTIONS_TABLE,
+)
+from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, PairTrainingConfig
+from products.signals.dags.inbox_ranking.multihead.local import report_vectors
+from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, project_context, report_matrix
+from products.signals.dags.inbox_ranking.nn import (
+    dag as nn_dag,
+    experiments,
+    pair_lane,
+)
+from products.signals.dags.inbox_ranking.nn.dag import EXPERIMENT_SEEDS, NN_EXAMPLES_TABLE
+from products.signals.dags.inbox_ranking.nn.examples import (
+    NN_HEAD_NAMES,
+    NN_HEADS,
+    build_examples,
+    examples_arrow,
+    examples_from_arrow,
+)
+from products.signals.dags.inbox_ranking.nn.model import (
+    MIN_TRAINED_GROUP_SHARE,
+    network_recipe,
+    onnx_probabilities,
+    vs_baseline_block,
+    zero_unfitted_groups,
+)
+from products.signals.dags.inbox_ranking.nn.pair_grade import DOGFOOD_TEAM_ID, pair_vs_baseline_block
+from products.signals.dags.inbox_ranking.nn.pair_lane import (
+    PAIR_SETTINGS,
+    broadcast_report_scores,
+    report_positions,
+    train_pair_candidate,
+)
+from products.signals.dags.inbox_ranking.nn.pairs import NN_PAIR_EXAMPLES_TABLE, PAIR_EXAMPLES_SCHEMA
+from products.signals.dags.inbox_ranking.tests.test_multihead import (
+    D0,
+    DAYS,
+    HOLDOUT_DAYS,
+    TEAMS,
+    _birth,
+    _SyntheticInbox,
+)
+from products.signals.dags.inbox_ranking.tests.test_nn import _S3, _parquet
 from products.signals.dags.inbox_ranking.tests.test_training import _ModelStoreS3
 from products.signals.dags.inbox_ranking.training import side_inputs
-from products.signals.dags.inbox_ranking.training.families import NN_MODEL_NAME, ModelFamily, family_problems
+from products.signals.dags.inbox_ranking.training.dag import METADATA_FILE, model_object_key
+from products.signals.dags.inbox_ranking.training.families import (
+    MODEL_FAMILIES,
+    NN_MODEL_NAME,
+    NN_PAIR_BASE_MODEL_NAME,
+    NN_PAIR_USER_MODEL_NAME,
+    NN_PAIR_USER_V2_MODEL_NAME,
+    NN_WITH_PRIO_AA_MODEL_NAME,
+    NN_WITH_PRIO_FAMILY,
+    NN_WITH_PRIO_ML_FEATURES_MODEL_NAME,
+    NN_WITH_PRIO_MODEL_NAME,
+    PAIR_GRAIN,
+    PAIR_HEAD_NAMES,
+    PAIR_TRAINING,
+    ModelFamily,
+    family_problems,
+    serving_families,
+)
+from products.signals.dags.inbox_ranking.training.recipe import model_recipe
 from products.signals.dags.inbox_ranking.training.side_inputs import (
     SideInputError,
     SideInputLoader,
     load_side_inputs,
     rows_as_of,
 )
+from products.signals.dags.inbox_ranking.training.telemetry import experiment_comparison_events
 
 PARTITION = "2026-10-20"
 PREFIX = settings.INBOX_RANKING_DATASET_S3_PREFIX
@@ -49,6 +123,29 @@ def _experiment(name: str, expires: datetime.date) -> ModelFamily:
     )
 
 
+def _pair_experiment(
+    name: str,
+    *,
+    baseline: str | None = None,
+    reference: str | None = NN_WITH_PRIO_MODEL_NAME,
+    expires: datetime.date = datetime.date(2026, 12, 31),
+    heads: tuple[str, ...] = ("open", "action"),
+    experiment: bool = True,
+) -> ModelFamily:
+    return ModelFamily(
+        name=name,
+        feature_set=NN_WITH_PRIO_FAMILY.feature_set,
+        learner=ONNX_MODEL_KIND,
+        location=NN_WITH_PRIO_FAMILY.location,
+        experiment=experiment,
+        baseline=baseline,
+        expires=expires,
+        grain=PAIR_GRAIN,
+        heads=heads,
+        reference=reference,
+    )
+
+
 @pytest.mark.parametrize("examples_present", [True, False])
 def test_an_expired_experiment_and_a_day_without_examples_train_nothing(monkeypatch, examples_present):
     trained: list[str] = []
@@ -57,18 +154,24 @@ def test_an_expired_experiment_and_a_day_without_examples_train_nothing(monkeypa
         trained.append(family.name)
         return {"heads_trained": dagster.MetadataValue.int(3)}
 
+    def train_pair_candidate(context, client, bucket, partition_key, family):
+        trained.append(f"{family.name} in the pair lane")
+        return {"heads_trained": dagster.MetadataValue.int(2)}
+
     monkeypatch.setattr(experiments, "train_candidate", train_candidate)
+    monkeypatch.setattr(experiments, "train_pair_candidate", train_pair_candidate)
     objects = {partition_object_key(PREFIX, NN_EXAMPLES_TABLE, PARTITION): b"examples"} if examples_present else {}
     # Expiry is inclusive: the expires day still trains, the day after does not.
     families = (
         _experiment("expired", datetime.date(2026, 10, 19)),
         _experiment("last_day", datetime.date(2026, 10, 20)),
+        _pair_experiment("pair", expires=datetime.date(2026, 10, 20)),
     )
 
     with dagster.build_asset_context(partition_key=PARTITION) as context:
         metadata = experiments.run_experiments(context, _ModelStoreS3(objects), "bucket", PARTITION, families)
 
-    assert trained == (["last_day"] if examples_present else [])
+    assert trained == (["last_day", "pair in the pair lane"] if examples_present else [])
     assert metadata["expired_skipped"].value == "expired on 2026-10-19"
     assert ("skipped" in metadata) is not examples_present
 
@@ -87,6 +190,123 @@ def test_an_experiment_must_name_a_registered_serving_baseline_and_an_expiry():
     assert family_problems((serving, _experiment("first", datetime.date(2026, 12, 31)), chained)) == [
         "experiment chained names baseline first, which is not a serving family"
     ]
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: ModelFamily(
+            name="served_fixed",
+            feature_set=REPORT_EMBEDDINGS_FEATURE_SET,
+            project_vector_kinds=(*PROJECT_VECTOR_KINDS, "fixed"),
+        ),
+        lambda: dataclasses.replace(_pair_experiment("pair_fixed"), project_vector_kinds=("typical", "fixed")),
+        lambda: dataclasses.replace(
+            _experiment("unknown_kind", datetime.date(2026, 12, 31)), project_vector_kinds=("typical", "seen")
+        ),
+    ],
+    ids=["serving_family", "pair_experiment", "unknown_kind"],
+)
+def test_only_a_report_experiment_can_read_other_project_vector_kinds(build):
+    with pytest.raises(ValueError, match="project vector kinds"):
+        build()
+
+
+@pytest.mark.parametrize(
+    "families,selection",
+    [
+        ((_experiment("report", datetime.date(2026, 10, 20)),), [experiments.NN_EXPERIMENTS_ASSET]),
+        (
+            (
+                _experiment("expired", datetime.date(2026, 10, 19)),
+                _pair_experiment("pair", expires=datetime.date(2026, 10, 20)),
+            ),
+            [NN_PAIR_EXAMPLES_TABLE, experiments.NN_PAIR_EXPERIMENTS_ASSET],
+        ),
+        ((_pair_experiment("expired_pair", expires=datetime.date(2026, 10, 19)),), []),
+    ],
+    ids=["report_only", "pair_only", "nothing_live"],
+)
+def test_a_run_builds_pair_examples_only_for_a_live_pair_experiment_and_trains_it_after_them(families, selection):
+    assert experiments.experiment_selection(families, datetime.date(2026, 10, 20)) == selection
+    pair_examples = dagster.AssetKey(NN_PAIR_EXAMPLES_TABLE)
+    # The report experiments stay apart from the pair examples, so a failed pair step cannot skip them.
+    assert pair_examples in experiments.inbox_ranking_nn_pair_experiment_candidates.dependency_keys
+    assert pair_examples not in experiments.inbox_ranking_nn_experiment_candidates.dependency_keys
+
+
+@pytest.mark.parametrize(
+    "build,message",
+    [
+        (lambda: _pair_experiment("served", experiment=False), "must be an experiment"),
+        (lambda: _pair_experiment("unanchored", reference=None), "needs a baseline, a reference, or both"),
+        (lambda: _pair_experiment("dismiss_head", heads=("open", "dismiss")), "declares heads"),
+    ],
+    ids=["pair_serving_family", "no_baseline_or_reference", "dismiss_is_not_a_pair_head"],
+)
+def test_a_pair_family_is_an_experiment_with_pair_heads_and_something_to_grade_against(build, message):
+    with pytest.raises(ValueError, match=message):
+        build()
+
+
+_PRIO_SERVING = ModelFamily(name=NN_WITH_PRIO_MODEL_NAME, feature_set=NN_WITH_PRIO_FAMILY.feature_set)
+
+
+@pytest.mark.parametrize(
+    "families,problems",
+    [
+        ((_PRIO_SERVING, _pair_experiment("pair_base"), _pair_experiment("pair_user", baseline="pair_base")), []),
+        (
+            (_PRIO_SERVING, _pair_experiment("pair_user", baseline=NN_WITH_PRIO_MODEL_NAME)),
+            ["experiment pair_user is pair grain and its baseline nn_with_prio_v2 is report grain"],
+        ),
+        (
+            (_PRIO_SERVING, _pair_experiment("pair_user", baseline="pair_base")),
+            ["experiment pair_user names baseline pair_base, which is not a registered pair experiment"],
+        ),
+        (
+            (
+                _PRIO_SERVING,
+                _pair_experiment("pair_a", baseline="pair_b"),
+                _pair_experiment("pair_b", baseline="pair_a"),
+            ),
+            [
+                "experiment pair_a has a baseline cycle: pair_a -> pair_b -> pair_a",
+                "experiment pair_b has a baseline cycle: pair_b -> pair_a -> pair_b",
+            ],
+        ),
+        (
+            (_PRIO_SERVING, _pair_experiment("pair_base", reference="pair_base")),
+            ["experiment pair_base names reference pair_base, which is not a report-grain serving family"],
+        ),
+        (
+            (
+                _PRIO_SERVING,
+                _pair_experiment("pair_base"),
+                dataclasses.replace(
+                    _pair_experiment("pair_user", baseline="pair_base"),
+                    heads=PAIR_HEAD_NAMES,
+                    pair_training=PAIR_TRAINING,
+                ),
+            ),
+            [
+                "pair experiment pair_user and its baseline pair_base differ in heads or pair training; "
+                "the two arms must differ only in user history"
+            ],
+        ),
+    ],
+    ids=[
+        "valid_pair_chain",
+        "mixed_grain_baseline",
+        "unregistered_pair_baseline",
+        "baseline_cycle",
+        "pair_reference",
+        "arms_differ_beyond_user_history",
+    ],
+)
+def test_a_pair_experiment_names_a_registered_pair_baseline_and_a_report_serving_reference(families, problems):
+    assert family_problems(families) == problems
+    assert all(family.name == NN_WITH_PRIO_MODEL_NAME for family in serving_families(families))
 
 
 def _sources(known_at: list[str]) -> pd.DataFrame:
@@ -176,6 +396,32 @@ def test_vs_baseline_pairs_each_seed_inside_each_team_on_the_same_holdout_rows()
     )
 
     first, _, third = NN_HEAD_NAMES
+    # A report-grain experiment's events keep the fields they had before pair grain existed.
+    [event, *_] = experiment_comparison_events({"model_name": "experiment", "vs_baseline": block})
+    assert set(event.properties) == {
+        "model_name",
+        "model_version",
+        "run_id",
+        "recipe_hash",
+        "baseline_model_name",
+        "seeds",
+        "head",
+        "train_rows",
+        "holdout_rows",
+        "holdout_positives",
+        *(
+            f"{read}_{key}"
+            for read in (
+                "within_team",
+                "within_team_non_dogfood",
+                "within_team_macro",
+                "within_team_non_dogfood_macro",
+                "pooled",
+            )
+            for key in ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
+        ),
+        *(f"within_team_non_dogfood_macro_interval_{key}" for key in ("low", "high", "teams")),
+    }
     paired = {
         "experiment_aucs": [1.0, 0.0],
         "baseline_aucs": [0.0, 0.0],
@@ -189,6 +435,60 @@ def test_vs_baseline_pairs_each_seed_inside_each_team_on_the_same_holdout_rows()
     assert block["heads"][first]["pooled"] == paired
     assert block["heads"][third]["within_team"]["paired_seeds"] == 0
     assert block["heads"][third]["within_team"]["mean_delta_auc"] is None
+
+    # The dogfood team ranks backwards, so only the read without it sees the customer team's order.
+    dogfood = (table.rows["report_team_id"].to_numpy() == DOGFOOD_TEAM_ID)[:, None]
+    mixed = vs_baseline_block(
+        table,
+        baseline=NN_MODEL_NAME,
+        seeds=(0,),
+        experiment_scores=[np.where(dogfood, inverted, perfect)],
+        baseline_scores=[inverted],
+    )
+    assert mixed["heads"][first]["within_team"]["experiment_aucs"] == [0.5]
+    assert mixed["heads"][first]["within_team_non_dogfood"]["experiment_aucs"] == [1.0]
+    assert mixed["heads"][first]["within_team_non_dogfood_macro"]["experiment_aucs"] == [1.0]
+    [mixed_event, *_] = experiment_comparison_events({"model_name": "experiment", "vs_baseline": mixed})
+    assert [
+        mixed_event.properties[f"{read}_mean_delta_auc"]
+        for read in ("within_team", "within_team_non_dogfood", "within_team_non_dogfood_macro")
+    ] == [0.5, 1.0, 1.0]
+
+    # Customer team 1 ranks its four pairs right and customer team 3 ranks its one pair wrong, so the
+    # pooled read follows team 1 while the macro read weighs both teams the same.
+    uneven_labels = np.zeros((8, len(NN_HEAD_NAMES)), dtype=np.float32)
+    uneven_labels[:, 0] = [1, 1, 0, 0, 1, 0, 1, 0]
+    uneven = ExampleTable(
+        rows=pd.DataFrame(
+            {"report_id": list("abcdefgh"), "report_team_id": [1, 1, 1, 1, 3, 3, DOGFOOD_TEAM_ID, DOGFOOD_TEAM_ID]}
+        ),
+        labels=uneven_labels,
+        holdout=np.ones_like(uneven_labels, dtype=bool),
+    )
+    experiment = uneven_labels.copy()
+    experiment[4:6, 0] = 1 - experiment[4:6, 0]
+    grade = vs_baseline_block(
+        uneven,
+        baseline=NN_MODEL_NAME,
+        seeds=(0,),
+        experiment_scores=[experiment],
+        baseline_scores=[np.full_like(uneven_labels, 0.5)],
+    )["heads"][first]
+    assert grade["within_team_non_dogfood"]["mean_delta_auc"] == pytest.approx(0.3)
+    assert grade["within_team_non_dogfood_macro"]["mean_delta_auc"] == pytest.approx(0.0)
+    assert grade["within_team_macro"]["mean_delta_auc"] == pytest.approx(1 / 6)
+    assert grade["within_team_non_dogfood_macro_team_interval"] == {"low": -0.5, "high": 0.5, "teams": 2, "draws": 1000}
+
+
+def test_the_aa_control_is_its_baseline_recipe_fit_on_other_seeds():
+    aa = next(family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_AA_MODEL_NAME)
+    config = NetworkConfig()
+    assert aa.baseline == NN_WITH_PRIO_MODEL_NAME
+    assert network_recipe(aa, config, aa.project_vector_kinds) == network_recipe(
+        NN_WITH_PRIO_FAMILY, config, NN_WITH_PRIO_FAMILY.project_vector_kinds
+    )
+    # On the baseline's own seeds the two arms are the same fit, and every delta is zero.
+    assert set(aa.experiment_seeds(EXPERIMENT_SEEDS)).isdisjoint(EXPERIMENT_SEEDS)
 
 
 def _signal_log(signals: list[tuple[str, str, str, str]]) -> bytes:
@@ -209,6 +509,36 @@ def _signal_log(signals: list[tuple[str, str, str, str]]) -> bytes:
     sink = pa.BufferOutputStream()
     pq.write_table(table, sink)
     return sink.getvalue().to_pybytes()
+
+
+def _scored_facts_day(rows: list[tuple[str, str]]) -> bytes:
+    table = pa.Table.from_pylist(
+        [
+            {"report_id": report_id, "scored_at": pd.Timestamp(scored_at).to_pydatetime()}
+            for report_id, scored_at in rows
+        ],
+        schema=SCORED_FACTS_SCHEMA,
+    )
+    sink = pa.BufferOutputStream()
+    pq.write_table(table, sink)
+    return sink.getvalue().to_pybytes()
+
+
+def test_the_scored_facts_side_input_reads_each_report_only_once_it_was_scored():
+    objects = {
+        partition_object_key(PREFIX, SCORED_FACTS_TABLE, "2026-10-19"): _scored_facts_day(
+            [("r0", "2026-10-19T10:00:00+00:00")]
+        ),
+        partition_object_key(PREFIX, SCORED_FACTS_TABLE, PARTITION): _scored_facts_day(
+            [("r1", "2026-10-20T10:00:00+00:00")]
+        ),
+    }
+
+    extras = load_side_inputs(_ModelStoreS3(objects), "bucket", PREFIX, PARTITION, [REPORT_SCORED_FACTS_EXTRA])
+
+    assert sorted(extras[REPORT_SCORED_FACTS_EXTRA]["report_id"]) == ["r0", "r1"]
+    moment = datetime.datetime(2026, 10, 20, tzinfo=datetime.UTC)
+    assert list(rows_as_of(extras, REPORT_SCORED_FACTS_EXTRA, moment)["report_id"]) == ["r0"]
 
 
 def test_a_late_signal_does_not_leak_into_an_earlier_row():
@@ -245,3 +575,474 @@ def test_a_late_signal_does_not_leak_into_an_earlier_row():
     # The github signal landed on dt=D, after the dt=D-1 row's moment, so only the dt=D row sees it.
     # A report with no signals has zero in every source column.
     assert matrix[columns].values.tolist() == [[1, 0, 0, 1, 1], [1, 1, 0, 2, 1], [0, 0, 0, 0, 0]]
+
+
+_REPORT_FACTS = {
+    "title_chars": 10,
+    "summary_chars": 10,
+    "actionability": "not_actionable",
+    "already_addressed": False,
+    "signal_count": 1,
+    "chart_count": 0,
+    "metric_count": 0,
+    "suggested_prompt_count": 0,
+    "tag_count": 0,
+    "user_authored": False,
+    "report_created_at": pd.Timestamp("2026-11-09T12:00:00Z"),
+}
+
+
+def _hot(row: np.ndarray, prefix: str) -> list[str]:
+    return [name for name, value in zip(REPORT_FACT_FEATURE_NAMES, row) if name.startswith(prefix) and value == 1]
+
+
+@pytest.mark.parametrize(
+    "column,value,expected",
+    [
+        ("title_chars", 49, ["title_chars_0_49"]),
+        ("title_chars", 50, ["title_chars_50_59"]),
+        ("title_chars", 80, ["title_chars_80_plus"]),
+        ("summary_chars", 1599, ["summary_chars_1000_1599"]),
+        ("summary_chars", 1600, ["summary_chars_1600_1899"]),
+        ("summary_chars", 2500, ["summary_chars_2500_plus"]),
+        ("signal_count", 2, ["signal_count_2"]),
+        ("signal_count", 4, ["signal_count_3_4"]),
+        ("signal_count", 10, ["signal_count_10_plus"]),
+        ("chart_count", 1, ["chart_count_1"]),
+        ("chart_count", 2, ["chart_count_2_plus"]),
+        ("report_created_at", pd.Timestamp("2026-11-15T23:59:00Z"), ["created_weekday_6", "created_hour_20_23"]),
+        ("report_created_at", pd.Timestamp("2026-11-09T04:00:00Z"), ["created_weekday_0", "created_hour_4_7"]),
+        ("report_created_at", None, []),
+        ("actionability", None, []),
+        ("already_addressed", None, []),
+        ("already_addressed", True, ["already_addressed_true"]),
+        ("title_chars", None, []),
+    ],
+)
+def test_a_report_fact_lands_in_its_bucket_and_a_missing_one_in_none(column, value, expected):
+    row = report_fact_matrix(pd.DataFrame([{**_REPORT_FACTS, column: value}]))[0]
+    prefix = "created_" if column == "report_created_at" else f"{column}_"
+    assert _hot(row, prefix) == expected
+
+
+@pytest.mark.parametrize("content", ["absent", "null"])
+def test_content_that_was_not_recorded_reads_as_zero_and_keeps_the_other_facts(content):
+    recorded = {**_REPORT_FACTS, "chart_count": 2, "user_authored": True}
+    rows = pd.DataFrame([recorded, {**recorded, **dict.fromkeys(CONTENT_COLUMNS)}])
+    if content == "absent":
+        rows = rows.drop(columns=list(CONTENT_COLUMNS))
+    matrix = report_fact_matrix(rows)
+    content_columns = [REPORT_FACT_FEATURE_NAMES.index(name) for name in REPORT_FACT_GROUPS["content"]]
+    # An absent column means every row of the object went unrecorded; a null means only that row did.
+    expected_recorded = [0.0, 0.0] if content == "absent" else [1.0, 0.0]
+    assert matrix[:, REPORT_FACT_FEATURE_NAMES.index("content_recorded")].tolist() == expected_recorded
+    assert matrix[1, content_columns].sum() == 0
+    assert all(_hot(row, "title_chars_") == ["title_chars_0_49"] for row in matrix)
+
+
+@pytest.mark.parametrize(
+    "train_rows_with_content,expected_zeroed",
+    [(0, ["content"]), (int(100 * MIN_TRAINED_GROUP_SHARE) - 1, ["content"]), (int(100 * MIN_TRAINED_GROUP_SHARE), [])],
+)
+def test_a_late_group_too_few_training_rows_carry_is_zeroed_on_every_row(train_rows_with_content, expected_zeroed):
+    feature_set = REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET
+    names = list(feature_set.feature_names)
+    recorded, addressed = names.index("content_recorded"), names.index("already_addressed_true")
+    title = names.index("title_chars_0_49")
+    # 100 training rows, then 10 holdout rows that all carry the content group.
+    reports = np.zeros((110, len(names)), dtype=np.float32)
+    reports[:, [addressed, title]] = 1.0
+    reports[:train_rows_with_content, recorded] = 1.0
+    reports[100:, recorded] = 1.0
+
+    zeroed = zero_unfitted_groups(reports, np.arange(100), feature_set)
+
+    assert zeroed == expected_zeroed
+    assert reports[100:, recorded].sum() == (0 if expected_zeroed else 10)
+    assert reports[:, [addressed, title]].all()
+
+
+def test_the_report_facts_experiment_trains_on_examples_without_content_and_reads_every_group(monkeypatch):
+    pytest.importorskip("torch")
+    monkeypatch.setattr(nn_dag, "capture_training_events", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        nn_dag, "NETWORK_CONFIG", NetworkConfig(projection_dim=8, trunk_dim=8, dropout=0.1, epochs=5, batch_size=64)
+    )
+    monkeypatch.setattr(nn_dag, "EXPERIMENT_SEEDS", (0, 1))
+    family = next(family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_ML_FEATURES_MODEL_NAME)
+    inbox = _SyntheticInbox()
+    snapshots = inbox.snapshots()
+    # Snapshots written before the content columns existed: the other facts are there, content is not.
+    for snapshot in snapshots.values():
+        snapshot.state["title_chars"] = 65
+        snapshot.state["summary_chars"] = 1200
+        snapshot.state["actionability"] = "requires_human_input"
+    embeddings, labels = inbox.embeddings(), inbox.labels()
+    examples = build_examples(snapshots, report_vectors(embeddings), holdout_days=HOLDOUT_DAYS)
+    arrow = examples_arrow(examples)
+    assert not set(CONTENT_COLUMNS) & set(arrow.column_names)
+    day = (D0 + datetime.timedelta(days=DAYS - 1)).isoformat()
+    first_report = str(examples.table.rows["report_id"].iloc[0])
+    client = _S3(
+        {
+            partition_object_key(PREFIX, NN_EXAMPLES_TABLE, day): _parquet(arrow),
+            partition_object_key(PREFIX, EMBEDDINGS_TABLE, day): _parquet(embeddings),
+            partition_object_key(PREFIX, LABELS_TABLE, day): _parquet(labels),
+            partition_object_key(PREFIX, SIGNAL_EMBEDDINGS_TABLE, day): _signal_log(
+                [("s1", first_report, "error_tracking", "2026-08-01T13:00:00+00:00")]
+            ),
+        }
+    )
+
+    with dagster.build_asset_context(partition_key=day) as context:
+        nn_dag.train_candidate(context, client, "bucket", day, family)
+
+    rows = examples_from_arrow(arrow).table.rows
+    extras = {
+        **report_vectors(embeddings),
+        **load_side_inputs(client, "bucket", PREFIX, day, [REPORT_SOURCES_EXTRA]),
+    }
+    matrix = pd.DataFrame(
+        report_matrix(rows, extras, family.feature_set), columns=list(family.feature_set.feature_names)
+    )
+    assert (matrix["content_recorded"] == 0).all() and (matrix["title_chars_60_69"] == 1).all()
+    metadata = json.loads(client.objects[model_object_key(PREFIX, family.name, day, METADATA_FILE)])
+    assert metadata["vs_baseline"]["zeroed_feature_groups"] == ["content", "already_addressed"]
+    importance = metadata["vs_baseline"]["group_importance"]
+    assert importance["seeds"] == 2
+    for name in NN_HEAD_NAMES:
+        groups = importance["heads"][name]
+        assert set(groups) == {"sources", *REPORT_FACT_GROUPS}
+        # Every content and length column holds one value on every row, so shuffling them moves nothing.
+        assert groups["content"] == groups["length"] == {"pooled": 0.0, "within_team_non_dogfood_macro": 0.0}
+    events = experiment_comparison_events(metadata)
+    assert {event.properties["head"] for event in events} == set(NN_HEAD_NAMES)
+    assert all(event.properties["group_importance_content_pooled"] == 0.0 for event in events)
+
+
+def test_a_report_family_recipe_has_no_pair_keys_so_its_hash_stays_as_it_was():
+    config = NetworkConfig()
+    assert network_recipe(NN_WITH_PRIO_FAMILY, config, ("open",)) == model_recipe(
+        model_kind=ONNX_MODEL_KIND,
+        feature_set=NN_WITH_PRIO_FAMILY.feature_set,
+        heads=NN_HEADS,
+        learner_params=dataclasses.asdict(config),
+        project_vector_kinds=("open",),
+    )
+    pair_recipe = network_recipe(_pair_experiment("pair"), config, ("open",), PAIR_SETTINGS)
+    assert (pair_recipe["grain"], pair_recipe["pair"], list(pair_recipe["heads"])) == (
+        PAIR_GRAIN,
+        PAIR_SETTINGS,
+        ["open", "action"],
+    )
+    # The first pair families keep their hashes; a family with a cold path names its settings.
+    assert "pair_training" not in pair_recipe
+    cold_path_recipe = network_recipe(
+        dataclasses.replace(_pair_experiment("pair"), pair_training=PAIR_TRAINING), config, ("open",), PAIR_SETTINGS
+    )
+    assert cold_path_recipe["pair_training"] == dataclasses.asdict(PAIR_TRAINING)
+
+
+def test_a_reference_score_is_broadcast_to_every_pair_of_its_report():
+    day = datetime.date(2026, 10, 1)
+    reports = pd.DataFrame({"report_id": ["a", "b", "c"], "snapshot_date": [day] * 3, "report_team_id": [3, 3, 4]})
+    pairs = pd.DataFrame({"report_id": ["b", "a", "b", "z"], "snapshot_date": [day] * 4})
+    # One column per report-grain head, in NN_HEAD_NAMES order: open, action, fixed.
+    report_scores = np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]], dtype=np.float32)
+
+    scores = broadcast_report_scores(report_scores, report_positions(reports, pairs), NN_HEAD_NAMES, ("action", "open"))
+
+    np.testing.assert_allclose(scores[:3], [[0.5, 0.4], [0.2, 0.1], [0.5, 0.4]])
+    # A pair whose report has no row gets no score rather than another report's.
+    assert np.isnan(scores[3]).all()
+
+
+def _pair_frame(users: list[tuple[int, str, int, bool, list[int]]]) -> pd.DataFrame:
+    """One pair per (user, label), each user's reports invented in order."""
+    rows = []
+    for team_id, user, prior_views, suggested, labels in users:
+        for position, label in enumerate(labels):
+            rows.append(
+                {
+                    "report_id": f"{user}-{position}",
+                    "report_team_id": team_id,
+                    "user_distinct_id": user,
+                    "prior_views": prior_views,
+                    "is_suggested_reviewer": suggested,
+                    "label": label,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_the_pair_grade_is_within_user_with_dogfood_history_and_reviewer_slices_and_a_team_interval():
+    frame = _pair_frame(
+        [
+            (3, "u1", 12, True, [1, 0]),
+            (4, "u3", 20, False, [1, 0, 0]),
+            (DOGFOOD_TEAM_ID, "u4", 15, False, [1, 0]),
+            # One outcome class only: the user has no within-user pair and is left out.
+            (3, "u2", 0, False, [0, 0]),
+        ]
+    )
+    labels = frame[["label"]].to_numpy(dtype=np.float32)
+    table = ExampleTable(rows=frame, labels=labels, holdout=np.ones_like(labels, dtype=bool))
+    perfect = labels.copy()
+    # Right inside u3 (two pairs), wrong inside u1 and u4 (one pair each): macro 1/3, pooled 2/4.
+    baseline = np.array([[0], [1], [1], [0], [0], [0], [1], [0], [0]], dtype=np.float32)
+    # A report-level score that ties inside every user.
+    reference = np.full_like(labels, 0.5)
+
+    block = pair_vs_baseline_block(
+        table,
+        ("open",),
+        baseline="pair_base",
+        reference=NN_WITH_PRIO_MODEL_NAME,
+        seeds=(0, 1),
+        experiment_scores=[perfect, perfect],
+        baseline_scores=[baseline, baseline],
+        reference_scores=[reference, reference],
+    )
+
+    scopes = block["heads"]["open"]["scopes"]
+    every = scopes["all"]["all"]
+    assert (every["users"], every["teams"]) == (3, 3)
+    assert every["baseline"]["macro"] == pytest.approx([1 / 3, 1 / 3])
+    assert every["baseline"]["pooled"] == pytest.approx([0.5, 0.5])
+    assert every["vs_baseline"]["macro"]["mean_delta_auc"] == pytest.approx(2 / 3)
+    assert every["vs_baseline"]["pooled"]["mean_delta_auc"] == pytest.approx(0.5)
+    assert every["vs_reference"]["macro"]["mean_delta_auc"] == pytest.approx(0.5)
+    interval = every["vs_baseline"]["macro_team_interval"]
+    assert interval["teams"] == 3
+    assert 0 <= interval["low"] <= 2 / 3 <= interval["high"] <= 1
+    # Leaving the dogfood project's user out leaves u1 (wrong) and u3 (right) in the 10+ bucket.
+    with_history = scopes["non_dogfood"]["history_10_plus"]
+    assert (with_history["users"], with_history["baseline"]["macro"]) == (2, pytest.approx([0.5, 0.5]))
+    assert scopes["all"]["history_0"]["users"] == 0
+    assert scopes["all"]["history_0"]["vs_baseline"]["macro"]["paired_seeds"] == 0
+    # One team cannot be resampled into an interval.
+    assert scopes["all"]["suggested_reviewer"]["vs_baseline"]["macro_team_interval"]["low"] is None
+
+    events = experiment_comparison_events({"model_name": "pair_user", "vs_baseline": block})
+    assert len(events) == len(scopes) * len(scopes["all"])
+    [event] = [
+        e for e in events if (e.properties["scope"], e.properties["slice"]) == ("non_dogfood", "history_10_plus")
+    ]
+    assert event.properties["grain"] == PAIR_GRAIN
+    assert event.properties["reference_model_name"] == NN_WITH_PRIO_MODEL_NAME
+    assert event.properties["vs_baseline_within_user_macro_mean_delta_auc"] == pytest.approx(0.5)
+    assert event.properties["vs_reference_within_user_macro_mean_delta_auc"] == pytest.approx(0.5)
+
+
+def test_a_broadcast_head_is_graded_once_per_report_inside_each_team():
+    day = datetime.date(2026, 10, 1)
+    # (team, report, fixed label, the experiment's score of each of its pairs)
+    reports = [(3, "r1", 1, [0.9, 0.1, 0.8]), (3, "r2", 0, [0.5, 0.5]), (4, "r3", 1, [0.2]), (4, "r4", 0, [0.4, 0.1])]
+    rows, labels, scores = [], [], []
+    for team_id, report_id, label, pair_scores in reports:
+        for position, score in enumerate(pair_scores):
+            rows.append(
+                {
+                    "report_id": report_id,
+                    "snapshot_date": day,
+                    "report_team_id": team_id,
+                    "user_distinct_id": f"{report_id}-u{position}",
+                    "prior_views": 0,
+                    "is_suggested_reviewer": False,
+                }
+            )
+            labels.append([label])
+            scores.append([score])
+    label_array = np.array(labels, dtype=np.float32)
+    table = ExampleTable(rows=pd.DataFrame(rows), labels=label_array, holdout=np.ones_like(label_array, dtype=bool))
+
+    block = pair_vs_baseline_block(
+        table,
+        ("fixed",),
+        baseline=None,
+        reference=None,
+        seeds=(0,),
+        experiment_scores=[np.array(scores, dtype=np.float32)],
+    )
+
+    fixed = block["heads"]["fixed"]
+    assert (fixed["group"], fixed["holdout_reports"], fixed["holdout_rows"]) == ("team", 4, 8)
+    every = fixed["scopes"]["all"]["all"]
+    # Mean pair scores rank r1 over r2 in team 3, and r4 over r3 in team 4. Graded within user, no
+    # user would have both classes.
+    assert (every["rows"], every["users"]) == (4, 2)
+    assert every["experiment"]["macro"] == pytest.approx([0.5])
+
+
+def _pair_examples(report_rows: pd.DataFrame, report_labels: np.ndarray, report_holdout: np.ndarray) -> pa.Table:
+    """Two users per report with an `open` example: the first opens what the report's `open` label
+    says and has history, the second never opens and has none."""
+    open_index, action_index = NN_HEAD_NAMES.index("open"), NN_HEAD_NAMES.index("action")
+    rows = []
+    for position, report in report_rows.iterrows():
+        if np.isnan(report_labels[position, open_index]):
+            continue
+        for user, prior_views in (("reader", 12), ("skimmer", 0)):
+            opened = user == "reader" and bool(report_labels[position, open_index])
+            rows.append(
+                {
+                    "snapshot_date": report["snapshot_date"],
+                    "report_id": report["report_id"],
+                    "report_team_id": int(report["report_team_id"]),
+                    "user_distinct_id": f"{user}-{report['report_team_id']}",
+                    "holdout": bool(report_holdout[position, open_index]),
+                    "open_label": float(opened),
+                    "action_label": float(opened and report_labels[position, action_index] == 1),
+                    "user_open_reports": prior_views,
+                    "user_dismiss_reports": 0,
+                    "prior_views": prior_views,
+                    "days_since_last_view": 1.0 if prior_views else 90.0,
+                    "has_history": bool(prior_views),
+                    "is_suggested_reviewer": user == "reader",
+                    "suggested_reviewer_source": "reviewers",
+                }
+            )
+    return pa.Table.from_pylist(rows, schema=PAIR_EXAMPLES_SCHEMA)
+
+
+def _reader_history(inbox: _SyntheticInbox, day: str) -> pa.Table:
+    """Each team's reader viewed every report of the team it opens, the day after its birth."""
+    rows = [
+        {
+            "snapshot_date": datetime.date.fromisoformat(day),
+            "report_id": report_id,
+            "report_team_id": int(report["team"]),
+            "user_distinct_id": f"reader-{report['team']}",
+            "first_viewed_at": (_birth(int(report["born"])) + pd.Timedelta(days=1)).to_pydatetime(),
+        }
+        for report_id, report in inbox.reports.iterrows()
+        if report["open"]
+    ]
+    return pa.Table.from_pylist(rows, schema=USER_INTERACTIONS_SCHEMA)
+
+
+@pytest.mark.parametrize(
+    "model_name,pairs_present",
+    [
+        (NN_PAIR_USER_MODEL_NAME, True),
+        (NN_PAIR_BASE_MODEL_NAME, True),
+        (NN_PAIR_USER_MODEL_NAME, False),
+        (NN_PAIR_USER_V2_MODEL_NAME, True),
+    ],
+    ids=["user_family", "base_family", "user_family_without_pairs", "cold_path_family"],
+)
+def test_a_registered_pair_family_trains_scores_and_is_graded_within_user(monkeypatch, model_name, pairs_present):
+    pytest.importorskip("torch")
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.nn.dag.capture_training_events", lambda *a, **k: None)
+    monkeypatch.setattr(
+        pair_lane, "NETWORK_CONFIG", NetworkConfig(projection_dim=8, trunk_dim=8, dropout=0.1, epochs=40, batch_size=32)
+    )
+    monkeypatch.setattr(pair_lane, "EXPERIMENT_SEEDS", (0, 1))
+    monkeypatch.setattr(pair_lane, "training_consent_team_ids", lambda: frozenset(TEAMS))
+    monkeypatch.setattr(pair_lane, "team_organizations", lambda team_ids: {t: f"org-{t}" for t in team_ids})
+    family = next(family for family in MODEL_FAMILIES if family.name == model_name)
+    if family.pair_training is not None:
+        family = dataclasses.replace(family, pair_training=PairTrainingConfig(max_epochs=12, patience=2))
+        monkeypatch.setattr(
+            pair_lane,
+            "MODEL_FAMILIES",
+            tuple(
+                dataclasses.replace(f, pair_training=family.pair_training) if f.pair_training is not None else f
+                for f in MODEL_FAMILIES
+            ),
+        )
+    inbox = _SyntheticInbox()
+    embeddings, labels = inbox.embeddings(), inbox.labels()
+    examples = build_examples(inbox.snapshots(), report_vectors(embeddings), holdout_days=HOLDOUT_DAYS)
+    table = examples.table
+    day = (D0 + datetime.timedelta(days=DAYS - 1)).isoformat()
+    pairs = _pair_examples(table.rows, table.labels, table.holdout)
+    objects = {
+        partition_object_key(PREFIX, NN_EXAMPLES_TABLE, day): _parquet(examples_arrow(examples)),
+        partition_object_key(PREFIX, EMBEDDINGS_TABLE, day): _parquet(embeddings),
+        partition_object_key(PREFIX, LABELS_TABLE, day): _parquet(labels),
+        partition_object_key(PREFIX, USER_INTERACTIONS_TABLE, day): _parquet(_reader_history(inbox, day)),
+    }
+    if pairs_present:
+        objects[partition_object_key(PREFIX, NN_PAIR_EXAMPLES_TABLE, day)] = _parquet(pairs)
+    client = _S3(objects)
+
+    with dagster.build_asset_context(partition_key=day) as context:
+        result = train_pair_candidate(context, client, "bucket", day, family)
+
+    metadata_key = model_object_key(PREFIX, family.name, day, METADATA_FILE)
+    if not pairs_present:
+        assert result["skipped"].value is True
+        assert metadata_key not in client.objects
+        return
+    metadata = json.loads(client.objects[metadata_key])
+    assert (metadata["grain"], metadata["recipe"]["grain"]) == (PAIR_GRAIN, PAIR_GRAIN)
+    assert (metadata["feature_set"], metadata["user_vector_kinds"]) == (family.feature_set.name, ["open", "dismiss"])
+    assert [head["head"] for head in metadata["heads"]] == list(family.heads)
+    block = metadata["vs_baseline"]
+    assert (block["grain"], block["baseline"], block["reference"]) == (
+        PAIR_GRAIN,
+        family.baseline,
+        NN_WITH_PRIO_MODEL_NAME,
+    )
+    for name in ("open", "action"):
+        grade = block["heads"][name]
+        every = grade["scopes"]["all"]["all"]
+        assert every["vs_reference"]["macro"]["paired_seeds"] == 2
+        if family.baseline is None:
+            assert every["vs_baseline"] is None
+        else:
+            assert every["vs_baseline"]["macro"]["paired_seeds"] == 2
+        # The skimmers never open, so only the readers have both classes; the dogfood readers drop out.
+        assert grade["scopes"]["non_dogfood"]["all"]["users"] < every["users"]
+    opened = block["heads"]["open"]["scopes"]["all"]["all"]
+    assert min(opened["experiment"]["macro"]) > 0.65
+    assert min(opened["reference"]["macro"]) > 0.75
+
+    pair_table = pair_lane.pair_example_table(
+        pairs.to_pandas(), table.rows, family.heads, pair_lane.report_head_frame(table, family.heads)
+    )
+    history = pair_lane.load_user_history(client, "bucket", PREFIX, day)
+    inputs = pair_lane.pair_network_inputs(
+        pair_table,
+        report_vectors(embeddings),
+        family.feature_set,
+        project_context(pair_table.rows, labels, embeddings),
+        history,
+        embeddings,
+    )
+    scores = onnx_probabilities(
+        client.objects[model_object_key(PREFIX, family.name, day, ONNX_MODEL_FILE)],
+        inputs,
+        metadata[ONNX_OUTPUT_HEADS_KEY],
+    )
+    cold_start = (pair_table.rows["prior_views"] == 0).to_numpy()
+    assert cold_start.any()
+    assert all(np.isfinite(head_scores).all() for head_scores in scores.values())
+
+    if family.pair_training is None:
+        assert "pair_fit" not in metadata and "cold_path" not in block and "pair_training" not in metadata["recipe"]
+        assert opened["vs_cold"] is None
+        return
+    fit = metadata["pair_fit"]
+    assert 1 <= fit["epochs_kept"] <= family.pair_training.max_epochs and fit["validation_rows"] > 0
+    assert set(fit["heads"]) == set(family.heads)
+    assert all(fit["heads"][head]["train_auc"] is not None for head in family.heads)
+    assert opened["vs_cold"]["macro"]["paired_seeds"] == 2
+    assert block["heads"]["fixed"]["group"] == "team"
+    fixed_horizon = next(head for head in metadata["heads"] if head["head"] == "fixed")["horizon_days"]
+    assert fixed_horizon == next(head for head in NN_HEADS if head.name == "fixed").horizon_days
+    cold_path = block["cold_path"]
+    assert (cold_path["reference"], set(cold_path["heads"])) == (NN_WITH_PRIO_MODEL_NAME, set(family.heads))
+    assert cold_path["heads"]["open"]["scopes"]["all"]["all"]["vs_reference"]["macro"]["paired_seeds"] == 2
+    events = experiment_comparison_events(metadata)
+    assert {event.properties["grade"] for event in events} == {"personal", "cold_path"}
+
+    cold = onnx_probabilities(
+        client.objects[model_object_key(PREFIX, family.name, day, ONNX_MODEL_FILE)],
+        pair_lane.cold_network_inputs(inputs, family.feature_set),
+        metadata[ONNX_OUTPUT_HEADS_KEY],
+    )
+    for head_scores in cold.values():
+        per_report = pd.Series(head_scores).groupby(pair_table.rows["report_id"].to_numpy())
+        np.testing.assert_allclose(per_report.max() - per_report.min(), 0.0, atol=1e-6)

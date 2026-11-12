@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
@@ -8,6 +10,8 @@ import { Card } from '@posthog/quill'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { App } from 'scenes/App'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
@@ -19,12 +23,15 @@ import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
 
-import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
+import { makeReport, mockSignals, mockSourceConfigs } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportPriority, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { HighlightsApi } from 'products/today/frontend/generated/api.schemas'
+
+import { TodayPulseCard } from './TodayPulseCard'
+import { readyPulseSlots, withReadySlots } from './todayTestFixtures'
 
 const ADA = {
     id: 1,
@@ -561,7 +568,7 @@ const KEY_METRIC_URL = (event: string): string =>
         })
     )}`
 
-const HIGHLIGHTS: HighlightsApi = {
+const HIGHLIGHTS: HighlightsApi = withReadySlots({
     status: 'ready',
     generated_at: '2026-09-28T18:00:00Z',
     day: '2026-09-28',
@@ -585,6 +592,7 @@ const HIGHLIGHTS: HighlightsApi = {
             opened_days: 9,
             last_opened: '2026-09-27',
             previous_value: 3956,
+            experiment: null,
             movers: [
                 { label: 'Paid plans', value: 2610, change_pct: 9.2 },
                 { label: 'Free plan', value: 1420, change_pct: 1.8 },
@@ -608,6 +616,7 @@ const HIGHLIGHTS: HighlightsApi = {
             opened_days: null,
             last_opened: null,
             previous_value: 1017,
+            experiment: null,
             movers: [],
         },
         {
@@ -627,6 +636,7 @@ const HIGHLIGHTS: HighlightsApi = {
             opened_days: null,
             last_opened: null,
             previous_value: 353,
+            experiment: null,
             movers: [],
         },
         {
@@ -646,6 +656,7 @@ const HIGHLIGHTS: HighlightsApi = {
             opened_days: null,
             last_opened: null,
             previous_value: 18012,
+            experiment: null,
             movers: [],
         },
     ],
@@ -660,6 +671,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.85,
             priority: 'P1',
             source: 'alerts',
+            product: 'alerts',
         },
         {
             key: 'new_error:0195a0b2-0000-0000-0000-000000000001',
@@ -671,6 +683,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.82,
             priority: 'P1',
             source: 'errors',
+            product: 'error_tracking',
         },
         {
             key: 'home:rev01',
@@ -682,6 +695,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.6,
             priority: 'P2',
             source: 'home',
+            product: 'today',
         },
         {
             key: 'key_metric:payment_event',
@@ -693,6 +707,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.57,
             priority: 'P2',
             source: 'key_metrics',
+            product: 'today',
         },
         {
             key: 'experiment_ended:12',
@@ -704,6 +719,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.6,
             priority: 'P3',
             source: 'experiments',
+            product: 'experiments',
         },
         {
             key: 'assigned_quiet',
@@ -715,9 +731,10 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.35,
             priority: 'P4',
             source: 'errors',
+            product: 'error_tracking',
         },
     ],
-}
+})
 
 const SAVED_INSIGHTS = [
     { id: 1, short_id: 'chk01', name: 'Checkout conversion' },
@@ -726,6 +743,11 @@ const SAVED_INSIGHTS = [
     { id: 4, short_id: 'ret01', name: 'Week 1 retention' },
     { id: 5, short_id: 'trl01', name: 'Trial to paid' },
 ]
+
+let storyPins: { key: string; name: string }[] = []
+let storyHidden: { key: string; name: string }[] = []
+let storyComputingCalls = 0
+let storyLastReady: HighlightsApi | null = null
 
 const CHECKOUT_METRIC: HighlightsApi['pulse'][number] = {
     ...HIGHLIGHTS.pulse[0],
@@ -742,9 +764,6 @@ const CHECKOUT_METRIC: HighlightsApi['pulse'][number] = {
     previous_value: 0.329,
     movers: [],
 }
-
-let storyPins: { key: string; name: string }[] = []
-let storyComputingCalls = 0
 
 const RETENTION_METRIC: HighlightsApi['pulse'][number] = {
     ...CHECKOUT_METRIC,
@@ -769,32 +788,77 @@ const REVENUE_METRIC: HighlightsApi['pulse'][number] = {
     previous_value: 46600,
 }
 
-let storyLastReady: HighlightsApi | null = null
+const EXPERIMENT_METRIC: HighlightsApi['pulse'][number] = {
+    ...HIGHLIGHTS.pulse[0],
+    key: 'experiment:42',
+    name: 'Checkout redesign',
+    value: 8.2,
+    unit: 'number',
+    change_pct: null,
+    series: [],
+    period_starts: [],
+    url: '/experiments/42',
+    value_format: null,
+    reason: 'experiment',
+    opened_days: null,
+    last_opened: null,
+    movers: [],
+    previous_value: null,
+    experiment: {
+        metric_name: 'Checkout conversion',
+        variant: 'test',
+        control: 'control',
+        variants: 1,
+        significant: true,
+        favorable: true,
+        exposures: 4120,
+    },
+}
+
+const EVALUATION_METRIC: HighlightsApi['pulse'][number] = {
+    ...HIGHLIGHTS.pulse[0],
+    key: 'evaluation:0195f0aa-7c1e-7000-8000-000000000001',
+    name: 'Answer accuracy',
+    value: 91.5,
+    unit: 'number',
+    change_pct: 8.9,
+    series: [78, 81, 80, 84, 83.5, 84, 91.5],
+    period_starts: ['2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28'],
+    interval: 'day',
+    url: '/ai-evals/evaluations/0195f0aa-7c1e-7000-8000-000000000001',
+    value_format: { format: 'percentage', prefix: null, postfix: null, decimal_places: null },
+    reason: 'evaluation',
+    opened_days: null,
+    last_opened: null,
+    movers: [],
+    previous_value: 84,
+    experiment: null,
+}
 
 function storyHighlights(): HighlightsApi {
     if (storyComputingCalls > 0) {
         storyComputingCalls -= 1
         return storyLastReady
             ? { ...storyLastReady, status: 'computing' }
-            : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], items: [] }
+            : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], pulse_slots: [], items: [] }
     }
-    const offered = [CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC, ...HIGHLIGHTS.pulse]
-    const chosen = storyPins.flatMap((pin) => {
-        const metric = offered.find((candidate) => candidate.key === pin.key)
-        return metric ? [metric] : []
-    })
-    const suggested = HIGHLIGHTS.pulse.filter((metric) => !storyPins.some((pin) => pin.key === metric.key))
+    const offered = [...HIGHLIGHTS.pulse, CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC].filter(
+        (metric) => !storyHidden.some((hidden) => hidden.key === metric.key)
+    )
+    const chosen = storyPins.flatMap((pin) => offered.filter((metric) => metric.key === pin.key))
+    const suggested = offered.filter((metric) => !storyPins.some((pin) => pin.key === metric.key))
     const pins = storyPins.map((pin) => ({
         key: pin.key,
         status: chosen.some((metric) => metric.key === pin.key) ? ('ready' as const) : ('unavailable' as const),
     }))
-    storyLastReady = { ...HIGHLIGHTS, pulse: [...chosen, ...suggested].slice(0, 4), pins }
+    storyLastReady = withReadySlots({ ...HIGHLIGHTS, pulse: [...chosen, ...suggested], pins })
     return storyLastReady
 }
 
-function keepNumbers(pins: { key: string; name: string }[]) {
+function keepNumbers(pins: { key: string; name: string }[], hidden: { key: string; name: string }[] = []) {
     return function KeepNumbers(Story: () => JSX.Element): JSX.Element {
         storyPins = pins
+        storyHidden = hidden
         storyComputingCalls = 0
         storyLastReady = null
         return <Story />
@@ -845,7 +909,7 @@ const meta: Meta = {
                 '/api/users/@me/integrations/': { results: [] },
                 '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/highlights/': () => [200, storyHighlights()],
-                '/api/projects/:team_id/today/pulse_pins/': () => [200, { pins: storyPins }],
+                '/api/projects/:team_id/today/pulse_pins/': () => [200, { pins: storyPins, hidden: storyHidden }],
                 '/api/projects/:team_id/insights/': ({ request }) => {
                     const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase()
                     const results = SAVED_INSIGHTS.filter((insight) => insight.name.toLowerCase().includes(search))
@@ -912,6 +976,7 @@ const meta: Meta = {
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },
+                '/api/projects/:team_id/file_system/frequent/': [],
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
                 '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
                 '/api/projects/:team_id/tasks/task-canvas-building/': {
@@ -923,6 +988,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, count: DASHBOARDS.length },
             },
             post: {
+                '/api/projects/:team_id/file_system/home_folder/': { id: 'home-folder', path: 'Home' },
                 '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
                 '/api/projects/:team_id/signals/reports/:id/state/': (req) => [
                     200,
@@ -952,7 +1018,23 @@ const meta: Meta = {
                     const body = (await request.json()) as { pins: { key: string; name: string }[] }
                     storyPins = body.pins
                     storyComputingCalls = 1
-                    return [200, { pins: storyPins }]
+                    return [200, { pins: storyPins, hidden: storyHidden }]
+                },
+                '/api/projects/:team_id/today/pulse_pins/hidden/': async ({ request }) => {
+                    const { keys } = (await request.json()) as { keys: string[] }
+                    const named = [
+                        ...storyHidden,
+                        ...HIGHLIGHTS.pulse,
+                        CHECKOUT_METRIC,
+                        RETENTION_METRIC,
+                        REVENUE_METRIC,
+                    ]
+                    storyHidden = keys.map((key) => ({
+                        key,
+                        name: named.find((number) => number.key === key)?.name ?? key,
+                    }))
+                    storyComputingCalls = 1
+                    return [200, { hidden: storyHidden }]
                 },
             },
         }),
@@ -972,6 +1054,64 @@ type Story = StoryObj<{}>
 
 export const Home: Story = { decorators: [keepNumbers([])] }
 
+// The campaign id picks the slot for the story's date and user, so each story shows one placement.
+function productPushCampaign(id: string): Decorator {
+    return mswDecorator({
+        get: {
+            '/api/organizations/:organization_id/product_push_campaign/active/': {
+                id,
+                product_key: 'session_replay',
+                product_path: 'Session replay',
+                reason_text: null,
+                started_at: '2026-09-21T09:00:00Z',
+                ends_at: null,
+            },
+        },
+    })
+}
+
+export const HomeWithProductPush: Story = {
+    decorators: [keepNumbers([]), productPushCampaign('0195a0b2-0000-0000-0000-000000000101')],
+}
+
+export const HomeWithProductPushBehindShowMore: Story = {
+    decorators: [keepNumbers([]), productPushCampaign('0195a0b2-0000-0000-0000-000000000102')],
+}
+
+export const HomeWithFrequentItems: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
+        },
+    },
+    decorators: [
+        keepNumbers([]),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/file_system/frequent/': [
+                    {
+                        id: 'fs-frequent-1',
+                        path: 'Dashboards/Daily operations',
+                        type: 'dashboard',
+                        ref: '81',
+                        href: '/dashboard/81',
+                        last_viewed_at: '2026-09-27T09:00:00Z',
+                    },
+                    {
+                        id: 'fs-frequent-2',
+                        path: 'Notebooks/Weekly review',
+                        type: 'notebook',
+                        ref: 'weekly-review',
+                        href: '/notebooks/weekly-review',
+                        last_viewed_at: '2026-09-21T09:00:00Z',
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
 export const HomeWithKeptNumbers: Story = {
     decorators: [
         keepNumbers([
@@ -979,6 +1119,22 @@ export const HomeWithKeptNumbers: Story = {
             { key: 'activity_event', name: 'Active users' },
         ]),
     ],
+}
+
+export const HomeWithIgnoredNumbers: Story = {
+    decorators: [
+        keepNumbers(
+            [],
+            [
+                { key: 'insight:ret01', name: 'Week 1 retention' },
+                { key: 'insight:arr01', name: 'Monthly recurring revenue' },
+            ]
+        ),
+    ],
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Edit numbers'))
+        await userEvent.click(await within(document.body).findByText('Ignored'))
+    },
 }
 
 export const HomeWithSampleReports: Story = {
@@ -1013,6 +1169,29 @@ export const HomeWithoutAiAndNothingNew: Story = {
                 '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
             },
         }),
+    ],
+}
+
+export const HomeOnNewProject: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+    },
+    decorators: [
+        keepNumbers([]),
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/': { ...MOCK_DEFAULT_TEAM, ingested_event: false },
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
+                '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [], pulse: [], pulse_slots: [] },
+                '/api/environments/:team_id/file_system/': { results: [], count: 0 },
+                '/api/projects/:team_id/file_system/frequent/': [],
+            },
+        }),
+        (Story) => {
+            teamLogic.mount()
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false })
+            return <Story />
+        },
     ],
 }
 
@@ -1275,6 +1454,44 @@ function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
     )
 }
 
+export const ExperimentNumberHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayPulseCard
+                metric={EXPERIMENT_METRIC}
+                tone="good"
+                formatValue={String}
+                onOpen={noop}
+                pinned={false}
+                pinDisabledReason="Experiments can't be pinned"
+                onTogglePin={noop}
+                hideDisabledReason={null}
+                onHide={noop}
+            />
+        </HoverCardFrame>
+    ),
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
+export const EvaluationNumberHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayPulseCard
+                metric={EVALUATION_METRIC}
+                tone="good"
+                formatValue={(value) => `${value}%`}
+                onOpen={noop}
+                pinned={false}
+                pinDisabledReason="Evaluations can't be pinned"
+                onTogglePin={noop}
+                hideDisabledReason={null}
+                onHide={noop}
+            />
+        </HoverCardFrame>
+    ),
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
 export const SessionHoverCard: Story = {
     render: () => (
         <HoverCardFrame>
@@ -1325,4 +1542,169 @@ export const ListItemAppearanceDialog: Story = {
         // The dialog opens in a portal outside the story's canvas.
         await within(document.body).findByText('Edit list item appearance')
     },
+}
+
+export const HomePulseLoading: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'computing',
+                    generated_at: null,
+                    pulse: [],
+                    pulse_slots: [],
+                    items: [],
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomePulsePartial: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'computing',
+                    pulse: HIGHLIGHTS.pulse.slice(0, 1),
+                    pulse_slots: readyPulseSlots(HIGHLIGHTS.pulse.slice(0, 1)),
+                    items: [],
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomePulseTitlesLoading: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'computing',
+                    pulse: [],
+                    items: [],
+                    pulse_slots: HIGHLIGHTS.pulse.slice(0, 4).map((metric) => ({
+                        key: metric.key,
+                        name: metric.name,
+                        url: metric.url,
+                        interval: metric.interval,
+                        status: 'pending',
+                    })),
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomePulseMixed: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'computing',
+                    pulse: HIGHLIGHTS.pulse.slice(0, 1),
+                    items: [],
+                    pulse_slots: HIGHLIGHTS.pulse.slice(0, 4).map((metric, i) => ({
+                        key: metric.key,
+                        name: metric.name,
+                        url: metric.url,
+                        interval: metric.interval,
+                        status: i === 0 ? 'ready' : 'pending',
+                    })),
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const HomeWithProductNumbers: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': withReadySlots({
+                    ...HIGHLIGHTS,
+                    items: [],
+                    pulse: [EXPERIMENT_METRIC, EVALUATION_METRIC, ...HIGHLIGHTS.pulse.slice(0, 2)],
+                }),
+            },
+        }),
+    ],
+    parameters: { testOptions: { snapshotBrowsers: [], waitForSelector: '[data-pulse-key="experiment:42"]' } },
+}
+
+export const HomePulseEmptyAndError: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': {
+                    ...HIGHLIGHTS,
+                    status: 'ready',
+                    pulse: HIGHLIGHTS.pulse.slice(0, 2),
+                    items: [],
+                    pulse_slots: HIGHLIGHTS.pulse.slice(0, 4).map((metric, i) => ({
+                        key: metric.key,
+                        name: metric.name,
+                        url: metric.url,
+                        interval: metric.interval,
+                        status: i < 2 ? 'ready' : i === 2 ? 'empty' : 'error',
+                    })),
+                },
+            },
+        }),
+    ],
+}
+
+export const HomeWithComposer: Story = {
+    decorators: [keepNumbers([])],
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+        ],
+    },
+}
+
+export const HomeWithAiOff: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
+                '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
+                '/api/organizations/:id/': { ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: false },
+            },
+        }),
+        (Story) => {
+            organizationLogic.mount()
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            return <Story />
+        },
+    ],
+}
+
+export const HomeWhileSelfDrivingReviews: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PRODUCT_AUTONOMY],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
+                '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
+                '/api/projects/:team_id/signals/source_configs/': mockSourceConfigs,
+                '/api/projects/:team_id/signals/scout/configs/': [],
+            },
+        }),
+    ],
 }

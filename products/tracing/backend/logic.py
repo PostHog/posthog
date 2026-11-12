@@ -42,6 +42,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -62,6 +63,8 @@ TIME_BUCKET_DATE_RANGE_WHERE = (
 # A trace can start shortly before the selected range. The list loads a root span from up to this long
 # before the range, so the trace does not show as having no root.
 ROOT_SPAN_LOOKBACK = dt.timedelta(minutes=15)
+
+TRACE_DURATION_NANO_SQL = "dateDiff('microsecond', min(timestamp), max(end_time)) * 1000"
 
 # Hard cap on number of rows returned per period by the span aggregation runners. Keeps
 # payloads bounded when name cardinality blows up (e.g. untemplated URL paths). The flame
@@ -300,6 +303,93 @@ def parse_span_events(raw_events: list[str]) -> list[dict]:
     return [event for _, event in parsed]
 
 
+_EXISTENCE_OPERATORS = frozenset({PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET})
+
+
+def with_attribute_set_guards(filters: list[SpanPropertyFilter]) -> list[SpanPropertyFilter]:
+    """Return the attribute filters plus an is_set filter for each key that they compare.
+
+    An attribute Map reads a missing key as its default value ('' or 0). Without the guard, a negated
+    filter such as `not_icontains` matches every span that does not have the attribute. The trace list
+    then selects a whole trace through one such span, so the trace shows even when its root span has a
+    value that the filter excludes. The guard uses the same suffixed key as the filter, so it checks
+    the Map that the comparison reads.
+    """
+    guards: dict[str, SpanPropertyFilter] = {}
+    for prop in filters:
+        # property_to_expr reads a filter without a value as "match all", so a guard would be its only effect.
+        if prop.value is None or prop.value == []:
+            continue
+        if prop.operator not in _EXISTENCE_OPERATORS and prop.key not in guards:
+            guards[prop.key] = SpanPropertyFilter(key=prop.key, type=prop.type, operator=PropertyOperator.IS_SET)
+    return [*filters, *guards.values()]
+
+
+@frozen
+class SpanFilters:
+    """A `filterGroup` split by the columns each filter reads."""
+
+    span: tuple[SpanPropertyFilter, ...]
+    span_attribute: tuple[SpanPropertyFilter, ...]
+    resource_attribute: tuple[SpanPropertyFilter, ...]
+
+
+def split_span_filters(filter_group: PropertyGroupFilter | None) -> SpanFilters:
+    span: list[SpanPropertyFilter] = []
+    span_attribute: list[SpanPropertyFilter] = []
+    resource_attribute: list[SpanPropertyFilter] = []
+    if filter_group and filter_group.values:
+        for property_group in filter_group.values:
+            for prop in property_group.values:
+                prop_type = getattr(prop, "type", None)
+                if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
+                    resource_attribute.append(cast(SpanPropertyFilter, prop))
+                elif prop_type == SpanPropertyFilterType.SPAN:
+                    span.append(cast(SpanPropertyFilter, prop))
+                elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
+                    if isinstance(prop, SpanPropertyFilter):
+                        prop = with_span_attribute_type_suffix(prop)
+                    span_attribute.append(cast(SpanPropertyFilter, prop))
+    return SpanFilters(
+        span=tuple(span), span_attribute=tuple(span_attribute), resource_attribute=tuple(resource_attribute)
+    )
+
+
+def span_filter_exprs(
+    team: "Team",
+    filters: SpanFilters,
+    *,
+    service_names: list[str] | None,
+    status_codes: list[int] | None = None,
+) -> list[ast.Expr]:
+    """The WHERE conditions for a span query's filters, without its date range."""
+    exprs: list[ast.Expr] = []
+    if service_names:
+        exprs.append(
+            parse_expr(
+                "service_name IN {serviceNames}",
+                placeholders={"serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in service_names])},
+            )
+        )
+    if status_codes:
+        exprs.append(
+            parse_expr(
+                "status_code IN {statusCodes}",
+                placeholders={"statusCodes": ast.Tuple(exprs=[ast.Constant(value=int(sc)) for sc in status_codes])},
+            )
+        )
+    for span_filter in filters.span:
+        # Translated on a copy, so the caller's filters stay as the request sent them.
+        translated = span_filter.model_copy()
+        translate_span_filter(translated)
+        exprs.append(property_to_expr(translated, team=team))
+    if filters.span_attribute:
+        exprs.append(property_to_expr(with_attribute_set_guards(list(filters.span_attribute)), team=team))
+    for resource_filter in with_attribute_set_guards(list(filters.resource_attribute)):
+        exprs.append(property_to_expr(resource_filter, team=team))
+    return exprs
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -315,21 +405,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
-        self.span_filters: list[SpanPropertyFilter] = []
-        self.span_attribute_filters: list[SpanPropertyFilter] = []
-        self.resource_attribute_filters: list[SpanPropertyFilter] = []
-        if self.query.filterGroup and self.query.filterGroup.values:
-            for property_group in self.query.filterGroup.values:
-                for prop in property_group.values:
-                    prop_type = getattr(prop, "type", None)
-                    if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
-                        self.resource_attribute_filters.append(prop)
-                    if prop_type == SpanPropertyFilterType.SPAN:
-                        self.span_filters.append(prop)
-                    elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
-                        if isinstance(prop, SpanPropertyFilter):
-                            prop = with_span_attribute_type_suffix(prop)
-                        self.span_attribute_filters.append(prop)
+        self.filters = split_span_filters(self.query.filterGroup)
 
     @property
     def _unbounded_trace_lookup(self) -> bool:
@@ -358,37 +434,11 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
             exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
-        if self.query.serviceNames:
-            exprs.append(
-                parse_expr(
-                    "service_name IN {serviceNames}",
-                    placeholders={
-                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
-                    },
-                )
+        exprs.extend(
+            span_filter_exprs(
+                self.team, self.filters, service_names=self.query.serviceNames, status_codes=self.query.statusCodes
             )
-
-        if self.query.statusCodes:
-            exprs.append(
-                parse_expr(
-                    "status_code IN {statusCodes}",
-                    placeholders={
-                        "statusCodes": ast.Tuple(exprs=[ast.Constant(value=int(sc)) for sc in self.query.statusCodes])
-                    },
-                )
-            )
-
-        if self.span_filters:
-            for span_filter in self.span_filters:
-                translate_span_filter(span_filter)
-                exprs.append(property_to_expr(span_filter, team=self.team))
-
-        if self.span_attribute_filters:
-            exprs.append(property_to_expr(self.span_attribute_filters, team=self.team))
-
-        if self.resource_attribute_filters:
-            for f in self.resource_attribute_filters:
-                exprs.append(property_to_expr(f, team=self.team))
+        )
 
         if self.query.traceId:
             exprs.append(
@@ -646,9 +696,9 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # per-trace value — `LIMIT 1 BY trace_id` can't paginate cleanly because a multi-span trace
         # straddling the boundary would be re-selected via its other spans. Time sorts order by each
         # trace's start time (`min(timestamp)`) and keyset on it; duration sorts order by trace
-        # duration (`max(duration_nano)`) and offset-paginate (the time index can't prune a duration
-        # order, so keyset would pay its cost for none of its benefit).
-        sort_key_sql = "max(duration_nano)" if by_duration else "min(timestamp)"
+        # duration (first span start to last span end) and offset-paginate (the time index can't prune
+        # a duration order, so keyset would pay its cost for none of its benefit).
+        sort_key_sql = TRACE_DURATION_NANO_SQL if by_duration else "min(timestamp)"
 
         # rootSpans is gated on `is True` (not truthiness), so None leaves the prefetch-driven
         # waterfall untouched. The list endpoint defaults it to True, and the span list sends False
@@ -735,7 +785,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # `trace_start` / `trace_duration` are the per-trace keys the view paginates and re-sorts on.
         # They MUST aggregate over the same rows the trace-selection subquery grouped, or the keys
         # diverge from the set the subquery picked — e.g. under root_only the subquery orders traces
-        # by `max(duration_nano)` over root spans, so a window over *all* spans would rank a trace by
+        # by the duration of their root spans, so a window over *all* spans would rank a trace by
         # a long child the subquery never considered, corrupting the order and offset page boundaries.
         # Scope the key windows to match the subquery (cursor/time bounds are deliberately excluded —
         # the key is a property of the whole trace, not of the current page).
@@ -795,7 +845,11 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
                 {attributes},
                 {resource_attributes},
-                max(if({where_for_start}, duration_nano, NULL)) OVER (PARTITION BY trace_id) as trace_duration,
+                dateDiff(
+                    'microsecond',
+                    min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id),
+                    max(if({where_for_start}, end_time, NULL)) OVER (PARTITION BY trace_id)
+                ) * 1000 as trace_duration,
                 {events}
             FROM posthog.trace_spans
             WHERE {filters} AND {trace_filter} LIMIT {limit}
@@ -809,11 +863,10 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 # The attribute maps dominate payload size (db.statement holds multi-KB SQL;
                 # process.command_args etc. bulk up the resource map). When excluded we still
                 # SELECT a column so the positional result mapping stays stable — an empty map
-                # instead of the real one.
-                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
-                "resource_attributes": parse_expr(
-                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
-                ),
+                # instead of the real one. Unaliased: an `AS attributes` alias would shadow the
+                # table field and break span/resource attribute filters in the same query.
+                "attributes": parse_expr("map()" if self.query.excludeAttributes else "attributes"),
+                "resource_attributes": parse_expr("map()" if self.query.excludeAttributes else "resource_attributes"),
                 "events": self._events_column(),
             },
         )
@@ -1040,10 +1093,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         """,
             placeholders={
                 "where": where,
-                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
-                "resource_attributes": parse_expr(
-                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
-                ),
+                "attributes": parse_expr("map()" if self.query.excludeAttributes else "attributes"),
+                "resource_attributes": parse_expr("map()" if self.query.excludeAttributes else "resource_attributes"),
                 "events": self._events_column(),
             },
         )
@@ -1397,6 +1448,8 @@ def run_aggregation_query(
     limit: int | None = None,
     offset: int = 0,
     include_impact: bool = False,
+    group_by_endpoint: bool = False,
+    include_health: bool = False,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
     # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
@@ -1412,6 +1465,8 @@ def run_aggregation_query(
         filterGroup=filter_group,
         serviceNames=service_names,
         includeImpact=include_impact,
+        groupByEndpoint=group_by_endpoint,
+        includeHealth=include_health,
     )
     runner = TraceSpansAggregationQueryRunner(
         query,

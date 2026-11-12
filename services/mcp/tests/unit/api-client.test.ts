@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiClient } from '@/api/client'
 import { MCP_CLIENT_IP_HEADERS, verifySignedClientIp } from '@/lib/client-ip-signature'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
-import { PostHogApiError, PostHogTransportError } from '@/lib/errors'
+import {
+    formatPermissionErrorMessage,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogTransportError,
+    ToolInputValidationError,
+} from '@/lib/errors'
 import { getToolByName } from '@/shared/test-utils'
 import { GENERATED_TOOLS as PROXY_TOOLS } from '@/tools/generated/proxy-records'
 import { GENERATED_TOOLS } from '@/tools/generated/skills'
@@ -17,7 +23,9 @@ describe('ApiClient', () => {
         const context = { api: client, stateManager: { getOrgID: async () => 'example' } } as unknown as Context
         const tool = getToolByName(PROXY_TOOLS, 'proxy-delete')
         try {
-            await expect(tool.handler(context, tool.schema.parse({ id: '..' }))).rejects.toThrow('Invalid API path')
+            await expect(tool.handler(context, tool.schema.parse({ id: '..' }))).rejects.toThrow(
+                ToolInputValidationError
+            )
             expect(send).not.toHaveBeenCalled()
         } finally {
             vi.unstubAllGlobals()
@@ -33,7 +41,7 @@ describe('ApiClient', () => {
             try {
                 await expect(
                     client.request({ method: 'DELETE', path: `/api/organizations/example/proxy_records/${id}/` })
-                ).rejects.toThrow('Invalid API path')
+                ).rejects.toThrow(ToolInputValidationError)
                 expect(send).not.toHaveBeenCalled()
             } finally {
                 vi.unstubAllGlobals()
@@ -62,6 +70,73 @@ describe('ApiClient', () => {
         expect(shared.config.onPrivateResponse).toBeUndefined()
         vi.unstubAllGlobals()
     })
+
+    it.each([400, 401, 403, 429, 500])(
+        'keeps status %s diagnostics free of query values and response details',
+        async (status) => {
+            const privateValue = 'private-person@example.com'
+            const body = JSON.stringify({
+                type: status === 400 ? 'validation_error' : 'authentication_error',
+                code: status === 403 ? 'permission_denied' : 'invalid_input',
+                detail: privateValue,
+                attr: privateValue,
+                extra: { query: privateValue },
+            })
+            const send = vi.fn().mockImplementation(
+                async () =>
+                    new Response(body, {
+                        status,
+                        statusText: privateValue,
+                        headers: { 'Retry-After': '3600' },
+                    })
+            )
+            vi.stubGlobal('fetch', send)
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+            const logError = vi.spyOn(console, 'error').mockImplementation(() => {})
+            try {
+                const client = new ApiClient({
+                    apiToken: 'phx_test',
+                    baseUrl: 'https://fake-user:fake-password@example.com',
+                })
+                const error = await client
+                    .request({
+                        method: 'GET',
+                        path: '/api/projects/2/persons/',
+                        query: { email: privateValue, distinct_id: privateValue, search: privateValue },
+                    })
+                    .catch((error: Error) => error)
+                expect(error).toBeInstanceOf(Error)
+                const message =
+                    error instanceof PostHogPermissionError
+                        ? formatPermissionErrorMessage(error)
+                        : (error as Error).message
+                const diagnostics = JSON.stringify([message, warn.mock.calls, logError.mock.calls])
+                expect(diagnostics).not.toContain(privateValue)
+                expect(diagnostics).not.toContain(encodeURIComponent(privateValue))
+                expect(diagnostics).not.toContain('fake-user')
+                expect(diagnostics).not.toContain('fake-password')
+                if (status !== 401) {
+                    expect(diagnostics).toContain('/api/projects/2/persons/')
+                }
+                expect(send.mock.calls[0]![0]).toContain(`email=${encodeURIComponent(privateValue)}`)
+                expect(error).toMatchObject(
+                    status === 400
+                        ? {
+                              detail: privateValue,
+                              attr: privateValue,
+                              code: 'invalid_input',
+                              extra: { query: privateValue },
+                          }
+                        : status === 403
+                          ? { detail: privateValue }
+                          : { body }
+                )
+            } finally {
+                vi.restoreAllMocks()
+                vi.unstubAllGlobals()
+            }
+        }
+    )
 
     it('should create ApiClient with required config', () => {
         const client = new ApiClient({
@@ -626,6 +701,59 @@ describe('ApiClient', () => {
             vi.restoreAllMocks()
             vi.unstubAllGlobals()
         })
+
+        it.each([
+            { transport: 'json' as const, attempts: 3 },
+            { transport: 'text' as const, attempts: 1 },
+            { transport: 'sse' as const, attempts: 1 },
+        ])(
+            'keeps $transport transport diagnostics value-free without changing the request',
+            async ({ transport, attempts }) => {
+                const privateValue = 'private-person@example.com'
+                const send = vi.fn().mockRejectedValue(
+                    Object.assign(new TypeError(`Invalid request: ${privateValue}`), {
+                        cause: Object.assign(new Error(`connect ECONNREFUSED ${privateValue}`), {
+                            code: 'ECONNREFUSED',
+                        }),
+                    })
+                )
+                vi.stubGlobal('fetch', send)
+                const client = new ApiClient({
+                    apiToken: 'phx_test',
+                    baseUrl: 'https://fake-user:fake-password@example.com',
+                })
+                const path = `/api/projects/2/persons/?email=${encodeURIComponent(privateValue)}`
+                const pending =
+                    transport === 'sse'
+                        ? client.requestSSE({ method: 'GET', path, onEvent: () => {} })
+                        : client.request({ method: 'GET', path, responseType: transport })
+                const error = (await settle(pending)) as PostHogTransportError
+                expect(error).toBeInstanceOf(PostHogTransportError)
+                expect(error).toMatchObject({
+                    attempts,
+                    retryable: true,
+                    timedOut: false,
+                    failure: 'TypeError > Error(ECONNREFUSED)',
+                })
+                expect(error).not.toHaveProperty('cause')
+                expect(error.message).not.toContain('ECONNREFUSED')
+                const diagnostics = JSON.stringify([
+                    error.message,
+                    vi.mocked(console.warn).mock.calls,
+                    vi.mocked(console.error).mock.calls,
+                ])
+                expect(diagnostics).not.toContain(privateValue)
+                expect(diagnostics).not.toContain(encodeURIComponent(privateValue))
+                expect(diagnostics).not.toContain('fake-password')
+                expect(diagnostics).toContain('/api/projects/2/persons/')
+                expect(send).toHaveBeenCalledTimes(attempts)
+                expect(send.mock.calls.map(([url]) => url)).toEqual(
+                    Array(attempts).fill(
+                        `https://fake-user:fake-password@example.com/api/projects/2/persons/?email=${encodeURIComponent(privateValue)}`
+                    )
+                )
+            }
+        )
 
         it('retries a paginated skill-get page that fails to connect', async () => {
             const mockFetch = stubFetch(

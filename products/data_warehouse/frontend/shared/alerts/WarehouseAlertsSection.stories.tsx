@@ -34,6 +34,11 @@ const DEFAULT_ALERT: PlatformAlertConfigurationApi = {
     updated_at: '2026-10-01T09:00:00Z',
     labels: {},
     annotations: {},
+    created_by: null,
+    last_checked_at: '2026-10-05T12:00:00Z',
+    last_error_message: null,
+    state_timeline: [],
+    destination_types: [],
     alerts: [
         {
             id: '0192a5b0-0000-7000-8000-000000000101',

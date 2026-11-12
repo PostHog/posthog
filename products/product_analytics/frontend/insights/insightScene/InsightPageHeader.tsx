@@ -17,13 +17,13 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { isActorsQuery, isBIVisualizationNode, isEventsQuery, isGroupsQuery, isInsightQueryNode } from '~/queries/utils'
+import { isActorsQuery, isBIVisualizationNode, isInsightQueryNode } from '~/queries/schema/node-guards'
+import { isEventsQuery, isGroupsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
 import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import { insightModalsLogic } from 'products/product_analytics/frontend/insights/insightScene/insightModalsLogic'
 import { InsightSaveButton } from 'products/product_analytics/frontend/insights/insightScene/InsightSaveButton'
-import { InsightShareMenu } from 'products/product_analytics/frontend/insights/insightScene/InsightShareMenu'
 
 import { openInsightEditor } from './openInsightEditor'
 import { QuillInsightPageHeaderActions } from './QuillInsightPageHeaderActions'
@@ -76,7 +76,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const metricsAlertsEnabled = useFeatureFlag('METRICS')
-    const spacesEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
@@ -147,6 +146,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 renameDebounceMs={0}
                 saveOnBlur={insightMode !== ItemMode.Edit}
                 descriptionMaxLength={400}
+                descriptionIgnoresForceEdit
                 maxToolProps={readDataMaxToolProps}
                 actions={
                     todayRailNav ? (
@@ -182,10 +182,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 >
                                     Add to dashboard
                                 </LemonButton>
-                            )}
-
-                            {insightMode !== ItemMode.Edit && isPersistedInsight && spacesEnabled && (
-                                <InsightShareMenu insight={insight} />
                             )}
 
                             {insightMode !== ItemMode.Edit && isPersistedInsight && (

@@ -4,6 +4,11 @@ Research has two phases, derived from the pipeline's training runs and never sto
 Explore starts a run on each sweep until a completed run does not promote its best model,
 or until ``EXPLORE_RUN_LIMIT`` research runs have run. Maintain starts one run
 ``research_interval_days`` after the latest training run of any kind, so a manual run resets the clock.
+
+A ``bootstrapping`` pipeline whose first champion rolled back follows the same schedule
+(``awaiting_first_champion()``).
+
+When a project has more runs due than free training runs, ``kickoff_rank()`` orders the due pipelines.
 """
 
 from collections.abc import Iterable
@@ -11,14 +16,23 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Literal
 from uuid import UUID
 
+from django.db.models import Exists, OuterRef, Q
+
 from posthog.dataclasses import frozen
 
-from ..models import AutoresearchTrainingRun
+from ..models import AutoresearchModel, AutoresearchPipeline, AutoresearchTrainingRun
 
 # Research runs before explore ends, if no run stopped it first. Rescue runs do not count.
 EXPLORE_RUN_LIMIT = 5
 
 TrainingPhase = Literal["explore", "maintain"]
+
+# The order in which a project's due pipelines take its free training runs, first to last.
+NO_CHAMPION_PRIORITY = 0
+RESCUE_PRIORITY = 1
+RESEARCH_PRIORITY = 2
+
+KickoffRank = tuple[int, datetime, str]
 
 
 @frozen
@@ -73,6 +87,26 @@ def research_schedule(
     return ResearchSchedule(phase=phase, next_research_at=_start_of_day(latest) + gap)
 
 
+def scheduled_kickoff_reason(schedule: ResearchSchedule, now: datetime) -> AutoresearchTrainingRun.KickoffReason | None:
+    """Why the sweep starts a research run now, or None when none is due."""
+    if schedule.next_research_at is None:
+        return None
+    if schedule.phase == "explore":
+        return AutoresearchTrainingRun.KickoffReason.EXPLORE
+    if schedule.is_due(now):
+        return AutoresearchTrainingRun.KickoffReason.SCHEDULED
+    return None
+
+
+def kickoff_rank(*, priority: int, next_research_at: datetime | None, pipeline_id: UUID) -> KickoffRank:
+    """The sort key of a due pipeline in the queue for the project's free training runs. Lower comes first.
+
+    A pipeline with no champion comes first, because it scores nobody until a run finds one. A champion
+    that cannot score comes next, then the pipeline whose research run has waited longest. The id breaks ties.
+    """
+    return (priority, next_research_at or datetime.max.replace(tzinfo=UTC), str(pipeline_id))
+
+
 def schedule_runs_for(pipeline_ids: Iterable[UUID], team_id: int) -> dict[UUID, list[ScheduleRun]]:
     """The schedule fields of every training run of these pipelines, in one query."""
     runs: dict[UUID, list[ScheduleRun]] = {}
@@ -91,3 +125,27 @@ def schedule_runs_for(pipeline_ids: Iterable[UUID], team_id: int) -> dict[UUID, 
             )
         )
     return runs
+
+
+def awaiting_first_champion() -> Q:
+    """Filter pipelines to the ``bootstrapping`` ones that wait for a scheduled run to find a first champion.
+
+    A first champion that fails its fit or its scorability check rolls back, and the pipeline goes
+    back to ``bootstrapping`` with a completed run. Such a pipeline has no champion and no pending
+    or running training run. Without scheduled research it stays in this state.
+    """
+    run_of_pipeline = AutoresearchTrainingRun.all_teams.filter(team_id=OuterRef("team_id"), pipeline_id=OuterRef("pk"))
+    return Q(
+        Exists(run_of_pipeline.filter(status=AutoresearchTrainingRun.Status.COMPLETED)),
+        ~Exists(
+            run_of_pipeline.filter(
+                status__in=[AutoresearchTrainingRun.Status.PENDING, AutoresearchTrainingRun.Status.RUNNING]
+            )
+        ),
+        ~Exists(
+            AutoresearchModel.all_teams.filter(
+                team_id=OuterRef("team_id"), pipeline_id=OuterRef("pk"), role=AutoresearchModel.Role.CHAMPION
+            )
+        ),
+        status=AutoresearchPipeline.Status.BOOTSTRAPPING,
+    )

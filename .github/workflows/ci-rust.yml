@@ -32,7 +32,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -50,6 +50,7 @@ jobs:
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
             all_crates: ${{ steps.filter.outputs.all_crates || 'false' }}
+            flags_db: ${{ steps.filter.outputs.flags_db || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -76,7 +77,9 @@ jobs:
                         - 'proto/**'
                         - '.github/workflows/ci-rust.yml'
                         - '.github/scripts/rust_test_shards.py'
+                        - '.github/scripts/resolve-changed-files.sh'
                         - '.github/actions/setup-uv/**'
+                        - '.github/actions/setup-python-cached/**'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - '.github/actions/setup-protoc/**'
@@ -90,11 +93,15 @@ jobs:
                         # The rust mirror of the out-of-band domain list has a parity test
                         # against the shared json.
                         - 'posthog/security/crosslang/**'
+                        # The rust mirror of the AI event limits has a parity test against the shared json.
+                        - 'products/ai_observability/shared/crosslang/**'
                         # Hypercache contract: Python serializer changes may break Rust deserialization
                         - 'posthog/api/feature_flag.py'
                         - 'posthog/models/feature_flag/flags_cache.py'
                         - 'posthog/models/feature_flag/feature_flag.py'
                         - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
+                        # common-cohort-team-access tests its query against the table these migrations build
+                        - 'products/cohorts/backend/migrations/**'
                         # replay-core-v4's tests read the encryption vectors the Node writers pin
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json'
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json'
@@ -103,6 +110,14 @@ jobs:
                         # Pins the service images that every crate's tests run against.
                         # A determinator rule would also rebuild and deploy every Rust image.
                         - 'docker-compose.base.yml'
+                      # What the feature-flags stall recovery tests exercise: the whole request path.
+                      flags_db:
+                        - 'rust/feature-flags/**'
+                        - 'rust/common/database/**'
+                        # An sqlx bump can change how a pool recovers.
+                        - 'rust/Cargo.lock'
+                        - 'rust/.config/nextest.toml'
+                        - '.github/workflows/ci-rust.yml'
 
     # Compute affected crates and test shards. Only runs when Rust changes
     # are detected, keeping the lightweight `changes` job fast for non-Rust PRs.
@@ -120,17 +135,32 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 0
+                  fetch-depth: 1
                   filter: blob:none
                   sparse-checkout: |
                       rust/
                       proto/
                       .github/rust-images.yml
                       .github/scripts/rust_test_shards.py
+                      .github/scripts/resolve-changed-files.sh
                       .github/actions/rust-compute-affected/
                       .github/actions/setup-rust/
                   sparse-checkout-cone-mode: false
                   clean: false
+
+            - name: Resolve the changed files
+              id: changed-files
+              if: github.event_name != 'workflow_dispatch' && needs.changes.outputs.all_crates != 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  MERGE_TARGET: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.ref }}
+              run: |
+                  if [ -f .github/scripts/resolve-changed-files.sh ]; then
+                      bash .github/scripts/resolve-changed-files.sh
+                  else
+                      echo 'resolved=false' >> "$GITHUB_OUTPUT"
+                  fi
 
             - name: Install rust
               uses: ./.github/actions/setup-rust
@@ -144,7 +174,9 @@ jobs:
                   event-name: ${{ github.event_name }}
                   pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
-                  rebuild-all: ${{ (github.event_name == 'workflow_dispatch' || needs.changes.outputs.all_crates == 'true') && 'true' || 'false' }}
+                  base-ref: ${{ github.event_name == 'push' && github.event.before || steps.changed-files.outputs.merge_base }}
+                  changed-files: ${{ runner.temp }}/changed-files.txt
+                  rebuild-all: ${{ steps.changed-files.outputs.resolved != 'true' && 'true' || 'false' }}
 
             # Bin-pack affected packages into balanced test shards.
             - name: Compute test shards
@@ -185,9 +217,11 @@ jobs:
 
             - name: Install system OpenSSL
               run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate*
-                  sudo apt-get update
-                  sudo apt-get install -y libssl-dev pkg-config
+                  if ! pkg-config --exists openssl; then
+                      sudo rm -f /etc/apt/sources.list.d/*twingate*
+                      sudo apt-get update
+                      sudo apt-get install -y libssl-dev pkg-config
+                  fi
 
             # protoc and rustup both write $GITHUB_PATH, so they stay out of a
             # `parallel:` block. Concurrent writes crash the GitHub Actions runner
@@ -261,7 +295,9 @@ jobs:
               working-directory: .
               run: |
                   # Use docker to clean up files created by containers (from repo root, not rust/)
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+                  if [ -d "data" ]; then
+                      docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+                  fi
               continue-on-error: true
 
             - name: Log in to Docker Hub
@@ -288,13 +324,6 @@ jobs:
 
                   echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
-            - name: Dump Kafka logs on failure
-              if: failure()
-              run: |
-                  docker ps -a || true
-                  docker logs --tail=500 rust-kafka-1 || true
-                  docker inspect rust-kafka-1 || true
-
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
               uses: ./.github/actions/setup-rust
@@ -320,10 +349,17 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
+            - name: Resolve Python version
+              id: python-version
+              run: |
+                  version=$(python3 -c 'import tomllib; print(tomllib.load(open("../pyproject.toml", "rb"))["project"]["requires-python"].removeprefix("=="))')
+                  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: ./.github/actions/setup-python-cached
               with:
-                  python-version-file: 'pyproject.toml'
+                  python-version: ${{ steps.python-version.outputs.version }}
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -382,6 +418,7 @@ jobs:
                   # Set up dual database environment for feature-flags service
                   PERSONS_READ_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
                   PERSONS_WRITE_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
+                  FLAGS_DB_CHANGED: ${{ needs.changes.outputs.flags_db }}
               run: |
                   # nextest (instead of plain `cargo test`) emits JUnit XML for the Trunk quarantine
                   # gate below. It does not run doctests; those run in their own step, outside the
@@ -445,9 +482,10 @@ jobs:
                       # cohort-stream-processor's broker and S3 tests are #[ignore]'d. This job runs Kafka
                       # and SeaweedFS (objectstorage, :19000). `kind(test)` selects the tests/ binaries,
                       # whose ignored tests all need this stack. One at a time: each joins its own
-                      # consumer group and most create several 64-partition topics.
+                      # consumer group and most create several 64-partition topics. Not `localhost`: it
+                      # also resolves to `::1`, where the broker refuses, and the tests' readers fail on that.
                       if [ "$pkg" = "cohort-stream-processor" ]; then
-                          KAFKA_HOSTS=localhost:9092 \
+                          KAFKA_HOSTS=kafka:9092 \
                           CHECKPOINT_S3_ENDPOINT=http://localhost:19000 \
                           CHECKPOINT_S3_REGION=us-east-1 \
                           CHECKPOINT_S3_BUCKET=posthog \
@@ -455,9 +493,24 @@ jobs:
                           CHECKPOINT_S3_SECRET_ACCESS_KEY=object_storage_root_password \
                               run_nextest cohort-stream-processor-ignored -p cohort-stream-processor -E 'kind(test)' --run-ignored only --test-threads=1 || overall_rc=1
                       fi
+                      # feature-flags' persons DB stall tests are #[ignore]'d: they lock posthog_person,
+                      # so they run one at a time, and only on master or when flags_db matches. The file
+                      # guard keeps this a no-op on branches that predate them.
+                      if [ "$pkg" = "feature-flags" ] && [ "$FLAGS_DB_CHANGED" = "true" ] && [ -f feature-flags/tests/stall_recovery.rs ]; then
+                          run_nextest feature-flags-stall -p feature-flags -E 'binary(stall_recovery)' --run-ignored only --test-threads=1 || overall_rc=1
+                      fi
                       echo "::endgroup::"
                   done
                   exit $overall_rc
+
+            - name: Dump Kafka logs on failure
+              if: ${{ !cancelled() && (failure() || steps.run-tests.outcome == 'failure') }}
+              env:
+                  COMPOSE_FILE: ../docker-compose.dev.yml:../docker-compose.profiles.yml
+              run: |
+                  docker ps -a || true
+                  docker compose logs --no-color --tail=500 kafka || true
+                  docker compose ps -a -q kafka | xargs -r docker inspect || true
 
             # Doctests fail the job directly: they emit no JUnit, so the quarantine gate
             # below can neither see nor mask them.
@@ -525,7 +578,7 @@ jobs:
         # changes, so unrelated rust PRs skip the job entirely.
         if: needs.changes.outputs.rust == 'true' && contains(needs.affected.outputs.affected_crates, 'personhog-test-harness')
         runs-on: depot-ubuntu-24.04-4
-        timeout-minutes: 25
+        timeout-minutes: 35
         permissions:
             contents: read
         env:
@@ -540,6 +593,18 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: |
+                      rust/
+                      proto/
+                      products/
+                      docker/
+                      .github/actions/
+                      bin/ci-wait-for-docker
+                      bin/wait-for-docker
+                      docker-compose.base.yml
+                      docker-compose.dev.yml
+                      docker-compose.profiles.yml
+                  sparse-checkout-cone-mode: false
 
             - name: Log in to Docker Hub
               continue-on-error: true
@@ -549,14 +614,15 @@ jobs:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - name: Start Postgres, Kafka, and etcd
+            # kafka-secondary is a second, empty cluster for the cross-cluster changelog tests.
+            - name: Start Postgres, two Kafka clusters, and etcd
               env:
                   COMPOSE_FILE: ../docker-compose.dev.yml:../docker-compose.profiles.yml
-                  COMPOSE_PROFILES: etcd
+                  COMPOSE_PROFILES: etcd,personhog-secondary
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
               run: |
-                  ../bin/ci-wait-for-docker launch --down db kafka etcd
-                  ../bin/ci-wait-for-docker wait --only db kafka etcd
+                  ../bin/ci-wait-for-docker launch --down db kafka kafka-secondary etcd
+                  ../bin/ci-wait-for-docker wait --only db kafka kafka-secondary etcd
 
                   echo "127.0.0.1 db kafka" | sudo tee -a /etc/hosts
 
@@ -594,6 +660,16 @@ jobs:
             # they run here rather than in the plain test job.
             - name: Test the harness verification logic
               run: cargo test -p personhog-test-harness -- --include-ignored
+
+            # The leader warming, pruning, recovering and sealing a changelog generation
+            # on another cluster, against the second broker only this job
+            # starts. Elsewhere these tests run their single-cluster cases.
+            - name: Test the leader across two Kafka clusters
+              env:
+                  PERSONHOG_TEST_SECONDARY_KAFKA: 127.0.0.1:29092
+              run: >-
+                  cargo test -p personhog-leader --features test-support
+                  --test warming_integration --test fencing_integration --test integration
 
             - name: Run the e2e gate
               run: |
@@ -747,11 +823,23 @@ jobs:
                     --migrate-after 8s --migrate-to-partitions 4 \
                     --migrate-kill-leader-at-sealing --migrate-slow-coordinator-ms 500
 
+            # A migration onto the second cluster: the leaders seal the old
+            # topic on the first and produce on the second, and the writer
+            # exits once it drains the old topic and is restarted onto the
+            # new cluster, as its pod would be. The gate fails if it never does.
+            - name: Run the e2e gate migrating the changelog onto another cluster
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 2 --partitions 4 --persons 200 --concurrency 10 --duration 30s \
+                    --migrate-after 10s --migrate-to-partitions 8 \
+                    --migrate-to-kafka-hosts 127.0.0.1:29092
+
             - name: Dump service logs on failure
               if: failure()
               run: |
                   docker ps -a || true
                   docker logs --tail=200 rust-kafka-1 || true
+                  docker logs --tail=200 rust-kafka-secondary-1 || true
                   docker logs --tail=200 rust-etcd-1 || true
 
             - name: Upload harness logs on failure
@@ -804,9 +892,11 @@ jobs:
 
             - name: Install system OpenSSL
               run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate*
-                  sudo apt-get update
-                  sudo apt-get install -y libssl-dev pkg-config
+                  if ! pkg-config --exists openssl; then
+                      sudo rm -f /etc/apt/sources.list.d/*twingate*
+                      sudo apt-get update
+                      sudo apt-get install -y libssl-dev pkg-config
+                  fi
 
             # protoc and rustup both write $GITHUB_PATH, so they stay out of a
             # `parallel:` block. Concurrent writes crash the GitHub Actions runner
@@ -821,6 +911,9 @@ jobs:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
 
+            - name: Check format
+              run: cargo fmt -- --check
+
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
@@ -834,9 +927,6 @@ jobs:
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
-            - name: Check format
-              run: cargo fmt -- --check
-
             - name: Run clippy
               env:
                   # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
@@ -849,15 +939,46 @@ jobs:
                   OPENSSL_NO_VENDOR: '1'
               run: cargo check --all-features
 
+            - name: Restore cargo-binstall archive
+              id: binstall-cache
+              continue-on-error: true
+              timeout-minutes: 1
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
+                  key: cargo-binstall-1.26.2-linux-x64-v1
+
             - name: Install cargo-binstall
-              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+              env:
+                  BINSTALL_ARCHIVE: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
+              run: |
+                  set -euo pipefail
+                  checksum=9e0e064f189a9abb9f8df5fb93c3c810ef5cc19e7212d998c7a64c9e4d3527d5
+                  if ! echo "$checksum  $BINSTALL_ARCHIVE" | sha256sum --check --status; then
+                      curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 \
+                          -o "$BINSTALL_ARCHIVE" \
+                          https://github.com/cargo-bins/cargo-binstall/releases/download/v1.26.2/cargo-binstall-x86_64-unknown-linux-musl.tgz
+                  fi
+                  echo "$checksum  $BINSTALL_ARCHIVE" | sha256sum --check
+                  mkdir -p "$CARGO_HOME/bin"
+                  tar -xzf "$BINSTALL_ARCHIVE" -C "$CARGO_HOME/bin" cargo-binstall
+                  "$CARGO_HOME/bin/cargo-binstall" -V
+
+            - name: Save cargo-binstall archive
+              if: steps.binstall-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+              continue-on-error: true
+              timeout-minutes: 1
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
+                  key: cargo-binstall-1.26.2-linux-x64-v1
 
             - name: Install cargo-shear
               # --force is required: Swatinem/rust-cache restores ~/.cargo/.crates2.json
               # (which records cargo-shear as installed) but not the binary itself, so
               # without --force binstall short-circuits ("already installed") and the
               # next step fails with `error: no such command: shear`.
-              run: cargo binstall --no-confirm --force cargo-shear@1.1.12
+              run: cargo binstall --no-confirm --force --locked cargo-shear@1.1.12
 
             - name: Run cargo shear
               run: cargo shear

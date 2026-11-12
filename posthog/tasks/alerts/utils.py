@@ -1,37 +1,50 @@
+import re
 from collections.abc import Collection
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.html import format_html
 
 import pytz
 import structlog
+from markdown_it import MarkdownIt
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
 from posthog.dataclasses import frozen
+from posthog.helpers.email_formatting import render_ai_email_html
 from posthog.models.user import User
 from posthog.ph_client import ph_background_capture
 from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
+from posthog.utils import absolute_uri
 
-from products.alerts.backend.facade.api import LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
+from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    first_subscriber_id,
+)
 from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
     alert_internal_event_delivered,
     flush_alert_internal_events,
+    insight_alert_slack_properties,
     list_active_alert_destinations,
     produce_alert_internal_event,
     serialize_deliveries,
 )
 from products.alerts.backend.facade.email import alert_email_recipients, send_alert_email
 from products.alerts.backend.insight_alert_state_machine import (
+    FIRING_NOT_RENOTIFIED_KEY,
     apply_invalid_configuration,
     apply_outcome,
     evaluate_alert_check,
+    is_firing_not_renotified,
     should_notify,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -47,9 +60,20 @@ from products.alerts_platform.backend.facade.scheduling import (
 )
 from products.exports.backend.facade import api as exports
 
+# How long an alert chart render may take before the export gives up and the chart is lost.
+CHART_RENDER_TIMEOUT = exports.RENDER_TIMEOUT
+
 logger = structlog.get_logger(__name__)
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
+
+INVESTIGATION_SUMMARY_TEASER_MAX_CHARS = 500
+
+# Matches a sentence-ending punctuation mark followed by whitespace or end-of-string,
+# used to clip the summary teaser on a sentence boundary instead of mid-word.
+_SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
+
+_SUMMARY_MARKDOWN = MarkdownIt("commonmark")
 
 # How long the insight stack keeps evaluating an alert after the platform takes it over, so the two
 # stacks' checks can be compared. It sends nothing for the alert in that time.
@@ -257,11 +281,77 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     return receipts
 
 
+@frozen
+class InvestigationSummaryLine:
+    """The entry of `breaches` that holds the investigation summary.
+
+    `breaches` carries the plain-text teaser, which chat destinations show as is. Email
+    renders `markdown` in place of that entry.
+    """
+
+    index: int
+    markdown: str
+
+
+def _clip_summary(text: str) -> str:
+    if len(text) <= INVESTIGATION_SUMMARY_TEASER_MAX_CHARS:
+        return text
+    window = text[:INVESTIGATION_SUMMARY_TEASER_MAX_CHARS]
+    # Prefer clipping at the last complete sentence, but only if it keeps enough of the
+    # teaser — otherwise a short lead sentence would drop most of the summary.
+    sentence_ends = [match.end() for match in _SENTENCE_END_RE.finditer(window)]
+    if sentence_ends and sentence_ends[-1] >= INVESTIGATION_SUMMARY_TEASER_MAX_CHARS // 2:
+        # Always append the ellipsis: the boundary might be an abbreviation (e.g. "U.S."),
+        # not a real sentence end, so a clean-looking stop would hide that we dropped the rest.
+        return window[: sentence_ends[-1]].rstrip() + " …"
+    # No usable sentence boundary — fall back to the last word boundary with an ellipsis.
+    word_end = window.rstrip().rfind(" ")
+    if word_end != -1:
+        return window[:word_end].rstrip() + "…"
+    return text[: INVESTIGATION_SUMMARY_TEASER_MAX_CHARS - 1].rstrip() + "…"
+
+
+def investigation_summary_teaser(summary: str | None) -> str | None:
+    """The Markdown investigation summary as short plain text, for chat destinations.
+
+    Email and the alert history render the full Markdown. Chat destinations show the text
+    as is, so they get the words without markup, clamped like a teaser. The notebook has
+    the full write-up.
+    """
+    if not summary or not summary.strip():
+        return None
+    sentences: list[str] = []
+    for token in _SUMMARY_MARKDOWN.parse(summary):
+        if token.type != "inline":
+            continue
+        words = "".join(
+            child.content if child.type in ("text", "code_inline", "html_inline") else " "
+            for child in token.children or []
+            if child.type in ("text", "code_inline", "html_inline", "softbreak", "hardbreak")
+        )
+        sentence = " ".join(words.split())
+        if sentence:
+            sentences.append(sentence if sentence[-1] in ".!?:;" else f"{sentence}.")
+    if not sentences:
+        return None
+    return _clip_summary(" ".join(sentences))
+
+
+def chat_investigation_summary(alert: AlertConfiguration, summary: str | None) -> str | None:
+    """The stored investigation summary in the form chat destinations show.
+
+    Only the anomaly investigation agent writes Markdown. The metrics alert investigation
+    stores plain text, which chat shows as is.
+    """
+    return investigation_summary_teaser(summary) if alert.detector_config else summary
+
+
 def send_notifications_for_breaches(
     alert: AlertConfiguration,
     breaches: list[str],
     idempotency_key: str,
-    extra_properties: dict[str, str] | None = None,
+    extra_properties: dict[str, Any] | None = None,
+    investigation_summary: InvestigationSummaryLine | None = None,
 ) -> list[AlertDelivery]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
     per-recipient at-most-once email delivery on retries.
@@ -277,13 +367,22 @@ def send_notifications_for_breaches(
         insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
         alert_url = f"{insight_url}?alert_id={alert.id}"
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
-        send_alert_email(
+        match_descriptions_html: list[str] = []
+        if investigation_summary is not None:
+            match_descriptions_html = [
+                render_ai_email_html(investigation_summary.markdown)
+                if index == investigation_summary.index
+                else format_html("<p>{}</p>", breach)
+                for index, breach in enumerate(breaches)
+            ]
+        email_sent = send_alert_email(
             recipients=email_targets,
             campaign_key=campaign_key,
             subject=subject,
             template_name="alert_check_firing",
             template_context={
                 "match_descriptions": breaches,
+                "match_descriptions_html": match_descriptions_html,
                 "insight_url": insight_url,
                 "insight_name": alert.insight.name,
                 "alert_url": alert_url,
@@ -291,8 +390,9 @@ def send_notifications_for_breaches(
                 "project_name": alert.team.name,
             },
         )
-        accepted_at = datetime.now(UTC).isoformat()
-        deliveries.extend(AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets)
+        if email_sent:
+            accepted_at = datetime.now(UTC).isoformat()
+            deliveries.extend(AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets)
 
     # Join with newlines so each breach/investigation line renders on its own line in
     # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
@@ -306,9 +406,9 @@ def send_notifications_for_breaches(
     return deliveries
 
 
-def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str], idempotency_key: str) -> None:
+def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str], idempotency_key: str) -> bool:
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
-    send_alert_email(
+    return send_alert_email(
         recipients=recipients,
         campaign_key=f"alert-test-notification-{idempotency_key}",
         subject=f"Test alert: {alert.name} for {alert.team.name}",
@@ -336,7 +436,7 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
     error_message = str(error.get("message") or "Unknown error").strip()[:1000] or "Unknown error"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
-    send_alert_email(
+    email_sent = send_alert_email(
         recipients=email_targets,
         campaign_key=f"alert-evaluation-failed-notification-{idempotency_key}",
         subject=f"PostHog could not evaluate {subject_alert_name}",
@@ -351,8 +451,11 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             # The template drops its "review the alert settings" advice for this code, because
             # a check the AI detector could not complete is not something the owner can fix.
             "detector_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+            "detector_paused": error.get("code") == LLM_DETECTOR_PAUSED_ERROR_CODE,
         },
     )
+    if not email_sent:
+        return []
     accepted_at = datetime.now(UTC).isoformat()
     return [AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets]
 
@@ -387,7 +490,8 @@ def _resolve_alert_render_user(alert: AlertConfiguration) -> User | None:
             return User.objects.get(id=alert.created_by_id)
         except User.DoesNotExist:
             pass
-    return alert.subscribed_users.first()
+    subscriber_id = first_subscriber_id(team_id=alert.team_id, alert_id=alert.id)
+    return User.objects.filter(id=subscriber_id).first() if subscriber_id is not None else None
 
 
 def prepare_alert_insight_chart_url(
@@ -431,6 +535,10 @@ class RenderedInsightChart:
     render_user_id: int
 
 
+class InsightChartRenderFailed(Exception):
+    """A chart applied, and its render produced nothing."""
+
+
 def render_alert_insight_chart(
     alert: AlertConfiguration, render_user: User | None = None
 ) -> RenderedInsightChart | None:
@@ -439,19 +547,56 @@ def render_alert_insight_chart(
     Best-effort, like `prepare_alert_insight_chart_url`: any failure returns None. The render user
     defaults the way that function's does.
     """
+    try:
+        return render_alert_insight_chart_or_raise(alert, render_user)
+    except InsightChartRenderFailed:
+        return None
+
+
+def _threshold_lines(alerts: Collection[AlertConfiguration]) -> list[dict[str, Any]]:
+    lines: list[dict[str, Any]] = []
+    for insight_alert in alerts:
+        if insight_alert.threshold is None or insight_alert.condition.get("type") != "absolute_value":
+            continue
+        threshold_config = insight_alert.threshold.configuration
+        if threshold_config.get("type") != "absolute":
+            continue
+        for side, value in (threshold_config.get("bounds") or {}).items():
+            if side in {"upper", "lower"} and value is not None:
+                label = f"{insight_alert.name} {side} threshold"
+                lines.append({"label": label, "value": value, "borderColor": "#d14343", "displayLabel": False})
+    return lines
+
+
+def render_alert_insight_chart_or_raise(
+    alert: AlertConfiguration, render_user: User | None = None, *, platform_slack_destination: bool = False
+) -> RenderedInsightChart | None:
+    """`render_alert_insight_chart`, but a failed render raises `InsightChartRenderFailed`, for a caller
+    that renders again later. None still means no chart applies. `platform_slack_destination` is a Slack
+    destination the platform keeps, which the HogFunction lookup cannot see."""
     render_user = render_user or _resolve_alert_render_user(alert)
     if render_user is None:
         return None
     try:
-        destinations = list_active_alert_destinations(
-            team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,)
-        )
-        if not any(destination.destination_type == "slack" for destination in destinations):
+        if not platform_slack_destination and not any(
+            destination.destination_type == "slack"
+            for destination in list_active_alert_destinations(
+                team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,)
+            )
+        ):
             return None
+        rows = (
+            AlertConfiguration.objects.filter(team_id=alert.team_id, insight_id=alert.insight_id, enabled=True)
+            .select_related("threshold")
+            .order_by("created_at", "id")
+        )
+        # An alert built from its platform alert is not one of the rows, so its own threshold is added.
+        alert_threshold_lines = _threshold_lines([*rows, *([alert] if alert._state.adding else [])])
         asset, content = exports.render_png_export(
             team=alert.team,
             created_by=render_user,
             insight_id=alert.insight_id,
+            reference_lines=alert_threshold_lines,
             # System render: keep it out of the user's export listings and quota.
             is_system=True,
             expires_after=datetime.now(UTC) + _INSIGHT_CHART_ASSET_TTL,
@@ -463,11 +608,13 @@ def render_alert_insight_chart(
                 asset_id=asset.id,
                 exception=asset.exception,
             )
-            return None
+            raise InsightChartRenderFailed(asset.exception or "The render produced no content")
         return RenderedInsightChart(asset_id=asset.id, render_user_id=render_user.id)
-    except Exception:
+    except InsightChartRenderFailed:
+        raise
+    except Exception as error:
         logger.exception("alerts.insight_chart_render_failed", alert_id=str(alert.id))
-        return None
+        raise InsightChartRenderFailed(type(error).__name__) from error
 
 
 def insight_chart_url(*, team_id: int, chart: RenderedInsightChart) -> str | None:
@@ -509,9 +656,10 @@ def dispatch_alert_notification(
     alert: AlertConfiguration,
     alert_check: AlertCheck,
     breaches: list[str] | None,
-    extra_properties: dict[str, str] | None = None,
+    extra_properties: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
     render_chart: bool = True,
+    investigation_summary: InvestigationSummaryLine | None = None,
 ) -> list[AlertDelivery] | None:
     """Route an AlertCheck to the correct notification sender.
 
@@ -595,6 +743,47 @@ def dispatch_alert_notification(
                     **detector_verdict_event_fields(alert_check.triggered_metadata),
                     **(extra_properties or {}),
                 }
+                detected_at = (
+                    alert_check.created_at.astimezone(ZoneInfo(alert.team.timezone)).strftime("%d %b %Y, %H:%M %Z")
+                    + f" ({alert.team.timezone})"
+                )
+                insight_query = alert.insight.query or {}
+                insight_source = insight_query.get("source") or insight_query
+                breach_details = (alert_check.triggered_metadata or {}).get("breach_details") or []
+                affected_interval = next(
+                    (detail["interval"] for detail in breach_details if detail.get("interval")),
+                    insight_source.get("interval"),
+                )
+                properties.update(
+                    insight_alert_slack_properties(
+                        breaches=breaches,
+                        breach_details=(alert_check.triggered_metadata or {}).get("breach_details"),
+                        is_anomaly=bool(alert.detector_config),
+                        affected_dates=alert_check.triggered_dates
+                        or [
+                            detail["date"]
+                            for detail in (alert_check.triggered_metadata or {}).get("breach_details", [])
+                            if detail.get("date")
+                        ],
+                        affected_interval=affected_interval,
+                        project_timezone=alert.team.timezone,
+                        metric_description=properties.get("investigation_metric_description"),
+                        next_step=properties.get("investigation_next_step"),
+                        tags=list(
+                            alert.insight.tagged_items.filter(tag__team_id=alert.team_id)
+                            .values_list("tag__name", flat=True)
+                            .order_by("tag__name")[:10]
+                        ),
+                        metric_name=alert.insight.name or alert.insight.derived_name or "Insight",
+                        summary=chat_investigation_summary(
+                            alert, properties.get("investigation_summary") or alert_check.investigation_summary
+                        ),
+                        verdict=properties.get("investigation_verdict") or alert_check.investigation_verdict,
+                        investigation_status=alert_check.investigation_status,
+                        detected_at=detected_at,
+                        allowed_root=absolute_uri("/"),
+                    )
+                )
                 # Attach the chart for any firing alert whose caller did not already supply
                 # one, so ordinary threshold and anomaly alerts get the chart too, not just
                 # the anomaly investigation path (which renders it early and passes it in).
@@ -610,13 +799,13 @@ def dispatch_alert_notification(
                     chart_url = prepare_alert_insight_chart_url(alert=alert, alert_check=alert_check)
                     if chart_url:
                         properties["insight_chart_url"] = chart_url
-                # Only forward extra_properties when there's something to add, keeping the
-                # common threshold-alert call unchanged when nothing was attached.
+                # Only forward what is set, keeping the common threshold-alert call unchanged.
+                optional_kwargs: dict[str, Any] = {}
                 if properties:
-                    return send_notifications_for_breaches(
-                        alert, breaches, idempotency_key=key, extra_properties=properties
-                    )
-                return send_notifications_for_breaches(alert, breaches, idempotency_key=key)
+                    optional_kwargs["extra_properties"] = properties
+                if investigation_summary is not None:
+                    optional_kwargs["investigation_summary"] = investigation_summary
+                return send_notifications_for_breaches(alert, breaches, idempotency_key=key, **optional_kwargs)
             case _:
                 raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
 
@@ -712,6 +901,9 @@ def add_alert_check(
         now=datetime.now(UTC),
     )
     state_fields = apply_outcome(alert, outcome)
+    triggered_metadata = result.triggered_metadata
+    if is_firing_not_renotified(outcome):
+        triggered_metadata = {**(triggered_metadata or {}), FIRING_NOT_RENOTIFIED_KEY: True}
 
     alert.last_checked_at = datetime.now(UTC)
     # Update next_check_at per interval so we don't recheck until the next one is due.
@@ -723,7 +915,7 @@ def add_alert_check(
         condition=alert.condition,
         targets_notified={},
         state=alert.state,
-        triggered_metadata=result.triggered_metadata,
+        triggered_metadata=triggered_metadata,
         error=error,
         anomaly_scores=result.anomaly_scores,
         triggered_points=result.triggered_points,
@@ -791,7 +983,7 @@ def send_notifications_for_disabled(
     campaign_key = f"alert-disabled-notification-{alert.id}-{idempotency_key or timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
-    send_alert_email(
+    email_sent = send_alert_email(
         recipients=targets,
         campaign_key=campaign_key,
         subject=subject,
@@ -805,5 +997,7 @@ def send_notifications_for_disabled(
             "project_name": alert.team.name,
         },
     )
+    if not email_sent:
+        return []
     accepted_at = datetime.now(UTC).isoformat()
     return [AlertDelivery(channel="email", target=target, at=accepted_at) for target in targets]

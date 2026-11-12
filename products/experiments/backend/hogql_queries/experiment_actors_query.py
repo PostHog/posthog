@@ -7,9 +7,15 @@ from typing import TYPE_CHECKING
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentFunnelMetric
+from posthog.schema import (
+    ActionsNode,
+    ExperimentEventExposureConfig,
+    ExperimentFunnelMetric,
+    ExperimentWarehouseNativeExposureConfig,
+)
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
 
@@ -65,12 +71,14 @@ def build_experiment_actors_query(runner: "ExperimentQueryRunner") -> ast.Select
 
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
-    if runner.actors_query.exposureConfig is not None:
+    # A rule-linked experiment counts the exposures of its rule only, so an override does not apply to it.
+    if runner.actors_query.exposureConfig is not None and runner.feature_flag_rule_id is None:
+        override = runner.actors_query.exposureConfig
+        if isinstance(override, ExperimentWarehouseNativeExposureConfig):
+            raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
         # An explicit override replaces the whole exposure definition, including any
         # stored activation event.
-        exposure_config = resolve_exposure_config_for_builder(
-            runner.actors_query.exposureConfig, runner.team, runner.experiment.start_date
-        )
+        exposure_config = resolve_exposure_config_for_builder(override, runner.team, runner.experiment.start_date)
     else:
         # Same resolution as the main experiment query, so the actor list matches the counts.
         exposure_params = get_exposure_config_params_for_builder(
@@ -84,7 +92,7 @@ def build_experiment_actors_query(runner: "ExperimentQueryRunner") -> ast.Select
     else:
         multiple_variant_handling = runner.multiple_variant_handling
 
-    if runner.actors_query.featureFlagKey:
+    if runner.actors_query.featureFlagKey and runner.feature_flag_rule_id is None:
         feature_flag_key = runner.actors_query.featureFlagKey
     else:
         feature_flag_key = runner.feature_flag_key
@@ -129,6 +137,7 @@ def build_experiment_actors_query(runner: "ExperimentQueryRunner") -> ast.Select
         funnel_step_breakdown=funnel_step_breakdown,
         include_recordings=runner.actors_query.includeRecordings or False,
         activation_config=activation_config,
+        feature_flag_rule_id=runner.feature_flag_rule_id,
     )
 
     # Step 0 is the exposure step: return everyone exposed to the variant,

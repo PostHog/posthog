@@ -4,8 +4,14 @@ import { Suspense } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
+import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
+import { QuillExportButton } from 'lib/components/ExportButton/QuillExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ExplainEmptyInsightContext } from 'lib/insights/explainEmptyInsightContext'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -25,16 +31,12 @@ import {
     SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN,
     isPropertyValueMath,
 } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils'
-import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { INSIGHT_GRAPH_DATA_ATTR } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { INSIGHT_GRAPH_DATA_ATTR } from '~/queries/nodes/InsightViz/insightImageCapture'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
@@ -56,15 +58,18 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 import { FunnelStepsTable } from 'products/product_analytics/frontend/insights/funnels/FunnelStepsTable/FunnelStepsTable'
 import { FunnelTimeToConvertTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTimeToConvertTable/FunnelTimeToConvertTable'
 import { FunnelTrendsTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTrendsTable/FunnelTrendsTable'
+import { insightNavLogic } from 'products/product_analytics/frontend/insights/InsightNav/insightNavLogic'
 import { Journeys } from 'products/product_analytics/frontend/insights/journeys/Journeys'
 import { Paths } from 'products/product_analytics/frontend/insights/paths/Paths'
 import { PathCanvasLabel } from 'products/product_analytics/frontend/insights/paths/PathsLabel'
 import { RetentionContainer } from 'products/product_analytics/frontend/insights/retention/RetentionContainer'
+import { InsightAIAnalysis } from 'products/product_analytics/frontend/insights/shared/InsightAIAnalysis'
 import { InsightsTable } from 'products/product_analytics/frontend/insights/shared/InsightsTable/InsightsTable'
 import { BoxPlotLegend } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotResultsTable'
 import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
+import { DetailedResultsHeading } from './DetailedResultsHeading'
 import { FlagCallsRetentionNotice } from './FlagCallsRetentionNotice'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
@@ -73,6 +78,26 @@ import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 // tiles on every page that shows an insight.
 const WebAnalyticsInsight = lazyWithRetry(() =>
     import('scenes/web-analytics/WebAnalyticsInsight').then((m) => ({ default: m.WebAnalyticsInsight }))
+)
+const InsightExplainChart = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/explainChart/InsightExplainChart').then((m) => ({
+        default: m.InsightExplainChart,
+    }))
+)
+const ExplainChartButton = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/explainChart/ExplainChartButton').then((m) => ({
+        default: m.ExplainChartButton,
+    }))
+)
+const ExplainChartAgentBridge = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/explainChart/ExplainChartAgentBridge').then((m) => ({
+        default: m.ExplainChartAgentBridge,
+    }))
+)
+const ExplainChartAIAnalysisFallback = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/explainChart/ExplainChartAIAnalysisFallback').then((m) => ({
+        default: m.ExplainChartAIAnalysisFallback,
+    }))
 )
 
 /** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
@@ -109,6 +134,13 @@ function DashboardInsightRefreshHintOrLoading({
         )
     }
     return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
+}
+
+function exportItems(exportContext: ExportButtonItem['export_context']): ExportButtonItem[] {
+    return [
+        { export_format: ExporterFormat.CSV, export_context: exportContext },
+        { export_format: ExporterFormat.XLSX, export_context: exportContext },
+    ]
 }
 
 function isNonEmptyResult(rows: unknown): boolean {
@@ -217,12 +249,17 @@ export function InsightVizDisplay({
         validationError,
         validationErrorCode,
         theme,
-        showsFlagCallsRetentionNotice,
+        flagCallsRetentionGap,
+        flagCallsRetentionStartDate,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId, insightDataError } = useValues(insightDataLogic(insightProps))
     const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
+
+    const explainChartEnabled = useFeatureFlag('EXPLAIN_CHART')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = todayRailNav && !embedded
 
     const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
@@ -381,14 +418,14 @@ export function InsightVizDisplay({
     const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
     const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
 
-    function renderActiveView(): JSX.Element | null {
+    function renderActiveView(viewContext = context): JSX.Element | null {
         switch (activeView) {
             case InsightType.TRENDS:
                 return (
                     <TrendInsight
                         view={InsightType.TRENDS}
                         editMode={editMode}
-                        context={context}
+                        context={viewContext}
                         embedded={embedded}
                         inSharedMode={inSharedMode}
                     />
@@ -416,7 +453,7 @@ export function InsightVizDisplay({
             case InsightType.FUNNELS:
                 return (
                     <Funnel
-                        context={context}
+                        context={viewContext}
                         inCardView={embedded}
                         inSharedMode={inSharedMode}
                         showPersonsModal={!inSharedMode}
@@ -476,10 +513,7 @@ export function InsightVizDisplay({
 
             if (funnelTable) {
                 return (
-                    <SceneSection
-                        title={<span className="font-semibold text-lg m-0">Detailed results</span>}
-                        className="mt-4"
-                    >
+                    <SceneSection title={<DetailedResultsHeading as="span" />} className="mt-4">
                         {funnelTable}
                     </SceneSection>
                 )
@@ -489,7 +523,7 @@ export function InsightVizDisplay({
         if (display === ChartDisplayType.BoxPlot && !disableTable) {
             return (
                 <div className="mt-4">
-                    <h2 className="font-semibold text-lg m-0 mb-2">Detailed results</h2>
+                    <DetailedResultsHeading className="mb-2" />
                     <BoxPlotResultsTable />
                 </div>
             )
@@ -498,26 +532,20 @@ export function InsightVizDisplay({
         if (hasDetailedResultsTable && !disableTable) {
             return (
                 <>
-                    {exportContext && (
-                        <div className="flex items-center justify-between my-4 mx-0">
-                            <h2 className="font-semibold text-lg m-0">Detailed results</h2>
-                            <Tooltip title="Export this table" placement="left">
-                                <ExportButton
-                                    type="secondary"
-                                    items={[
-                                        {
-                                            export_format: ExporterFormat.CSV,
-                                            export_context: exportContext,
-                                        },
-                                        {
-                                            export_format: ExporterFormat.XLSX,
-                                            export_context: exportContext,
-                                        },
-                                    ]}
-                                />
-                            </Tooltip>
-                        </div>
-                    )}
+                    {exportContext &&
+                        (quillSurface ? (
+                            <div className="flex items-center justify-between gap-2 my-4">
+                                <DetailedResultsHeading />
+                                <QuillExportButton tooltip="Export this table" items={exportItems(exportContext)} />
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-between my-4 mx-0">
+                                <DetailedResultsHeading />
+                                <Tooltip title="Export this table" placement="left">
+                                    <ExportButton type="secondary" items={exportItems(exportContext)} />
+                                </Tooltip>
+                            </div>
+                        ))}
 
                     <InsightsTable
                         // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
@@ -546,12 +574,33 @@ export function InsightVizDisplay({
             hasBlockingEmptyState: !!BlockingEmptyState,
             hasResults: hasResultRows(insightData),
         }) ? (
-            <InsightAIAnalysis />
+            showsExplainChart ? (
+                <Suspense fallback={null}>
+                    <ExplainChartAIAnalysisFallback insightProps={insightProps} />
+                </Suspense>
+            ) : (
+                <InsightAIAnalysis />
+            )
         ) : null
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
     const showsDataChecks = !!context?.showDataChecks && !inSharedMode
+    const showsExplainChart =
+        explainChartEnabled &&
+        !embedded &&
+        !inSharedMode &&
+        (activeView === InsightType.TRENDS || activeView === InsightType.FUNNELS)
+    const chart = showsExplainChart ? (
+        <Suspense fallback={renderActiveView()}>
+            <InsightExplainChart
+                insightProps={insightProps}
+                renderChart={(overlay) => renderActiveView(overlay ? { ...context, chartOverlay: overlay } : context)}
+            />
+        </Suspense>
+    ) : (
+        renderActiveView()
+    )
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
@@ -580,55 +629,78 @@ export function InsightVizDisplay({
                     />
                 )}
                 {showingResults && (
-                    <>
-                        {!embedded &&
-                            ((isFunnels && hasFunnelResults) ||
-                                isPaths ||
-                                (showComputationMetadata && !BlockingEmptyState)) && (
-                                <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
-                                    <div className="flex items-center gap-2">
-                                        {showComputationMetadata && (
-                                            <InsightResultMetadata
-                                                disableLastComputation={disableLastComputation}
-                                                disableLastComputationRefresh={disableLastComputationRefresh}
-                                            />
-                                        )}
-                                    </div>
+                    <QuillSurfaceContext.Provider value={quillSurface}>
+                        <ExplainEmptyInsightContext.Provider value={!embedded}>
+                            {!embedded &&
+                                ((isFunnels && hasFunnelResults) ||
+                                    isPaths ||
+                                    (showComputationMetadata && !BlockingEmptyState)) && (
+                                    <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
+                                        <div className="flex items-center gap-2">
+                                            {showComputationMetadata && (
+                                                <InsightResultMetadata
+                                                    disableLastComputation={disableLastComputation}
+                                                    disableLastComputationRefresh={disableLastComputationRefresh}
+                                                />
+                                            )}
+                                        </div>
 
-                                    <div className="flex items-center gap-2">
-                                        {isPaths && <PathCanvasLabel />}
-                                        {isFunnels && <FunnelCanvasLabel />}
-                                        {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
+                                        <div className="flex items-center gap-2">
+                                            {isPaths && <PathCanvasLabel />}
+                                            {isFunnels && <FunnelCanvasLabel />}
+                                            {showsExplainChart && (
+                                                <Suspense fallback={null}>
+                                                    <ExplainChartButton insightProps={insightProps} />
+                                                </Suspense>
+                                            )}
+                                            {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                )}
 
-                        {!embedded && showsFlagCallsRetentionNotice && <FlagCallsRetentionNotice />}
-                        <div
-                            className={clsx(
-                                'InsightVizDisplay__content',
-                                showSideLegend && 'InsightVizDisplay__content--with-legend'
+                            {!embedded && flagCallsRetentionGap && (
+                                <FlagCallsRetentionNotice
+                                    gap={flagCallsRetentionGap}
+                                    retentionStartDate={flagCallsRetentionStartDate}
+                                />
                             )}
-                        >
-                            {BlockingEmptyState ? (
-                                BlockingEmptyState
-                            ) : showSideLegend ? (
-                                <>
-                                    <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
-                                    <div className="InsightVizDisplay__content__right empty:hidden">
-                                        {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
-                                    </div>
-                                </>
-                            ) : (
-                                <>{renderActiveView()}</>
-                            )}
-                        </div>
-                    </>
+                            <div
+                                className={clsx(
+                                    'InsightVizDisplay__content',
+                                    showSideLegend && 'InsightVizDisplay__content--with-legend'
+                                )}
+                            >
+                                {BlockingEmptyState ? (
+                                    BlockingEmptyState
+                                ) : showSideLegend ? (
+                                    <>
+                                        <div className="InsightVizDisplay__content__left">{chart}</div>
+                                        <div className="InsightVizDisplay__content__right empty:hidden">
+                                            {display === ChartDisplayType.BoxPlot ? (
+                                                <BoxPlotLegend />
+                                            ) : (
+                                                <InsightLegend />
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    chart
+                                )}
+                            </div>
+                        </ExplainEmptyInsightContext.Provider>
+                    </QuillSurfaceContext.Provider>
                 )}
             </div>
             <ResultCustomizationsModal />
-            {renderAIAnalysisSection()}
-            {renderTable()}
+            {showsExplainChart && (
+                <Suspense fallback={null}>
+                    <ExplainChartAgentBridge insightProps={insightProps} />
+                </Suspense>
+            )}
+            <QuillSurfaceContext.Provider value={quillSurface}>
+                {renderAIAnalysisSection()}
+                {renderTable()}
+            </QuillSurfaceContext.Provider>
         </>
     )
 }

@@ -1,42 +1,60 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from functools import reduce
+from operator import or_
+from typing import Any, Literal
 
 from django.conf import settings
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import pydantic
 
 from posthog.schema import (
     ActionsNode,
+    CohortPropertyFilter,
     EventPropertyFilter,
     ExperimentEventExposureConfig,
+    ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
+    PersonPropertyFilter,
     PropertyOperator,
 )
+
+from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
+from posthog.hogql.property import operator_is_negative
 
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
 )
+from products.experiments.backend.facade.daily_calculation import daily_calculation_end, is_past_daily_calculation
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
+from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
     get_exposure_event_and_property,
-    has_activation_config,
     normalize_to_exposure_criteria,
 )
 from products.experiments.backend.logic.result_stats import MetricResultStats
 from products.experiments.backend.metric_resolution import MetricRole, saved_metric_link_role, saved_metric_links
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.metric_validation import defined_event_names, extract_entity_nodes
-from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.experiments.backend.metric_validation import defined_event_names, event_last_seen, extract_entity_nodes
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentToSavedMetric,
+    live_experiments_for_flag,
+)
 from products.experiments.backend.running_time_target import RunningTimeTarget
 from products.feature_flags.backend.facade.edits import (
     BucketingChange,
@@ -61,6 +79,13 @@ def changes_of_kind[C: FlagChange](changes: tuple[FlagChange, ...], kind: type[C
     return tuple(change for change in changes if isinstance(change, kind))
 
 
+def split_changed_after_the_end(changes: tuple[FlagChange, ...], ended_at: datetime | None) -> bool:
+    """Whether the flag's split is no longer the one that the run's users got."""
+    return ended_at is not None and any(
+        change.changed_at > ended_at for change in changes_of_kind(changes, SplitChange)
+    )
+
+
 @frozen
 class ChangeWindow:
     start: datetime
@@ -72,7 +97,9 @@ class FlagHistory:
     """The changes of the flag after launch that can have moved exposed people, and whether anyone was exposed
     before them. A change before the first exposure moved nobody, so it does not count."""
 
-    launched_at: datetime
+    # The experiment's start date, which can lie before its launch. The results count exposures from it, so the history
+    # and its exposure windows start there too.
+    start_date: datetime
     team_timezone: str
     # Every change of every kind, in time order.
     changes: tuple[FlagChange, ...]
@@ -106,7 +133,7 @@ class FlagHistory:
 
 
 class FlagHistoryNotCheckedReason(StrEnum):
-    # pinned: the finding's `evidence.reason`.
+    # pinned: the finding's `reason`.
     NO_HISTORY_ACCESS = "no_history_access"
     NO_QUERY_ACCESS = "no_query_access"
     EXPOSURE_FILTERS = "exposure_filters"
@@ -129,7 +156,7 @@ class FlagHistoryNotChecked:
     """A flag history that was not compared with the exposures, and the reason. Every change counts."""
 
     reason: FlagHistoryNotCheckedReason
-    launched_at: datetime
+    start_date: datetime
     team_timezone: str
     # Every change since launch, in time order. Empty for NO_HISTORY_ACCESS, which does not read them.
     changes: tuple[FlagChange, ...]
@@ -161,6 +188,11 @@ class ReachableCondition:
     # The person or group property that the condition matches on alone, when its one value is the pinned variant's
     # key. The variant then comes from whatever sets that property, usually the customer's own assignment.
     variant_property: VariantProperty | None
+    # The cohorts whose members the condition matches. A `not_in` cohort filter matches the users outside the cohort.
+    member_cohort_ids: frozenset[int] = frozenset()
+    # Whether the condition has no filters, or only filters that leave users out, so it includes nearly everyone who
+    # reaches it.
+    includes_everyone: bool = False
 
 
 @frozen
@@ -171,6 +203,8 @@ class FlagState:
     variants: tuple[FlagVariant, ...]
     # The release conditions that can serve a request, in evaluation order.
     reachable_conditions: tuple[ReachableCondition, ...]
+    early_exit: bool = False
+    saved_at: datetime | None = None
 
 
 @frozen
@@ -199,10 +233,29 @@ class PauseHistory:
     write these entries, from the page, the API or MCP. A flag disabled or enabled anywhere else, such as on the flag
     page, writes none."""
 
-    launched_at: datetime
+    start_date: datetime
     team_timezone: str
     # The time of the latest entry when it is a pause. None when it is a resume, or the experiment has no entry.
     paused_at: datetime | None
+
+
+@frozen
+class ExperimentOnFlag:
+    """Another experiment of the project that uses the same feature flag. The API lets several experiments share one
+    flag, so the flag's state can belong to one of them. It has no name or id, because the reader of this experiment
+    may have no access to the other one."""
+
+    start_date: datetime | None
+    ended_at: datetime | None
+    archived: bool
+
+    @property
+    def is_draft(self) -> bool:
+        return self.start_date is None
+
+    @property
+    def is_running(self) -> bool:
+        return self.start_date is not None and self.ended_at is None
 
 
 @frozen
@@ -219,6 +272,33 @@ class PrimaryMetric:
 
 
 @frozen
+class MetricWindow:
+    """How long a primary metric holds a user back while "Require completed conversion or retention window" is on."""
+
+    name: str
+    # 0 when the metric has no window, so the setting holds nobody back.
+    window_seconds: int
+    # The launch plus the window. The window starts at a user's first exposure, or at the start event for retention,
+    # so a user who arrives later counts later.
+    first_users_count_at: datetime
+
+
+@frozen
+class ExposureSegment:
+    """The persons or groups whose first exposure carries one value of a dimension, such as the SDK library."""
+
+    dimension: ExposureSegmentDimension
+    # The property's value on the first exposure. BREAKDOWN_NULL_STRING_LABEL when the event has none, and
+    # BREAKDOWN_OTHER_STRING_LABEL for the values outside the largest segments of the dimension. The version in the
+    # library version dimension.
+    value: str
+    exposed_by_variant: Mapping[str, int]
+    # The library of a library version segment, also BREAKDOWN_NULL_STRING_LABEL when the event has none. None in the
+    # other dimensions and in the BREAKDOWN_OTHER_STRING_LABEL segment.
+    library: str | None = None
+
+
+@frozen
 class ExposureTotals:
     total_exposures: Mapping[str, int]
     multiple_variant_handling: MultipleVariantHandling
@@ -232,6 +312,27 @@ class ExposureTotals:
     hours_since_launch: float | None
     # Whether the totals count groups rather than persons, by the rule the exposure query uses.
     counts_groups: bool
+    # Whether the totals leave out test accounts: the exposure criteria filter them out, and the project has test
+    # account filters.
+    filters_test_accounts: bool
+    # Whether a project test account filter keeps what it matches. The kept share check scans the exposure events only
+    # for such a project.
+    has_positive_test_account_filter: bool
+    # The next two need a scan of the exposure events. Only the exposure query loads them, and only when a check that
+    # reads them can report a finding with them. None when not loaded or when the query failed.
+    segments: tuple[ExposureSegment, ...] | None = None
+    exposed_without_test_account_filter: int | None = None
+    # Whether the totals come from precomputed exposures. These lag the events that the count without the test account
+    # filter scans, so a burst of new users would read as users that the filter removes. Only the exposure query sets it.
+    reads_precomputed_exposures: bool = False
+
+    @property
+    def total(self) -> int:
+        return sum(self.total_exposures.values())
+
+    @property
+    def unit(self) -> str:
+        return "group" if self.counts_groups else "user"
 
 
 @frozen
@@ -247,6 +348,7 @@ class MetricEvents:
 class MetricCompileFailure:
     """A metric whose query doesn't compile, so every calculation of the metric fails."""
 
+    metric_id: str
     name: str
     role: MetricRole
     kind: ExperimentHealthMetricCompileErrorKind
@@ -272,11 +374,172 @@ class MetricCompiles:
 
 
 @frozen
+class MetricCalculationFailure:
+    """A metric whose latest calculation failed, with the error that the calculation stored for it."""
+
+    metric_id: str
+    name: str
+    role: MetricRole
+    # The class that `classify_experiment_query_error` gave the error, or the class of a rejected calculation. None
+    # for a failure that stores no class, such as one stored before calculations stored it.
+    error_type: str | None
+    step: str | None
+    # The message as the results page shows it, without the names that HogQL suggests and the list of a scope's
+    # fields. It can be the raw text of a ClickHouse or Python exception.
+    message: str
+    # Whether a HogQL message can quote the evaluation rules that the markers keep out of the browser, because the
+    # definition holds a marker.
+    can_quote_evaluation_rules: bool
+    # Whether the results page shows a "Try again" button for the failure, which it does only for an error stored as
+    # retriable.
+    retriable: bool
+    # The effective definition now, in which the wording looks for the names that the message gives.
+    definition: Mapping[str, Any]
+    # Where the query read the exposures. None for a failure stored before calculations stored it, and for a query that
+    # failed before it was built.
+    exposures_path: ExposuresPath | None
+
+
+RatioSide = Literal["numerator", "denominator"]
+
+
+@frozen
+class ZeroMetric:
+    """A metric, or one side of a ratio metric, whose latest calculation reads zero in every variant, which the results
+    page shows as "Not enough data yet" at any sample size."""
+
+    metric_id: str
+    name: str
+    role: MetricRole
+    # The persons or groups of the result, across the variants.
+    exposures: int
+    # The side of a ratio that reads zero, each side its own `ZeroMetric`. None for the other metric types.
+    ratio_side: RatioSide | None
+    # The effective definition now, which holds the outlier handling and the retention window.
+    definition: Mapping[str, Any]
+    # The persons or groups that reached a step of a funnel before the last one. Zero for the other metric types.
+    reached_earlier_step: int
+    # The events that the zero reads by name, without the other side of a ratio.
+    events: tuple[str, ...]
+    # The data warehouse tables that the zero reads, without the other side of a ratio.
+    warehouse_tables: tuple[str, ...]
+    # Whether the zero reads an event node with a blank name, which matches no event. "All events" stores no name.
+    has_blank_event: bool
+    # Whether the zero reads a node with property filters.
+    has_filters: bool
+    # Of `events`, those that the project last received before launch, by the time of the last one.
+    stopped_events: Mapping[str, datetime]
+
+
+@frozen
+class LatestCalculation:
+    """The latest finished calculation of the experiment's metrics, whose results and errors the results page
+    shows."""
+
+    metric_count: int
+    # None when no calculation has finished, so the page shows no stored error.
+    finished_at: datetime | None
+    # The metrics of the experiment now whose latest calculation failed, in calculation order.
+    failures: tuple[MetricCalculationFailure, ...]
+    # The metrics of the experiment now whose result of this calculation the page shows.
+    completed_count: int
+    # Where the queries of those results read the exposures, when there is a failure to compare them with.
+    completed_exposures_paths: frozenset[ExposuresPath]
+    # Of those results, the ones that read zero in every variant.
+    zero_metrics: tuple[ZeroMetric, ...] = ()
+    # The hours from launch to the end of the data of this calculation. None when no calculation has finished. The
+    # page can show a calculation from days ago until its refresh finishes.
+    hours_of_data: float | None = None
+
+
+@frozen
 class FlagKeyFilter:
     """An event property filter of the exposure criteria on `$feature_flag`, the key of the called flag."""
 
     operator: PropertyOperator
     values: tuple[str | float | bool, ...]
+
+
+ExposurePropertyType = Literal["event", "person"]
+ExposureFilterPropertyType = ExposurePropertyType | Literal["group"]
+
+
+class ExposureFilterSource(StrEnum):
+    EXPOSURE_CRITERIA = "exposure_criteria"
+    EXPOSURE_ACTION = "exposure_action"
+    TEST_ACCOUNTS = "test_accounts"
+
+
+@frozen
+class ExposureFilterWithoutColumn:
+    """A property that the exposure query filters on and reads from the JSON of all the properties of each event, person
+    or group."""
+
+    type: ExposureFilterPropertyType
+    key: str
+    source: ExposureFilterSource
+
+
+@frozen
+class ExposurePropertyFilter:
+    """A filter of the exposure criteria on an event or a person property. The exposure query applies it to each event
+    that it reads, so it leaves out events, not users."""
+
+    type: ExposurePropertyType
+    key: str
+    operator: PropertyOperator
+    # None when the filter has no value. A list of values compiles differently from a missing value.
+    values: tuple[str | float | bool, ...] | None
+    # The event that the filter applies to. None for an action, which can match several events.
+    event: str | None
+
+    @classmethod
+    def of(cls, prop: EventPropertyFilter | PersonPropertyFilter, event: str | None) -> "ExposurePropertyFilter":
+        return cls(
+            type=prop.type,
+            key=prop.key,
+            # The exposure query reads a filter without an operator as `exact`, as `property_to_expr` does.
+            operator=prop.operator or PropertyOperator.EXACT,
+            values=None if prop.value is None else _filter_values(prop.value),
+            event=event,
+        )
+
+    @property
+    def fails_when_missing(self) -> bool:
+        """Whether no event without the property passes the filter, as `property_to_expr` compiles it.
+        `TestFailsWhenMissing` compares this with the compiled filter in ClickHouse for every operator and value shape."""
+        if self.values is None:
+            return self.operator == PropertyOperator.IS_SET
+        if not self.values:
+            # An empty list matches every event, except for `icontains`.
+            return self.operator == PropertyOperator.ICONTAINS
+        if self.operator == PropertyOperator.FLAG_EVALUATES_TO or (
+            self.operator == PropertyOperator.BETWEEN and len(self.values) != 2
+        ):
+            # The filter doesn't compile, so the exposure query fails before it reads a property.
+            return False
+        if self.operator == PropertyOperator.SEMVER_NEQ:
+            # The scalar comparison drops a missing value, which isn't a version. The negated test of an exception
+            # array keeps a missing array.
+            return not (self.type == "event" and self.key in EXCEPTION_STRING_ARRAY_PROPERTIES)
+        return not operator_is_negative(self.operator)
+
+    @property
+    def definition_recorded(self) -> bool:
+        """Whether ingestion writes a definition of the property when it arrives, so a missing one shows that the
+        project never received it."""
+        return _has_property_definition(self.type, self.key) and (
+            self.type == "person" or (self.event is not None and _records_event_properties(self.event))
+        )
+
+
+@frozen
+class ExposureCohort:
+    """A cohort that the exposure criteria filter on."""
+
+    id: int
+    name: str
+    is_static: bool
 
 
 @frozen
@@ -296,6 +559,16 @@ class ExposureEvents:
     # The event, or the action's name, that has to follow a user's flag call before the user counts. None without an
     # activation, which the exposure query reads only next to the flag call events.
     activation: str | None = None
+    property_filters: tuple[ExposurePropertyFilter, ...] = ()
+    # The filters inside an action's steps are not read.
+    cohort_ids: tuple[int, ...] = ()
+    # Of `cohort_ids`, the cohorts whose members the criteria keep. A `not_in` filter leaves the members out.
+    member_cohort_ids: frozenset[int] = frozenset()
+
+    @property
+    def required_properties(self) -> tuple[ExposurePropertyFilter, ...]:
+        """The filters that no event passes without their property. `flag_key_filters` reads the flag key filter."""
+        return tuple(f for f in self.property_filters if f.key != "$feature_flag" and f.fails_when_missing)
 
 
 @frozen
@@ -308,6 +581,8 @@ class HealthContext:
     # None while the experiment has not ended.
     ended_at: datetime | None
     is_paused: bool
+    # Whether the experiment can stop enrolling users while it keeps measuring, by the rule the freeze action enforces.
+    can_freeze_exposure: bool
     archived: bool
     team_timezone: str
     flag: FlagState | None
@@ -319,11 +594,15 @@ class HealthContext:
     # answer this. None before launch, when the experiment has no flag, when the flag's latest call came after the
     # end, or when PostHog can't record the calls of this organization's flags.
     flag_called_during_run: bool | None
-    # Whether the flag's latest recorded call came after the end. False only when no call is recorded in the
-    # ENDED_FLAG_QUIET_PERIOD after the end, also for a flag without a recorded call. None before the end, when the
-    # experiment has no flag, before that period is over, or when PostHog can't record the calls of this
-    # organization's flags.
+    # Whether PostHog has recorded a call of the flag after the end and in the last ENDED_FLAG_QUIET_PERIOD, so that
+    # one stray call doesn't count as a flag that is still read. False only once that period after the end is over.
+    # None before the end, when the experiment has no flag, before that period is over without a call, or when
+    # PostHog can't record the calls of this organization's flags.
     flag_called_after_end: bool | None
+    # The flag's latest recorded call. None when the experiment has no flag, or the flag has no recorded call.
+    flag_last_called_at: datetime | None
+    # The other non-deleted experiments on the flag.
+    other_experiments_on_flag: tuple[ExperimentOnFlag, ...]
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
@@ -332,27 +611,51 @@ class HealthContext:
     primary_metric_count: int
     secondary_metric_count: int
     hours_since_launch: float | None
+    # From the start date, which can be earlier than the launch. The daily calculation and the experiment list count
+    # from it.
+    hours_since_start: float | None
+    # Whether the daily calculation leaves out the experiment, by the rule the daily jobs apply.
+    past_daily_calculation: bool
+    # None without a start date.
+    daily_calculation_ends_at: datetime | None
     metric_events: tuple[MetricEvents, ...]
     # None when the stored exposure criteria don't parse.
     exposure_events: ExposureEvents | None
     # Whether the project has received each event that `metric_events` and `exposure_events` name. A name that
-    # ingestion never writes an event definition for is absent, because its absence proves nothing.
+    # ingestion never writes an event definition for is absent, because its absence proves nothing. So is every name
+    # without a definition when no event of the experiment shows that ingestion records the project.
     events_received: Mapping[str, bool]
+    # Whether the project has received each property that `exposure_events.property_filters` name, by type and key. A
+    # property that the definitions can't answer for is absent, under the same rules as `events_received`.
+    exposure_properties_received: Mapping[tuple[ExposurePropertyType, str], bool]
+    # The cohorts of `exposure_events.cohort_ids` that exist. The exposure query fails on a deleted or missing cohort.
+    exposure_cohorts: tuple[ExposureCohort, ...]
     exposures: ExposureTotals | None
     # None when not loaded. The health endpoint loads it. The exposure answer loads it only when the sample ratio test
     # fails, because the load can query the exposures and `srm` is the only exposure check that reads it.
     flag_history: FlagHistory | FlagHistoryNotChecked | None
-    # None when not loaded or unknown. Only the health endpoint loads it, because it queries the events.
+    # None when not loaded or unknown. Only the health endpoints load it, because it queries the events.
     condition_set_traffic: ConditionSetTraffic | None
-    # None when not loaded or unknown. Only the health endpoint loads it, and only for a paused experiment.
+    # None when not loaded or unknown. Only the health endpoints load it, and only for a paused experiment.
     pause_history: PauseHistory | None
-    # None when not loaded, unknown, or the experiment calculates no primary metric. Only the health endpoint loads it,
+    # None when not loaded, unknown, or the experiment calculates no primary metric. Only the health endpoints load it,
     # and only for a launched experiment.
     primary_metric: PrimaryMetric | None
+    only_count_matured_users: bool
+    # In the order of the results page. None when not loaded or when a metric doesn't parse. Only the health endpoints
+    # load it, and only for a launched experiment that hasn't ended, isn't archived and has `only_count_matured_users`
+    # on.
+    primary_metric_windows: tuple[MetricWindow, ...] | None
     # The variants that the analysis leaves out of the results.
     excluded_variant_keys: frozenset[str]
-    # None when not loaded or unknown. Only the health endpoint loads it, as the reader.
+    # None when not loaded or unknown. Only the health endpoints load it, as the reader.
     metric_compiles: MetricCompiles | None
+    # None when not loaded or unknown. Only the health endpoints load it, and only for a launched experiment that
+    # isn't archived.
+    latest_calculation: LatestCalculation | None
+    # None when not loaded or unknown. Only the health endpoints load it, and only when no metric of the latest
+    # calculation completed and a failed query read the events.
+    exposure_filters_without_column: tuple[ExposureFilterWithoutColumn, ...] | None
 
 
 def parse_flag_state(
@@ -363,6 +666,7 @@ def parse_flag_state(
     variants: object,
     aggregation_group_type_index: int | None = None,
     early_exit: bool = False,
+    saved_at: datetime | None = None,
 ) -> FlagState:
     conditions = groups if isinstance(groups, list) else []
     flag_variants = parse_variants(variants)
@@ -377,7 +681,47 @@ def parse_flag_state(
             _reachable_condition(index + 1, conditions[index], variant_keys, aggregation_group_type_index)
             for index in reachable
         ),
+        early_exit=early_exit,
+        saved_at=saved_at,
     )
+
+
+def _member_cohort_ids(condition: Mapping[str, Any]) -> frozenset[int]:
+    # The flag service reads a cohort filter without an operator as `in`, and a filter with an operator other than `in`
+    # or `not_in` as no match. See `cohort_operations.rs` in rust/feature-flags.
+    properties = condition.get("properties")
+    return frozenset(
+        int(prop["value"])
+        for prop in (properties if isinstance(properties, list) else [])
+        if isinstance(prop, dict)
+        and prop.get("type") == "cohort"
+        and prop.get("operator") in (None, PropertyOperator.IN_)
+        and (isinstance(prop.get("value"), int) or (isinstance(prop.get("value"), str) and prop["value"].isdecimal()))
+    )
+
+
+_EXCLUDING_OPERATORS = frozenset(
+    {
+        PropertyOperator.IS_NOT,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.NOT_STARTS_WITH,
+        PropertyOperator.NOT_ENDS_WITH,
+        PropertyOperator.NOT_REGEX,
+        PropertyOperator.NOT_BETWEEN,
+        PropertyOperator.NOT_IN,
+        PropertyOperator.IS_NOT_SET,
+        PropertyOperator.SEMVER_NEQ,
+        PropertyOperator.IS_CLEANED_PATH_NOT_EXACT,
+    }
+)
+
+
+def _includes_everyone(condition: Mapping[str, Any]) -> bool:
+    properties = condition.get("properties")
+    if not isinstance(properties, list) or not properties:
+        return True
+    return all(isinstance(prop, dict) and prop.get("operator") in _EXCLUDING_OPERATORS for prop in properties)
 
 
 def _reachable_condition(
@@ -388,6 +732,8 @@ def _reachable_condition(
         number=number,
         pinned_variant=pinned,
         variant_property=None if pinned is None else _variant_property(condition, pinned, flag_aggregation),
+        member_cohort_ids=_member_cohort_ids(condition),
+        includes_everyone=_includes_everyone(condition),
     )
 
 
@@ -445,6 +791,7 @@ def _load_flag_state(experiment: Experiment) -> FlagState | None:
         variants=flag.variants,
         aggregation_group_type_index=flag.aggregation_group_type_index,
         early_exit=flag.early_exit,
+        saved_at=flag.updated_at,
     )
 
 
@@ -479,11 +826,25 @@ def _flag_called_after_end(experiment: Experiment) -> bool | None:
     if not experiment.is_stopped or end_date is None or feature_flag_id is None:
         return None
     last_called_at = experiment.feature_flag.last_called_at
-    if last_called_at is not None and last_called_at > end_date:
+    now = timezone.now()
+    if last_called_at is not None and last_called_at > max(end_date, now - ENDED_FLAG_QUIET_PERIOD):
         return True
-    if timezone.now() - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
+    if now - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
         return None
     return None if _flag_calls_unrecorded(experiment) else False
+
+
+def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag, ...]:
+    others = (
+        live_experiments_for_flag(experiment.feature_flag_id)
+        .filter(team_id=experiment.team_id)
+        .exclude(id=experiment.id)
+        .values_list("start_date", "end_date", "archived", named=True)
+    )
+    return tuple(
+        ExperimentOnFlag(start_date=other.start_date, ended_at=other.end_date, archived=other.archived)
+        for other in others
+    )
 
 
 def _flag_calls_unrecorded(experiment: Experiment) -> bool:
@@ -519,15 +880,21 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
         criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
     except pydantic.ValidationError:
         return None
+    if criteria is not None and isinstance(criteria.exposure_config, ExperimentWarehouseNativeExposureConfig):
+        # The exposures live in the customer's warehouse, so no event of this project describes them.
+        return None
     # A deleted flag carries a tombstone in its key, and the exposure query reads the key without it.
     flag_key = experiment.feature_flag.key_without_tombstone() if experiment.feature_flag_id else None
     event, variant_property = get_exposure_event_and_property(
         flag_key or "", criteria, default_exposure_event=DEFAULT_EXPOSURE_EVENT
     )
     reads_flag_calls = event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
-    config = criteria.exposure_config if criteria else None
+    # The configs that the exposure query builds from, so the filters read here are the ones it applies.
+    params = get_exposure_config_params_for_builder(criteria, experiment.team, experiment.start_date)
+    config, activation = params.exposure_config, params.activation_config
     properties = config.properties if isinstance(config, ExperimentEventExposureConfig) else []
-    activation = criteria.activation_config if criteria and has_activation_config(criteria) else None
+    filters = [(prop, source) for source in (config, activation) if source for prop in source.properties or []]
+    cohorts = [prop for prop, _ in filters if isinstance(prop, CohortPropertyFilter)]
     return ExposureEvents(
         custom_event=event if event is not None and not reads_flag_calls else None,
         required_flag_key=flag_key if reads_flag_calls else None,
@@ -539,6 +906,14 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
             if isinstance(prop, EventPropertyFilter) and prop.key == "$feature_flag"
         ),
         activation=_activation_name(activation) if activation else None,
+        property_filters=tuple(
+            ExposurePropertyFilter.of(prop, source.event if isinstance(source, ExperimentEventExposureConfig) else None)
+            for prop, source in filters
+            if isinstance(prop, EventPropertyFilter | PersonPropertyFilter)
+        ),
+        cohort_ids=tuple(dict.fromkeys(prop.value for prop in cohorts)),
+        # `property_to_expr` negates only a `not_in` cohort filter.
+        member_cohort_ids=frozenset(prop.value for prop in cohorts if prop.operator != PropertyOperator.NOT_IN),
     )
 
 
@@ -565,6 +940,11 @@ def _has_event_definition(name: str) -> bool:
     return name not in _EVENTS_WITHOUT_DEFINITION and len(name.encode()) <= _MAX_EVENT_DEFINITION_NAME_BYTES
 
 
+def _records_event_properties(event: str) -> bool:
+    # Of `$groupidentify`, ingestion writes only the group properties in `$group_set`.
+    return _has_event_definition(event) and event != "$groupidentify"
+
+
 def _events_received(
     experiment: Experiment, metric_events: tuple[MetricEvents, ...], exposure_events: ExposureEvents | None
 ) -> dict[str, bool]:
@@ -574,13 +954,128 @@ def _events_received(
     checked = {name for name in names if _has_event_definition(name)}
     project_id = experiment.team.project_id
     received = defined_event_names(project_id, checked, seen_only=True)
-    checked -= _deleted_definition_names(project_id, checked - received, since=_deletions_since(experiment))
+    checked -= _deleted_definition_names(
+        project_id, checked - received, scope="EventDefinition", since=_deletions_since(experiment)
+    )
     return {name: name in received for name in checked}
+
+
+# Ingestion writes no property definition for these names: HogQL reads them from columns, or ingestion skips them. See
+# `SKIP_PROPERTIES` in rust/property-defs-rs/src/types.rs, and `property_to_expr` in posthog/hogql/property.py.
+_PROPERTIES_WITHOUT_DEFINITION: dict[ExposurePropertyType, frozenset[str]] = {
+    "event": frozenset(
+        {"$set", "$set_once", "$unset", "$groups", *(f"$group_{index}" for index in range(5)), "$elements_chain"}
+    ),
+    # Ingestion sets `$creator_event_uuid` when it creates the person, outside `$set`.
+    "person": frozenset({"distinct_id", "$creator_event_uuid"}),
+}
+
+
+def _has_property_definition(property_type: ExposurePropertyType, key: str) -> bool:
+    # HogQL computes a `$virt` property at query time, and ingestion skips a person property of a push subscription.
+    # Ingestion replaces a NUL in a name, so the definition holds another name.
+    return not (
+        key in _PROPERTIES_WITHOUT_DEFINITION[property_type]
+        or key.startswith("$virt")
+        or (property_type == "person" and key.startswith("$device_push_subscription_"))
+        or "\x00" in key
+        or len(key.encode()) > _MAX_EVENT_DEFINITION_NAME_BYTES
+    )
+
+
+def _exposure_properties_received(
+    experiment: Experiment, exposure_events: ExposureEvents | None
+) -> dict[tuple[ExposurePropertyType, str], bool]:
+    filters = exposure_events.required_properties if exposure_events else ()
+    checked = {(f.type, f.key) for f in filters if f.definition_recorded}
+    if not checked:
+        return {}
+    project_id = experiment.team.project_id
+    received: set[tuple[ExposurePropertyType, str]] = set()
+    for definition_type, name in _property_definitions(project_id, name__in={key for _, key in checked}).values_list(
+        "type", "name"
+    ):
+        if definition_type == PropertyDefinition.Type.EVENT:
+            received.add(("event", name))
+        elif definition_type == PropertyDefinition.Type.PERSON:
+            received.add(("person", name))
+    missing = checked - received
+    # Ingestion writes a deleted definition again only once the property drops out of its cache, which no time bounds,
+    # so a deletion at any time leaves the answer open.
+    deleted = _deleted_definition_names(project_id, {key for _, key in missing}, scope="PropertyDefinition", since=None)
+    return {
+        (property_type, key): (property_type, key) in received
+        for property_type, key in checked
+        if (property_type, key) in received or key not in deleted
+    }
+
+
+def _property_definitions(project_id: int, **filters: Any) -> QuerySet[PropertyDefinition]:
+    return PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+        effective_project_id=project_id, **filters
+    )
+
+
+def _exposure_cohorts(experiment: Experiment, exposure_events: ExposureEvents | None) -> tuple[ExposureCohort, ...]:
+    cohort_ids = exposure_events.cohort_ids if exposure_events else ()
+    if not cohort_ids:
+        return ()
+    cohorts = {
+        cohort_id: (name, is_static)
+        for cohort_id, name, is_static in Cohort.objects.filter(
+            team__project_id=experiment.team.project_id, pk__in=cohort_ids, deleted=False
+        ).values_list("id", "name", "is_static")
+    }
+    return tuple(
+        ExposureCohort(
+            id=cohort_id, name=cohorts[cohort_id][0] or f"Cohort {cohort_id}", is_static=cohorts[cohort_id][1]
+        )
+        for cohort_id in cohort_ids
+        if cohort_id in cohorts
+    )
 
 
 # Ingestion writes a deleted definition again when it next sees the event, which takes up to about an hour for an
 # event that keeps arriving. A margin of a day also covers events that arrive a few times a day.
 _DEFINITION_RECREATION_MARGIN = timedelta(days=1)
+
+
+def _received(
+    experiment: Experiment, metric_events: tuple[MetricEvents, ...], exposure_events: ExposureEvents | None
+) -> tuple[dict[str, bool], dict[tuple[ExposurePropertyType, str], bool]]:
+    events = _events_received(experiment, metric_events, exposure_events)
+    properties = _exposure_properties_received(experiment, exposure_events)
+    if False not in (*events.values(), *properties.values()) or _ingestion_records_project(
+        experiment, metric_events, exposure_events
+    ):
+        return events, properties
+    return {name: True for name, seen in events.items() if seen}, {
+        key: True for key, seen in properties.items() if seen
+    }
+
+
+def ingestion_proof_events(experiment_events: Iterable[str]) -> set[str]:
+    """The events whose `last_seen_at` can show that ingestion records the project: the flag calls and the events of
+    the experiment."""
+    return {DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT, *experiment_events}
+
+
+def ingestion_records_project(last_seen: Mapping[str, datetime]) -> bool:
+    """Whether ingestion writes the project's definitions now, from `last_seen` of `ingestion_proof_events`. A missing
+    or stale definition proves nothing without it. Ingestion can be set to skip a team, and then writes no definition at
+    all. It refreshes `last_seen_at` of an event that it sees about once an hour. So a flag call or an event of the
+    experiment seen within the margin shows that it records the project."""
+    recent = timezone.now() - _DEFINITION_RECREATION_MARGIN
+    return any(seen >= recent for seen in last_seen.values())
+
+
+def _ingestion_records_project(
+    experiment: Experiment, metric_events: tuple[MetricEvents, ...], exposure_events: ExposureEvents | None
+) -> bool:
+    names = ingestion_proof_events(event for m in metric_events for event in m.events)
+    if exposure_events is not None and exposure_events.custom_event is not None:
+        names.add(exposure_events.custom_event)
+    return ingestion_records_project(event_last_seen(experiment.team.project_id, names))
 
 
 def _deletions_since(experiment: Experiment) -> datetime:
@@ -590,21 +1085,31 @@ def _deletions_since(experiment: Experiment) -> datetime:
     return min(experiment.start_date, recent) if experiment.start_date is not None else recent
 
 
-def _deleted_definition_names(project_id: int, names: set[str], *, since: datetime) -> set[str]:
+def _deleted_definition_names(
+    project_id: int,
+    names: set[str],
+    *,
+    scope: Literal["EventDefinition", "PropertyDefinition"],
+    since: datetime | None,
+) -> set[str]:
     # Until ingestion writes a deleted definition again, the project can hold the event without a definition.
     if not names:
         return set()
+    deletions = ActivityLog.objects.filter(
+        team_id__in=Team.objects.filter(project_id=project_id).values("id"),
+        scope=scope,
+        activity="deleted",
+    )
+    if since is not None:
+        deletions = deletions.filter(created_at__gte=since)
     return set(
-        ActivityLog.objects.filter(
-            team_id__in=Team.objects.filter(project_id=project_id).values("id"),
-            scope="EventDefinition",
-            activity="deleted",
-            created_at__gte=since,
+        deletions.filter(
+            # A containment test per name can use `idx_alog_detail_gin_path_ops`, which `detail__name__in` can't.
+            reduce(or_, (Q(detail__contains={"name": name}) for name in names)),
             # These match the condition of `idx_alog_team_act_scope_usr`, so the lookup reads only the deletions. A
             # deletion made while impersonating a user is not read.
             was_impersonated=False,
             is_system=False,
-            detail__name__in=names,
         ).values_list("detail__name", flat=True)
     )
 
@@ -620,39 +1125,53 @@ def load_health_context(
     exposures: ExposureTotals | None = None,
     *,
     flag_history: FlagHistory | FlagHistoryNotChecked | None = None,
+    can_read_flag_history: bool = False,
 ) -> HealthContext:
     links = saved_metric_links(experiment)
     shared_metric_roles = [saved_metric_link_role(link) for link in links]
     flag_called = _flag_called(experiment)
     metric_events = _metric_events(experiment, links)
     exposure_events = _exposure_events(experiment)
+    events_received, properties_received = _received(experiment, metric_events, exposure_events)
     return HealthContext(
         is_launched=experiment.is_launched,
         is_running=experiment.is_running,
         has_ended=experiment.is_stopped,
         ended_at=experiment.end_date if experiment.is_stopped else None,
         is_paused=experiment.is_paused,
+        can_freeze_exposure=experiment.can_freeze_exposure,
         archived=experiment.archived,
         team_timezone=experiment.team.timezone,
         flag=_load_flag_state(experiment),
         flag_called=flag_called,
         flag_called_during_run=_flag_called_during_run(experiment, flag_called),
         flag_called_after_end=_flag_called_after_end(experiment),
+        flag_last_called_at=experiment.feature_flag.last_called_at if experiment.feature_flag_id else None,
+        other_experiments_on_flag=_other_experiments_on_flag(experiment),
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
         ),
         baseline_variant_key=_configured_baseline_variant_key(experiment.stats_config),
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
-        hours_since_launch=experiment.hours_since_launch,
+        hours_since_launch=experiment.hours_since_launch(read_activity_log=can_read_flag_history),
+        hours_since_start=experiment.hours_since_start,
+        past_daily_calculation=is_past_daily_calculation(experiment.start_date, timezone.now()),
+        daily_calculation_ends_at=daily_calculation_end(experiment.start_date),
         metric_events=metric_events,
         exposure_events=exposure_events,
-        events_received=_events_received(experiment, metric_events, exposure_events),
+        events_received=events_received,
+        exposure_properties_received=properties_received,
+        exposure_cohorts=_exposure_cohorts(experiment, exposure_events),
         exposures=exposures,
         flag_history=flag_history,
         condition_set_traffic=None,
         pause_history=None,
         primary_metric=None,
+        only_count_matured_users=experiment.only_count_matured_users,
+        primary_metric_windows=None,
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
         metric_compiles=None,
+        latest_calculation=None,
+        exposure_filters_without_column=None,
     )

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Final, Optional, cast
 
 from django.db.models import Case, CharField, Count, Exists, Model, OuterRef, QuerySet, Value, When
 from django.db.models.fields.reverse_related import ForeignObjectRel
@@ -11,10 +11,15 @@ from products.feature_flags.backend.facade.config import detect_config_format
 if TYPE_CHECKING:
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
-FLAG_OWNER_EXPERIMENT = "experiment"
-FLAG_OWNER_SURVEY = "survey"
-FLAG_OWNER_PRODUCT_TOUR = "product_tour"
-FLAG_OWNER_EARLY_ACCESS = "early_access_feature"
+FLAG_OWNER_EXPERIMENT: Final = "experiment"
+FLAG_OWNER_SURVEY: Final = "survey"
+FLAG_OWNER_PRODUCT_TOUR: Final = "product_tour"
+FLAG_OWNER_EARLY_ACCESS: Final = "early_access_feature"
+
+# Serializer context key that names the product a create mints its flag for. Only the flag facade
+# sets it, from `create_flag(owner=...)`. Request data never reaches serializer context, so a caller
+# of the public flag API cannot claim an owner to move a flag out of the `feature_flag.*` policies.
+MINTED_OWNER_CONTEXT_KEY = "approval_minted_owner_kind"
 
 _OWNER_LABELS = {
     FLAG_OWNER_EXPERIMENT: "an experiment",
@@ -55,6 +60,8 @@ _REFERENCE_ACCESSORS: frozenset[str] = frozenset(
         "featureflagoverride_set",
         "featureflagdashboards_set",
         "access",
+        # A code analysis reads where the repository checks the flag. It doesn't own the flag.
+        "code_analyses",
     }
 )
 
@@ -73,7 +80,7 @@ def flag_owner_kind(flag: "FeatureFlag") -> str | None:
     return None
 
 
-def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
+def assert_flag_available_for(flag: "FeatureFlag", *, product: str, links_a_rule: bool = False) -> None:
     """Reject adopting a flag that a different product already owns.
 
     What must stay unambiguous is the owning *product*, not the owning object. Two experiments
@@ -94,9 +101,11 @@ def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
     window is accepted rather than locked.
 
     A flag stored in another config format is not available either: every adopting product reads
-    and writes its document as config version 1.
+    and writes its document as config version 1. The exception is a caller that links one rule of a
+    config version 2 flag and writes nothing to the flag, which says so with `links_a_rule`.
     """
-    if detect_config_format(flag.filters).kind != "v1":
+    config_format = detect_config_format(flag.filters).kind
+    if config_format != "v1" and not (links_a_rule and config_format == "v2"):
         raise serializers.ValidationError(
             f"The feature flag {flag.key} uses a configuration format that {_OWNER_LABELS[product]} "
             "cannot use yet. Pick a different flag."

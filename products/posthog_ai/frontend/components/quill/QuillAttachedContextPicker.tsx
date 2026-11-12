@@ -16,12 +16,12 @@ import {
 } from '@posthog/quill-primitives'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { type TaxonomicFilterProps, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { cn } from 'lib/utils/css-classes'
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
-import { attachedContextLogic } from '../../logics/attachedContextLogic'
+import { chatContextLogic } from '../../logics/chatContextLogic'
 import { CONTEXT_PICKER_GROUP_TYPES, contextPickerLogic } from '../../logics/contextPickerLogic'
 import { COMPOSER_MENU_CLASS } from './composerMenuClass'
 
@@ -29,12 +29,14 @@ export interface QuillAttachedContextPickerProps {
     open?: boolean
     onOpenChange?: (open: boolean) => void
     anchor?: RefObject<HTMLElement>
+    taskId?: string
 }
 
 export function QuillAttachedContextPicker({
     open: controlledOpen,
     onOpenChange,
     anchor,
+    taskId,
 }: QuillAttachedContextPickerProps = {}): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const open = controlledOpen ?? uncontrolledOpen
@@ -43,9 +45,22 @@ export function QuillAttachedContextPicker({
         onOpenChange?.(next)
     }
     const filterKey = `posthog-ai-context-picker-${useId()}`
-    const { hasContext } = useValues(attachedContextLogic)
+    const { chips } = useValues(chatContextLogic({ taskId }))
+    const hasContext = chips.length > 0
     const { handleTaxonomicFilterChange } = useActions(contextPickerLogic)
     const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
+    const filterProps: TaxonomicFilterProps = {
+        taxonomicFilterLogicKey: filterKey,
+        groupType: TaxonomicFilterGroupType.Events,
+        taxonomicGroupTypes: CONTEXT_PICKER_GROUP_TYPES,
+        onChange: ({ type }, value, item) => {
+            if (value !== null) {
+                handleTaxonomicFilterChange(value, type, item, taskId)
+            }
+            setOpen(false)
+        },
+        onClose: () => setOpen(false),
+    }
     if (todayRailEnabled && phoneLayout) {
         return (
             <>
@@ -79,20 +94,7 @@ export function QuillAttachedContextPicker({
                             <DialogTitle>Add context</DialogTitle>
                         </div>
                         <div data-not-quill className="min-h-0 flex-1 overflow-hidden px-5 pt-3">
-                            <TaxonomicFilter
-                                taxonomicFilterLogicKey={filterKey}
-                                groupType={TaxonomicFilterGroupType.Events}
-                                taxonomicGroupTypes={CONTEXT_PICKER_GROUP_TYPES}
-                                onChange={({ type }, value, item) => {
-                                    if (value !== null) {
-                                        handleTaxonomicFilterChange(value, type, item)
-                                    }
-                                    setOpen(false)
-                                }}
-                                onClose={() => setOpen(false)}
-                                width="100%"
-                                height={window.innerHeight - 72}
-                            />
+                            <TaxonomicFilter {...filterProps} width="100%" height={window.innerHeight - 72} />
                         </div>
                     </DialogContent>
                 </Dialog>
@@ -142,16 +144,7 @@ export function QuillAttachedContextPicker({
                     className="[&_.LemonInput]:rounded-none! [&_.LemonInput]:border-x-0! [&_.LemonInput]:border-t-0! [&_.LemonInput]:bg-transparent! [&_.LemonInput]:shadow-none! [&_.taxonomic-infinite-list]:min-h-0"
                 >
                     <TaxonomicFilter
-                        taxonomicFilterLogicKey={filterKey}
-                        groupType={TaxonomicFilterGroupType.Events}
-                        taxonomicGroupTypes={CONTEXT_PICKER_GROUP_TYPES}
-                        onChange={({ type }, value, item) => {
-                            if (value !== null) {
-                                handleTaxonomicFilterChange(value, type, item)
-                            }
-                            setOpen(false)
-                        }}
-                        onClose={() => setOpen(false)}
+                        {...filterProps}
                         width={anchor ? '100%' : 450}
                         height={anchor ? 240 : undefined}
                         popoverEnabled={!anchor}

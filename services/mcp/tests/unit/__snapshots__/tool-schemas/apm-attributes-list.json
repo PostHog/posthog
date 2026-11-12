@@ -22,19 +22,20 @@
             "type": "string"
         },
         "limit": {
+            "default": 100,
             "description": "Max results (default: 100).",
             "maximum": 100,
             "minimum": 1,
             "type": "number"
         },
         "offset": {
+            "default": 0,
             "description": "Pagination offset (default: 0).",
             "minimum": 0,
             "type": "number"
         },
         "search": {
             "description": "Search filter for attribute names.",
-            "minLength": 1,
             "type": "string"
         },
         "search_values": {

@@ -7,9 +7,38 @@ export const CONTENT_ENCODING_HEADER = 'content-encoding'
 
 const MAX_CONTENT_ENCODING_LAYERS = 4
 
-export const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
+/** Keep in step with `FETCHED_IMAGE_TYPES` in `replay-core-v4/src/url_policy.rs`, which tells the recorder what this lane stores. */
+export const SUPPORTED_IMAGE_MEDIA_TYPES = [
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+    'image/avif',
+    'image/svg+xml',
+] as const
 
 export type SupportedImageMediaType = (typeof SUPPORTED_IMAGE_MEDIA_TYPES)[number]
+
+/** Many servers label a font with a legacy or generic binary type, so the bytes decide what a font is. */
+export const FONT_MEDIA_TYPES = [
+    'font/woff2',
+    'font/woff',
+    'font/ttf',
+    'font/otf',
+    'font/sfnt',
+    'font/collection',
+    'application/font-woff2',
+    'application/font-woff',
+    'application/x-font-woff',
+    'application/font-sfnt',
+    'application/x-font-ttf',
+    'application/x-font-truetype',
+    'application/x-font-otf',
+    'application/x-font-opentype',
+    'application/vnd.ms-opentype',
+    'application/octet-stream',
+    'binary/octet-stream',
+] as const
 
 export type ImageTransportRejectionReason =
     | 'content_encoding_too_deep'
@@ -36,6 +65,9 @@ const decoderFactories: Record<string, () => Transform> = {
     br: createBrotliDecompress,
     zstd: createZstdDecompress,
 }
+
+/** The longest signature `imageBytesMatchMediaType` and `isFontFile` read, which is WebP's. */
+export const SIGNATURE_BYTES = 12
 
 function parseContentEncodings(contentEncoding: string | undefined): string[] {
     if (contentEncoding === undefined) {
@@ -149,7 +181,149 @@ export function imageBytesMatchMediaType(bytes: Buffer, contentType: SupportedIm
         }
         case 'image/webp':
             return bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP'
+        case 'image/avif':
+            return isStillAvif(bytes)
+        case 'image/svg+xml':
+            return isSvgDocument(bytes)
     }
+}
+
+const MAX_FTYP_BYTES = 256
+
+/** Must agree with `avif_header` in `replay-core-v4/src/scan/images.rs`. `canStartWith` relies on the major brand fitting in `SIGNATURE_BYTES`. */
+function isStillAvif(bytes: Buffer): boolean {
+    if (bytes.length < 8 || bytes.toString('latin1', 4, 8) !== 'ftyp') {
+        return false
+    }
+    const ftypSize = bytes.readUInt32BE(0)
+    if (ftypSize > MAX_FTYP_BYTES) {
+        return false
+    }
+    const ftypEnd = Math.min(Math.max(ftypSize, 8), bytes.length)
+    const brandAt = (offset: number): string => bytes.toString('latin1', offset, offset + 4)
+    if (ftypEnd < 12 || brandAt(8) !== 'avif') {
+        return false
+    }
+    for (let offset = 16; offset + 4 <= ftypEnd; offset += 4) {
+        if (brandAt(offset) === 'avis') {
+            return false
+        }
+    }
+    return true
+}
+
+/** A prolog longer than this is not read, so a body of comments cannot make the check scan the whole image. */
+const MAX_SVG_PROLOG_BYTES = 64 * 1024
+
+/** The DTDs the W3C publishes for SVG. A doctype may name one of them, which many editors write, and no other. */
+const W3C_SVG_DTD = /^https?:\/\/www\.w3\.org\/Graphics\/SVG\/1\.[01]\/DTD\/svg1[01](?:-(?:tiny|basic))?\.dtd$/
+
+/**
+ * A doctype with no internal subset, and at most an external identifier whose system literal is a W3C SVG DTD. The
+ * literals match as whole tokens, so a `>` or `<svg` inside one cannot end the doctype or pass as the root.
+ */
+const SVG_DOCTYPE =
+    /^<!DOCTYPE\s+[^\s>[]+(?:\s+(?:SYSTEM\s+("[^"]*"|'[^']*')|PUBLIC\s+(?:"[^"]*"|'[^']*')\s+("[^"]*"|'[^']*')))?\s*>/
+
+/** The prolog and root as text, in the encoding a byte order mark names. The stored bytes stay as fetched. */
+function svgHead(bytes: Buffer): string {
+    const head = bytes.subarray(0, MAX_SVG_PROLOG_BYTES)
+    if (head[0] === 0xff && head[1] === 0xfe) {
+        return head.subarray(2).toString('utf16le')
+    }
+    if (head[0] === 0xfe && head[1] === 0xff) {
+        const body = Buffer.from(head.subarray(2, 2 + ((head.length - 2) & ~1)))
+        return body.swap16().toString('utf16le')
+    }
+    return head.toString('utf8').replace(/^\uFEFF/, '')
+}
+
+/**
+ * Whether the bytes are an XML document with an SVG root. SVG has no signature, so the check skips what may come
+ * before the root: a byte order mark, whitespace, the XML declaration and other processing instructions, comments and
+ * one doctype of the shape `SVG_DOCTYPE` allows, because a parser downstream could resolve the entities of any other.
+ * A prefixed root must bind its prefix to the SVG namespace.
+ */
+function isSvgDocument(bytes: Buffer): boolean {
+    const text = svgHead(bytes)
+    let position = 0
+    for (;;) {
+        while (position < text.length && /\s/.test(text[position])) {
+            position++
+        }
+        if (text.startsWith('<!DOCTYPE', position)) {
+            const doctype = SVG_DOCTYPE.exec(text.slice(position))
+            const system = (doctype?.[1] ?? doctype?.[2])?.slice(1, -1)
+            if (!doctype || (system !== undefined && !W3C_SVG_DTD.test(system))) {
+                return false
+            }
+            position += doctype[0].length
+            continue
+        }
+        const skipped = [
+            ['<?', '?>'],
+            ['<!--', '-->'],
+        ].find(([open]) => text.startsWith(open, position))
+        if (!skipped) {
+            break
+        }
+        const end = text.indexOf(skipped[1], position + skipped[0].length)
+        if (end < 0) {
+            return false
+        }
+        position = end + skipped[1].length
+    }
+    const root = /^<(?:([A-Za-z_][\w.-]*):)?svg[\s/>]/.exec(text.slice(position, position + 256))
+    if (!root) {
+        return false
+    }
+    if (root[1] === undefined) {
+        return true
+    }
+    const tagEnd = text.indexOf('>', position)
+    const tag = text.slice(position, tagEnd < 0 ? undefined : tagEnd)
+    const prefix = root[1].replace(/[.-]/g, '\\$&')
+    return new RegExp(`\\sxmlns:${prefix}\\s*=\\s*["']http://www\\.w3\\.org/2000/svg["']`).test(tag)
+}
+
+/** WOFF2, WOFF, OpenType with CFF outlines, TrueType (two signatures) and a TrueType or OpenType collection. */
+const FONT_SIGNATURES = ['wOF2', 'wOFF', 'OTTO', '\x00\x01\x00\x00', 'true', 'ttcf']
+
+export function isFontFile(bytes: Buffer): boolean {
+    return FONT_SIGNATURES.includes(bytes.toString('latin1', 0, 4))
+}
+
+async function decodeBody(bytes: Buffer, contentEncoding: string | undefined): Promise<Buffer> {
+    if (bytes.length > MAX_UNCOMPRESSED_IMAGE_BYTES) {
+        throw new InvalidImageTransportError(
+            'decoded_too_large',
+            `decoded image exceeds ${MAX_UNCOMPRESSED_IMAGE_BYTES} bytes`
+        )
+    }
+    let decoded = bytes
+    const encodings = parseContentEncodings(contentEncoding)
+    for (const encoding of encodings.reverse()) {
+        decoded = await decodeWithLimit(decoded, encoding)
+    }
+    return decoded
+}
+
+export async function prepareFetchedFont(
+    bytes: Buffer,
+    contentType: string | undefined,
+    contentEncoding: string | undefined
+): Promise<Buffer> {
+    if (!contentType) {
+        throw new InvalidImageTransportError('missing_content_type', 'unsupported content-type: missing')
+    }
+    if (!(FONT_MEDIA_TYPES as readonly string[]).includes(contentType)) {
+        throw new InvalidImageTransportError('unsupported_content_type', `unsupported content-type: ${contentType}`)
+    }
+    const decoded = await decodeBody(bytes, contentEncoding)
+    if (!isFontFile(decoded)) {
+        throw new InvalidImageTransportError('content_type_mismatch', 'font bytes have no font signature')
+    }
+    return decoded
 }
 
 export async function prepareFetchedImage(
@@ -163,18 +337,7 @@ export async function prepareFetchedImage(
     if (!isSupportedImageMediaType(contentType)) {
         throw new InvalidImageTransportError('unsupported_content_type', `unsupported content-type: ${contentType}`)
     }
-    if (bytes.length > MAX_UNCOMPRESSED_IMAGE_BYTES) {
-        throw new InvalidImageTransportError(
-            'decoded_too_large',
-            `decoded image exceeds ${MAX_UNCOMPRESSED_IMAGE_BYTES} bytes`
-        )
-    }
-
-    let decoded = bytes
-    const encodings = parseContentEncodings(contentEncoding)
-    for (const encoding of encodings.reverse()) {
-        decoded = await decodeWithLimit(decoded, encoding)
-    }
+    const decoded = await decodeBody(bytes, contentEncoding)
     if (!imageBytesMatchMediaType(decoded, contentType)) {
         throw new InvalidImageTransportError(
             'content_type_mismatch',

@@ -12,7 +12,7 @@ ui_apps:
         link_prop: openLink
     explain-chart:
         type: custom
-        app_name: PostHog Chart Walkthrough
+        app_name: PostHog Chart Explanation
         description: A trends chart with the moments that stand out highlighted, explained one chapter at a time.
         render_ui:
             component_import: ../components/ExplainChart
@@ -39,7 +39,92 @@ tools:
             This powers heatmap/clickmap views; use it to answer "what do users click most" and "which elements get rage
             or dead clicks". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and
             paginate with `offset` if you need more results.
-        reads_ingested_data: events
+    events-retention-deletion-count:
+        operation: events_retention_deletion_count
+        enabled: true
+        scopes:
+            - project:read
+            - query:read
+        title: Count the events a project's retention period would delete
+        description: >
+            Count this project's events that the next monthly cleanup would delete if the project kept events for
+            `retention_months` months. Call it before events-retention-update-prepare and tell the user the count, so
+            they know how many events a shorter period deletes. The cleanup deletes whole calendar months, so the count
+            covers the events from before the start of the month that holds the date `retention_months` months before
+            the next cleanup.
+    events-retention-get:
+        operation: events_retention_retrieve
+        enabled: true
+        scopes:
+            - project:read
+        title: Get the events retention period for a project
+        description: >
+            Get how long this project keeps events and when its events are next deleted. Call it before
+            events-retention-update-prepare, and to answer when or why old events are missing.
+
+
+            The project keeps events for `project_retention_months` when that is set. When it is null, the project uses
+            the organization's period, `organization_retention_months`, and when that is null too, the default period,
+            `default_retention_months`. The default is 24 months on current plans, and `default_is_grandfathered` is
+            true when an older plan keeps its whole plan period as the default. `plan_retention_months` is the longest
+            period the plan allows.
+
+
+            `retention_months` and `retained_from` say how far back queries return events right now. Both are null while
+            queries still return events older than the period, but a period set for the project or organization still
+            deletes events. `next_deletion_on` is the date of the next cleanup that deletes this project's events, and
+            `next_deletion_before` is the date it deletes events before. Both are null while no deletion is scheduled.
+
+
+            `retention_months_choices` lists the periods events-retention-update-prepare accepts, and the period also
+            has to be between `min_retention_months` and `max_retention_months`. If the current period isn't one of the
+            choices, PostHog support set it.
+    events-retention-update:
+        operation: events_retention_update
+        enabled: true
+        scopes:
+            - project:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Set the events retention period for a project
+        description: >
+            Set how long this project keeps events. A period set for the project overrides the organization's period.
+            Pass one of `retention_months_choices` from events-retention-get that is between `min_retention_months` and
+            `max_retention_months`, or null to remove the project's period. Any other value is rejected. Organization
+            admins only. Requires human typed confirmation.
+
+
+            Events in this project that are older than the new period will be deleted, and deleted events can't be
+            restored. A longer period doesn't bring back events that were already deleted. Deletion isn't instant. A
+            period set for the project or the organization is applied by a cleanup that runs once a month, on
+            `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month
+            past the period.
+
+
+            Null makes the project use the organization's period, which the monthly cleanup applies. When the
+            organization has no period either, the project uses the default period. Don't give the user a date or a
+            count for deleting events past the default period.
+
+
+            Before you prepare the change, call events-retention-get and tell the user the current and new period. If
+            the new period is shorter and isn't the default period, call events-retention-deletion-count and tell the
+            user how many events are deleted and when. If the current period isn't one of `retention_months_choices`,
+            PostHog support set it. Tell the user that they need to contact support to get that period back after they
+            change it.
+        param_overrides:
+            retention_months:
+                description: >
+                    The period in months. It also has to be between `min_retention_months` and `max_retention_months`
+                    from events-retention-get. Null removes the project's period, so the project uses the organization's
+                    period, or the default period when the organization has none.
+        confirmed_action:
+            message: >
+                About to change how long this project keeps events. If the new period is shorter, events in this project
+                that are older than it will be deleted, and deleted events can't be restored. Reply 'confirm' to
+                proceed.
+            action_label: set events retention period
     insight-create:
         operation: insights_create
         enabled: true
@@ -78,8 +163,29 @@ tools:
             so a query you just ran through one of the `query-*` tools can be passed straight through.
 
 
+            A saved SQL insight must follow the dashboard and insight date range. Before you save a `HogQLQuery`,
+            replace its fixed date window, such as `timestamp >= now() - INTERVAL 30 DAY`, with the `{filters}`
+            placeholder: `WHERE event = 'signed_up' AND {filters}`. Then put the requested window in
+            `query.source.filters.dateRange`, for example `{"date_from": "-30d"}`. A fixed window ignores the date
+            picker, and `{filters}` without a `dateRange` shows all time. `{filters}` also applies the property and
+            test-account filters. For a table without a `timestamp` column, bind its date column with
+            `{filters(created_at AS timestamp)}`.
+
+
             Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an
             `InsightVizNode`.
+
+
+            For a PromQL metrics insight, set `language` to `promql`, put the expression in `promql`, and send `clauses`
+            as an empty list. When query-metrics accepts a `promql` field, test the expression with it first:
+
+
+            ```json
+
+            { "name": "Request rate", "query": { "kind": "MetricsQuery", "language": "promql", "promql":
+            "sum(rate(http_requests_total[5m]))", "clauses": [], "dateRange": { "date_from": "-24h" } } }
+
+            ```
 
 
             Choose the TrendsQuery `trendsFilter.display` from the question the insight answers:
@@ -136,13 +242,14 @@ tools:
             number, never a placeholder such as X, for example "want me to alert you when daily signups drop below
             400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1.
             Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it,
-            offer a relative-change alert on a sudden increase or decrease. Skip metrics nobody acts on, such as raw
-            pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A
-            newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user
-            already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say
-            nothing about alerts. Wait for the user to accept before creating an alert. After substantial visual
-            changes, check the final saved insight once if browser access is already available. Skip browser checks for
-            small edits.
+            offer a relative-change alert on a sudden increase or decrease. When neither fits because the metric is
+            noisy or seasonal, offer an anomaly detection alert on Trends and SQL insights. If you offer the AI
+            detector, say that each of its checks uses AI credits. Skip metrics nobody acts on, such as raw pageview or
+            event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A newly
+            created insight, or one the user just asked to see, is not throwaway for that reason. If the user already
+            declined an alert in this conversation, do not offer again. If alert-create is unavailable, say nothing
+            about alerts. Wait for the user to accept before creating an alert. After substantial visual changes, check
+            the final saved insight once if browser access is already available. Skip browser checks for small edits.
         exclude_params:
             - query
         include_params:
@@ -160,7 +267,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
+                    Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.
         response:
             exclude:
                 - result
@@ -283,7 +390,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
+                    Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.
         response:
             exclude:
                 - result
@@ -414,3 +521,87 @@ tools:
                 - last_viewed_at
                 - view_count
                 - viewers
+    organization-events-retention-deletion-count:
+        operation: organization_events_retention_deletion_count
+        enabled: true
+        scopes:
+            - organization:read
+            - query:read
+        title: Count the events an organization's retention period would delete
+        description: >
+            Count the events that the next monthly cleanup would delete if the organization kept events for
+            `retention_months` months, summed over the projects without their own period. Projects with their own period
+            are left out, because the organization's period doesn't apply to them. Call it before
+            organization-events-retention-update-prepare and tell the user the count. The cleanup deletes whole calendar
+            months, so the count covers the events from before the start of the month that holds the date
+            `retention_months` months before the next cleanup.
+
+
+            The count only includes events that queries can still return, and it can be up to a day old.
+    organization-events-retention-get:
+        operation: organization_events_retention_retrieve
+        enabled: true
+        scopes:
+            - organization:read
+        title: Get the events retention period for an organization
+        description: >
+            Get how long projects in this organization keep events. Call it before
+            organization-events-retention-update-prepare. To see one project's period, how far back its queries go, and
+            its next deletion, use events-retention-get.
+
+
+            `organization_retention_months` is the period every project without its own period uses. When it is null,
+            those projects use the default period, `default_retention_months`. The default is 24 months on current
+            plans, and `default_is_grandfathered` is true when an older plan keeps its whole plan period as the default.
+            `plan_retention_months` is the longest period the plan allows. `next_monthly_cleanup_on` is the date of the
+            next monthly cleanup.
+
+
+            `retention_months_choices` lists the periods organization-events-retention-update-prepare accepts, and the
+            period also has to be between `min_retention_months` and `max_retention_months`. If the current period isn't
+            one of the choices, PostHog support set it.
+    organization-events-retention-update:
+        operation: organization_events_retention_update
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Set the events retention period for an organization
+        description: >
+            Set how long every project without its own period keeps events. Projects with their own period keep it. Pass
+            one of `retention_months_choices` from organization-events-retention-get that is between
+            `min_retention_months` and `max_retention_months`, or null to remove the organization's period. Any other
+            value is rejected. Organization admins only. Requires human typed confirmation.
+
+
+            Events in projects without their own period that are older than the new period will be deleted, and deleted
+            events can't be restored. A longer period doesn't bring back events that were already deleted. Deletion
+            isn't instant. The organization's period is applied by a cleanup that runs once a month, on
+            `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month
+            past the period.
+
+
+            Null makes projects without their own period use the default period. Don't give the user a date or a count
+            for deleting events past the default period.
+
+
+            Before you prepare the change, call organization-events-retention-get and tell the user the current and new
+            period. If the new period is shorter and isn't the default period, call
+            organization-events-retention-deletion-count and tell the user how many events are deleted and when. If the
+            current period isn't one of `retention_months_choices`, PostHog support set it. Tell the user that they need
+            to contact support to get that period back after they change it.
+        param_overrides:
+            retention_months:
+                description: >
+                    The period in months. It also has to be between `min_retention_months` and `max_retention_months`
+                    from organization-events-retention-get. Null removes the organization's period, so projects without
+                    their own period use the default period.
+        confirmed_action:
+            message: >
+                About to change how long projects without their own period keep events. If the new period is shorter,
+                events in those projects that are older than it will be deleted, and deleted events can't be restored.
+                Reply 'confirm' to proceed.
+            action_label: set organization events retention period

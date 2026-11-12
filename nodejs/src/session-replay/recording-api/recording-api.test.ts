@@ -83,6 +83,8 @@ describe('RecordingApi', () => {
             CLICKHOUSE_USER: 'default',
             CLICKHOUSE_PASSWORD: undefined,
             CLICKHOUSE_SECURE: false,
+            RECORDING_API_AWS_TIMEOUT_MS: 5000,
+            RECORDING_API_REDIS_TIMEOUT_MS: 2000,
         }
 
         mockKeyStore = {
@@ -103,6 +105,10 @@ describe('RecordingApi', () => {
             formatS3KeyError: jest.fn().mockReturnValue('Invalid key format'),
             getBlock: jest.fn(),
             listBlocks: jest.fn(),
+            annotateBlocks: jest
+                .fn()
+                .mockImplementation((_s: string, _t: number, blocks: unknown) => Promise.resolve(blocks)),
+            getBlockByRef: jest.fn(),
             deleteRecordings: jest.fn(),
             encryptBlocks: jest.fn(),
         } as unknown as jest.Mocked<RecordingService>
@@ -136,8 +142,9 @@ describe('RecordingApi', () => {
             expect(getKeyStore).toHaveBeenCalledWith('us-west-2', {
                 kmsEndpoint: undefined,
                 dynamoDBEndpoint: undefined,
+                requestTimeoutMs: 5000,
             })
-            expect(getBlockDecryptor).toHaveBeenCalledWith(mockKeyStore)
+            expect(getBlockDecryptor).toHaveBeenCalled()
             expect(RecordingService).toHaveBeenCalled()
         })
 
@@ -428,6 +435,95 @@ describe('RecordingApi', () => {
             expect(mockService.listBlocks).toHaveBeenCalledWith('session-123', 1)
         })
 
+        it('returns 410 for a listed session once its key is shredded', async () => {
+            mockService.listBlocks.mockResolvedValue([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01T00:00:00Z',
+                    end_timestamp: '2024-01-01T00:01:00Z',
+                },
+            ])
+            mockService.annotateBlocks.mockResolvedValue({
+                ok: false,
+                error: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(410)
+            expect(res.body).toEqual({
+                error: 'recording_deleted',
+                deleted_at: 1700000000,
+                deleted_by: 'user@example.com',
+            })
+            expect(mockService.annotateBlocks).toHaveBeenCalledWith('session-123', 1, expect.any(Array))
+        })
+
+        it('still lists blocks when the key store does not answer', async () => {
+            mockService.listBlocks.mockResolvedValue([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01T00:00:00Z',
+                    end_timestamp: '2024-01-01T00:01:00Z',
+                },
+            ])
+            mockService.annotateBlocks.mockReturnValue(new Promise(() => {}))
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(res.body.blocks).toHaveLength(1)
+        })
+
+        it('does not look up the key of a session with no blocks', async () => {
+            mockService.listBlocks.mockResolvedValue([])
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(mockService.annotateBlocks).not.toHaveBeenCalled()
+        })
+
+        it('still lists blocks when the key store fails', async () => {
+            mockService.listBlocks.mockResolvedValue([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01T00:00:00Z',
+                    end_timestamp: '2024-01-01T00:01:00Z',
+                },
+            ])
+            mockService.annotateBlocks.mockRejectedValue(new Error('DynamoDB unavailable'))
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(res.body.blocks).toHaveLength(1)
+        })
+
+        it('passes block refs through to the listing', async () => {
+            const block = {
+                key: 'session_recordings/30d/1000-aaa',
+                start_byte: 0,
+                end_byte: 100,
+                start_timestamp: '2024-01-01T00:00:00Z',
+                end_timestamp: '2024-01-01T00:01:00Z',
+            }
+            mockService.listBlocks.mockResolvedValue([block])
+            mockService.annotateBlocks.mockResolvedValue([{ ...block, ref: 'v1.abc' }])
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.body).toEqual({ blocks: [{ ...block, ref: 'v1.abc' }] })
+        })
+
         it('should return empty blocks when session not found', async () => {
             mockService.listBlocks.mockResolvedValue([])
 
@@ -632,7 +728,6 @@ describe('RecordingApi', () => {
             const recordingApi = new RecordingApi(
                 {
                     RECORDING_API_JWT_SECRET: JWT_SECRET,
-                    RECORDING_API_ALLOW_LEGACY_SECRET: false,
                 } as RecordingApiConfig,
                 mockPostgres,
                 mockOutputs
@@ -668,34 +763,6 @@ describe('RecordingApi', () => {
             expect(res.status).toBe(expectedStatus)
         })
 
-        it('accepts the legacy secret while JWT auth is not configured', async () => {
-            const legacyApi = new RecordingApi(
-                {
-                    RECORDING_API_JWT_SECRET: '',
-                    RECORDING_API_ALLOW_LEGACY_SECRET: true,
-                    INTERNAL_API_SECRET: 'legacy-secret',
-                } as RecordingApiConfig,
-                mockPostgres,
-                mockOutputs
-            )
-            await legacyApi.start(mockService)
-            const legacyApp = express()
-            legacyApp.use(express.json())
-            legacyApp.use('/', legacyApi.router())
-            const legacyServer = legacyApp.listen(0, () => {})
-
-            try {
-                const res = await supertest(legacyApp)
-                    .post('/api/projects/1/recordings/session-1/encrypt')
-                    .set('X-Internal-Api-Secret', 'legacy-secret')
-                    .send(body)
-
-                expect(res.status).toBe(200)
-            } finally {
-                legacyServer.close()
-            }
-        })
-
         it.each([
             [
                 { ok: true, blocks: [Buffer.from('sealed')] },
@@ -719,6 +786,192 @@ describe('RecordingApi', () => {
             expect(res.status).toBe(expectedStatus)
             expect(res.body).toEqual(expectedBody)
             expect(mockService.encryptBlocks).toHaveBeenCalledWith('session-1', 1, [Buffer.from('block')], 365)
+        })
+    })
+
+    describe('browser block route', () => {
+        const JWT_SECRET = 'recording-api-test-secret'
+        const BLOCKS_JWT_SECRET = 'recording-api-blocks-test-secret'
+        const BLOCK_URL = '/replay-blocks/1/session-123/u7/v1.abc'
+        let server: Server
+        let rateLimiter: { rateLimitGrouped: jest.Mock }
+
+        const browserToken = (
+            claims: Record<string, unknown> = {},
+            expiresIn: string | null = '5m',
+            secret = BLOCKS_JWT_SECRET
+        ): string =>
+            `Bearer ${new JWT(secret).sign(
+                { team_id: 1, session_id: 'session-123', sub: 'u7', tier: 'browser', ...claims },
+                PosthogJwtAudience.REPLAY_BLOCKS,
+                expiresIn ? { expiresIn } : {}
+            )}`
+        const serviceToken = (): string =>
+            `Bearer ${new JWT(JWT_SECRET).sign({ team_id: 1, op: 'read' }, PosthogJwtAudience.RECORDING_API, { expiresIn: '5m' })}`
+
+        const buildApp = async (role: string, enforced = false): Promise<express.Application> => {
+            const recordingApi = new RecordingApi(
+                {
+                    RECORDING_API_JWT_SECRET: JWT_SECRET,
+                    RECORDING_API_BLOCKS_JWT_SECRET: BLOCKS_JWT_SECRET,
+                    RECORDING_API_ROLE: role,
+                    RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: enforced,
+                } as RecordingApiConfig,
+                mockPostgres,
+                mockOutputs
+            )
+            await recordingApi.start(mockService, rateLimiter as any)
+            const app = express()
+            app.use('/', recordingApi.router())
+            server = app.listen(0, () => {})
+            return app
+        }
+
+        beforeEach(() => {
+            rateLimiter = {
+                rateLimitGrouped: jest
+                    .fn()
+                    .mockImplementation((requests: { id: string }[]) =>
+                        Promise.resolve(
+                            requests.map((r) => [r.id, { isRateLimited: false, tokens: 1, tokensBefore: 2 }])
+                        )
+                    ),
+            }
+            mockService.getBlockByRef.mockResolvedValue({ ok: true, data: Buffer.from('block-bytes') })
+        })
+
+        afterEach(() => {
+            server.close()
+        })
+
+        it('serves a block a browser may cache, without the cache varying on cookies', async () => {
+            const app = await buildApp('public')
+
+            const res = await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())
+
+            expect(res.status).toBe(200)
+            expect(res.headers['cache-control']).toBe('private, max-age=14400, immutable')
+            expect(res.headers['x-content-type-options']).toBe('nosniff')
+            expect(res.headers['vary'] ?? '').not.toMatch(/cookie/i)
+            expect(Buffer.from(res.body).toString()).toBe('block-bytes')
+            expect(mockService.getBlockByRef).toHaveBeenCalledWith(1, 'session-123', 'v1.abc')
+            expect(rateLimiter.rateLimitGrouped).toHaveBeenCalledWith([
+                { id: 'viewer:u7', cost: 1, bucketSize: 2000, refillRate: 8 },
+            ])
+        })
+
+        it.each([
+            ['no token', undefined, 401],
+            ['a token for another session', () => browserToken({ session_id: 'session-999' }), 403],
+            ['a token for another team', () => browserToken({ team_id: 2 }), 403],
+            ['a token with no caller', () => browserToken({ sub: undefined }), 403],
+            ['a token for another viewer', () => browserToken({ sub: 'u8' }), 403],
+            ['a token with a string team', () => browserToken({ team_id: '1' }), 403],
+            ['an internal service token', serviceToken, 401],
+            ['a browser token signed with the service secret', () => browserToken({}, '5m', JWT_SECRET), 401],
+            ['an expired token', () => browserToken({}, '-5m'), 401],
+            ['a token that never expires', () => browserToken({}, null), 401],
+            [
+                'a token issued over two hours ago',
+                () => browserToken({ iat: Math.floor(Date.now() / 1000) - 3 * 3600 }, '1d'),
+                401,
+            ],
+        ])('refuses %s', async (_, token, expectedStatus) => {
+            const app = await buildApp('public')
+
+            const request = supertest(app).get(BLOCK_URL)
+            const res = await (token ? request.set('Authorization', token()) : request)
+
+            expect(res.status).toBe(expectedStatus)
+            expect(res.headers['cache-control']).toBe('no-store')
+            expect(mockService.getBlockByRef).not.toHaveBeenCalled()
+        })
+
+        it('refuses a team id spelled with a leading zero', async () => {
+            const app = await buildApp('public')
+
+            const res = await supertest(app)
+                .get('/replay-blocks/01/session-123/u7/v1.abc')
+                .set('Authorization', browserToken())
+
+            expect(res.status).toBe(403)
+        })
+
+        it.each([
+            ['deleted', { ok: false, error: 'deleted', deletedAt: 1700000000, deletedBy: 'user@example.com' }, 410],
+            ['an unknown ref', { ok: false, error: 'not_found' }, 404],
+        ])('answers a block that is %s without caching it', async (_, result, expectedStatus) => {
+            mockService.getBlockByRef.mockResolvedValue(result as any)
+            const app = await buildApp('public')
+
+            const res = await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())
+
+            expect(res.status).toBe(expectedStatus)
+            expect(res.headers['cache-control']).toBe('no-store')
+        })
+
+        it.each([
+            ['enforced', true, 429],
+            ['log only', false, 200],
+        ])('applies the per-caller rate limit when %s', async (_, enforced, expectedStatus) => {
+            rateLimiter.rateLimitGrouped.mockResolvedValue([
+                ['u7', { isRateLimited: true, tokens: -1, tokensBefore: 0 }],
+            ])
+            const app = await buildApp('public', enforced)
+
+            const res = await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())
+
+            expect(res.status).toBe(expectedStatus)
+            expect(res.headers['cache-control']).toBe(enforced ? 'no-store' : 'private, max-age=14400, immutable')
+            if (enforced) {
+                expect(res.headers['retry-after']).toBe('1')
+            }
+        })
+
+        it('serves the block when the rate limiter is unavailable', async () => {
+            rateLimiter.rateLimitGrouped.mockRejectedValue(new Error('Redis unavailable'))
+            const app = await buildApp('public')
+
+            const res = await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())
+
+            expect(res.status).toBe(200)
+        })
+
+        it.each([
+            ['a browser viewer, by viewer', { tier: 'browser' }, 'viewer:u7', 2000],
+            ['a paid API key, by team', { sub: 'k42', tier: 'paid' }, 'team:1', 1200],
+            ['another key of the same team, in the same bucket', { sub: 'k43', tier: 'paid' }, 'team:1', 1200],
+            ['an enterprise API key, by team', { sub: 'k42', tier: 'enterprise' }, 'team:1', 2000],
+            ['a token with no tier, strictest', { sub: 'k42', tier: undefined }, 'team:1', 240],
+            ['an unknown tier, strictest', { sub: 'k42', tier: 'platinum' }, 'team:1', 240],
+        ])('rate-limits %s', async (_, claims, expectedId, expectedBucketSize) => {
+            const app = await buildApp('public')
+            const sub = (claims as { sub?: string }).sub ?? 'u7'
+
+            await supertest(app)
+                .get(`/replay-blocks/1/session-123/${sub}/v1.abc`)
+                .set('Authorization', browserToken(claims))
+
+            expect(rateLimiter.rateLimitGrouped).toHaveBeenCalledWith([
+                expect.objectContaining({ id: expectedId, bucketSize: expectedBucketSize }),
+            ])
+        })
+
+        it.each([
+            ['public', 200, 404],
+            ['internal', 404, 200],
+            ['all', 200, 200],
+        ])('a %s process serves only its own routes', async (role, browserStatus, internalStatus) => {
+            mockService.listBlocks.mockResolvedValue([])
+            const app = await buildApp(role)
+
+            const browser = await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())
+            const internal = await supertest(app)
+                .get('/api/projects/1/recordings/session-123/blocks')
+                .set('Authorization', serviceToken())
+
+            expect(browser.status).toBe(browserStatus)
+            expect(internal.status).toBe(internalStatus)
         })
     })
 })

@@ -23,6 +23,7 @@ from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, Mode
 from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
 from products.signals.backend.temporal.llm import SAFETY_MODEL, call_llm
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
+from products.signals.backend.trial.reports import trial_report_activity
 
 logger = structlog.get_logger(__name__)
 
@@ -239,11 +240,12 @@ async def judge_report_safety(
     return SafetyJudgeResponse(choice=True)
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyJudgeInput:
     team_id: int
     report_id: str
     signals: list[SignalData]
+    signal_id: str | None = None
 
 
 @dataclass
@@ -255,10 +257,11 @@ class SafetyJudgeOutput:
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@trial_report_activity
 async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
     """Assess report for prompt injection attacks and store result as artefact."""
     try:
-        signal_id = await database_sync_to_async(report_triggering_signal)(
+        signal_id = input.signal_id or await database_sync_to_async(report_triggering_signal)(
             team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
         )
     except Exception:

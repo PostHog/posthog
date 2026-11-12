@@ -3,9 +3,10 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useId, useMemo } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { todayObjectGlanceLogic } from '~/layout/today/todayObjectGlanceLogic'
 import { TodayObjectIcon } from '~/layout/today/TodayObjectIcon'
@@ -18,8 +19,17 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { TodayHomeHeading } from './TodayHomeHeading'
 import { RECENT_OBJECT_COUNT, todayLogic } from './todayLogic'
 
-function RecentObjectRow({ entry }: { entry: FileSystemEntry }): JSX.Element {
-    const preview = useMemo(() => objectPreview(entry), [entry])
+function RecentObjectRow({
+    entry,
+    position,
+    frequent,
+}: {
+    entry: FileSystemEntry
+    position: number
+    frequent: boolean
+}): JSX.Element {
+    const preview = useMemo(() => objectPreview(entry, 'jump_back'), [entry])
+    const { jumpBackOpened } = useActions(todayLogic)
     return (
         <li className="TodayJumpRow">
             <TodayObjectIcon type={entry.type} className="TodayJumpRow__icon" />
@@ -28,12 +38,20 @@ function RecentObjectRow({ entry }: { entry: FileSystemEntry }): JSX.Element {
                     to={preview.href ?? undefined}
                     className="TodayJumpRow__link"
                     data-attr="today-home-recent-object"
+                    onClick={() => jumpBackOpened(entry, position, frequent)}
                 >
                     {preview.name}
                 </LinkPrimitive>
-                {preview.typeLabel && (
-                    <span className="TodayJumpRow__meta">{capitalizeFirstLetter(preview.typeLabel)}</span>
-                )}
+                <span className="TodayJumpRow__meta">
+                    {entry.last_viewed_at ? (
+                        <time dateTime={entry.last_viewed_at} title={`Last opened: ${entry.last_viewed_at}`}>
+                            <span className="sr-only">Last opened </span>
+                            <TZLabel time={entry.last_viewed_at} showPopover={false} noStyles />
+                        </time>
+                    ) : (
+                        <span title="Last-opened time is not available">Time unknown</span>
+                    )}
+                </span>
             </TodayPreviewTrigger>
         </li>
     )
@@ -41,7 +59,7 @@ function RecentObjectRow({ entry }: { entry: FileSystemEntry }): JSX.Element {
 
 export function TodayRecents(): JSX.Element {
     useMountedLogic(todayObjectGlanceLogic)
-    const { recentObjects, recentsHasLoaded, listExpanded } = useValues(todayLogic)
+    const { recentObjects, frequentObjectsLoading, recentsHasLoaded, listExpanded } = useValues(todayLogic)
     const { setListExpanded } = useActions(todayLogic)
     const { pickPane } = useActions(todayShellLogic)
     const titleId = useId()
@@ -57,14 +75,17 @@ export function TodayRecents(): JSX.Element {
             <div className="TodayHome__headingRow">
                 <TodayHomeHeading id={titleId}>Jump back in</TodayHomeHeading>
                 {recentsHasLoaded && more.length > 0 && (
-                    <Collapsible.Trigger className="TodayHome__headingLink" data-attr="today-home-recent-more">
+                    <Collapsible.Trigger
+                        render={<Button variant="link-muted" size="sm" className="-mx-2 -my-1 text-[13px]" />}
+                        data-attr="today-home-recent-more"
+                    >
                         <span>{listExpanded.recents ? 'Less' : 'More'}</span>
                         <IconChevronDown className="TodayHome__headingChevron size-3" aria-hidden />
                     </Collapsible.Trigger>
                 )}
             </div>
-            {!recentsHasLoaded ? (
-                <p className="TodayHome__note">Finding what you looked at last…</p>
+            {!recentsHasLoaded || frequentObjectsLoading ? (
+                <p className="TodayHome__note">Finding your items…</p>
             ) : recentObjects.length === 0 ? (
                 <p className="TodayHome__note">
                     <span>
@@ -84,15 +105,25 @@ export function TodayRecents(): JSX.Element {
             ) : (
                 <TodayPreviewCardProvider>
                     <ul className="TodayJumpList">
-                        {shown.map((entry) => (
-                            <RecentObjectRow key={entry.id} entry={entry} />
+                        {shown.map((entry, index) => (
+                            <RecentObjectRow
+                                key={entry.id}
+                                entry={entry}
+                                position={index + 1}
+                                frequent={entry.jumpBackReason === 'frequent'}
+                            />
                         ))}
                     </ul>
                     {more.length > 0 && (
                         <Collapsible.Panel className="TodayJumpList__more">
                             <ul className="TodayJumpList">
-                                {more.map((entry) => (
-                                    <RecentObjectRow key={entry.id} entry={entry} />
+                                {more.map((entry, index) => (
+                                    <RecentObjectRow
+                                        key={entry.id}
+                                        entry={entry}
+                                        position={RECENT_OBJECT_COUNT + index + 1}
+                                        frequent={entry.jumpBackReason === 'frequent'}
+                                    />
                                 ))}
                             </ul>
                         </Collapsible.Panel>

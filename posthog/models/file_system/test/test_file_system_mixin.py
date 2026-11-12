@@ -1,10 +1,14 @@
+from unittest.mock import patch
+
+from django.db import transaction
+from django.db.models import Value
 from django.test import TestCase
 
 from posthog.models import FileSystem, Organization, Team, User
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment, update_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -85,16 +89,17 @@ class TestFileSystemSyncMixin(TestCase):
         (If your model doesn't have a 'deleted' field, this just ensures it's created.)
         """
         ff = FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
-        exp = Experiment.objects.create(team=self.team, name="Exp #1", created_by=self.user, feature_flag=ff)
-        fs_entry = FileSystem.objects.filter(team=self.team, type="experiment", ref=str(exp.id)).first()
+        experiment_id = create_experiment(
+            team_id=self.team.id, name="Exp #1", created_by_id=self.user.id, feature_flag_id=ff.id
+        )
+        fs_entry = FileSystem.objects.filter(team=self.team, type="experiment", ref=str(experiment_id)).first()
         assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Experiments/Exp #1")
         self.assertEqual(fs_entry.shortcut, False)
 
         # If we manually add a field `deleted=True` (if it existed),
         # the DSL says ignore. We'll simulate that:
-        exp.name = "Exp #1 Updated"
-        exp.save()
+        update_experiment(team_id=self.team.id, experiment_id=experiment_id, name="Exp #1 Updated")
 
         # Should remain in the FileSystem
         fs_entry.refresh_from_db()
@@ -173,6 +178,19 @@ class TestFileSystemSyncMixin(TestCase):
 
         assert fs_entry is None, "Should not create file system entry for internal notebook"
         assert note.get_file_system_representation().should_delete, "Internal notebook should be set for deletion"
+
+    def test_file_system_failure_preserves_notebook_in_transaction(self):
+        def fail_file_write(**kwargs):
+            FileSystem.objects.create(team=self.team, path=Value(None), depth=0, type="notebook", ref="failed-write")
+
+        with (
+            patch("posthog.models.file_system.file_system.create_or_update_file", side_effect=fail_file_write),
+            patch("posthog.models.file_system.file_system_mixin.capture_exception"),
+            transaction.atomic(),
+        ):
+            notebook = Notebook.objects.create(team=self.team, title="Saved notebook", created_by=self.user)
+
+        self.assertTrue(Notebook.objects.filter(pk=notebook.pk).exists())
 
     def test_notebook_internal_visibility_delete_existing_entry(self):
         note = Notebook.objects.create(

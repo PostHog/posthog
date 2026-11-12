@@ -1,6 +1,9 @@
 import json
 import uuid
+import asyncio
 import dataclasses
+from collections import defaultdict
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -10,9 +13,10 @@ from django.test import override_settings
 
 import requests
 from temporalio import activity
+from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
@@ -26,6 +30,7 @@ from products.error_tracking.backend.temporal.lifecycle.event_properties import 
     error_tracking_event_properties_key,
     fetch_event_properties,
 )
+from products.error_tracking.backend.temporal.lifecycle.issue_created import workflow as issue_created_workflow
 from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
     generate_issue_created_embedding_activity,
     infer_issue_created_severity_activity,
@@ -42,7 +47,11 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     SeverityInferenceSkipReason,
     SeveritySource,
 )
-from products.error_tracking.backend.temporal.lifecycle.issue_created.workflow import ErrorTrackingIssueCreatedWorkflow
+from products.error_tracking.backend.temporal.lifecycle.issue_created.workflow import (
+    ISSUE_TAGS_PATCH,
+    SUMMARY_ON_WRITE_PATCH,
+    ErrorTrackingIssueCreatedWorkflow,
+)
 from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types import IssueReopenedWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.rendering import decode_token_prefix, render_stacktrace
 from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
@@ -211,14 +220,17 @@ def test_embedding_failure_classification_and_capture(
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
-def test_embedding_hands_the_judge_its_text_before_clickhouse_has_it(
+def test_embedding_hands_elixir_issue_to_judge_before_clickhouse_has_it(
     generate_embedding: MagicMock,
     get_team: MagicMock,
     fetch_event_properties: MagicMock,
     render_stacktrace: MagicMock,
 ) -> None:
     get_team.return_value.organization.is_ai_data_processing_approved = True
-    fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
+    fetch_event_properties.return_value = {
+        "$lib": "posthog-elixir",
+        "$exception_list": [{"type": "TypeError", "value": "boom"}],
+    }
     render_stacktrace.return_value = "TypeError: boom"
     generate_embedding.return_value = MagicMock(embedding=[0.1, 0.2])
 
@@ -399,9 +411,15 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     signal_issue_ids: list[str] = []
     signal_attempts: dict[str, int] = {}
     inferred_issue_ids: list[str] = []
+    tagged_severities: dict[str, str | None] = {}
+    tagged_after_alert: set[str] = set()
+    summary_issue_ids: list[str] = []
+    alerted: defaultdict[str, asyncio.Event] = defaultdict(asyncio.Event)
+    summary_saw_alert: set[str] = set()
     reopened_alerts: list[IssueReopenedWorkflowInputs] = []
     reopened_events: list[IssueReopenedWorkflowInputs] = []
     reopened_signals: list[IssueReopenedWorkflowInputs] = []
+    reopened_summaries: list[IssueReopenedWorkflowInputs] = []
     reopened_target = AutoMergeReopenedTarget(
         notification_id=str(uuid.uuid4()),
         issue_id=str(uuid.uuid4()),
@@ -459,9 +477,28 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             )
         return IssueSeverityInferenceResult(resolved=True, stored_severity="critical")
 
+    @activity.defn(name="tag_issue_created_activity")
+    async def tag_issue(inputs: IssueCreatedWorkflowInputs) -> None:
+        tagged_severities[inputs.issue_id] = inputs.issue.severity
+        await asyncio.wait_for(alerted[inputs.issue_id].wait(), timeout=10)
+        tagged_after_alert.add(inputs.issue_id)
+        if inputs.fingerprint == "tags-fail":
+            raise ApplicationError("tag model unavailable", non_retryable=True)
+
     @activity.defn(name="dispatch_issue_created_alert_activity")
     async def dispatch_alert(inputs: IssueCreatedWorkflowInputs) -> None:
         alert_issue_ids.append(inputs.issue_id)
+        alerted[inputs.issue_id].set()
+
+    @activity.defn(name="generate_issue_created_summary_activity")
+    async def generate_summary(inputs: IssueCreatedWorkflowInputs) -> str:
+        summary_issue_ids.append(inputs.issue_id)
+        if inputs.fingerprint == "summary-fails":
+            raise ApplicationError("summary failed", non_retryable=True)
+        if inputs.fingerprint == "summary-waits-for-alert":
+            await asyncio.wait_for(alerted[inputs.issue_id].wait(), timeout=10)
+            summary_saw_alert.add(inputs.issue_id)
+        return "generated"
 
     @activity.defn(name="emit_issue_created_internal_event_activity")
     async def emit_event(inputs: IssueCreatedWorkflowInputs) -> None:
@@ -479,6 +516,11 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     @activity.defn(name="emit_issue_reopened_signal_activity")
     async def emit_reopened_signal(inputs: IssueReopenedWorkflowInputs) -> None:
         reopened_signals.append(inputs)
+
+    @activity.defn(name="generate_issue_reopened_summary_activity")
+    async def generate_reopened_summary(inputs: IssueReopenedWorkflowInputs) -> str:
+        reopened_summaries.append(inputs)
+        return "generated"
 
     @activity.defn(name="emit_issue_created_signal_activity")
     async def emit_signal(inputs: IssueCreatedWorkflowInputs) -> None:
@@ -498,12 +540,15 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                 persist,
                 merge,
                 infer_severity,
+                tag_issue,
                 dispatch_alert,
+                generate_summary,
                 emit_event,
                 emit_signal,
                 dispatch_reopened_alert,
                 emit_reopened_event,
                 emit_reopened_signal,
+                generate_reopened_summary,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -530,6 +575,18 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
                 )
+            summary_fails_inputs = _inputs("summary-fails")
+            summary_waits_inputs = _inputs("summary-waits-for-alert")
+            summary_results = [
+                await environment.client.execute_workflow(
+                    ErrorTrackingIssueCreatedWorkflow.run,
+                    summary_inputs,
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    execution_timeout=timedelta(minutes=1),
+                )
+                for summary_inputs in (summary_fails_inputs, summary_waits_inputs)
+            ]
             reopened_inputs = _inputs("merged-into-resolved")
             merged_result = await environment.client.execute_workflow(
                 ErrorTrackingIssueCreatedWorkflow.run,
@@ -549,6 +606,13 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
+            tags_fail_inputs = _inputs("tags-fail")
+            tags_fail_result = await environment.client.execute_workflow(
+                ErrorTrackingIssueCreatedWorkflow.run,
+                tags_fail_inputs,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
             reopened_result = await environment.client.execute_workflow(
                 ErrorTrackingIssueCreatedWorkflow.run,
                 reopened_inputs,
@@ -558,6 +622,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
 
     assert merged_result == IssueCreatedWorkflowResult(merged=True)
     assert unmerged_result == IssueCreatedWorkflowResult(notified=True)
+    assert tags_fail_result == IssueCreatedWorkflowResult(notified=True)
     assert embedding_unavailable_result == IssueCreatedWorkflowResult(
         notified=True,
         embedding_skipped_reason="embedding_service_unavailable",
@@ -568,7 +633,18 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         inference_unavailable_inputs.issue_id,
         severity_changed_inputs.issue_id,
     ]
-    notified_issue_ids = [*severity_issue_ids, unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
+    notified_issue_ids = [
+        *severity_issue_ids,
+        summary_fails_inputs.issue_id,
+        summary_waits_inputs.issue_id,
+        unmerged_inputs.issue_id,
+        embedding_unavailable_inputs.issue_id,
+        tags_fail_inputs.issue_id,
+    ]
+    # A failed or slow summary neither fails the workflow nor holds the alert, and a merged issue gets no summary.
+    assert summary_results == [IssueCreatedWorkflowResult(notified=True)] * 2
+    assert summary_saw_alert == {summary_waits_inputs.issue_id}
+    assert summary_issue_ids == notified_issue_ids
     assert alert_issue_ids == notified_issue_ids
     assert event_issue_ids == notified_issue_ids
     assert signal_issue_ids == notified_issue_ids
@@ -582,6 +658,11 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     assert event_severities[rule_inputs.issue_id] == "high"
     assert event_severities[inference_unavailable_inputs.issue_id] == "high"
     assert event_severities[severity_changed_inputs.issue_id] == "low"
+    # Tags run after severity and the alert does not wait for them. A failed tag run still notifies, and a merged
+    # issue gets no tags.
+    assert list(tagged_severities) == notified_issue_ids
+    assert tagged_severities[heuristic_inputs.issue_id] == "critical"
+    assert tagged_after_alert == set(notified_issue_ids)
 
     # A merge onto a dormant issue notifies about the reopen, not about the source issue
     # that auto-merge just deleted.
@@ -599,3 +680,78 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     assert reopened_alerts == [expected_reopened]
     assert reopened_events == [expected_reopened]
     assert reopened_signals == [expected_reopened]
+    assert reopened_summaries == [expected_reopened]
+
+
+@pytest.mark.parametrize(
+    "patch_id,activity_name",
+    [
+        (SUMMARY_ON_WRITE_PATCH, "generate_issue_created_summary_activity"),
+        (ISSUE_TAGS_PATCH, "tag_issue_created_activity"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_replays_a_history_recorded_before_a_patched_activity(
+    monkeypatch: pytest.MonkeyPatch, patch_id: str, activity_name: str
+) -> None:
+    @activity.defn(name="generate_issue_created_embedding_activity")
+    async def generate(_: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
+        return IssueEmbeddingPreparationResult(team_exists=True, skipped_reason="manual_fingerprint")
+
+    @activity.defn(name="dispatch_issue_created_alert_activity")
+    async def dispatch_alert(_: IssueCreatedWorkflowInputs) -> None:
+        return None
+
+    @activity.defn(name="emit_issue_created_internal_event_activity")
+    async def emit_event(_: IssueCreatedWorkflowInputs) -> None:
+        return None
+
+    @activity.defn(name="emit_issue_created_signal_activity")
+    async def emit_signal(_: IssueCreatedWorkflowInputs) -> None:
+        return None
+
+    @activity.defn(name="generate_issue_created_summary_activity")
+    async def generate_summary(_: IssueCreatedWorkflowInputs) -> str:
+        return "generated"
+
+    @activity.defn(name="tag_issue_created_activity")
+    async def tag_issue(_: IssueCreatedWorkflowInputs) -> None:
+        return None
+
+    original_patched = issue_created_workflow.workflow.patched
+
+    def before_patch(requested: str) -> bool:
+        return False if requested == patch_id else original_patched(requested)
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue=task_queue,
+            workflows=[ErrorTrackingIssueCreatedWorkflow],
+            activities=[generate, dispatch_alert, emit_event, emit_signal, generate_summary, tag_issue],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with monkeypatch.context() as patched:
+                patched.setattr(issue_created_workflow.workflow, "patched", before_patch)
+                handle = await environment.client.start_workflow(
+                    ErrorTrackingIssueCreatedWorkflow.run,
+                    _inputs("unmerged"),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    execution_timeout=timedelta(minutes=1),
+                )
+                assert await handle.result() == IssueCreatedWorkflowResult(
+                    notified=True, embedding_skipped_reason="manual_fingerprint"
+                )
+                history = await handle.fetch_history()
+
+    scheduled = [
+        event.activity_task_scheduled_event_attributes.activity_type.name
+        for event in history.events
+        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+    ]
+    assert activity_name not in scheduled
+    await Replayer(
+        workflows=[ErrorTrackingIssueCreatedWorkflow], workflow_runner=UnsandboxedWorkflowRunner()
+    ).replay_workflow(history)

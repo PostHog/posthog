@@ -10,7 +10,7 @@ via `web_lazy_precompute_common`. The precomputed table stores one row per
   counts plus unique converting persons.
 
 The action set (the top-5 actions returned by
-`Action.objects…order_by('pinned_at', '-last_calculated_at')[:5]`) is part
+`list_top_actions(project_id=..., limit=5)`) is part
 of the INSERT AST and therefore the lazy_computation cache key — a different
 top-5 set yields a different job_id, so the runner's hard `[:5]` slice is
 mirrored without further coordination.
@@ -33,7 +33,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import list_top_actions
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
@@ -53,6 +53,8 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
 )
 
 if TYPE_CHECKING:
+    from posthog.models.team import Team
+
     from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 
 logger = structlog.get_logger(__name__)
@@ -60,12 +62,12 @@ logger = structlog.get_logger(__name__)
 _FAMILY = "web_goals"
 
 
-# Sentinel action_id used for the per-hour denominator row. Real Django
-# `Action.id` values are positive auto-increment integers, so -1 is safe.
+# Sentinel action_id used for the per-hour denominator row. Real action ids
+# are positive auto-increment integers, so -1 is safe.
 DENOMINATOR_ACTION_ID = -1
 
 # Maximum number of actions the precompute will cover. Matches the runner's
-# hard `Action.objects…[:5]` slice exactly — precomputing more would be
+# hard limit of 5 actions exactly — precomputing more would be
 # wasted INSERT work the runner never reads. If the live UX ever expands
 # beyond 5 actions, bump both this constant and the runner's slice together.
 MAX_ACTIONS = 5
@@ -134,6 +136,9 @@ def _check_eligible(runner: "WebGoalsQueryRunner") -> None:
         modifiers=query.modifiers,
         properties=query.properties or [],
         resolve_date_range=lambda: (runner.query_date_range.date_from(), runner.query_date_range.date_to()),
+        resolve_compare_date_from=lambda: (
+            runner.query_compare_to_date_range.date_from() if runner.query_compare_to_date_range is not None else None
+        ),
     )
 
     # We need at least one action — without any, the live runner raises
@@ -169,10 +174,7 @@ def _select_actions(runner: "WebGoalsQueryRunner") -> list:
     cached = getattr(runner, _RUNNER_ACTIONS_CACHE_ATTR, None)
     if cached is not None:
         return cached
-    qs = Action.objects.filter(team__project_id=runner.team.project_id, deleted=False).order_by(
-        "pinned_at", "-last_calculated_at"
-    )[:MAX_ACTIONS]
-    fetched = list(qs)
+    fetched = list_top_actions(project_id=runner.team.project_id, limit=MAX_ACTIONS)
     setattr(runner, _RUNNER_ACTIONS_CACHE_ATTR, fetched)
     return fetched
 
@@ -181,11 +183,11 @@ def _events_session_id_expr(runner: "WebGoalsQueryRunner") -> ast.Expr:
     return runner.events_session_property
 
 
-def _action_or_expr(actions: Sequence) -> ast.Expr:
+def _action_or_expr(actions: Sequence, team: "Team") -> ast.Expr:
     """Build `Or(action_to_expr(a) for a in actions)` — gates the events scan
     to events that can possibly contribute to any of the actions, plus
     `$pageview`/`$screen` which always anchor the session."""
-    return ast.Or(exprs=[action_to_expr(a) for a in actions])
+    return ast.Or(exprs=[action_to_expr(a, team=team) for a in actions])
 
 
 def _build_insert_query(actions: Sequence) -> str:
@@ -289,7 +291,7 @@ def ensure_web_goals_precomputed(
 ) -> LazyComputationResult:
     placeholders: dict[str, ast.Expr] = {
         "events_session_id": _events_session_id_expr(runner),
-        "action_or_expr": _action_or_expr(actions),
+        "action_or_expr": _action_or_expr(actions, runner.team),
         "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
         "test_account_filter": test_account_filter_expr(
             test_account_filters=runner._test_account_filters, team=runner.team
@@ -297,7 +299,7 @@ def ensure_web_goals_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
     for n, action in enumerate(actions):
-        placeholders[f"action_{n}_expr"] = action_to_expr(action)
+        placeholders[f"action_{n}_expr"] = action_to_expr(action, team=runner.team)
         placeholders[f"action_{n}_id"] = ast.Constant(value=int(action.id))
 
     return web_ensure_precomputed(
@@ -388,7 +390,7 @@ def execute_lazy_precomputed_read(runner: "WebGoalsQueryRunner") -> Optional[dic
 
     Output shape:
         {
-            "actions": [Action, ...],  # top-N in order
+            "actions": [Action, ...],  # top-N in order, as actions facade contracts
             "denominator": {"current": int, "previous": int},
             "per_action": {
                 action_id: {

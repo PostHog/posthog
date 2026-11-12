@@ -15,6 +15,9 @@ export function useColoredSeries<Meta = unknown>(series: Series<Meta>[], theme: 
         () =>
             series.map((s, i) => ({
                 ...s,
+                // `data` is typed `number[]`, but a query can return `null` (e.g. a trends formula
+                // evaluated as a total value). Every renderer and overlay reads `data.length`.
+                data: s.data ?? [],
                 color: s.color || theme.colors[i % theme.colors.length],
             })),
         [series, theme.colors]
@@ -43,6 +46,8 @@ export interface ChartShellProps {
     ariaLabel: string
     /** Number of x labels. Tests read it to hover a label by index. */
     labelCount?: number
+    /** Index another chart in a `ChartHoverSync` is hovering, while it draws here. Tests read it. */
+    syncedIndex?: number
     handlers: Required<Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseMove' | 'onMouseLeave' | 'onClick'>> &
         Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseDown' | 'onPointerDown' | 'onContextMenu'>
     /** Render the overlay layer — bases gate this on layout readiness (dimensions + scales). */
@@ -73,6 +78,7 @@ export function ChartShell({
     contextMenu = false,
     ariaLabel,
     labelCount,
+    syncedIndex,
     handlers,
     showOverlay,
     children,
@@ -84,6 +90,7 @@ export function ChartShell({
             data-attr={dataAttr}
             data-hog-charts-context-menu={contextMenu ? '' : undefined}
             data-hog-charts-label-count={labelCount}
+            data-hog-charts-synced-index={syncedIndex}
             onMouseDown={handlers.onMouseDown}
             onMouseMove={handlers.onMouseMove}
             onMouseLeave={handlers.onMouseLeave}

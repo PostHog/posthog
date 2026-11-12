@@ -5,15 +5,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from anthropic import Anthropic
 
-from django.db import transaction
-
 import structlog
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations.contracts import IntegrationConflict, IntegrationRecord
 from posthog.models.user import User
-from posthog.models.utils import IntegrityError
 
-from . import model
+from . import model, row_writes
 
 logger = structlog.get_logger(__name__)
 
@@ -48,13 +46,13 @@ class AnthropicIntegration:
     integration: model.Integration
     _client: "Anthropic"
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != model.Integration.IntegrationKind.ANTHROPIC.value:
             # Internal misuse, not a user-input issue.
             raise AnthropicIntegrationError(
                 f"AnthropicIntegration init called with Integration kind={integration.kind!r}"
             )
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         api_key = integration.sensitive_config.get("api_key")
         if not api_key:
             raise AnthropicIntegrationError(f"Anthropic integration {integration.id} is missing 'api_key'")
@@ -146,7 +144,7 @@ class AnthropicIntegration:
         created_by: User,
         workspace_label: str | None = None,
         force: bool = False,
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         cls.validate_key(api_key)
 
         anthropic_kind: str = model.Integration.IntegrationKind.ANTHROPIC.value
@@ -155,35 +153,28 @@ class AnthropicIntegration:
         if workspace_label:
             config["workspace_label"] = workspace_label
 
+        accessor = row_writes.creator_accessor(anthropic_kind)
         if force:
-            integration, _ = model.Integration.objects.update_or_create(
-                team_id=team_id,
-                kind=anthropic_kind,
-                integration_id=integration_id,
-                defaults={
-                    "config": config,
-                    "sensitive_config": {"api_key": api_key},
-                    "created_by": created_by,
-                    "errors": "",
-                },
+            integration, _ = accessor.upsert(
+                team_id,
+                integration_id,
+                config=config,
+                sensitive_config={"api_key": api_key},
+                created_by_id=created_by.id,
             )
             return integration
 
         try:
-            # Wrap in a savepoint so the unique-constraint IntegrityError below
-            # aborts only the INSERT, not the surrounding transaction (e.g. the
-            # outer DRF request atomic block, or the test wrapper).
-            with transaction.atomic():
-                return model.Integration.objects.create(
-                    team_id=team_id,
-                    kind=anthropic_kind,
-                    integration_id=integration_id,
-                    config=config,
-                    sensitive_config={"api_key": api_key},
-                    created_by=created_by,
-                    errors="",
-                )
-        except IntegrityError:
+            # The SDK creates the row in a savepoint, so a conflict does not abort the surrounding
+            # transaction (e.g. the outer DRF request atomic block, or the test wrapper).
+            return accessor.create(
+                team_id,
+                external_id=integration_id,
+                config=config,
+                sensitive_config={"api_key": api_key},
+                created_by_id=created_by.id,
+            )
+        except IntegrationConflict:
             raise ValidationError(
                 {
                     "config": (

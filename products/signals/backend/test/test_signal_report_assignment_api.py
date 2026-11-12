@@ -5,7 +5,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, call, patch
 
 from django.apps import apps
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -14,6 +16,7 @@ from rest_framework import status
 from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.signals.backend.implementation_pr import ImplementationPr, primary_pull_request
 from products.signals.backend.models import (
@@ -24,10 +27,16 @@ from products.signals.backend.models import (
     SignalReportCheck,
     SignalReportMonitoringAttempt,
     SignalReportPullRequest,
+    SignalScoutNote,
 )
-from products.signals.backend.report_assignments import update_assignments_for_pull_request
-from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_assignments import (
+    sync_task_pull_request_to_assignments,
+    update_assignments_for_pull_request,
+)
+from products.signals.backend.report_claims import get_active_claim, get_active_claims, responsible_users
 from products.signals.backend.report_monitoring_attempts import complete_implementation
+from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
+from products.signals.backend.task_run_artefacts import record_implementation_task
 
 
 class TestPrimaryPullRequest(SimpleTestCase):
@@ -115,6 +124,82 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert log.detail["changes"][0]["field"] == "assignee"
         assert log.detail["changes"][0]["before"] is None
         assert log.detail["changes"][0]["after"]["kind"] == SignalActorKind.USER
+
+    @parameterized.expand(
+        [
+            # name, actor, impersonated, flag on, suggested, notes written
+            ("person", "user", False, True, False, 1),
+            ("suggested_person", "user", False, True, True, 1),
+            ("their_agent", "agent", False, True, False, 1),
+            ("flag_off", "user", False, False, False, 0),
+            ("impersonated", "user", True, True, False, 0),
+            ("task", "task", False, True, False, None),
+        ]
+    )
+    def test_a_new_claim_steers_scouts_only_for_a_person_and_records_the_outcome(
+        self,
+        _name: str,
+        actor: str,
+        impersonated: bool,
+        flag_on: bool,
+        suggested: bool,
+        notes_written: int | None,
+    ) -> None:
+        report = self._create_report()
+        if suggested:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type="suggested_reviewers",
+                content=json.dumps([{"user_uuid": str(self.user.uuid), "github_login": None}]),
+            )
+            sync_suggested_reviewer_index(team_id=self.team.id, report_id=str(report.id))
+        headers: dict[str, str] = {}
+        if actor == "agent":
+            headers = self._agent_headers("codex")
+        elif actor == "task":
+            Task = apps.get_model("tasks", "Task")
+            task = Task.objects.create(
+                team=self.team,
+                created_by=self.user,
+                title="Signal task",
+                description="Implement the report",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            )
+            headers = {"X-PostHog-Task-Id": str(task.id)}
+
+        with (
+            patch(
+                "products.signals.backend.reviewer_correction_notes.posthoganalytics.feature_enabled",
+                return_value=flag_on,
+            ),
+            patch("products.signals.backend.views.is_impersonated_session", return_value=impersonated),
+            patch("products.signals.backend.report_claim_follow_up.posthoganalytics.capture") as capture,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                first = self.client.post(self._claim_url(report), data={}, format="json", headers=headers)
+            with self.captureOnCommitCallbacks(execute=True):
+                repeat = self.client.post(self._claim_url(report), data={}, format="json", headers=headers)
+
+        assert first.status_code == repeat.status_code == status.HTTP_200_OK
+        notes = list(
+            SignalScoutNote.objects.filter(team=self.team, origin=SignalScoutNote.Origin.REPORT_REVIEWER_CORRECTION)
+        )
+        assert len(notes) == (notes_written or 0)
+        if actor == "agent":
+            assert "Their agent (codex) claimed it for them." in notes[0].content
+        claimed_events = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_report_claimed"]
+        # Re-claiming under the same claim is not a new claim, so it records nothing.
+        assert len(claimed_events) == 1
+        properties = claimed_events[0].kwargs["properties"]
+        assert properties["actor_kind"] == actor
+        if notes_written is None:
+            assert "claimant_was_suggested" not in properties
+        else:
+            assert properties["claimant_was_suggested"] is suggested
+            assert properties["suggested_count"] == int(suggested)
+            assert properties["claim_notes_enabled"] is flag_on
+            assert properties["claim_notes_written"] == notes_written
 
     def test_identical_claim_is_idempotent(self):
         report = self._create_report()
@@ -526,6 +611,71 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         claim = SignalReportArtefact.objects.get(report=report, type="work_claim")
         assert json.loads(claim.content)["display_name"] == expected
 
+    @parameterized.expand(
+        [
+            ("agent_without_claim_id", "codex", False, status.HTTP_409_CONFLICT, SignalActorKind.USER),
+            ("agent_with_claim_id", "codex", True, status.HTTP_200_OK, SignalActorKind.AGENT),
+            ("agent_with_overlong_client_name", "c" * 200, True, status.HTTP_200_OK, SignalActorKind.AGENT),
+            # Combining marks hide most of the length from a character count, so the cap must use the raw length.
+            ("agent_with_combining_marks", "q\u0301" * 100, True, status.HTTP_200_OK, SignalActorKind.AGENT),
+            ("person_with_claim_id", None, True, status.HTTP_200_OK, SignalActorKind.USER),
+            # The notification carries the report title, so someone who lost Inbox access gets none.
+            ("holder_without_inbox_access", None, True, status.HTTP_200_OK, SignalActorKind.USER),
+        ]
+    )
+    @patch("products.signals.backend.claim_takeover_notification.create_notification")
+    def test_taking_over_another_persons_claim_needs_claim_id_and_notifies_them(
+        self,
+        name: str,
+        agent: str | None,
+        send_claim_id: bool,
+        expected_status: int,
+        expected_kind: str,
+        mock_create_notification: MagicMock,
+    ):
+        report = self._create_report(title="Checkout fails")
+        teammate = User.objects.create_and_join(self.organization, "dana@example.com", None, first_name="Dana")
+        self.client.force_login(teammate)
+        teammate_claim = self.client.post(self._claim_url(report), data={}, format="json").json()["assignee"]
+        if name == "agent_with_combining_marks":
+            self.user.first_name = "F" * 60
+            self.user.save(update_fields=["first_name"])
+        self.client.force_login(self.user)
+
+        data: dict[str, object] = {"takeover": True}
+        if send_claim_id:
+            data["takeover_claim_id"] = teammate_claim["claim_id"]
+        with (
+            patch(
+                "products.signals.backend.claim_takeover_notification.may_read_reports",
+                return_value=name != "holder_without_inbox_access",
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                self._claim_url(report),
+                data=data,
+                format="json",
+                headers=self._agent_headers(agent) if agent else None,
+            )
+
+        assert response.status_code == expected_status
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
+        assert assignment.actor_kind == expected_kind
+        if expected_status == status.HTTP_409_CONFLICT:
+            assert "Dana is working on this report" in response.json()["detail"]
+            assert assignment.actor_user_id == teammate.id
+            mock_create_notification.assert_not_called()
+        elif name == "holder_without_inbox_access":
+            mock_create_notification.assert_not_called()
+        else:
+            mock_create_notification.assert_called_once()
+            notification = mock_create_notification.call_args.args[0]
+            assert notification.target_id == str(teammate.id)
+            assert notification.body == "Checkout fails"
+            assert len(notification.title) <= 255
+
     def test_claimants_own_task_works_under_their_claim(self):
         Task = apps.get_model("tasks", "Task")
         report = self._create_report()
@@ -551,6 +701,72 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert note.status_code == status.HTTP_201_CREATED
         assert note.json()["claim_id"] == claim_id
         assert release.status_code == status.HTTP_409_CONFLICT
+
+    # The task id is caller-supplied, so a task works under its creator's agent claim only when task creation
+    # associated it with that claim.
+    @parameterized.expand(
+        [("associated_task", True, status.HTTP_200_OK), ("named_task", False, status.HTTP_409_CONFLICT)]
+    )
+    def test_task_header_resumes_an_agent_claim_only_through_its_association(
+        self, _name: str, associated: bool, expected_status: int
+    ) -> None:
+        Task = apps.get_model("tasks", "Task")
+        report = self._create_report()
+        claim_id = self.client.post(
+            self._claim_url(report), data={}, format="json", headers=self._agent_headers("codex")
+        ).json()["assignee"]["claim_id"]
+        task = Task.objects.create(
+            team=self.team, created_by=self.user, title="Signal task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        if associated:
+            record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        resumed = self.client.post(
+            self._claim_url(report),
+            data={"claim_id": claim_id},
+            format="json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+
+        assert resumed.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("claim_inbox_only", "claim", ["inbox:write"], False),
+            ("bulk_claim_inbox_only", "bulk_claim", ["inbox:write"], False),
+            ("claim_inbox_and_task", "claim", ["inbox:write", "task:write"], True),
+            ("bulk_claim_inbox_and_task", "bulk_claim", ["inbox:write", "task:write"], True),
+            ("claim_legacy_task", "claim", ["task:write"], True),
+        ]
+    )
+    def test_claiming_for_a_task_needs_task_scope(
+        self, _name: str, endpoint: str, scopes: list[str], allowed: bool
+    ) -> None:
+        Task = apps.get_model("tasks", "Task")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            description="Implement the report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        report = self._create_report()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        url, body = (
+            (self._claim_url(report), {})
+            if endpoint == "claim"
+            else (f"/api/projects/{self.team.id}/signals/reports/bulk_claim/", {"ids": [str(report.id)]})
+        )
+
+        response = self.client.post(url, data=body, format="json", headers={"X-PostHog-Task-Id": str(task.id)})
+
+        assert response.status_code == (status.HTTP_200_OK if allowed else status.HTTP_403_FORBIDDEN), response.content
+        linked = sync_task_pull_request_to_assignments(
+            team_id=self.team.id, task_id=str(task.id), pr_url="https://github.com/example/private/pull/9"
+        )
+        assert (linked > 0) is allowed
 
     def test_internal_task_claim_uses_task_attribution(self):
         Task = apps.get_model("tasks", "Task")
@@ -739,7 +955,68 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert pr.state == SignalReportAssignment.PrState.UNKNOWN
         assert pr.state != "merged"
 
-    def test_only_current_actor_can_release_and_pr_is_preserved(self):
+    @parameterized.expand(
+        [
+            ("inbox_only_claim", ["inbox:write"], {}, status.HTTP_200_OK, False),
+            (
+                "legacy_task_only_pr",
+                ["task:write"],
+                {"pr_url": "https://github.com/example/private/pull/9"},
+                status.HTTP_200_OK,
+                True,
+            ),
+            (
+                "inbox_only_pr_url",
+                ["inbox:write"],
+                {"pr_url": "https://github.com/example/private/pull/9"},
+                status.HTTP_403_FORBIDDEN,
+                False,
+            ),
+            (
+                "inbox_only_pull_requests",
+                ["inbox:write"],
+                {"pull_requests": ["https://github.com/example/private/pull/9"]},
+                status.HTTP_403_FORBIDDEN,
+                False,
+            ),
+            (
+                "inbox_and_task_pull_requests",
+                ["inbox:write", "task:write"],
+                {"pull_requests": ["https://github.com/example/private/pull/9"]},
+                status.HTTP_200_OK,
+                True,
+            ),
+        ]
+    )
+    @patch(
+        "products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository",
+        return_value=None,
+    )
+    def test_linking_a_pull_request_needs_task_scope(
+        self, _name: str, scopes: list[str], body: dict, expected: int, linked: bool, _integration: MagicMock
+    ) -> None:
+        report = self._create_report()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.post(self._claim_url(report), data=body, format="json")
+
+        assert response.status_code == expected, response.content
+        assert SignalReportPullRequest.objects.for_team(self.team.id).filter(number=9).exists() is linked
+
+    @parameterized.expand(
+        [
+            ("claiming_agent", "claude-code", False, False, status.HTTP_200_OK),
+            ("responsible_user", None, False, False, status.HTTP_200_OK),
+            ("responsible_user_with_claim_id", None, False, True, status.HTTP_200_OK),
+            ("different_agent", "codex", False, True, status.HTTP_409_CONFLICT),
+            ("different_user", None, True, True, status.HTTP_409_CONFLICT),
+        ]
+    )
+    def test_only_current_actor_or_responsible_user_can_release_and_pr_is_preserved(
+        self, _name: str, agent: str | None, different_user: bool, include_claim_id: bool, expected_status: int
+    ) -> None:
         report = self._create_report()
         claim = self.client.post(
             self._claim_url(report),
@@ -749,23 +1026,24 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         )
         assert claim.status_code == status.HTTP_200_OK
 
-        rejected = self.client.post(
-            self._claim_url(report),
-            data={"release": True},
-            format="json",
-            headers=self._agent_headers("codex"),
-        )
-        assert rejected.status_code == status.HTTP_409_CONFLICT
+        if different_user:
+            other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+            self.client.force_login(other_user)
 
         released = self.client.post(
             self._claim_url(report),
-            data={"release": True},
+            data={"release": True, **({"claim_id": claim.json()["assignee"]["claim_id"]} if include_claim_id else {})},
             format="json",
-            headers=self._agent_headers("claude-code"),
+            headers=self._agent_headers(agent) if agent else {},
         )
 
-        assert released.status_code == status.HTTP_200_OK
+        assert released.status_code == expected_status
         assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        if expected_status == status.HTTP_409_CONFLICT:
+            assert assignment is not None
+            assert str(assignment.claim_id) == claim.json()["assignee"]["claim_id"]
+            assert not SignalReportArtefact.objects.filter(report=report, type="work_release").exists()
+            return
         assert assignment is None
         assert released.json()["implementation_pr_url"] == "https://github.com/PostHog/posthog/pull/123"
         assert released.json()["implementation_pr_state"] == "unknown"
@@ -861,45 +1139,51 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert not SignalReportAssignment.all_teams.filter(report=report).exists()
 
-    def test_unclaimed_filter_excludes_claims_and_open_prs(self):
+    @parameterized.expand([("live_filters", False), ("cached_columns", True)])
+    def test_unclaimed_filter_excludes_claims_and_open_prs(self, _name: str, cached: bool) -> None:
         unclaimed = self._create_report(title="Unclaimed")
         claimed = self._create_report(title="Claimed")
         in_review = self._create_report(title="In review")
         self.client.post(self._claim_url(claimed), data={}, format="json")
-        SignalReportAssignment.all_teams.create(
-            team=self.team,
-            report=in_review,
-            pr_url="https://github.com/PostHog/posthog/pull/123",
-            repository="posthog/posthog",
-            pr_number=123,
-            pr_state=SignalReportAssignment.PrState.OPEN,
-        )
-        merged_assignment = self._create_report(title="Merged assignment")
-        SignalReportAssignment.all_teams.create(
-            team=self.team,
-            report=merged_assignment,
-            pr_url="https://github.com/PostHog/posthog/pull/124",
-            repository="posthog/posthog",
-            pr_number=124,
-            pr_state=SignalReportAssignment.PrState.MERGED,
-            pr_merged=True,
-        )
-        linked = {}
-        for number, state in [(125, SignalReportPullRequest.State.OPEN), (126, SignalReportPullRequest.State.MERGED)]:
-            report = self._create_report(title=f"Linked {state}")
-            pr = SignalReportPullRequest.objects.create(
+        with self.captureOnCommitCallbacks(execute=True):
+            SignalReportAssignment.all_teams.create(
                 team=self.team,
+                report=in_review,
+                pr_url="https://github.com/PostHog/posthog/pull/123",
                 repository="posthog/posthog",
-                number=number,
-                url=f"https://github.com/PostHog/posthog/pull/{number}",
-                state=state,
+                pr_number=123,
+                pr_state=SignalReportAssignment.PrState.OPEN,
             )
-            SignalReportArtefact.objects.create(
-                team=self.team, report=report, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, pull_request=pr
+            merged_assignment = self._create_report(title="Merged assignment")
+            SignalReportAssignment.all_teams.create(
+                team=self.team,
+                report=merged_assignment,
+                pr_url="https://github.com/PostHog/posthog/pull/124",
+                repository="posthog/posthog",
+                pr_number=124,
+                pr_state=SignalReportAssignment.PrState.MERGED,
+                pr_merged=True,
             )
-            linked[state] = report
+            linked = {}
+            for number, state in [
+                (125, SignalReportPullRequest.State.OPEN),
+                (126, SignalReportPullRequest.State.MERGED),
+            ]:
+                report = self._create_report(title=f"Linked {state}")
+                pr = SignalReportPullRequest.objects.create(
+                    team=self.team,
+                    repository="posthog/posthog",
+                    number=number,
+                    url=f"https://github.com/PostHog/posthog/pull/{number}",
+                    state=state,
+                )
+                SignalReportArtefact.objects.create(
+                    team=self.team, report=report, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, pull_request=pr
+                )
+                linked[state] = report
 
-        response = self.client.get(self._list_url(unclaimed="true"))
+        with patch("products.signals.backend.views.organization_inbox_cached_filters_enabled", return_value=cached):
+            response = self.client.get(self._list_url(unclaimed="true"))
 
         assert response.status_code == status.HTTP_200_OK
         ids = {row["id"] for row in response.json()["results"]}
@@ -933,6 +1217,143 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert {row["id"] for row in response.json()["results"]} == {str(mine.id)}
+
+    def test_assignee_mine_matches_claims_by_the_user_and_their_agents_but_not_their_tasks(self):
+        Task = apps.get_model("tasks", "Task")
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        own_task = Task.objects.create(
+            team=self.team, created_by=self.user, title="Own task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        teammate_task = Task.objects.create(
+            team=self.team, created_by=teammate, title="Teammate task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        mine = [self._create_report(title=title) for title in ("By me", "By my agent")]
+        theirs = [self._create_report(title=title) for title in ("By teammate", "By teammate task", "By my task")]
+        for report, headers in [
+            (mine[0], {}),
+            (mine[1], self._agent_headers("codex")),
+            (theirs[2], {"X-PostHog-Task-Id": str(own_task.id)}),
+            (theirs[1], {"X-PostHog-Task-Id": str(teammate_task.id)}),
+        ]:
+            assert self.client.post(self._claim_url(report), data={}, format="json", headers=headers).status_code == 200
+        self.client.force_login(teammate)
+        assert self.client.post(self._claim_url(theirs[0]), data={}, format="json").status_code == 200
+        self.client.force_login(self.user)
+
+        response = self.client.get(self._list_url(assignee="mine"))
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = response.json()["results"]
+        assert {row["id"] for row in rows} == {str(report.id) for report in mine}
+        assert {row["assignee"]["responsible_user"]["id"] for row in rows} == {self.user.id}
+
+    def test_responsible_users_resolves_task_claims_in_fixed_queries(self):
+        Task = apps.get_model("tasks", "Task")
+        reports = [self._create_report(title=f"Task report {i}") for i in range(3)]
+        for report in reports:
+            task = Task.objects.create(
+                team=self.team, created_by=self.user, title="Task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+            )
+            headers = {"X-PostHog-Task-Id": str(task.id)}
+            assert self.client.post(self._claim_url(report), data={}, format="json", headers=headers).status_code == 200
+        claims = get_active_claims(team_id=self.team.id, report_ids=[str(report.id) for report in reports])
+
+        with self.assertNumQueries(2):
+            users = responsible_users(claims.values())
+
+        assert len(users) == len(reports)
+        assert {user.id for user in users.values()} == {self.user.id}
+
+    def _bulk_claim_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/bulk_claim/"
+
+    def test_bulk_claim_reports_each_id_without_reaching_other_teams(self):
+        ready = self._create_report()
+        dismissed = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        foreign = self._create_report(team=other_team)
+        unknown = "00000000-0000-0000-0000-000000000000"
+
+        response = self.client.post(
+            self._bulk_claim_url(),
+            data={"ids": [str(ready.id), str(dismissed.id), str(foreign.id), unknown, str(ready.id)]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [(row["id"], row["outcome"]) for row in body["results"]] == [
+            (str(ready.id), "claimed"),
+            (str(dismissed.id), "conflict"),
+            (str(foreign.id), "not_found"),
+            (unknown, "not_found"),
+        ]
+        assert (body["claimed_count"], body["conflict_count"], body["not_found_count"]) == (1, 1, 2)
+        claim = get_active_claim(team_id=self.team.id, report_id=ready.id)
+        assert claim is not None and claim.actor_user_id == self.user.id
+        assert get_active_claim(team_id=other_team.id, report_id=foreign.id) is None
+
+    @parameterized.expand(
+        [
+            ("an agent, without takeover", "agent", False, "conflict", SignalActorKind.AGENT),
+            ("an agent, with takeover", "agent", True, "claimed", SignalActorKind.USER),
+            ("a person, with takeover", "person", True, "conflict", SignalActorKind.USER),
+        ]
+    )
+    def test_bulk_claim_takes_over_only_agent_claims_on_request(
+        self, _name: str, holder: str, takeover: bool, outcome: str, kind_after: str
+    ) -> None:
+        report = self._create_report()
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        if holder == "agent":
+            self.client.post(self._claim_url(report), data={}, format="json", headers=self._agent_headers("codex"))
+        else:
+            self.client.force_login(teammate)
+            self.client.post(self._claim_url(report), data={}, format="json")
+            self.client.force_login(self.user)
+
+        response = self.client.post(
+            self._bulk_claim_url(), data={"ids": [str(report.id)], "takeover_agent_claims": takeover}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"][0]["outcome"] == outcome
+        claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert claim is not None and claim.actor_kind == kind_after
+        assert claim.actor_user_id == (teammate.id if holder == "person" else self.user.id)
+
+    def test_claim_with_a_pull_request_logs_the_implementation_pr_change(self):
+        report = self._create_report()
+        pr_url = "https://github.com/example/app/pull/7"
+
+        response = self.client.post(self._claim_url(report), data={"pr_url": pr_url}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="SignalReport", item_id=str(report.id), activity="assignment_changed"
+        )
+        assert log.detail is not None
+        pr_change = next(change for change in log.detail["changes"] if change["field"] == "implementation_pr")
+        assert pr_change["before"] is None
+        assert pr_change["after"]["url"] == pr_url
+
+    def test_bulk_claim_adds_a_fixed_number_of_queries_per_report(self):
+        def queries_for(count: int) -> int:
+            ids = [str(self._create_report(title=f"Report {i}").id) for i in range(count)]
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.post(self._bulk_claim_url(), data={"ids": ids}, format="json")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["claimed_count"] == count
+            return len(ctx.captured_queries)
+
+        # The first call fills caches the later ones reuse, so it is not measured.
+        queries_for(1)
+        for_two, for_three, for_four = (queries_for(n) for n in (2, 3, 4))
+
+        per_report = for_three - for_two
+        assert for_four - for_three == per_report
+        assert per_report <= 11
+        assert for_two - 2 * per_report <= 15
 
     def test_claimed_report_remains_in_default_actionable_list(self):
         report = self._create_report()

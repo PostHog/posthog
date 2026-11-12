@@ -151,7 +151,7 @@ def parse_release_conditions(
 ) -> ReleaseConditions:
     """`variant_keys` are the variants of the flag in the same version, because the flag service ignores an
     override that names no variant of the flag."""
-    aggregation = _group_type_index(flag_aggregation)
+    aggregation = group_type_index(flag_aggregation)
     return tuple(_condition(group, aggregation, variant_keys) for group in groups) if isinstance(groups, list) else ()
 
 
@@ -283,7 +283,7 @@ def _condition(group: object, flag_aggregation: int | None, variant_keys: Collec
             sort_keys=True,
             default=str,
         ),
-        aggregation=_group_type_index(aggregation),
+        aggregation=group_type_index(aggregation),
         property_keys=frozenset(_property_key(prop) for prop in properties)
         if isinstance(properties, list)
         else frozenset(),
@@ -362,7 +362,7 @@ def conditions_follow_flag_aggregation(aggregation: object, conditions: Sequence
     `changes_that_apply` relies on this, because it reads only the flag-level aggregation of each save. The flag
     serializer keeps it true: it sets the flag-level aggregation to null when the conditions mix aggregations.
     """
-    flag_aggregation = _group_type_index(aggregation)
+    flag_aggregation = group_type_index(aggregation)
     return flag_aggregation is None or all(
         condition_aggregation(condition, flag_aggregation) is not None
         for condition in conditions
@@ -443,12 +443,21 @@ def _normalized(setting: BucketingSetting, value: object, feature_flag_id: int) 
             tombstone = f":deleted:{feature_flag_id}"
             return value.removesuffix(tombstone)
         case BucketingSetting.AGGREGATION:
-            return _group_type_index(value)
+            return group_type_index(value)
         case BucketingSetting.BUCKETING_IDENTIFIER:
-            return "device_id" if value == "device_id" else "distinct_id"
+            return normalized_bucketing_identifier(value)
         case BucketingSetting.EXPERIENCE_CONTINUITY:
-            return value is True
+            return normalized_experience_continuity(value)
 
 
-def _group_type_index(value: object) -> int | None:
+def group_type_index(value: object) -> int | None:
+    # A boolean is not a group type index, and Python's `True == 1` would let one through.
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def normalized_bucketing_identifier(value: object) -> str:
+    return "device_id" if value == "device_id" else "distinct_id"
+
+
+def normalized_experience_continuity(value: object) -> bool:
+    return value is True

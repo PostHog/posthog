@@ -8,9 +8,9 @@ use etcd_client::{
 
 use crate::error::{Error, Result};
 use crate::types::{
-    AssignmentPrecondition, AssignmentStatus, ChangelogConfig, HandoffReplacement, HandoffState,
-    LeaderInfo, MigrationState, PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck,
-    RegisteredPod, RegisteredRouter, RouterFreezeAck,
+    AssignmentPrecondition, AssignmentStatus, ChangelogConfig, ClusterEndpoint, HandoffReplacement,
+    HandoffState, LeaderInfo, MigrationState, PartitionAssignment, PodDrainedAck, PodStatus,
+    PodWarmedAck, RegisteredPod, RegisteredRouter, RouterFreezeAck,
 };
 
 mod migration;
@@ -1471,21 +1471,60 @@ impl PersonhogStore {
         partitions: u32,
         writer_group: &str,
     ) -> Result<bool> {
+        self.seed_changelog_config_on(topic, partitions, writer_group, None)
+            .await
+    }
+
+    pub async fn seed_changelog_config_on(
+        &self,
+        topic: &str,
+        partitions: u32,
+        writer_group: &str,
+        cluster: Option<ClusterEndpoint>,
+    ) -> Result<bool> {
         count_call("seed_changelog_config");
-        let key = self.key(StoreKey::ChangelogConfig);
         let config = ChangelogConfig {
             writer_group: writer_group.to_string(),
+            cluster,
             ..ChangelogConfig::new(topic, partitions)
         };
+        self.create_changelog_config(serde_json::to_vec(&config)?)
+            .await
+    }
+
+    /// Create-if-absent with bytes a backup recorded, written back as they
+    /// were stored so fields this build does not know survive the round trip.
+    pub async fn restore_changelog_config_raw(&self, value: &[u8]) -> Result<bool> {
+        count_call("restore_changelog_config_raw");
+        self.create_changelog_config(value.to_vec()).await
+    }
+
+    async fn create_changelog_config(&self, value: Vec<u8>) -> Result<bool> {
+        let key = self.key(StoreKey::ChangelogConfig);
         let txn = Txn::new()
             .when(vec![Compare::create_revision(
                 key.clone(),
                 CompareOp::Equal,
                 0,
             )])
-            .and_then(vec![TxnOp::put(key, serde_json::to_vec(&config)?, None)]);
+            .and_then(vec![TxnOp::put(key, value, None)]);
         let resp = self.inner.txn(txn).await?;
         Ok(resp.succeeded())
+    }
+
+    /// The stored config bytes, unparsed, and the revision of the read.
+    pub async fn get_changelog_config_raw_with_revision(&self) -> Result<(Option<Vec<u8>>, i64)> {
+        count_call("get_changelog_config_raw_with_revision");
+        let key = self.key(StoreKey::ChangelogConfig);
+        let resp = self
+            .inner
+            .client()
+            .clone()
+            .get(key, None)
+            .await
+            .map_err(assignment_coordination::error::Error::from)?;
+        let revision = resp.header().map(|h| h.revision()).unwrap_or(0);
+        Ok((resp.kvs().first().map(|kv| kv.value().to_vec()), revision))
     }
 
     /// Bypasses the protocol: see the crate's `test-support` feature.

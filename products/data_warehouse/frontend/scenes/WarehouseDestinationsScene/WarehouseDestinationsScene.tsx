@@ -45,7 +45,7 @@ export function WarehouseDestinationsScene(): JSX.Element {
     }
     const { openForCreate, openForEdit } = useActions(destinationModalLogic(modalProps))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const showAlerts = !!featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS]
+    const showAlerts = !!featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_WAREHOUSE]
 
     if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]) {
         return <NotFound object="page" caption="Warehouse destinations isn't available for this project yet." />

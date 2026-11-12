@@ -1,0 +1,8 @@
+{
+  "exitCode": 0,
+  "requests": [],
+  "files": {
+    "rn/index.android.bundle": "sha512:7a288200bed529fe6441685bdb0299122749177803ffb8a2c453cd65d026022188ba61494a47729875eb593abf017971805bb8a7927055111a2baa7ec05df8f0",
+    "rn/react-native-metro.js.map": "sha512:5ba632cd41b16e47e58f08a52a6a52f215ff2a18d68c53eaed2d05529e35ab437efabcb98aed425467b9f3e08368b3b05d2b87220ddbeb916cf8e913b8e64ab2"
+  }
+}

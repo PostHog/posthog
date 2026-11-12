@@ -20,7 +20,13 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.ranking import scorer, sweep
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
 from products.signals.backend.ranking.model_store import ModelLoadError
-from products.signals.backend.ranking.overrides import NO_OVERRIDES, RankingOverrides, parse_overrides
+from products.signals.backend.ranking.overrides import (
+    NO_OVERRIDES,
+    AutoPromotionInterval,
+    RankingOverrides,
+    parse_overrides,
+    read_auto_promotion_interval,
+)
 from products.signals.backend.ranking.scorer import NO_VECTOR, ReportScoringOutcome, ScoringError
 from products.signals.backend.ranking.sweep import ScoringCandidate, reports_due_for_scoring, score_inbox_reports
 from products.signals.backend.report_embedding_reader import REPORT_EMBEDDINGS_TABLE
@@ -30,6 +36,7 @@ MANIFEST = "manifest-b"
 OLD_MANIFEST = "manifest-a"
 SERVED_VERSION = "2026-09-01"
 SERVED_KEY = f"report_embeddings@{SERVED_VERSION}"
+OLD_SERVED_VERSION = "2026-08-25"
 
 
 def _score(
@@ -131,13 +138,7 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         )
 
     def _due(self, limit: int = 100) -> list[str]:
-        candidates = reports_due_for_scoring(
-            self.now,
-            manifest_version=MANIFEST,
-            served_key=SERVED_KEY,
-            rendering=EMBEDDING_RENDERING_TITLE_SUMMARY,
-            limit=limit,
-        )
+        candidates = reports_due_for_scoring(self.now, rendering=EMBEDDING_RENDERING_TITLE_SUMMARY, limit=limit)
         return [candidate.report_id for candidate in candidates]
 
     def test_due_reports_are_the_in_window_scorable_ones_whose_score_is_missing_or_stale(self) -> None:
@@ -156,12 +157,13 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         self._vector(edited, hours_ago=2)
         assert SignalReport.objects.get(id=edited).updated_at == updated_at
 
+        # A manifest that changes only the challengers keeps the served key, so the score stays current.
         other_manifest = self._report()
         self._scored(other_manifest, vector_at=self._vector(other_manifest, hours_ago=5), manifest=OLD_MANIFEST)
 
-        # A served override changes the served model under the same manifest version.
+        # A promotion or a served override changes the served model, and the old model's score stays current.
         other_served = self._report()
-        self._scored(other_served, vector_at=self._vector(other_served, hours_ago=5), served_version="2026-08-25")
+        self._scored(other_served, vector_at=self._vector(other_served, hours_ago=5), served_version=OLD_SERVED_VERSION)
 
         retracted = self._report()
         self._vector(retracted, hours_ago=5)
@@ -179,21 +181,21 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
 
         # A newer current score stored under another team must not count as this report's score.
         cross_team_score = self._report()
-        cross_team_vector = self._vector(cross_team_score, hours_ago=5)
-        self._scored(cross_team_score, vector_at=cross_team_vector, manifest=OLD_MANIFEST, hours_ago=3)
+        self._scored(cross_team_score, vector_at=self._vector(cross_team_score, hours_ago=5), hours_ago=3)
+        cross_team_vector = self._vector(cross_team_score, hours_ago=2)
         self._scored(cross_team_score, vector_at=cross_team_vector, team=other_team)
         SignalReportArtefact.objects.filter(team=other_team, report_id=cross_team_score).update(
             created_at=self.now + datetime.timedelta(hours=1)
         )
 
-        assert sorted(self._due()) == sorted([unscored, edited, other_manifest, other_served, cross_team_score])
+        assert sorted(self._due()) == sorted([unscored, edited, cross_team_score])
 
     def test_the_cap_keeps_unscored_reports_first_then_the_oldest_scores(self) -> None:
         recently_scored, long_ago_scored, unscored = self._report(), self._report(), self._report()
-        self._scored(recently_scored, vector_at=self._vector(recently_scored, hours_ago=5), manifest=OLD_MANIFEST)
-        self._scored(
-            long_ago_scored, vector_at=self._vector(long_ago_scored, hours_ago=5), manifest=OLD_MANIFEST, hours_ago=3
-        )
+        self._scored(recently_scored, vector_at=self._vector(recently_scored, hours_ago=5))
+        self._scored(long_ago_scored, vector_at=self._vector(long_ago_scored, hours_ago=5), hours_ago=3)
+        self._vector(recently_scored, hours_ago=2)
+        self._vector(long_ago_scored, hours_ago=2)
         self._vector(unscored, hours_ago=5)
 
         assert self._due(limit=2) == [unscored, long_ago_scored]
@@ -371,7 +373,6 @@ class TestScoreInboxReports(SimpleTestCase):
         score_inbox_reports()
 
         assert self.score_reports.call_args.kwargs["serving"] is self.serving
-        assert self.due.call_args.kwargs["served_key"] == SERVED_KEY
         self.logger.warning.assert_any_call(
             "inbox_ranking_override_rejected",
             override_served="tabular_xgb@2026-09-01",
@@ -447,11 +448,13 @@ class TestParseOverrides(SimpleTestCase):
                     "expires_at": EXPIRES,
                     "served": "report_embeddings@2026-10-03",
                     "pin": ["report_embeddings@2026-09-26"],
+                    "hold_auto_promotion": True,
                 },
                 RankingOverrides(
                     expires_at=datetime.datetime(2026, 10, 11, tzinfo=datetime.UTC),
                     served="report_embeddings@2026-10-03",
                     pin=("report_embeddings@2026-09-26",),
+                    hold_auto_promotion=True,
                 ),
                 None,
             ),
@@ -460,4 +463,62 @@ class TestParseOverrides(SimpleTestCase):
     def test_parse_overrides(self, _name: str, payload: Any, expected: RankingOverrides, warning: str | None) -> None:
         with patch("products.signals.backend.ranking.overrides.logger") as logger:
             assert parse_overrides(payload, now=NOW) == expected
+        assert [call.args[0] for call in logger.warning.call_args_list] == ([warning] if warning else [])
+
+
+class TestReadAutoPromotionInterval(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("flag_disabled", None, AutoPromotionInterval(days=3, source="setting"), None),
+            ("empty", {}, AutoPromotionInterval(days=3, source="setting"), None),
+            ("valid", {"interval_days": 1}, AutoPromotionInterval(days=1, source="flag"), None),
+            ("json_string", '{"interval_days": 7}', AutoPromotionInterval(days=7, source="flag"), None),
+            ("zero_turns_it_off", {"interval_days": 0}, AutoPromotionInterval(days=0, source="flag"), None),
+            (
+                "negative",
+                {"interval_days": -1},
+                AutoPromotionInterval(days=3, source="setting"),
+                "inbox_ranking_auto_promotion_invalid",
+            ),
+            (
+                "boolean",
+                {"interval_days": True},
+                AutoPromotionInterval(days=3, source="setting"),
+                "inbox_ranking_auto_promotion_invalid",
+            ),
+            (
+                "numeric_string",
+                {"interval_days": "1"},
+                AutoPromotionInterval(days=3, source="setting"),
+                "inbox_ranking_auto_promotion_invalid",
+            ),
+            (
+                "unknown_key",
+                {"interval_days": 1, "expires_at": EXPIRES},
+                AutoPromotionInterval(days=3, source="setting"),
+                "inbox_ranking_auto_promotion_invalid",
+            ),
+            (
+                "not_an_object",
+                [1],
+                AutoPromotionInterval(days=3, source="setting"),
+                "inbox_ranking_auto_promotion_invalid",
+            ),
+            (
+                "lookup_failed",
+                ConnectionError("flags unreachable"),
+                AutoPromotionInterval(days=3, source="setting"),
+                "inbox_ranking_auto_promotion_lookup_failed",
+            ),
+        ]
+    )
+    def test_read_auto_promotion_interval(
+        self, _name: str, payload: Any, expected: AutoPromotionInterval, warning: str | None
+    ) -> None:
+        lookup = {"side_effect": payload} if isinstance(payload, Exception) else {"return_value": payload}
+        with (
+            patch("products.signals.backend.ranking.overrides.posthoganalytics.get_feature_flag_payload", **lookup),
+            patch("products.signals.backend.ranking.overrides.logger") as logger,
+        ):
+            assert read_auto_promotion_interval(3) == expected
         assert [call.args[0] for call in logger.warning.call_args_list] == ([warning] if warning else [])

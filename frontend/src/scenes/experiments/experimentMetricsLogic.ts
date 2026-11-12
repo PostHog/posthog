@@ -6,10 +6,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
-import { Experiment, ExperimentStatus } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Experiment, ExperimentStatus } from '~/types'
 import type { ExperimentIdType } from '~/types'
 
 import { getExperimentStatus, isLaunched } from 'products/experiments/frontend/experimentStatus'
@@ -60,7 +61,7 @@ export type RecalculationPayload = Omit<ExperimentMetricsRecalculationJobApi, 'i
     Partial<
         Pick<ExperimentMetricsRecalculationRunApi, 'metric_retries' | 'results' | 'rows_read' | 'estimated_rows_total'>
     > &
-    Partial<Pick<ExperimentMetricsRecalculationLatestApi, 'result_source'>>
+    Partial<Pick<ExperimentMetricsRecalculationLatestApi, 'result_source' | 'exceeds_recalculation_age_limit'>>
 
 /**
  * This logic can only handle state when an experiment is present.
@@ -73,23 +74,34 @@ export interface ExperimentMetricsLogicProps {
 // minutes a dashboard waits between bulk refreshes. The backend applies the same window and returns that run.
 const MIN_MANUAL_REFRESH_INTERVAL_MINUTES = 5
 const RECALCULATION_POLL_INTERVAL_MS = 2000
+/** A run past the backend's 30-minute staleness threshold is usually waiting for a slot in a capped queue. */
+const QUEUED_RUN_AGE_MS = 30 * 60 * 1000
+const QUEUED_RUN_POLL_INTERVAL_MS = 60 * 1000
 const MAX_POLL_RETRIES = 5
 /**
- * Mirrors the backend's 30-minute staleness threshold (_STALE_RECALC_THRESHOLD): a run still non-terminal
- * past it is a zombie whose worker died, and the backend will force-fail it on the next trigger. Without
- * this cap every tab that resumed the run would poll its id (and the per-tick live-progress query) forever.
+ * Mirrors the backend's 1-hour ceiling (_QUEUED_RECALC_CEILING): a run still non-terminal past it is treated
+ * as dead, and the backend fails it on the next trigger. Without this cap every tab that resumed the run would
+ * poll its id (and the per-tick live-progress query) forever.
  */
-const MAX_POLL_DURATION_MS = 30 * 60 * 1000
+const MAX_POLL_DURATION_MS = 60 * 60 * 1000
 // A request that never settles neither resolves nor rejects, so without a deadline the page loads forever.
 const LATEST_REQUEST_TIMEOUT_MS = 30 * 1000
 const POLL_REQUEST_TIMEOUT_MS = 15 * 1000
 /** Each stale refresh is a full ClickHouse recalculation, so this threshold sets the load that page visits add. */
 const STALE_RESULTS_THRESHOLD_HOURS = 12
-/** A paused experiment collects no new data. An exposure-frozen one still collects metric events. */
+/**
+ * A paused experiment collects no new data. An exposure-frozen one still collects metric events. A stopped one needs
+ * one more run when its results stop well before the end date.
+ */
 const STALE_REFRESH_STATUSES: ReadonlySet<ExperimentStatus> = new Set([
     ExperimentStatus.Running,
     ExperimentStatus.ExposureFrozen,
+    ExperimentStatus.Stopped,
 ])
+
+function pollIntervalMs(runAgeMs: number): number {
+    return runAgeMs > QUEUED_RUN_AGE_MS ? QUEUED_RUN_POLL_INTERVAL_MS : RECALCULATION_POLL_INTERVAL_MS
+}
 
 class RecalculationRequestTimeoutError extends Error {}
 
@@ -190,6 +202,20 @@ const HEAL_TRIGGER_BY_RESULT_SOURCE = {
     timeseries_fallback: 'cold_run',
 } as const satisfies Record<ResultSourceEnumApi, ExperimentMetricsRecalculationRequestTriggerEnumApi>
 
+/**
+ * The page starts these runs without a click. The recalculation endpoint requires edit access, so for a reader
+ * without it the request can only fail.
+ */
+const AUTOMATIC_TRIGGERS: ReadonlySet<ExperimentMetricsRecalculationRequestTriggerEnumApi> = new Set([
+    'cold_run',
+    'heal_latest_run',
+    'stale_refresh',
+])
+
+const userCanEdit = (experiment: Experiment): boolean =>
+    !experiment.user_access_level ||
+    accessLevelSatisfied(AccessControlResourceType.Experiment, experiment.user_access_level, AccessControlLevel.Editor)
+
 const recalculationHasGap = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
     if (
         recalculation.status === RECALCULATION_STATUSES.pending ||
@@ -203,11 +229,23 @@ const recalculationHasGap = (experiment: Experiment, recalculation: Recalculatio
     return currentMetricUuids(experiment).some((uuid) => !coveredUuids.has(uuid))
 }
 
-const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPayload): boolean =>
-    STALE_REFRESH_STATUSES.has(getExperimentStatus(experiment)) &&
-    currentMetricUuids(experiment).length > 0 &&
-    !!recalculation.query_to &&
-    dayjs.utc().diff(dayjs.utc(recalculation.query_to), 'hour', true) > STALE_RESULTS_THRESHOLD_HOURS
+/**
+ * Results that stop more than the threshold before the window end: now for a running experiment, the end date for a
+ * stopped one. `_results_are_stale` in products/experiments/backend/recalculation.py repeats this rule, so change both.
+ */
+const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
+    if (
+        !STALE_REFRESH_STATUSES.has(getExperimentStatus(experiment)) ||
+        currentMetricUuids(experiment).length === 0 ||
+        !recalculation.query_to
+    ) {
+        return false
+    }
+    const now = dayjs.utc()
+    const endDate = experiment.end_date ? dayjs.utc(experiment.end_date) : null
+    const windowEnd = endDate && endDate.isBefore(now) ? endDate : now
+    return windowEnd.diff(dayjs.utc(recalculation.query_to), 'hour', true) > STALE_RESULTS_THRESHOLD_HOURS
+}
 
 type MetricErrorState = { detail: string; retriable: boolean } | null
 type ResolveByUuid<T> = (uuid: string) => T
@@ -257,6 +295,8 @@ const resolveResultByUuid = (
  * wins (it covers FAILED rows AND discovery-step failures absent from `results`), falling back to a
  * failed row's error_message. A rejected run carries the earlier run's rows, so its error is dropped on a
  * metric that has a row: the banner shows the message and the cell keeps the earlier result.
+ * `_shown_failure` in products/experiments/backend/health/latest_calculation.py repeats this rule for the health
+ * checks, so change both together.
  */
 const resolveErrorByUuid = (recalculation: RecalculationPayload): ResolveByUuid<MetricErrorState> => {
     const metricErrors = metricErrorEntries(recalculation)
@@ -299,6 +339,7 @@ export interface experimentMetricsLogicValues {
     queuedRerun: ExperimentMetricsRecalculationRequestTriggerEnumApi | null
     recalculatingMetricUuids: string[]
     recalculationAbandoned: boolean
+    recalculationAgeLimitExceeded: boolean
     recalculationDisplayState: 'cold' | 'initial' | 'partial' | 'refreshing' | 'resting'
     recalculationLoading: boolean
     recalculationProgress: {
@@ -307,6 +348,7 @@ export interface experimentMetricsLogicValues {
     }
     recalculationRejectionMessage: string | null
     refreshEligibilityTick: number
+    resultConfigurationNotice: 'previous' | 'unknown' | null
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: (unknown | null)[]
     totalMetricsCount: number
@@ -366,6 +408,7 @@ export interface experimentMetricsLogicActions {
 export interface experimentMetricsLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
+        resultConfigurationNotice: (currentRecalculation: RecalculationPayload | null) => 'previous' | 'unknown' | null
         isRecalculating: (
             recalculationLoading: boolean,
             currentRecalculation: RecalculationPayload | null,
@@ -377,6 +420,7 @@ export interface experimentMetricsLogicMeta {
         }
         totalMetricsCount: (arg: any) => number
         recalculationRejectionMessage: (currentRecalculation: RecalculationPayload | null) => string | null
+        recalculationAgeLimitExceeded: (currentRecalculation: RecalculationPayload | null) => boolean
         lastRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         nextAllowedManualRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         isManualRefreshBlocked: (
@@ -520,6 +564,15 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         ],
     }),
     selectors({
+        resultConfigurationNotice: [
+            (s) => [s.currentRecalculation],
+            (recalc: RecalculationPayload | null): 'previous' | 'unknown' | null => {
+                const statuses = (recalc?.results ?? [])
+                    .filter((result) => result.status === 'completed')
+                    .map((result) => result.configuration_status)
+                return statuses.includes('previous') ? 'previous' : statuses.includes('unknown') ? 'unknown' : null
+            },
+        ],
         // True while a recalculation is being fetched or is still running.
         isRecalculating: [
             (s) => [s.recalculationLoading, s.currentRecalculation, s.recalculationAbandoned],
@@ -552,6 +605,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         recalculationRejectionMessage: [
             (s) => [s.currentRecalculation],
             (recalc: RecalculationPayload | null): string | null => (recalc ? rejectionMessage(recalc) : null),
+        ],
+        // Only the latest payload carries the field, so a rejected run marks the limit too.
+        recalculationAgeLimitExceeded: [
+            (s) => [s.currentRecalculation],
+            (recalc: RecalculationPayload | null): boolean =>
+                !!recalc && (recalc.exceeds_recalculation_age_limit === true || rejectionMessage(recalc) !== null),
         ],
         lastRefresh: [
             (s) => [s.currentRecalculation],
@@ -873,6 +932,15 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 })
             },
             setCurrentRecalculation: () => {
+                const notice = values.resultConfigurationNotice
+                if (notice && cache.reportedConfigurationNotice !== notice) {
+                    cache.reportedConfigurationNotice = notice
+                    posthog.capture('experiment results configuration notice shown', {
+                        experiment_id: props.experiment.id,
+                        notice,
+                        age_limit_exceeded: values.recalculationAgeLimitExceeded,
+                    })
+                }
                 // Re-enable the reload button the moment the window closes, not on the next data load.
                 cache.disposables.dispose('manualRefreshEligibility')
                 const nextAllowed = values.nextAllowedManualRefresh
@@ -893,6 +961,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  * run. Stopped experiments are allowed — they still need their final results computed.
                  */
                 if (!experimentIsLaunched()) {
+                    return
+                }
+                if (AUTOMATIC_TRIGGERS.has(trigger) && !userCanEdit(props.experiment)) {
                     return
                 }
                 /**
@@ -1073,13 +1144,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  * stop polling, and clear recalculation state. This includes any queued rerun, that will never
                  * be fired.
                  */
-                if (Date.now() - (cache.recalcStartMs ?? Date.now()) > MAX_POLL_DURATION_MS) {
+                const runAgeMs = Date.now() - (cache.recalcStartMs ?? Date.now())
+                if (runAgeMs > MAX_POLL_DURATION_MS) {
                     actions.abandonRecalculation('poll_duration_cap', recalculationId)
                     return
                 }
 
                 // Pace this tick; aborts here if a newer poll superseded us or the logic unmounted.
-                await breakpoint(RECALCULATION_POLL_INTERVAL_MS)
+                await breakpoint(pollIntervalMs(runAgeMs))
 
                 let recalculation: ExperimentMetricsRecalculationRunApi
                 try {

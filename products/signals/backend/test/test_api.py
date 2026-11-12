@@ -1,4 +1,6 @@
 import uuid
+import asyncio
+from threading import Barrier
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -20,7 +22,9 @@ from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 
 
 @pytest.fixture
-def team_stub() -> MagicMock:
+def team_stub(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    monkeypatch.setattr("products.signals.backend.facade.api.finalized_signal_ids", MagicMock(return_value=set()))
+    monkeypatch.setattr("products.signals.backend.facade.api.admit_signal", MagicMock())
     org = MagicMock()
     org.is_ai_data_processing_approved = True
     team = MagicMock()
@@ -28,6 +32,37 @@ def team_stub() -> MagicMock:
     team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
     team.organization = org
     return team
+
+
+@pytest.mark.asyncio
+async def test_slow_admission_does_not_block_other_emissions(team_stub: MagicMock) -> None:
+    admissions = Barrier(2, timeout=10)
+    client = AsyncMock()
+
+    def admit(**kwargs: object) -> None:
+        admissions.wait()
+
+    with (
+        patch("products.signals.backend.facade.api.admit_signal", side_effect=admit),
+        patch("products.signals.backend.facade.api.async_connect", return_value=client),
+        patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+    ):
+        results = await asyncio.gather(
+            *(
+                emit_signal(
+                    team=team_stub,
+                    source_product="github",
+                    source_type="issue",
+                    source_id=source_id,
+                    description="A valid signal",
+                    extra=GITHUB_ISSUE_EXTRA,
+                )
+                for source_id in ("first", "second")
+            )
+        )
+
+    assert results == [True, True]
+    assert client.start_workflow.await_count == 4
 
 
 SESSION_PROBLEM_EXTRA = {
@@ -84,6 +119,32 @@ GITHUB_ISSUE_EXTRA = {
 
 @pytest.mark.asyncio
 class TestEmitSignalValidation:
+    @pytest.mark.parametrize("ai_approved, source_enabled", [(False, True), (True, False)])
+    @pytest.mark.parametrize("has_spend_owner", [False, True])
+    async def test_disabled_emission_completes_existing_spend(
+        self, team_stub: MagicMock, ai_approved: bool, source_enabled: bool, has_spend_owner: bool
+    ) -> None:
+        team_stub.organization.is_ai_data_processing_approved = ai_approved
+        signal_id = str(uuid.uuid4()) if has_spend_owner else None
+        with (
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=source_enabled),
+            patch("products.signals.backend.facade.api.complete_signal_pipeline") as complete,
+            patch("products.signals.backend.facade.api.async_connect") as connect,
+        ):
+            await emit_signal(
+                team=team_stub,
+                source_product="zendesk",
+                source_type="ticket",
+                source_id="disabled-source",
+                description="An existing signal cannot enter the disabled pipeline",
+                signal_id=signal_id,
+            )
+        if signal_id:
+            complete.assert_called_once_with(team_id=team_stub.id, signal_id=signal_id, billing_exempt=False)
+        else:
+            complete.assert_not_called()
+        connect.assert_not_called()
+
     @pytest.mark.parametrize(
         "source_product, source_type, extra",
         [

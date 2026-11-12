@@ -121,8 +121,8 @@ Classes already present in the codebase hot-reload fine.
 
 `lib/utils/dom.ts` has two checks:
 
-- `inStorybook()` is true in any Storybook page.
-- `inStorybookTestRunner()` is true only while the runner takes snapshots. The runner sets its user agent before any page script runs, so a check at module scope sees it too.
+- `inStorybook()` is true in any Storybook page, including while the runner takes snapshots. Use it by default.
+- `inStorybookTestRunner()` is true only while the runner takes snapshots. Use it when a value should stay live for a person browsing Storybook and only freeze for snapshots. The runner sets its user agent before any page script runs, so a check at module scope sees it too.
 
 App code uses them to freeze values that change on every run, for example a fixed query ID in `dataNodeLogic` and a still progress bar in `LoadingBar`.
 Prefer a mock or a parameter in the story. Use these checks only when the value comes from inside the component and no mock reaches it.

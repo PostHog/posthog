@@ -37,6 +37,11 @@ function makeAlert(overrides: Partial<PlatformAlertConfigurationApi> = {}): Plat
         alerts: [],
         labels: {},
         annotations: {},
+        created_by: null,
+        last_checked_at: null,
+        last_error_message: null,
+        state_timeline: [],
+        destination_types: [],
         ...overrides,
     }
 }

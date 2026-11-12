@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { Handler, viewportResizeDimension } from 'posthog-js/rrweb-types'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { PlayerFrameAmbient } from 'scenes/session-recordings/player/PlayerFrameAmbient'
 import { recordPlayerFrameMount } from 'scenes/session-recordings/player/playerFrameLoadDiagnostics'
 import { getPlayerFrameScale, isIOS } from 'scenes/session-recordings/player/playerFrameScaling'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -153,6 +154,7 @@ export const PlayerFrame = (): JSX.Element => {
 
     return (
         <div ref={containerRef} className={clsx('PlayerFrame ph-no-capture', isIOS() && 'PlayerFrame--ios')}>
+            <PlayerFrameAmbient />
             <iframe
                 // A frame can stay on about:blank with its navigation never committed, and a new src on that
                 // element does not always start a new navigation. A new element does.

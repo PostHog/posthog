@@ -3,7 +3,7 @@ import hmac
 import hashlib
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from typing import Any, Literal, Union
+from typing import Any, Literal
 from urllib.parse import quote, urlencode
 
 from django.conf import settings
@@ -25,7 +25,7 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.two_factor_session import has_passkeys
-from posthog.models.integration import Integration
+from posthog.integrations import CrossTeamFilter, IntegrationConflict, IntegrationManager, IntegrationRecord
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
@@ -36,7 +36,8 @@ from posthog.models.user import User
 from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.utils import absolute_uri
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.api import get_experiment_team_id
+from products.experiments.backend.facade.contracts import ExperimentChanged
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
 
@@ -136,10 +137,34 @@ class VercelSetupResult:
     resource_id: str
 
 
-@dataclass
+def _get_feature_flag_team_id(flag_id: int) -> int | None:
+    # nosemgrep: idor-lookup-without-team (the SSO redirect checks the user's membership in the returned team)
+    return FeatureFlag.objects.filter(pk=flag_id).values_list("team_id", flat=True).first()
+
+
+@frozen
 class SSOExperimentationConfig:
-    model: Union[type[FeatureFlag], type[Experiment]]
+    # The team of the item with this id, or None when there is no such item.
+    get_team_id: Callable[[int], int | None]
     url_template: str
+
+
+def get_or_create_connectable_resource(team: Team) -> tuple[IntegrationRecord, bool]:
+    """The team's Vercel resource, created as a connectable resource when the team has none."""
+    resources = IntegrationManager.vercel.oauth
+    existing = resources.find(team.pk, external_id=str(team.pk))
+    if existing is not None:
+        return existing, False
+    try:
+        created = resources.create(team.pk, external_id=str(team.pk), config={"type": "connectable"})
+        return created, True
+    except IntegrationConflict:
+        # A concurrent request created the row between the read and the insert. The SDK creates in a
+        # savepoint, so the caller's transaction stays usable for the second read.
+        existing = resources.find(team.pk, external_id=str(team.pk))
+        if existing is None:
+            raise
+        return existing, False
 
 
 class VercelIntegration:
@@ -156,11 +181,11 @@ class VercelIntegration:
     # this could be handled in the frontend instead.
     SSO_EXPERIMENTATION_CONFIG: dict[str, SSOExperimentationConfig] = {
         "flag": SSOExperimentationConfig(
-            model=FeatureFlag,
+            get_team_id=_get_feature_flag_team_id,
             url_template="/project/{team_id}/feature-flags/{item_pk}",
         ),
         "experiment": SSOExperimentationConfig(
-            model=Experiment,
+            get_team_id=get_experiment_team_id,
             url_template="/project/{team_id}/experiments/{item_pk}",
         ),
     }
@@ -175,32 +200,30 @@ class VercelIntegration:
             raise exceptions.NotFound("Installation not found")
 
     @staticmethod
-    def _get_resource(resource_id: str) -> Integration:
+    def _get_resource(installation: OrganizationIntegration, resource_id: str) -> IntegrationRecord:
+        """The resource with this id in a team of the installation's organization."""
         try:
-            # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
-            return Integration.objects.get(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
-        except Integration.DoesNotExist:
+            resource_pk = int(resource_id)
+        except (TypeError, ValueError):
             raise exceptions.NotFound("Resource not found")
-
-    @staticmethod
-    def _validate_resource_belongs_to_installation(
-        resource: Integration, installation: OrganizationIntegration
-    ) -> None:
-        if not resource.team.organization.organizationintegration_set.filter(
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL, integration_id=installation.integration_id
-        ).exists():
-            raise exceptions.ValidationError({"resource": "Resource does not belong to this installation."})
-
-    @staticmethod
-    def _get_resource_with_installation(resource_id: str) -> tuple[Integration, OrganizationIntegration]:
-        resource = VercelIntegration._get_resource(resource_id)
-        org_integration = resource.team.organization.organizationintegration_set.get(
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL
+        # Vercel names a resource only by our row id, and an integration read by id needs the team.
+        # The installation gives the organization, so read the Vercel rows of its teams.
+        team_ids = Team.objects.filter(organization_id=installation.organization_id).values_list("id", flat=True)
+        # Rows come back ordered by id, so `after_id` with `limit=1` reads only the row with this id, if any.
+        resources = IntegrationManager.vercel.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(team_ids), after_id=resource_pk - 1, limit=1)
         )
-        if not org_integration.integration_id:
-            raise exceptions.NotFound("Installation not found")
-        installation = VercelIntegration._get_installation(org_integration.integration_id)
-        return resource, installation
+        resource = resources[0] if resources and resources[0].id == resource_pk else None
+        if resource is None:
+            raise exceptions.NotFound("Resource not found")
+        return resource
+
+    @staticmethod
+    def _get_resource_with_installation(
+        installation_id: str, resource_id: str
+    ) -> tuple[IntegrationRecord, OrganizationIntegration]:
+        installation = VercelIntegration._get_installation(installation_id)
+        return VercelIntegration._get_resource(installation, resource_id), installation
 
     @staticmethod
     def _cleanup_failed_installation(
@@ -568,64 +591,68 @@ class VercelIntegration:
                 user=installation.created_by,
             )
 
-        resource = Integration.objects.create(
-            team=team,
-            kind=Integration.IntegrationKind.VERCEL,
-            integration_id=str(team.pk),
+        resource = IntegrationManager.vercel.oauth.create(
+            team.pk,
+            external_id=str(team.pk),
             config=asdict(config),
-            created_by=installation.created_by,
+            created_by_id=installation.created_by_id,
         )
 
         logger.info(
             "Successfully created Vercel resource",
             installation_id=installation_id,
-            resource_id=resource.pk,
+            resource_id=resource.id,
             team_id=team.pk,
             integration="vercel",
         )
 
-        return VercelIntegration._build_resource_response(resource, installation)
+        return VercelIntegration._build_resource_response(resource, team, installation)
 
     @staticmethod
-    def get_resource(resource_id: str) -> dict[str, Any]:
-        resource, installation = VercelIntegration._get_resource_with_installation(resource_id)
-        return VercelIntegration._build_resource_response(resource, installation)
+    def get_resource(installation_id: str, resource_id: str) -> dict[str, Any]:
+        resource, installation = VercelIntegration._get_resource_with_installation(installation_id, resource_id)
+        team = Team.objects.get(pk=resource.team_id)
+        return VercelIntegration._build_resource_response(resource, team, installation)
 
     @staticmethod
-    def update_resource(resource_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
+    def update_resource(installation_id: str, resource_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
         logger.info("Starting Vercel resource update", resource_id=resource_id, integration="vercel")
-        resource, installation = VercelIntegration._get_resource_with_installation(resource_id)
+        resource, installation = VercelIntegration._get_resource_with_installation(installation_id, resource_id)
 
-        updated_config = copy.deepcopy(resource.config)
+        updated_config = copy.deepcopy(dict(resource.config))
         updated_config.update(resource_data)
 
         validated_config = ResourceConfig(**updated_config)
-        resource.config = asdict(validated_config)
-        resource.save(update_fields=["config"])
+        resource = IntegrationManager.vercel.oauth.update(
+            resource.team_id, resource.id, config_patch=asdict(validated_config)
+        )
 
         logger.info("Successfully updated Vercel resource", resource_id=resource_id, integration="vercel")
-        return VercelIntegration._build_resource_response(resource, installation)
+        team = Team.objects.get(pk=resource.team_id)
+        return VercelIntegration._build_resource_response(resource, team, installation)
 
     @staticmethod
-    def delete_resource(resource_id: str) -> None:
+    def delete_resource(installation_id: str, resource_id: str) -> None:
         logger.info("Starting Vercel resource deletion", resource_id=resource_id, integration="vercel")
-        resource, _ = VercelIntegration._get_resource_with_installation(resource_id)
-        resource.delete()
+        resource, _ = VercelIntegration._get_resource_with_installation(installation_id, resource_id)
+        IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
         logger.info("Successfully deleted Vercel resource", resource_id=resource_id, integration="vercel")
 
     @staticmethod
-    def _build_resource_response(resource: Integration, installation: OrganizationIntegration) -> dict[str, Any]:
+    def _build_resource_response(
+        resource: IntegrationRecord, team: Team, installation: OrganizationIntegration
+    ) -> dict[str, Any]:
         billing_plans = VercelIntegration.get_vercel_plans()
         current_plan_id = installation.config.get("billing_plan_id", "posthog-usage-based")
         current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
 
         return {
-            "id": str(resource.pk),
+            "id": str(resource.id),
             "productId": resource.config.get("productId", ""),
-            "name": resource.config.get("name", resource.team.name),
+            "name": resource.config.get("name", team.name),
             "metadata": resource.config.get("metadata", {}),
             "status": "ready",
-            "secrets": VercelIntegration._build_secrets(resource.team),
+            "secrets": VercelIntegration._build_secrets(team),
             "billingPlan": current_plan,
         }
 
@@ -642,11 +669,8 @@ class VercelIntegration:
         ]
 
     @staticmethod
-    def _get_vercel_resource_for_team(team: Team) -> Integration | None:
-        try:
-            return Integration.objects.get(team=team, kind=Integration.IntegrationKind.VERCEL)
-        except Integration.DoesNotExist:
-            return None
+    def _get_vercel_resource_for_team(team: Team) -> IntegrationRecord | None:
+        return IntegrationManager.vercel.oauth.find(team.pk)
 
     @staticmethod
     def _get_installation_for_organization(organization: Organization) -> OrganizationIntegration | None:
@@ -727,7 +751,7 @@ class VercelIntegration:
             )
             return None
 
-        resource_id = str(resource.pk)
+        resource_id = str(resource.id)
 
         logger.debug(
             "Successfully set up Vercel client",
@@ -868,22 +892,22 @@ class VercelIntegration:
         )
 
     @staticmethod
-    def sync_experiment_to_vercel(experiment: Experiment, created: bool) -> None:
-        vercel_item = VercelIntegration._convert_experiment_to_vercel_item(experiment, created)
+    def sync_experiment_to_vercel(team: Team, experiment: ExperimentChanged) -> None:
+        vercel_item = VercelIntegration._convert_experiment_to_vercel_item(experiment)
         VercelIntegration._sync_item_to_vercel(
-            team=experiment.team,
+            team=team,
             item_type="experiment",
-            item_pk=experiment.pk,
+            item_pk=experiment.experiment_id,
             vercel_item=vercel_item,
-            created=created,
+            created=experiment.created,
         )
 
     @staticmethod
-    def delete_experiment_from_vercel(experiment: Experiment) -> None:
+    def delete_experiment_from_vercel(team: Team, experiment_id: int) -> None:
         VercelIntegration._delete_item_from_vercel(
-            team=experiment.team,
+            team=team,
             item_type="experiment",
-            item_id=VercelIntegration._get_vercel_item_id("experiment", experiment.pk),
+            item_id=VercelIntegration._get_vercel_item_id("experiment", experiment_id),
         )
 
     @staticmethod
@@ -901,11 +925,14 @@ class VercelIntegration:
         }
 
     @staticmethod
-    def _convert_experiment_to_vercel_item(experiment: Experiment, created: bool) -> dict:
+    def _convert_experiment_to_vercel_item(experiment: ExperimentChanged) -> dict:
+        experiment_id = experiment.experiment_id
         return {
-            **({"id": VercelIntegration._get_vercel_item_id("experiment", experiment.pk)} if created else {}),
-            "slug": slugify(experiment.name) or f"experiment-{experiment.pk}",
-            "origin": absolute_uri(f"/project/{experiment.team.id}/experiments/{experiment.pk}"),
+            **(
+                {"id": VercelIntegration._get_vercel_item_id("experiment", experiment_id)} if experiment.created else {}
+            ),
+            "slug": slugify(experiment.name) or f"experiment-{experiment_id}",
+            "origin": absolute_uri(f"/project/{experiment.team_id}/experiments/{experiment_id}"),
             "category": "experiment",
             "name": experiment.name,
             "description": experiment.description or "",
@@ -976,7 +1003,7 @@ class VercelIntegration:
             user.save(update_fields=["is_email_verified"])
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         if resource_id:
-            VercelIntegration.set_active_project(user, resource_id)
+            VercelIntegration.set_active_project(user, claims.installation_id, resource_id)
         return user
 
     @staticmethod
@@ -1040,7 +1067,7 @@ class VercelIntegration:
 
             # Set active project if provided, otherwise set the user's current organization
             if params.resource_id:
-                VercelIntegration.set_active_project(request.user, params.resource_id)
+                VercelIntegration.set_active_project(request.user, claims.installation_id, params.resource_id)
 
             redirect_url = VercelIntegration.determine_sso_redirect(
                 path=params.path,
@@ -1321,16 +1348,15 @@ class VercelIntegration:
         if not config:
             return None
 
-        model_class = config.model
-        item = model_class.objects.filter(pk=item_pk).first()
-        if not item:
+        team_id = config.get_team_id(item_pk)
+        if team_id is None:
             return None
 
         # Sanity check to ensure the user has access to the item's team
-        if not user.teams.filter(pk=item.team.pk).exists():
+        if not user.teams.filter(pk=team_id).exists():
             return None
 
-        return config.url_template.format(team_id=item.team.id, item_pk=item.pk)
+        return config.url_template.format(team_id=team_id, item_pk=item_pk)
 
     @staticmethod
     def _parse_sso_item_id(item_id: str) -> tuple[str | None, int | None]:
@@ -1346,13 +1372,13 @@ class VercelIntegration:
         return None, None
 
     @staticmethod
-    def set_active_project(user: User, resource_id: str):
-        # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
-        resource = Integration.objects.filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL).first()
-        if not resource:
+    def set_active_project(user: User, installation_id: str, resource_id: str):
+        try:
+            resource, _ = VercelIntegration._get_resource_with_installation(installation_id, resource_id)
+        except exceptions.NotFound:
             raise exceptions.NotFound(f"Vercel resource not found: {resource_id}")
 
-        team = resource.team
+        team = Team.objects.filter(pk=resource.team_id).first()
         if not team:
             raise exceptions.ValidationError(f"Resource has no associated team: {resource_id}")
 
@@ -1432,12 +1458,7 @@ def _safe_vercel_sync(
         if not installation:
             return
         try:
-            resource, created = Integration.objects.get_or_create(
-                team=team,
-                kind=Integration.IntegrationKind.VERCEL,
-                integration_id=str(team.pk),
-                defaults={"config": {"type": "connectable"}},
-            )
+            resource, created = get_or_create_connectable_resource(team)
             if created:
                 logger.info(
                     "Auto-created Vercel resource for connectable installation",
@@ -1449,7 +1470,7 @@ def _safe_vercel_sync(
                     client = VercelAPIClient(bearer_token=access_token)
                     client.import_resource(
                         integration_config_id=installation.integration_id,
-                        resource_id=str(resource.pk),
+                        resource_id=str(resource.id),
                         product_id="posthog",
                         name=team.name,
                         secrets=VercelIntegration._build_secrets(team),

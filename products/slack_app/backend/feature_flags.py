@@ -37,7 +37,8 @@ from __future__ import annotations
 import structlog
 import posthoganalytics
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationRecord
+from posthog.models.team import Team
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES, has_scopes
@@ -48,6 +49,12 @@ logger = structlog.get_logger(__name__)
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
+SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
+SLACK_APP_LINK_SEARCH_SCOPES_FLAG = "slack-app-link-search-scopes"
+SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
+SLACK_APP_RUNTIME_HANDOFF_FLAG = "slack-app-runtime-handoff"
+SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
+SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -65,9 +72,13 @@ def _region_properties() -> dict[str, str]:
     return {"region": get_instance_region() or "dev"}
 
 
+def _organization_id(integration: IntegrationRecord) -> str:
+    return str(Team.objects.values_list("organization_id", flat=True).get(id=integration.team_id))
+
+
 def _workspace_flag_enabled(
     flag: str,
-    integration: Integration,
+    integration: IntegrationRecord,
     *,
     failure_log_key: str,
     distinct_id: str | None = None,
@@ -80,7 +91,7 @@ def _workspace_flag_enabled(
 
     ``distinct_id`` identifies the PostHog user the check is being made for, and becomes
     the identity the flag resolves against. It is a distinct ID rather than a user id so
-    a caller can pass what it already holds, and so deciding a gate costs no query here.
+    a caller can pass what it already holds.
     Without one the gate falls back to the Slack workspace, which no person rule can
     match.
     """
@@ -89,7 +100,7 @@ def _workspace_flag_enabled(
             posthoganalytics.feature_enabled(
                 flag,
                 distinct_id or f"slack_workspace:{integration.integration_id}",
-                groups={"organization": str(integration.team.organization_id)},
+                groups={"organization": _organization_id(integration)},
                 person_properties=_region_properties(),
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
@@ -100,7 +111,7 @@ def _workspace_flag_enabled(
         return False
 
 
-def is_slack_app_oauth_enabled(integration: Integration) -> bool:
+def is_slack_app_oauth_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the Slack user-identity OAuth link feature, covering both backend
     (offering the invite button, accepting the link callback, listing/starting
     from settings) and frontend (rendering the Slack card in Personal
@@ -109,7 +120,7 @@ def is_slack_app_oauth_enabled(integration: Integration) -> bool:
     return has_scopes(integration, OAUTH_REQUIRED_SCOPES)
 
 
-def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
+def is_slack_app_agent_design_enabled(integration: IntegrationRecord, distinct_id: str | None = None) -> bool:
     """Gate for the agent-design plan-block streaming surface on Slack task runs.
     Posts through the ``chat:write`` the mention flow already requires, so this is the
     flag alone.
@@ -126,7 +137,23 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None, *, adapter: str = "codex") -> bool:
+def is_slack_app_jev_needs_repo_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Gate for asking Jev whether a mention needs code before any repository is picked.
+
+    ``distinct_id`` is the PostHog user who mentioned the app. Off, repository selection
+    keeps the cascade it had before: one connected repository is used without asking.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_JEV_NEEDS_REPO_FLAG,
+        integration,
+        failure_log_key="slack_app_jev_needs_repo_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_byos_enabled(
+    integration: IntegrationRecord, distinct_id: str | None, *, adapter: str = "codex"
+) -> bool:
     """Gate for Slack runs that bill to the user's own plan.
 
     Depends on the tasks rollout flag for that plan, which is checked first. A Slack run
@@ -136,7 +163,7 @@ def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None,
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — keeps tasks off this import path
 
     if not tasks_facade.own_subscription_cloud_enabled(
-        adapter, distinct_id=distinct_id, organization_id=str(integration.team.organization_id)
+        adapter, distinct_id=distinct_id, organization_id=_organization_id(integration)
     ):
         return False
     return _workspace_flag_enabled(
@@ -147,14 +174,14 @@ def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None,
     )
 
 
-def is_slack_app_assistant_enabled(integration: Integration) -> bool:
+def is_slack_app_assistant_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the DM assistant: the install must hold the scopes the DM surface
     calls — ``im:history`` in particular, without which the assistant would answer
     once and then go deaf to follow-ups."""
     return has_scopes(integration, ASSISTANT_REQUIRED_SCOPES)
 
 
-def is_slack_app_forking_enabled(integration: Integration) -> bool:
+def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the "Fork to DM" menu under a reply.
 
     A fork lands in a DM and is answered there, so it inherits the assistant
@@ -173,4 +200,51 @@ def is_slack_app_forking_enabled(integration: Integration) -> bool:
         SLACK_APP_FORKING_FLAG,
         integration,
         failure_log_key="slack_app_forking_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_link_search_scopes_enabled(integration: IntegrationRecord) -> bool:
+    """The account link asks for the search scopes only once the Slack app manifest declares them. Slack refuses an
+    authorize request for an undeclared scope, so this flag guards every account link, not only the onboarding."""
+    return _workspace_flag_enabled(
+        SLACK_APP_LINK_SEARCH_SCOPES_FLAG,
+        integration,
+        failure_log_key="slack_app_link_search_scopes_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_connect_tool_from_chat_enabled(integration: IntegrationRecord) -> bool:
+    return _workspace_flag_enabled(
+        SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG,
+        integration,
+        failure_log_key="slack_app_connect_tool_from_chat_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_runtime_handoff_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Gate for moving a live thread onto a model from the other runtime by stopping its run and resuming the
+    task in a new run. ``distinct_id`` is the PostHog user who asked for the model, so a person rule matches them."""
+    return _workspace_flag_enabled(
+        SLACK_APP_RUNTIME_HANDOFF_FLAG,
+        integration,
+        failure_log_key="slack_app_runtime_handoff_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_daily_work_focus_enabled(integration: IntegrationRecord) -> bool:
+    return _workspace_flag_enabled(
+        SLACK_APP_DAILY_WORK_FOCUS_FLAG,
+        integration,
+        failure_log_key="slack_app_daily_work_focus_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_onboarding_enabled(integration: IntegrationRecord) -> bool:
+    """Keyed on the workspace, because most people who get the onboarding thread are not linked to a PostHog user
+    yet. Each step checks its own scopes."""
+    return _workspace_flag_enabled(
+        SLACK_APP_ONBOARDING_FLAG,
+        integration,
+        failure_log_key="slack_app_onboarding_feature_flag_check_failed",
     )

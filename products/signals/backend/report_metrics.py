@@ -49,6 +49,7 @@ MAX_METRIC_UNIT_LENGTH = 40
 # Trailing longitudinal buckets saved next to the value snapshot so an inbox row can draw the trend
 # without running the query. Two weeks of daily buckets is enough shape for a row-sized bar or line strip.
 MAX_METRIC_SERIES_POINTS = 14
+MAX_SERIES_BUCKET_LABEL_LENGTH = 32
 # `value_at` is authored content, not a server timestamp, so allow a small clock-skew margin before
 # treating a snapshot time as an impossible future one.
 METRIC_VALUE_AT_MAX_CLOCK_SKEW = timedelta(minutes=5)
@@ -435,6 +436,13 @@ class ReportMetric(BaseModel):
             "snapshot series is available."
         ),
     )
+    series_buckets: list[str] | None = Field(
+        default=None,
+        description=(
+            "The Trends bucket label of each `series` point, such as `2026-11-09` or `2026-11-09 10:00:00` in the "
+            "project's timezone. Saved by snapshot refreshes; null when the buckets were not recorded."
+        ),
+    )
     value_format: ReportMetricValueFormat = Field(
         default="number",
         description=(
@@ -553,6 +561,15 @@ class ReportMetric(BaseModel):
             raise ValueError("must contain only finite numbers")
         return value
 
+    @field_validator("series_buckets")
+    @classmethod
+    def series_buckets_must_be_short_labels(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and (
+            len(value) > MAX_METRIC_SERIES_POINTS or any(len(label) > MAX_SERIES_BUCKET_LABEL_LENGTH for label in value)
+        ):
+            raise ValueError(f"must hold at most {MAX_METRIC_SERIES_POINTS} labels, each a date or datetime")
+        return value
+
     @field_validator("value_at")
     @classmethod
     def value_at_must_be_an_instant_in_utc(cls, value: datetime | None) -> datetime | None:
@@ -622,7 +639,8 @@ class ReportMetric(BaseModel):
             raise ValueError("value and value_at must be provided together")
         self._drop_a_snapshot_measured_in_the_future()
         if self.series is not None and self.value_at is None:
-            raise ValueError("series is part of the snapshot and needs value and value_at")
+            logger.warning("report metric %s dropped a series without a snapshot", self.metric_id)
+            self.series = None
         if self.kind == "affected_users":
             if self.value_format != "count":
                 raise ValueError("an affected_users metric must use count formatting")

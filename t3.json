@@ -1,0 +1,9 @@
+{
+    "scripts": [
+        {
+            "name": "Devbox for this worktree",
+            "command": "bin/devbox-worktree-hook created t3code",
+            "runOnWorktreeCreate": true
+        }
+    ]
+}

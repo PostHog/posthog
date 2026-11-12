@@ -15,6 +15,7 @@ A ContextVar holds the **canonical** team_id — the parent team's id when the t
 ## Where context gets set
 
 - **DRF nested views** — `TeamAndOrgViewSetMixin.initial()` sets it from the URL `self.team_id` (the team being acted on, not the user's "current" team). Reuses `self.team.parent_team_id` if cached by permission checks for free.
+  The scope then remembers that it was resolved from the URL team id, so `resolve_effective_team_id()` returns the canonical id for that id without a query. `for_team()`, `team_scope()` and `ProductTeamModel.save()` all go through it.
 - **Celery tasks** — `@with_team_scope()` decorator extracts a `team_id` parameter from the task signature.
 - **Management commands / ad-hoc scripts** — `with team_scope(team_id):` block.
 
@@ -53,6 +54,38 @@ from posthog.models.scoping import with_team_scope
 def my_task(team_id: int):
     Repo.objects.all()
 ```
+
+## Fetch mode
+
+Scoped querysets use `FETCH_RELATION_PEERS`, a variant of Django's `FETCH_PEERS` fetch mode.
+When code reads a relation that a row has not loaded, Django loads it for every row from the same query, in one query.
+A loop that reads `run.repo` on each of N rows costs 2 queries, not N + 1.
+The batch covers every row the query returned, so a loop that reads one row and stops still loads the relation for all of them.
+Slice the queryset when you only need the first rows.
+
+Deferred fields from `.only()` and `.defer()` still load one row at a time.
+Django's batched load of a deferred field overwrites values already assigned on other rows, and fails when another row has been deleted.
+
+`.iterator()` and `.aiterator()` use `FETCH_ONE`.
+A streamed query shares one peer list across all its rows, so `FETCH_PEERS` would scan a growing list on each read.
+Use `select_related()` in a streamed loop that reads a relation.
+
+To opt out, call `.fetch_mode(models.FETCH_ONE)` on the queryset.
+
+### In tests
+
+Under pytest, scoped querysets use `FETCH_RAISE_ON_PEERS` instead.
+A lazy load on a row from a multi-row query raises `FieldFetchBlocked`, because without the batch it costs one query per row.
+The error names the model, the field, and the fix: `select_related()` or `prefetch_related()` for a relation, `only()` for a deferred field.
+A row from `.get()`, `.first()` or a one-row result still loads lazily.
+
+Django fetch modes cover forward foreign keys, one-to-one fields in both directions, generic foreign keys and deferred fields.
+They do not cover reverse foreign key or many-to-many managers such as `flag.experiments.all()`, so use `prefetch_related()` and an `assertNumQueries` test for those.
+
+If app code catches the `FieldFetchBlocked`, the root `conftest.py` still fails the test that made the load.
+
+Fix a failure with `select_related()`, `prefetch_related()` or `only()`.
+To keep production batching on purpose, set `.fetch_mode(FETCH_RELATION_PEERS)` on the queryset that loads the rows.
 
 ## Adoption
 

@@ -1,12 +1,15 @@
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import datetime
 from functools import cached_property
 
 from .event import TraceEvent
+from .git import GitRef
+from .node_ids import NodeIdResolver, NodeIds
+from .node_labels import number_repeated_names
 from .thread import pick_user_visible_generation
 from .timeline import Timeline
 from .trace_queries import PersonRow, TraceEventRow
-from .tree import build_tree
+from .tree import TreeNode, build_tree
 from .usage import Usage, sum_known
 
 BILLED_EVENTS = frozenset({"$ai_generation", "$ai_embedding"})
@@ -41,6 +44,13 @@ class Trace:
         return self.name or "Trace"
 
     @cached_property
+    def node_labels(self) -> dict[str, str]:
+        nodes = list(_in_tree_order(self.tree))
+        ids = [self.id, *(node.event.id for node in nodes)]
+        names = [self.title, *(node.event.title for node in nodes)]
+        return dict(zip(ids, number_repeated_names(names), strict=True))
+
+    @cached_property
     def error_count(self) -> int:
         return sum(1 for event in self.events if event.has_error)
 
@@ -68,22 +78,21 @@ class Trace:
 
     @cached_property
     def default_node_id(self) -> str:
-        if any(event.is_trace_event for event in self.events):
+        if any(event.is_trace_event and event.row.has_state for event in self.events):
             return self.id
-        first_generation = next((node for node in self.tree if node.event.kind == "generation"), None)
-        chosen = first_generation or next(iter(self.tree), None)
-        return chosen.event.id if chosen else self.id
+        return next(iter(self.thread_node_ids), None) or next((node.event.id for node in self.tree), self.id)
 
     @cached_property
     def node_ids_by_alias(self) -> dict[str, str]:
-        aliases: dict[str, str] = {}
-        for event in self.events:
-            if event.is_annotation or event.is_trace_event:
-                continue
-            for alias in (event.row.generation_id, event.row.span_id):
-                if alias and alias != event.id:
-                    aliases.setdefault(alias, event.id)
-        return aliases
+        return NodeIdResolver(
+            NodeIds(uuid=event.id, generation_id=event.row.generation_id, span_id=event.row.span_id)
+            for event in self.events
+            if not event.is_trace_event
+        ).aliases
+
+    @cached_property
+    def git(self) -> GitRef | None:
+        return GitRef.from_rows(event.row for event in self.events)
 
     @property
     def person_label(self) -> str | None:
@@ -107,3 +116,9 @@ class Trace:
             sum(event.row.latency or 0 for event in self.events if event.row.parent_id in (None, self.id)),
             2,
         )
+
+
+def _in_tree_order(nodes: Sequence[TreeNode]) -> Iterator[TreeNode]:
+    for node in nodes:
+        yield node
+        yield from _in_tree_order(node.children)

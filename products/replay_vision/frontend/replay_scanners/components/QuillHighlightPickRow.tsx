@@ -1,0 +1,92 @@
+import { useActions, useValues } from 'kea'
+
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+
+import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
+import { TZLabel } from 'lib/components/TZLabel'
+import { cn } from 'lib/utils/css-classes'
+
+import { QuillObservationThumbnail } from '../../components/QuillObservationThumbnail'
+import type { HighlightFeedItemApi } from '../../generated/api.schemas'
+import { citedTextToPlainText } from '../../utils/citations'
+import { CARD_SEEN_DWELL_MS } from '../highlightFeedTelemetry'
+import { highlightPicksLogic } from '../highlightPicksLogic'
+import { highlightPickSummary } from '../highlightPickSummary'
+import { highlightReasonCopy } from './HighlightFeedCard'
+import { HighlightPickPreview } from './HighlightPickPreview'
+import { QuillHighlightPickRankBadge } from './QuillHighlightPickRankBadge'
+
+interface QuillHighlightPickRowProps {
+    item: HighlightFeedItemApi
+    position: number
+    isActive: boolean
+    rank?: number
+}
+
+export function QuillHighlightPickRow({ item, position, isActive, rank }: QuillHighlightPickRowProps): JSX.Element {
+    const { highlightPick, cardSeen } = useActions(highlightPicksLogic)
+    const { picksLoad } = useValues(highlightPicksLogic)
+    const { observation, reason } = item
+    const { title, scannerName } = highlightPickSummary(observation)
+    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS, picksLoad?.feedLoadId)
+
+    return (
+        <Tooltip>
+            <TooltipTrigger
+                render={
+                    <Button
+                        ref={rowRef}
+                        size="row"
+                        left
+                        onClick={() => highlightPick(item, position)}
+                        className={cn('h-auto min-w-0', isActive && 'bg-fill-selected')}
+                        aria-current={isActive || undefined}
+                        data-attr="vision-highlight-pick"
+                    />
+                }
+            >
+                <span
+                    className={cn(
+                        'flex w-full min-w-0 items-center gap-3 py-1 text-left',
+                        observation.viewed && 'opacity-60'
+                    )}
+                >
+                    <span className="relative w-28 shrink-0">
+                        <QuillObservationThumbnail
+                            observation={observation}
+                            className="w-full"
+                            size="small"
+                            retryKey={picksLoad?.feedLoadId}
+                        />
+                        {rank !== undefined && <QuillHighlightPickRankBadge rank={rank} />}
+                        {!observation.viewed && (
+                            <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-primary" aria-hidden />
+                        )}
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="relative truncate text-sm font-semibold">
+                            {!observation.viewed && <span className="sr-only">New: </span>}
+                            {title}
+                        </span>
+                        <span className="truncate text-xs font-normal text-muted-foreground">
+                            <span>{scannerName}</span>
+                            <span> · </span>
+                            <TZLabel
+                                time={observation.created_at}
+                                showPopover={false}
+                                noStyles
+                                className="whitespace-nowrap"
+                            />
+                        </span>
+                        <span className="truncate text-xs font-normal text-muted-foreground">
+                            {citedTextToPlainText(highlightReasonCopy(reason), undefined)}
+                        </span>
+                    </span>
+                </span>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+                <HighlightPickPreview item={item} />
+            </TooltipContent>
+        </Tooltip>
+    )
+}

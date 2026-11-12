@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -20,13 +21,28 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    PushTokenImportRowFailureReason,
+    PushTokenImportStatus,
     SetupStepKey,
+    WorkflowImportNoteLevel,
     WorkflowProposalStatus,
 )
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
     from posthog.models.user import User
+
+
+@frozen
+class WorkflowViewAccess:
+    viewable_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+    can_view_deleted: bool
+
+    def allows(self, workflow_id: str) -> bool:
+        if workflow_id in self.viewable_ids:
+            return True
+        return self.can_view_deleted and bool(workflow_id) and workflow_id not in self.blocked_ids
 
 
 @frozen
@@ -273,10 +289,9 @@ class PeopleImportSummary:
 
 @frozen
 class EmailSendingTierLimits:
-    """What a trust tier allows: two send-rate caps and a maximum batch audience."""
+    """What a trust tier allows: a daily send cap and a maximum batch audience."""
 
     tier: int
-    per_hour: int
     per_day: int
     max_batch_audience: int
 
@@ -309,11 +324,13 @@ class EmailSendingSuspensionChange:
     """The outcome of a suspend or unsuspend request.
 
     ``changed_at`` is set only when this request flipped the state. ``previously_suspended_at`` is
-    set when a suspend request found the team already suspended.
+    set when a suspend request found the team already suspended. ``notification_failed`` is set when
+    the state flipped but the email or the in-app notification to the team could not be sent.
     """
 
     changed_at: datetime | None
     previously_suspended_at: datetime | None = None
+    notification_failed: bool = False
 
 
 @frozen
@@ -322,10 +339,8 @@ class EmailSendingAllowance:
 
     tier: int
     max_tier: int
-    emails_per_hour: int
     emails_per_day: int
     max_batch_audience: int
-    emails_sent_last_hour: int
     emails_sent_last_day: int
     enforced: bool
 
@@ -509,6 +524,10 @@ class EmailProviderUnavailableError(Exception):
     """The email provider could not be reached or refused the read, so the domain's state is unknown."""
 
 
+class TwilioCredentialsRejected(Exception):
+    """Twilio answered 401: the account SID or auth token is wrong."""
+
+
 class TwilioPhoneNumber(TypedDict):
     """The fields callers read. The Twilio payload has more keys."""
 
@@ -679,6 +698,12 @@ class WorkflowRef:
     has_email_step: bool
 
 
+EMAIL_FROM_CODE_FLAG: Final[str] = "workflows-email-from-code"
+
+# Engagement tracking and message assets key on this id, so it stays stable across versions.
+TRANSACTIONAL_EMAIL_ACTION_ID: Final[str] = "transactional_email"
+
+
 @frozen
 class TransactionalEmailContent:
     """What a transactional email's workflow sends, taken from the message template it was made from."""
@@ -700,8 +725,22 @@ class TransactionalEmailContent:
     reply_to: str = ""
 
 
+@frozen
+class CodeEmailWorkflow:
+    """The labels on the hidden workflow behind an email sent from code under a `template_key`."""
+
+    id: UUID
+    description: str
+    tags: tuple[str, ...]
+    sensitive: bool
+
+
 class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
+
+
+class TransactionalEmailSenderRequired(Exception):
+    """The project has several verified email senders and no default, so the send has to name one."""
 
 
 class TransactionalEmailContentInvalid(Exception):
@@ -720,7 +759,7 @@ class WorkflowArchived(Exception):
 class WorkflowListQuery:
     """What a workflow list asks for. The view validates each value before it builds one.
 
-    ``field_filters`` holds the raw exact-match and ``optimization_enabled`` query parameters. The
+    ``field_filters`` holds the raw exact-match, ``name`` and ``optimization_enabled`` query parameters. The
     service validates them and raises WorkflowListFiltersInvalid when one does not parse.
     """
 
@@ -734,15 +773,8 @@ class WorkflowListQuery:
     suggestions_first: bool = False
     # A workflow matches when it carries at least one of these tags.
     tags: frozenset[str] = frozenset()
+    latest_send_first: bool = False
     field_filters: Mapping[str, str] = field(default_factory=dict)
-
-
-@frozen
-class WorkflowPage:
-    """One limit/offset page of a workflow list, and how many workflows the whole list holds."""
-
-    count: int
-    results: list[Workflow]
 
 
 @frozen
@@ -948,6 +980,15 @@ class BuiltSuggestion:
 
 
 @frozen
+class EventWorkflowsBuild:
+    """Draft workflows built in the background for events a team picked, one per event at most."""
+
+    status: DataSuggestionBuildStatus
+    # Set only when the status is ready. Each id is a saved draft that never runs until enabled.
+    workflow_ids: tuple[str, ...] = ()
+
+
+@frozen
 class PreparedIdeas:
     """What `prepare_workflow_ideas` did for one project."""
 
@@ -958,6 +999,34 @@ class PreparedIdeas:
 
 class DataSuggestionNotFound(Exception):
     """The suggestion id is unknown, usually because the cached suggestions expired."""
+
+
+# not_yet: did one event but not the next one. regulars: did one event often. lapsed: did it before, not lately.
+AudienceKind = Literal["not_yet", "regulars", "lapsed"]
+
+
+@frozen
+class AudienceSuggestion:
+    id: str
+    name: str
+    description: str
+    reason: str
+    kind: AudienceKind
+    event: str
+    # The event the audience has not done yet. Set only for not_yet.
+    missing_event: str | None
+    window_days: int
+    # How many times the event must happen in the window. Set only for regulars.
+    min_count: int | None
+    # Roughly how many people in the audience have an email address. None until counted, or when the count failed.
+    reachable_count: int | None
+    cohort_filters: dict[str, Any]
+
+
+@frozen
+class AudienceSuggestionsResult:
+    status: DataSuggestionsStatus
+    suggestions: tuple[AudienceSuggestion, ...]
 
 
 class WorkflowIdeaAlreadyResolved(Exception):
@@ -990,3 +1059,193 @@ class SetupStep:
 
     key: SetupStepKey
     done: bool
+
+
+@frozen
+class ImportNote:
+    """What an import changed or left out of a workflow, for the team to review before enabling it."""
+
+    level: WorkflowImportNoteLevel
+    message: str
+    # The workflow step the note is about, or None for the whole workflow.
+    step_id: str | None = None
+    step_name: str | None = None
+
+
+@frozen
+class TranslatedWorkflow:
+    source_id: str
+    name: str
+    workflow: dict[str, Any]
+    notes: tuple[ImportNote, ...]
+
+
+@frozen
+class CampaignSource:
+    """A Customer.io automation as its Journeys UI API returns it, with the templates its messages use."""
+
+    campaign: dict[str, Any]
+    actions: list[dict[str, Any]]
+    templates: dict[str, dict[str, Any]]
+
+
+@frozen
+class ImportSender:
+    """A PostHog email sender that an imported email sends from."""
+
+    integration_id: int
+    email: str
+    name: str
+
+
+@frozen
+class ImportCategory:
+    """The PostHog message category that stands in for a Customer.io subscription topic."""
+
+    id: str
+    category_type: str
+
+
+@frozen
+class ImportSegment:
+    name: str
+    # Customer.io's segment type: `dynamic`, or `static`/`manual` for a list people are added to by hand.
+    type: str
+    # The segment's rules, from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members.
+    conditions: dict[str, Any] | None = None
+
+
+@frozen
+class SegmentCohortFilters:
+    """A Customer.io segment's rules as cohort filters, or the rules no cohort filter matches exactly."""
+
+    filters: dict[str, Any] | None
+    untranslated: tuple[str, ...] = ()
+
+
+@frozen
+class ImportOptions:
+    # Customer.io snippet name to its content, inlined wherever a message includes the snippet.
+    snippets: dict[str, str]
+    # Customer.io segment id to the PostHog cohort that stands in for it.
+    segment_cohorts: dict[str, int]
+    # Customer.io layout id to its HTML, which wraps the email body at `{{ content }}`.
+    layouts: dict[str, str] = field(default_factory=dict)
+    # Customer.io sender identity id to its email address.
+    sender_addresses: dict[str, str] = field(default_factory=dict)
+    # Lower-cased email address to the team's PostHog sender for it.
+    senders: dict[str, ImportSender] = field(default_factory=dict)
+    # Customer.io subscription topic id to the PostHog category made from it.
+    topic_categories: dict[str, ImportCategory] = field(default_factory=dict)
+    # Customer.io segment id to its name and type.
+    segments: dict[str, ImportSegment] = field(default_factory=dict)
+    # In a preview, the Customer.io segments a real import would turn into cohorts.
+    pending_segment_cohorts: frozenset[str] = frozenset()
+
+
+@frozen
+class ImportContent:
+    """Automations with the content PostHog read for them, and the options to translate them with."""
+
+    sources: list[CampaignSource]
+    options: ImportOptions
+    # Per campaign id, what went wrong reading its content from Customer.io.
+    fetch_notes: dict[str, tuple[ImportNote, ...]]
+    fetched: bool
+
+
+@dataclass(frozen=False)
+class SnippetRoom:
+    """How many more bytes of snippet and subject content one import request may inline, shared by every automation.
+
+    Snippets and `{{ message.subject }}` are inlined by copy, so a short template that repeats a large one could grow
+    without bound.
+    """
+
+    remaining: int = 5_000_000
+
+
+@frozen
+class RehostedWorkflow:
+    """An imported workflow whose email images point at copies in the team's media library."""
+
+    workflow: dict[str, Any]
+    notes: tuple[ImportNote, ...]
+
+
+@dataclass(frozen=False)
+class ImageBudget:
+    """How many more email images one import request may copy, and until when, shared by every automation in it."""
+
+    remaining: int = 100
+    # A `time.monotonic()` value. Downloads still running then are dropped, so a slow host can't hold the request.
+    deadline: float = field(default_factory=lambda: time.monotonic() + 60)
+    # False when the caller's token can't write to the media library, so nothing is copied.
+    can_upload: bool = True
+
+
+@frozen
+class PreviousImport:
+    """The earlier import of a source object, when there is one."""
+
+    record_id: UUID | None
+    hog_flow_id: UUID | None
+    hog_flow_is_draft: bool
+    hog_flow_created_by_id: int | None = None
+
+
+@frozen
+class WorkflowImportRecord:
+    id: UUID
+    source: str
+    source_id: str
+    source_name: str
+    hog_flow_id: UUID | None
+    notes: tuple[dict[str, Any], ...]
+    updated_at: datetime
+    hog_flow_created_by_id: int | None = None
+
+
+class PushTokenImportInvalid(Exception):
+    """The upload cannot be used. The message is shown to the person who sent it."""
+
+
+class PushTokenImportNotFound(LookupError):
+    pass
+
+
+@frozen
+class PushTokenImportRowFailure:
+    line: int
+    distinct_id: str
+    device_token_suffix: str
+    reason: PushTokenImportRowFailureReason
+    detail: str
+
+
+@frozen
+class PushTokenImportRecord:
+    id: UUID
+    integration_id: int
+    status: PushTokenImportStatus
+    create_missing_persons: bool
+    total_devices: int
+    processed_devices: int
+    imported_devices: int
+    failed_devices: int
+    unknown_person_devices: int
+    duplicate_lines: int
+    failures: tuple[PushTokenImportRowFailure, ...]
+    can_import_unknown_persons: bool
+    error: str
+    created_at: datetime
+    finished_at: datetime | None
+
+
+@frozen
+class SandboxSenderStatus:
+    integration_id: int | None
+    from_address: str
+    display_name: str
+    organization_blocked: bool
+    adoption_enabled: bool

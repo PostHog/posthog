@@ -9,6 +9,7 @@
 # The stages are used to:
 #
 # - node-base: shared Node.js base with pnpm already provisioned
+# - product-manifests: collect the package.json of each products/* workspace package
 # - frontend-build: build the frontend (static assets)
 # - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
 # - node-scripts-build: build plugin transpiler and other Node.js build artifacts
@@ -26,7 +27,7 @@
 # ---------------------------------------------------------
 #
 # Digest-pinned because the runtime stage copies its `node` binary out of this stage.
-FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS node-base
+FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node-base
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -35,14 +36,28 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # off every source change: only a root package.json edit re-runs this layer. Then take corepack off
 # the network, so a pin this layer does not cover fails in milliseconds naming the URL it wanted.
 COPY package.json ./
-RUN corepack enable && corepack install
+RUN npm install -g corepack@0.36.0 && corepack enable && corepack install
 ENV COREPACK_ENABLE_NETWORK=0
 
 
 #
 # ---------------------------------------------------------
 #
+# Only the package.json files, so a product source change does not rerun the frontend pnpm install.
+FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS product-manifests
+COPY products/ /tmp/products/
+RUN cd /tmp/products && for manifest in */package.json; do install -D -m 644 "$manifest" "/manifests/products/$manifest"; done
+
+
+#
+# ---------------------------------------------------------
+#
 FROM node-base AS frontend-build
+
+# re2's prebuilt Node 26 binaries need glibc 2.38 and bookworm ships 2.36, so re2 compiles from source here.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 make g++ && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY turbo.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY frontend/package.json frontend/
@@ -56,11 +71,12 @@ COPY common/tailwind/ common/tailwind/
 COPY packages/quill/ packages/quill/
 COPY packages/llm-normalizer/ packages/llm-normalizer/
 COPY packages/agent/packages/agent-contracts/src/ packages/agent/packages/agent-contracts/src/
-COPY products/ products/
+COPY --from=product-manifests /manifests/products/ products/
 COPY docs/onboarding/ docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
+COPY products/ products/
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
 
@@ -71,7 +87,7 @@ RUN bin/turbo --filter=@posthog/frontend build
 # Isolated stage for sourcemap upload - keeps secrets and external network calls
 # out of the main build cache. This stage produces no artifacts for the final image.
 #
-FROM node:24.22.1-bookworm-slim AS sourcemap-upload
+FROM node:26.13.1-bookworm-slim AS sourcemap-upload
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -322,6 +338,8 @@ RUN apt-get update && \
     # point releases out of the security archive, which breaks exact pins on uncached builds.
     "libssl3=3.0.*" \
     "libjemalloc2" \
+    # The node binary copied from node-base links libatomic from Node 26 on.
+    "libatomic1" \
     # Numba's OpenMP backend needs the system libgomp runtime.
     "libgomp1" \
     # Python's mimetypes uses /etc/mime.types for artifact content types.
@@ -329,6 +347,12 @@ RUN apt-get update && \
     # psutil is not installed, so joblib's loky kills worker process trees with pgrep.
     # Operators also need ps to find a PID for py-spy.
     "procps" \
+    # The base image digest freezes its tzdata. HogQL prints datetime constants as local time in
+    # the team's timezone, and ClickHouse resolves them with its own tz rules. When a zone's rules
+    # change and this image lags, both sides disagree on the UTC offset and queries shift their
+    # time bounds. Listing tzdata here upgrades it to the newest Debian release whenever this
+    # layer is rebuilt. A cached layer keeps the tzdata it was built with.
+    "tzdata" \
     && \
     rm -rf /var/lib/apt/lists/*
 
@@ -389,6 +413,7 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.j
 COPY --chown=posthog:posthog ./bin ./bin/
 # Persons SQL migration files (read by apply_persons_migrations management command for hobby deploys)
 COPY --chown=posthog:posthog ./rust/persons_migrations ./rust/persons_migrations/
+COPY --chown=posthog:posthog ./rust/persons_migrations_hobby ./rust/persons_migrations_hobby/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/

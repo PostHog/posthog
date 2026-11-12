@@ -132,10 +132,25 @@ describe('MessageAssetsService', () => {
             expect(row!.subject).toBe('Welcome aboard')
         })
 
-        it('keeps a placeholder instead of the body when the template is marked sensitive', () => {
+        it.each([
+            { case: 'the template is marked sensitive', templateSensitive: true, send: undefined, stored: false },
+            {
+                case: "the send is marked sensitive on a template that isn't",
+                templateSensitive: false,
+                send: { sensitive: true, tracking: { captureEngagement: true } },
+                stored: false,
+            },
+            {
+                case: 'the send is marked not sensitive on a template that is',
+                templateSensitive: true,
+                send: { sensitive: false, tracking: { captureEngagement: true } },
+                stored: true,
+            },
+        ])('stores the body only when it may: $case', ({ templateSensitive, send, stored }) => {
             const invocation = invocationWithAction('flow-1')
-            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: templateSensitive }
             invocation.hogFunction.inputs = { email: { value: { subject: 'Your code is {{ variables.code }}' } } }
+            invocation.state.send = send
 
             const row = service.buildRowForEmail(
                 invocation,
@@ -147,11 +162,11 @@ describe('MessageAssetsService', () => {
 
             expect(row).toMatchObject({
                 recipient: 'recipient@example.com',
-                subject: 'Your code is {{ variables.code }}',
+                subject: stored ? 'Your code is 482913' : 'Your code is {{ variables.code }}',
                 status: 'sent',
             })
-            expect(row!.html).toContain('Email body not stored')
-            expect(row!.html).not.toContain('s3cret')
+            expect(row!.html.includes('s3cret')).toBe(stored)
+            expect(row!.html.includes('Email body not stored')).toBe(!stored)
         })
     })
 
@@ -225,6 +240,30 @@ describe('MessageAssetsService', () => {
 
             expect(row!.html).not.toContain('<img src=x')
             expect(row!.html).toContain('&lt;img src=x')
+        })
+
+        it('keeps a placeholder instead of the content when the step is marked sensitive', () => {
+            const invocation = invocationWithAction('flow-1')
+            invocation.hogFunction.metadata = { sensitive: true }
+            invocation.hogFunction.inputs = { title: { value: 'New message from {person.properties.name}' } }
+
+            const row = service.buildRowForPush(
+                invocation,
+                pushParams({
+                    title: 'New message from Ada',
+                    body: 'meet me at 6',
+                    image: 'https://example.com/private.png',
+                    apns: { subtitle: 'Private chat' },
+                }),
+                ['APNs'],
+                pushRecipient
+            )
+
+            expect(row).toMatchObject({ kind: 'push', subject: 'New message from {person.properties.name}' })
+            expect(row!.html).toContain('Notification content not stored')
+            for (const value of ['Ada', 'meet me at 6', 'private.png', 'Private chat']) {
+                expect(row!.html).not.toContain(value)
+            }
         })
 
         it('returns null for a push sent outside a workflow step, which the Assets API cannot retrieve', () => {

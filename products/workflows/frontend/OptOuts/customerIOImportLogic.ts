@@ -5,24 +5,29 @@ import { loaders } from 'kea-loaders'
 
 import { ApiRequest, getCookie } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
+import {
+    messagingProviderImportsCreate,
+    messagingProviderImportsList,
+    messagingProviderImportsProvidersList,
+} from 'products/messaging/frontend/generated/api'
+import type {
+    ImportProviderOptionApi,
+    ImportStepOptionApi,
+    ProviderImportRunApi,
+} from 'products/messaging/frontend/generated/api.schemas'
 
 import type { PreflightStatus } from '../../../../frontend/src/types'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 
+const CUSTOMERIO_PROVIDER = 'customerio'
+const IMPORT_RUN_POLL_INTERVAL_MS = 2000
+const ACTIVE_IMPORT_RUN_STATUSES: ProviderImportRunApi['status'][] = ['queued', 'running']
+
 export interface ImportFormValues {
     app_api_key: string
-}
-
-export interface ImportProgress {
-    status: string
-    topics_found: number
-    categories_created?: number
-    globally_unsubscribed_count?: number
-    suppressions_imported?: number
-    details?: string
-    errors: string[]
 }
 
 export interface CSVImportProgress {
@@ -78,6 +83,7 @@ export interface customerIOImportLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     csvFile: File | null
     csvProgress: CSVImportProgress | null
+    deselectedImportSteps: string[]
     hasTrackCredentials: boolean
     importError: string | null
     importForm: ImportFormValues
@@ -89,20 +95,26 @@ export interface customerIOImportLogicValues {
     importFormTouched: boolean
     importFormTouches: Record<string, boolean>
     importFormValidationErrors: DeepPartialMap<ImportFormValues, ValidationErrorType>
-    importProgress: ImportProgress | null
-    isImportComplete: boolean
-    isImportFailed: boolean
+    importProviders: ImportProviderOptionApi[] | null
+    importProvidersLoading: boolean
+    importRuns: ProviderImportRunApi[] | null
+    importRunsLoading: boolean
+    importStepOptions: ImportStepOptionApi[]
     isImportFormSubmitting: boolean
     isImportFormValid: boolean
     isImportModalOpen: boolean
-    isImporting: boolean
+    isImportRunActive: boolean
     isRemovingAppConfig: boolean
     isRemovingTrackConfig: boolean
     isRemovingWebhookConfig: boolean
     isSavingTrack: boolean
     isSavingWebhook: boolean
     isUploadingCSV: boolean
+    latestImportRun: ProviderImportRunApi | null
+    selectedImportSteps: string[]
     showImportFormErrors: boolean
+    startedImportRun: ProviderImportRunApi | null
+    startedImportRunLoading: boolean
     stepCompletion: {
         step1: 'completed' | 'failed' | false
         step2: 'completed' | 'failed' | false
@@ -116,6 +128,7 @@ export interface customerIOImportLogicValues {
     trackError: string | null
     trackRegion: string
     trackSiteId: string
+    trackedImportRunId: string | null
     webhookError: string | null
     webhookSigningSecret: string
     webhookUrl: string
@@ -125,6 +138,36 @@ export interface customerIOImportLogicValues {
 export interface customerIOImportLogicActions {
     closeImportModal: () => {
         value: true
+    }
+    loadImportProviders: () => any
+    loadImportProvidersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadImportProvidersSuccess: (
+        importProviders: ImportProviderOptionApi[],
+        payload?: any
+    ) => {
+        importProviders: ImportProviderOptionApi[]
+        payload?: any
+    }
+    loadImportRuns: () => any
+    loadImportRunsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadImportRunsSuccess: (
+        importRuns: ProviderImportRunApi[],
+        payload?: any
+    ) => {
+        importRuns: ProviderImportRunApi[]
+        payload?: any
     }
     loadSyncConfig: () => any
     loadSyncConfigFailure: (
@@ -151,9 +194,6 @@ export interface customerIOImportLogicActions {
         value: true
     }
     removeWebhookConfig: () => {
-        value: true
-    }
-    rerunImport: () => {
         value: true
     }
     resetImport: () => {
@@ -190,9 +230,6 @@ export interface customerIOImportLogicActions {
     setImportFormValues: (values: DeepPartial<ImportFormValues>) => {
         values: DeepPartial<ImportFormValues>
     }
-    setImportProgress: (importProgress: ImportProgress) => {
-        importProgress: ImportProgress
-    }
     setIsSavingTrack: (isSaving: boolean) => {
         isSaving: boolean
     }
@@ -214,11 +251,35 @@ export interface customerIOImportLogicActions {
     setTrackSiteId: (siteId: string) => {
         siteId: string
     }
+    setTrackedImportRunId: (runId: string | null) => {
+        runId: string | null
+    }
     setWebhookError: (error: string | null) => {
         error: string | null
     }
     setWebhookSigningSecret: (secret: string) => {
         secret: string
+    }
+    startImport: ({ apiKey }: { apiKey: string | null }) => {
+        apiKey: string | null
+    }
+    startImportFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    startImportSuccess: (
+        startedImportRun: ProviderImportRunApi,
+        payload?: {
+            apiKey: string | null
+        }
+    ) => {
+        startedImportRun: ProviderImportRunApi
+        payload?: {
+            apiKey: string | null
+        }
     }
     submitImportForm: () => {
         value: boolean
@@ -235,6 +296,9 @@ export interface customerIOImportLogicActions {
     }
     submitImportFormSuccess: (importForm: ImportFormValues) => {
         importForm: ImportFormValues
+    }
+    toggleImportStep: (step: string) => {
+        step: string
     }
     toggleTrackSync: (enabled: boolean) => {
         enabled: boolean
@@ -253,13 +317,14 @@ export interface customerIOImportLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface customerIOImportLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        isImporting: (isImportFormSubmitting: boolean, importProgress: ImportProgress | null) => boolean
-        isImportComplete: (importProgress: ImportProgress | null) => boolean
-        isImportFailed: (importProgress: ImportProgress | null) => boolean
+        latestImportRun: (importRuns: ProviderImportRunApi[] | null) => ProviderImportRunApi | null
+        isImportRunActive: (latestImportRun: ProviderImportRunApi | null) => boolean
+        importStepOptions: (importProviders: ImportProviderOptionApi[] | null) => ImportStepOptionApi[]
+        selectedImportSteps: (importStepOptions: ImportStepOptionApi[], deselectedImportSteps: string[]) => string[]
         webhookUrl: (currentTeamIdStrict: number | string) => string
         stepCompletion: (
             syncConfig: OptOutSyncConfigResponse | null,
-            importProgress: ImportProgress | null,
+            latestImportRun: ProviderImportRunApi | null,
             csvProgress: CSVImportProgress | null
         ) => {
             step1: 'completed' | 'failed' | false
@@ -288,9 +353,9 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         openImportModal: true,
         closeImportModal: true,
         resetImport: true,
-        setImportProgress: (importProgress: ImportProgress) => ({ importProgress }),
         setImportError: (error: string | null) => ({ error }),
-        rerunImport: true,
+        toggleImportStep: (step: string) => ({ step }),
+        setTrackedImportRunId: (runId: string | null) => ({ runId }),
         removeAppConfig: true,
         setCSVFile: (file: File | null) => ({ file }),
         uploadCSV: true,
@@ -311,7 +376,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         setIsSavingTrack: (isSaving: boolean) => ({ isSaving }),
         setTrackError: (error: string | null) => ({ error }),
     }),
-    loaders({
+    loaders(({ values }) => ({
         syncConfig: [
             null as OptOutSyncConfigResponse | null,
             {
@@ -320,7 +385,34 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 },
             },
         ],
-    }),
+        importRuns: [
+            null as ProviderImportRunApi[] | null,
+            {
+                loadImportRuns: async () => {
+                    const runs = await messagingProviderImportsList(String(values.currentTeamIdStrict))
+                    return runs.filter((run) => run.provider === CUSTOMERIO_PROVIDER)
+                },
+            },
+        ],
+        importProviders: [
+            null as ImportProviderOptionApi[] | null,
+            {
+                loadImportProviders: async () =>
+                    await messagingProviderImportsProvidersList(String(values.currentTeamIdStrict)),
+            },
+        ],
+        startedImportRun: [
+            null as ProviderImportRunApi | null,
+            {
+                startImport: async ({ apiKey }: { apiKey: string | null }) =>
+                    await messagingProviderImportsCreate(String(values.currentTeamIdStrict), {
+                        provider: CUSTOMERIO_PROVIDER,
+                        steps: values.selectedImportSteps,
+                        ...(apiKey ? { api_key: apiKey } : {}),
+                    }),
+            },
+        ],
+    })),
     reducers({
         isImportModalOpen: [
             false,
@@ -329,25 +421,28 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 closeImportModal: () => false,
             },
         ],
-        importProgress: [
-            null as ImportProgress | null,
-            {
-                setImportProgress: (_, { importProgress }) => importProgress,
-                resetImport: () => null,
-            },
-        ],
         importError: [
             null as string | null,
             {
                 setImportError: (_, { error }) => error,
-                submitImportFormFailure: (_, { error }) => {
-                    if (error && typeof error === 'object' && 'detail' in error) {
-                        return error.detail as string
-                    }
-                    return 'Import failed. Please check your API key and try again.'
-                },
-                submitImportFormSuccess: () => null,
+                startImport: () => null,
+                startImportFailure: (_, { error, errorObject }) =>
+                    errorObject?.detail ?? error ?? "Couldn't start the import. Check your API key and try again.",
                 resetImport: () => null,
+            },
+        ],
+        deselectedImportSteps: [
+            [] as string[],
+            {
+                toggleImportStep: (deselected, { step }) =>
+                    deselected.includes(step) ? deselected.filter((key) => key !== step) : [...deselected, step],
+            },
+        ],
+        trackedImportRunId: [
+            null as string | null,
+            {
+                setTrackedImportRunId: (_, { runId }) => runId,
+                startImportSuccess: (_, { startedImportRun }) => startedImportRun.id,
             },
         ],
         csvFile: [
@@ -461,31 +556,30 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             defaults: {
                 app_api_key: '',
             } as ImportFormValues,
-            submit: async ({ app_api_key }) => {
-                const response = await new ApiRequest()
-                    .messagingCategoriesImportFromCustomerIO()
-                    .create({ data: { app_api_key } })
-
-                actions.setImportProgress(response)
-                // Reload config to pick up the newly created Integration
-                actions.loadSyncConfig()
-                return response
+            submit: ({ app_api_key }) => {
+                actions.startImport({ apiKey: app_api_key })
             },
         },
     })),
     selectors({
-        isImporting: [
-            (s) => [s.isImportFormSubmitting, s.importProgress],
-            (isImportFormSubmitting: boolean, importProgress: ImportProgress | null) =>
-                isImportFormSubmitting || importProgress?.status === 'importing',
+        latestImportRun: [
+            (s) => [s.importRuns],
+            (importRuns: ProviderImportRunApi[] | null): ProviderImportRunApi | null => importRuns?.[0] ?? null,
         ],
-        isImportComplete: [
-            (s) => [s.importProgress],
-            (importProgress: ImportProgress | null) => importProgress?.status === 'completed',
+        isImportRunActive: [
+            (s) => [s.latestImportRun],
+            (latestImportRun: ProviderImportRunApi | null): boolean =>
+                !!latestImportRun && ACTIVE_IMPORT_RUN_STATUSES.includes(latestImportRun.status),
         ],
-        isImportFailed: [
-            (s) => [s.importProgress],
-            (importProgress: ImportProgress | null) => importProgress?.status === 'failed',
+        importStepOptions: [
+            (s) => [s.importProviders],
+            (importProviders: ImportProviderOptionApi[] | null): ImportStepOptionApi[] =>
+                importProviders?.find((provider) => provider.key === CUSTOMERIO_PROVIDER)?.steps ?? [],
+        ],
+        selectedImportSteps: [
+            (s) => [s.importStepOptions, s.deselectedImportSteps],
+            (importStepOptions: ImportStepOptionApi[], deselectedImportSteps: string[]): string[] =>
+                importStepOptions.map((step) => step.key).filter((key) => !deselectedImportSteps.includes(key)),
         ],
         webhookUrl: [
             (s) => [s.currentTeamIdStrict],
@@ -495,10 +589,10 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             },
         ],
         stepCompletion: [
-            (s) => [s.syncConfig, s.importProgress, s.csvProgress],
+            (s) => [s.syncConfig, s.latestImportRun, s.csvProgress],
             (
                 syncConfig: OptOutSyncConfigResponse | null,
-                importProgress: ImportProgress | null,
+                latestImportRun: ProviderImportRunApi | null,
                 csvProgress: CSVImportProgress | null
             ): {
                 step1: 'completed' | 'failed' | false
@@ -518,7 +612,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 }
 
                 return {
-                    step1: resolveStatus(importProgress?.status, syncConfig?.app_import_result?.status),
+                    step1: resolveStatus(latestImportRun?.status, syncConfig?.app_import_result?.status),
                     step2: resolveStatus(csvProgress?.status, syncConfig?.csv_import_result?.status),
                     step3: syncConfig?.webhook_enabled ? 'completed' : false,
                     step4: syncConfig?.track_enabled ? 'completed' : false,
@@ -534,10 +628,58 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             (syncConfig: OptOutSyncConfigResponse | null): boolean => syncConfig?.has_track_credentials ?? false,
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         openImportModal: () => {
             actions.loadSyncConfig()
+            actions.loadImportRuns()
+            actions.loadImportProviders()
             actions.setTrackRegion(values.preflight?.region ?? 'US')
+        },
+        startImportSuccess: ({ startedImportRun }) => {
+            // Show the new run at once, so a failed first refresh still shows progress and keeps polling.
+            actions.loadImportRunsSuccess([
+                startedImportRun,
+                ...(values.importRuns ?? []).filter((run) => run.id !== startedImportRun.id),
+            ])
+            actions.resetImportForm()
+            // The first start stores the API key, which the stored-key view reads from the sync config.
+            actions.loadSyncConfig()
+        },
+        startImportFailure: ({ errorObject }) => {
+            // A 409 means an import is already running, so show its progress instead of only an error.
+            if (errorObject?.status === 409) {
+                actions.loadImportRuns()
+            }
+        },
+        loadImportRunsSuccess: ({ importRuns }) => {
+            const latest = importRuns?.[0] ?? null
+            if (latest && ACTIVE_IMPORT_RUN_STATUSES.includes(latest.status)) {
+                actions.setTrackedImportRunId(latest.id)
+                cache.disposables.add(() => {
+                    const timeout = setTimeout(() => actions.loadImportRuns(), IMPORT_RUN_POLL_INTERVAL_MS)
+                    return () => clearTimeout(timeout)
+                }, 'importRunPoll')
+                return
+            }
+            cache.disposables.dispose('importRunPoll')
+            if (latest && latest.id === values.trackedImportRunId) {
+                actions.setTrackedImportRunId(null)
+                if (latest.status === 'completed') {
+                    lemonToast.success('Customer.io import finished.')
+                } else {
+                    lemonToast.error('Some Customer.io import steps failed. Open the import to see which ones.')
+                }
+                optOutCategoriesLogic.findMounted()?.actions.loadCategories()
+            }
+        },
+        loadImportRunsFailure: () => {
+            // Keep polling through a failed request while an import is running, so one network error doesn't freeze the progress.
+            if (values.trackedImportRunId) {
+                cache.disposables.add(() => {
+                    const timeout = setTimeout(() => actions.loadImportRuns(), IMPORT_RUN_POLL_INTERVAL_MS)
+                    return () => clearTimeout(timeout)
+                }, 'importRunPoll')
+            }
         },
         removeAppConfig: async () => {
             try {
@@ -547,29 +689,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 lemonToast.error(error.detail || 'Failed to remove integration')
             } finally {
                 actions.loadSyncConfig()
-            }
-        },
-        rerunImport: async () => {
-            actions.setImportProgress({ status: 'importing', topics_found: 0, errors: [] })
-            try {
-                const response = await new ApiRequest().messagingCategoriesImportFromCustomerIO().create({ data: {} })
-                actions.setImportProgress(response)
-                actions.loadSyncConfig()
-            } catch (error: any) {
-                actions.setImportProgress({
-                    status: 'failed',
-                    topics_found: 0,
-                    errors: [error.detail || 'Import failed'],
-                })
-            }
-        },
-        setImportProgress: ({ importProgress }) => {
-            if (importProgress.status === 'completed') {
-                lemonToast.success('Customer.io API import completed!')
-                optOutCategoriesLogic.findMounted()?.actions.loadCategories()
-            } else if (importProgress.status === 'failed') {
-                const errorMessage = importProgress.errors?.join(', ') || 'Import failed'
-                lemonToast.error(errorMessage)
             }
         },
         uploadCSV: async () => {
@@ -712,7 +831,6 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 actions.loadSyncConfig()
             }
         },
-        submitImportFormFailure: () => {},
         closeImportModal: () => {
             actions.resetImportForm()
             actions.resetImport()

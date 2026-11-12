@@ -72,17 +72,25 @@ else
     rm -f common/hogvm/__tests__/__snapshots__/*.stdout.compiledjs
 fi
 
+compile_args=()
+for file in "${test_files[@]}"; do
+    basename=$(get_basename "$file")
+    filename=$(basename "$file")
+    compile_args+=("$file" "$basename.hoge")
+    if ! is_in_array "$filename" "${ONLY_NODEJS_FILES[@]}" && ! is_in_array "$filename" "${SKIP_COMPILEDJS_FILES[@]}"; then
+        compile_args+=("$file" "$basename.js")
+    fi
+done
+python3 -m tools.hogvm_compile "${compile_args[@]}"
+
 for file in "${test_files[@]}"; do
     echo "Testing $file"
 
     basename=$(get_basename "$file")
     filename=$(basename "$file")
 
-    # Compile to .hoge
-    ./bin/hoge "$file" "$basename.hoge"
-
     # Always run Node.js test
-    ./bin/hog --nodejs "$basename.hoge" > "$basename.stdout.nodejs"
+    ./bin/hoglang --nodejs "$basename.hoge" > "$basename.stdout.nodejs"
 
     # If this file is in ONLY_NODEJS_FILES, skip python + compiledjs
     if is_in_array "$filename" "${ONLY_NODEJS_FILES[@]}"; then
@@ -92,7 +100,7 @@ for file in "${test_files[@]}"; do
     fi
 
     # Otherwise, run Python
-    ./bin/hog --python "$basename.hoge" > "$basename.stdout.python"
+    ./bin/hoglang --python "$basename.hoge" > "$basename.stdout.python"
 
     # Check if compiledjs is skipped
     if is_in_array "$filename" "${SKIP_COMPILEDJS_FILES[@]}"; then
@@ -110,7 +118,6 @@ for file in "${test_files[@]}"; do
     else
         # Run compiledjs
         set +e
-        ./bin/hoge "$file" "$basename.js"
         node "$basename.js" > "$basename.stdout.compiledjs" 2>&1
         set -e
 

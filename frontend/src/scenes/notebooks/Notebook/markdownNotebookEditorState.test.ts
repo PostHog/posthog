@@ -12,6 +12,7 @@ import {
     getMarkdownNotebookMarkdown,
     isMarkdownNotebookContent,
 } from './markdownNotebookV2'
+import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { NotebookLogicMode, notebookLogic } from './notebookLogic'
 import { NOTEBOOK_AI_PRESENCE_CLIENT_ID, NOTEBOOK_AI_PRESENCE_NAME } from './notebookPresence'
 
@@ -57,7 +58,7 @@ describe('notebookLogic markdown editor state', () => {
         // localContent is a persisted reducer — clear it so tests don't leak into each other
         localStorage.clear()
         initKeaTests()
-        jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
 
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
         logic.mount()
@@ -106,6 +107,37 @@ describe('notebookLogic markdown editor state', () => {
         retained = mountRetained()
         expect(retained.values.notebook).toBeNull()
         retained.unmount()
+    })
+
+    it('stops the in-app leave warning after the last editor unmounts', () => {
+        const warningInput = {
+            isLocalOnly: false,
+            isEditable: true,
+            syncStatus: 'unsaved' as const,
+            currentPathname: '/project/1/groups',
+            newPathname: '/project/1/dashboard',
+        }
+
+        logic.actions.notebookEditorMounted()
+        logic.actions.notebookEditorMounted()
+        expect(logic.values.mountedEditorCount).toBe(2)
+        expect(
+            shouldWarnBeforeLeavingNotebook({
+                ...warningInput,
+                hasMountedEditor: logic.values.mountedEditorCount > 0,
+            })
+        ).toBe(true)
+
+        logic.actions.notebookEditorUnmounted()
+        expect(logic.values.mountedEditorCount).toBe(1)
+        logic.actions.notebookEditorUnmounted()
+        expect(logic.values.mountedEditorCount).toBe(0)
+        expect(
+            shouldWarnBeforeLeavingNotebook({
+                ...warningInput,
+                hasMountedEditor: logic.values.mountedEditorCount > 0,
+            })
+        ).toBe(false)
     })
 
     it('applies editor changes to local content when no interaction is active', () => {

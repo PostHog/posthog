@@ -1,15 +1,21 @@
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
+from queue import Queue
+from time import monotonic, sleep
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
+import pytest
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import close_old_connections, connection, connections, transaction
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -30,18 +36,24 @@ from products.today.backend.facade.contracts import (
 from products.today.backend.facade.enums import (
     HighlightInterval,
     HighlightLabel,
+    HighlightMetricReason,
+    HighlightPinStatus,
     HighlightPriority,
     HighlightsStatus,
     HighlightUnit,
+    PulseSlotStatus,
 )
-from products.today.backend.logic import highlight_registry, highlight_types, highlights
+from products.today.backend.logic import highlight_registry, highlight_types, highlights, pulse_pins
 from products.today.backend.logic.highlight_types import Context
 from products.today.backend.logic.highlights import MAX_ITEMS, rank
+from products.today.backend.logic.pinned import PINNED_METRICS
 from products.today.backend.models import TodayHighlights
 from products.today.backend.temporal.inputs import (
     FinalizeHighlightsInputs,
     HighlightSourceInputs,
     HighlightSourceResult,
+    PinnedNumber,
+    ResolvePinsInputs,
 )
 
 DAY = date(2026, 10, 13)
@@ -139,14 +151,15 @@ class TestBuildHighlights(SimpleTestCase):
         sources = (
             HighlightSource(name="key_metrics", find=lambda _c: HighlightFindings(), pulse_order=2),
             HighlightSource(name="routine", find=lambda _c: HighlightFindings(), pulse_order=1),
-            HighlightSource(name="experiments", find=lambda _c: HighlightFindings()),
+            HighlightSource(name="experiments", find=lambda _c: HighlightFindings(), pulse_order=-1),
             HighlightSource(name="alerts", find=lambda _c: HighlightFindings()),
         )
         found = {
             "key_metrics": HighlightFindings(pulse=(metric("k1"), metric("k2"), metric("k3"))),
             "routine": HighlightFindings(pulse=(metric("r1"), metric("r2"))),
             "experiments": HighlightFindings(
-                items=(replace(candidate("win", "experiments", 0.9), label=HighlightLabel.OPPORTUNITY),)
+                items=(replace(candidate("win", "experiments", 0.9), label=HighlightLabel.OPPORTUNITY),),
+                pulse=(replace(metric("experiment:1"), series=[]),),
             ),
             "alerts": HighlightFindings(items=(candidate("alert", "alerts", 0.5),)),
         }
@@ -155,13 +168,13 @@ class TestBuildHighlights(SimpleTestCase):
 
         self.assertEqual(
             (
-                [m.key for m in built.pulse],
+                [(m.key, len(m.period_starts)) for m in built.pulse],
                 [(i.key, i.source, i.priority) for i in built.items],
                 built.day,
                 built.refresh_at,
             ),
             (
-                ["r1", "r2", "k1", "k2"],
+                [("experiment:1", 0), ("r1", 1), ("r2", 1), ("k1", 1), ("k2", 1), ("k3", 1)],
                 [("alert", "alerts", HighlightPriority.P2), ("win", "experiments", HighlightPriority.P3)],
                 DAY,
                 datetime(2026, 10, 14, tzinfo=ZoneInfo("Europe/Prague")),
@@ -375,14 +388,6 @@ class TestGetHighlights(BaseTest):
                 1,
                 [],
             ),
-            (
-                "a ready row for the other pulse ranking",
-                {"status": HighlightsStatus.READY, "ready_at": timedelta(minutes=1)},
-                HighlightsStatus.COMPUTING,
-                1,
-                [],
-                "frecency",
-            ),
         ]
     )
     def test_the_request_never_waits_for_a_computation(
@@ -392,15 +397,10 @@ class TestGetHighlights(BaseTest):
         status: HighlightsStatus,
         starts: int,
         pulse: list[str],
-        ranking_later: str = "control",
     ) -> None:
         connect = MagicMock()
         connect.return_value.start_workflow = AsyncMock()
-        ranking = ["control"]
-        with (
-            patch.object(highlights, "sync_connect", connect),
-            patch.object(highlights, "pulse_ranking", side_effect=lambda _user, _team: ranking[0]),
-        ):
+        with patch.object(highlights, "sync_connect", connect):
             if row is not None:
                 highlights.get_highlights(team=self.team, user=self.user, scopes=None)
                 now = timezone.now()
@@ -410,12 +410,16 @@ class TestGetHighlights(BaseTest):
                 )
                 connect.return_value.start_workflow.reset_mock()
                 cache.clear()
-                ranking[0] = ranking_later
             found = highlights.get_highlights(team=self.team, user=self.user, scopes=None)
 
         self.assertEqual(
-            (found.status, connect.return_value.start_workflow.call_count, [m.key for m in found.pulse]),
-            (status, starts, pulse),
+            (
+                found.status,
+                connect.return_value.start_workflow.call_count,
+                [m.key for m in found.pulse],
+                [slot.key for slot in found.pulse_slots or []],
+            ),
+            (status, starts, pulse, pulse),
         )
 
 
@@ -479,6 +483,12 @@ class TestLoadSources(SimpleTestCase):
             ("not a source", declaring("alerts")),
             ("an empty name", declaring(HighlightSource(name="", find=lambda _c: HighlightFindings()))),
             (
+                "names that cannot be called",
+                declaring(
+                    HighlightSource(name="alerts", find=lambda _c: HighlightFindings(), number_names=cast(Any, "names"))
+                ),
+            ),
+            (
                 "a name taken twice",
                 declaring(
                     HighlightSource(name="alerts", find=lambda _c: HighlightFindings()),
@@ -490,4 +500,502 @@ class TestLoadSources(SimpleTestCase):
     def test_a_broken_declaration_raises(self, _name: str, module: SimpleNamespace) -> None:
         with patch.object(highlight_registry, "load_product_modules", return_value=[module]):
             with self.assertRaises(highlight_registry.HighlightRegistryError):
-                highlight_registry.load_sources.__wrapped__()
+                highlight_registry.load_registry.__wrapped__()
+
+    def test_each_source_belongs_to_the_product_that_declares_it(self) -> None:
+        flags = SimpleNamespace(
+            __name__="products.feature_flags.backend.facade.today_highlights",
+            HIGHLIGHT_SOURCES=(HighlightSource(name="flags", find=lambda _c: HighlightFindings()),),
+        )
+        pulse = SimpleNamespace(
+            __name__="products.today.backend.facade.today_highlights",
+            HIGHLIGHT_SOURCES=(HighlightSource(name="routine", find=lambda _c: HighlightFindings()),),
+        )
+
+        with patch.object(highlight_registry, "load_product_modules", return_value=[flags, pulse]):
+            registry = highlight_registry.load_registry.__wrapped__()
+
+        self.assertEqual(dict(registry.products), {"flags": "feature_flags", "routine": "today"})
+
+
+@time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False)
+class TestProgressiveHighlights(BaseTest):
+    def test_partial_values_survive_source_retries_and_final_failure(self) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="progress"
+        )
+        inputs = HighlightSourceInputs(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=DAY.isoformat(),
+            scopes=None,
+            source_name="routine",
+            highlights_id=str(row.id),
+        )
+        slots = [
+            contracts.PulseSlot(key="fast", name="Fast"),
+            contracts.PulseSlot(key="slow", name="Slow"),
+            contracts.PulseSlot(key="no-data", name="No data", status=PulseSlotStatus.EMPTY),
+        ]
+        highlights.publish_pulse(inputs, HighlightFindings(), slots)
+        highlights.publish_pulse(inputs, HighlightFindings(pulse=(metric("fast"),)), slots)
+        highlights.publish_pulse(inputs, HighlightFindings(), slots)
+        row.refresh_from_db()
+        partial = HIGHLIGHTS.validate_python(row.content)
+        self.assertEqual(partial.status, HighlightsStatus.COMPUTING)
+        self.assertEqual([m.key for m in partial.pulse], ["fast"])
+        self.assertEqual(
+            [s.status for s in partial.pulse_slots or []], [PulseSlotStatus.READY, PulseSlotStatus.PENDING]
+        )
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+            )
+        )
+        row.refresh_from_db()
+        final = HIGHLIGHTS.validate_python(row.content)
+        self.assertEqual(row.status, HighlightsStatus.READY)
+        self.assertTrue(row.failed_sources)
+        self.assertNotIn("_pulse_sources", row.content)
+        self.assertEqual([m.key for m in final.pulse], ["fast"])
+        self.assertEqual([s.status for s in final.pulse_slots or []], [PulseSlotStatus.READY, PulseSlotStatus.ERROR])
+        before = row.content
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+            )
+        )
+        row.refresh_from_db()
+        self.assertEqual(row.content, before)
+        highlights.publish_pulse(inputs, HighlightFindings(pulse=(metric("slow"),)), slots)
+        row.refresh_from_db()
+        self.assertEqual(row.content, before)
+
+    def test_a_pinned_number_shows_before_the_sources_finish_and_stays_after_the_pins_step_fails(self) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="progress", pins_key="pins"
+        )
+        source = HighlightSourceInputs(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=DAY.isoformat(),
+            scopes=None,
+            source_name="routine",
+            highlights_id=str(row.id),
+        )
+        pins = ResolvePinsInputs(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=DAY.isoformat(),
+            scopes=None,
+            pins=[],
+            highlights_id=str(row.id),
+        )
+        highlights.publish_pulse(source, HighlightFindings(), [contracts.PulseSlot(key="slow", name="Slow")])
+        highlights.publish_pinned(pins, metric("kept"))
+        row.refresh_from_db()
+        partial = HIGHLIGHTS.validate_python(row.content)
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+                pins=[PinnedNumber(key="kept")],
+            )
+        )
+        row.refresh_from_db()
+        final = HIGHLIGHTS.validate_python(row.content)
+
+        self.assertEqual(
+            (
+                partial.status,
+                [(slot.key, slot.status) for slot in partial.pulse_slots or []],
+                [(pin.key, pin.status) for pin in final.pins],
+                [m.key for m in final.pulse],
+            ),
+            (
+                HighlightsStatus.COMPUTING,
+                [("kept", PulseSlotStatus.READY), ("slow", PulseSlotStatus.PENDING)],
+                [("kept", HighlightPinStatus.READY)],
+                ["kept"],
+            ),
+        )
+
+    def test_a_computation_that_published_nothing_early_still_lists_its_numbers(self) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="no-progress", pins_key="pins"
+        )
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[
+                    HighlightSourceResult(
+                        source_name="routine",
+                        found=FOUND.dump_json(HighlightFindings(pulse=(metric("routine"),))).decode(),
+                        failed=False,
+                    )
+                ],
+                pins=[PinnedNumber(key="insight:p")],
+                pinned=PINNED_METRICS.dump_json([metric("insight:p")]).decode(),
+            )
+        )
+        row.refresh_from_db()
+
+        self.assertEqual(
+            [(slot.key, slot.status) for slot in HIGHLIGHTS.validate_python(row.content).pulse_slots or []],
+            [("insight:p", PulseSlotStatus.READY), ("routine", PulseSlotStatus.READY)],
+        )
+
+    @parameterized.expand([(False,), (True,)])
+    def test_a_failed_pins_step_marks_the_row_for_a_retry(self, pins_failed: bool) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="pins-failed", pins_key="pins"
+        )
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[HighlightSourceResult(source_name="routine", found="{}", failed=False)],
+                pins=[PinnedNumber(key="insight:slow")],
+                pins_failed=pins_failed,
+            )
+        )
+        row.refresh_from_db()
+
+        self.assertEqual(row.failed_sources, pins_failed)
+
+    def test_a_refresh_keeps_a_pinned_number_until_the_new_pins_step_publishes_it(self) -> None:
+        cache.clear()
+        pulse_pins.set_pins(team=self.team, user_id=self.user.id, pins=[contracts.PulsePin("insight:p", "P")])
+        connect = MagicMock()
+        connect.return_value.start_workflow = AsyncMock()
+        with patch.object(highlights, "sync_connect", connect):
+            highlights.get_highlights(team=self.team, user=self.user, scopes=None)
+            rows = TodayHighlights.objects.for_team(self.team.id)
+            first = rows.get()
+            highlights.finalize(
+                FinalizeHighlightsInputs(
+                    team_id=self.team.id,
+                    highlights_id=str(first.id),
+                    results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+                    pins=[PinnedNumber(key="insight:p")],
+                    pinned=PINNED_METRICS.dump_json([metric("insight:p")]).decode(),
+                )
+            )
+            rows.filter(id=first.id).update(created_at=timezone.now() - timedelta(seconds=1))
+            refreshing = highlights.get_highlights(team=self.team, user=self.user, scopes=None, refresh=True)
+
+        self.assertEqual(
+            (refreshing.status, rows.count(), [m.key for m in refreshing.pulse]),
+            (HighlightsStatus.COMPUTING, 2, ["insight:p"]),
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "an own insight hides key metrics",
+                ("routine", PulseSlotStatus.READY),
+                3,
+                PulseSlotStatus.READY,
+                ["insight:own", "insight:pop0", "insight:pop1"],
+            ),
+            (
+                "an experiment number keeps key metrics",
+                ("experiment_numbers", PulseSlotStatus.READY),
+                3,
+                PulseSlotStatus.READY,
+                ["experiment:1", "key:0", "key:1", "key:2"],
+            ),
+            (
+                "key metrics fill in without own numbers",
+                None,
+                3,
+                PulseSlotStatus.READY,
+                ["insight:pop0", "key:0", "key:1", "key:2"],
+            ),
+            ("four key metrics fill the row", None, 4, PulseSlotStatus.READY, ["key:0", "key:1", "key:2", "key:3"]),
+            (
+                "a failed key metric gives its place to a popular number",
+                None,
+                4,
+                PulseSlotStatus.ERROR,
+                ["insight:pop0", "key:0", "key:1", "key:2"],
+            ),
+            (
+                "a failed own insight brings key metrics back",
+                ("routine", PulseSlotStatus.ERROR),
+                3,
+                PulseSlotStatus.READY,
+                ["insight:pop0", "key:0", "key:1", "key:2"],
+            ),
+        ]
+    )
+    def test_key_metrics_and_popular_numbers_fill_what_own_numbers_leave(
+        self,
+        _name: str,
+        own: tuple[str, PulseSlotStatus] | None,
+        key_metric_count: int,
+        last_status: PulseSlotStatus,
+        expected: list[str],
+    ) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="popular"
+        )
+        inputs = HighlightSourceInputs(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=DAY.isoformat(),
+            scopes=None,
+            source_name="experiment_numbers",
+            highlights_id=str(row.id),
+        )
+        if own is not None:
+            source, status = own
+            key, reason = (
+                ("insight:own", HighlightMetricReason.ROUTINE)
+                if source == "routine"
+                else ("experiment:1", HighlightMetricReason.EXPERIMENT)
+            )
+            if status == PulseSlotStatus.READY:
+                found = HighlightFindings(pulse=(replace(metric(key), reason=reason),))
+                highlights.publish_pulse(replace(inputs, source_name=source), found, [])
+            else:
+                failed = contracts.PulseSlot(key=key, name=key, reason=reason, status=status)
+                highlights.publish_pulse(replace(inputs, source_name=source), HighlightFindings(), [failed])
+        key_slots = [contracts.PulseSlot(key=f"key:{i}", name=f"Key {i}") for i in range(key_metric_count)]
+        key_slots[-1] = replace(key_slots[-1], status=last_status)
+        highlights.publish_pulse(replace(inputs, source_name="key_metrics"), HighlightFindings(), key_slots)
+        popular = [replace(metric(f"insight:pop{i}"), reason=HighlightMetricReason.POPULAR) for i in range(2)]
+        highlights.publish_pulse(replace(inputs, source_name="routine"), HighlightFindings(pulse=tuple(popular)), [])
+        row.refresh_from_db()
+        content = HIGHLIGHTS.validate_python(row.content)
+
+        self.assertEqual(
+            (
+                [slot.key for slot in content.pulse_slots or []],
+                [m.key for m in content.pulse if m.reason == HighlightMetricReason.POPULAR],
+            ),
+            (expected, [key for key in expected if key.startswith("insight:pop")]),
+        )
+
+    @parameterized.expand(
+        [
+            ("no own numbers keep every key metric", [], ["key:0", "key:1", "key:2", "key:3"]),
+            ("own numbers leave room for popular ones", ["own:0"], ["own:0", "pop:0", "pop:1", "pop:2"]),
+        ]
+    )
+    def test_fallback_numbers_are_chosen_before_the_candidate_limit(
+        self, _name: str, own: list[str], expected: list[str]
+    ) -> None:
+        def numbers(keys: list[str], reason: HighlightMetricReason) -> tuple[contracts.HighlightMetric, ...]:
+            return tuple(replace(metric(key), reason=reason) for key in keys)
+
+        sources = (
+            HighlightSource(name="routine", find=lambda _c: HighlightFindings(), pulse_order=1),
+            HighlightSource(name="key_metrics", find=lambda _c: HighlightFindings(), pulse_order=2),
+        )
+        found = {
+            "routine": HighlightFindings(
+                pulse=numbers(own, HighlightMetricReason.ROUTINE)
+                + numbers([f"pop:{i}" for i in range(4)], HighlightMetricReason.POPULAR)
+            ),
+            "key_metrics": HighlightFindings(
+                pulse=numbers([f"key:{i}" for i in range(4)], HighlightMetricReason.KEY_METRIC)
+            ),
+        }
+
+        built = highlights.build_highlights(sources, found, Team(timezone="UTC"), DAY)
+
+        self.assertEqual([m.key for m in built.pulse], expected)
+
+    def test_a_pinned_key_metric_stays_beside_own_numbers(self) -> None:
+        slots = [
+            contracts.PulseSlot(key="key:0", name="Key 0", status=PulseSlotStatus.READY),
+            contracts.PulseSlot(key="insight:a", name="A", reason=HighlightMetricReason.ROUTINE),
+            contracts.PulseSlot(key="key:1", name="Key 1"),
+        ]
+
+        kept = highlights._key_metrics_without_own_numbers(slots, {"key:0", "key:1"}, {"key:0"})
+
+        self.assertEqual([slot.key for slot in kept], ["key:0", "insight:a"])
+
+    def test_healthy_popular_numbers_come_before_failed_ones(self) -> None:
+        def slot(key: str, reason: HighlightMetricReason, status: PulseSlotStatus) -> contracts.PulseSlot:
+            return contracts.PulseSlot(key=key, name=key, reason=reason, status=status)
+
+        slots = [
+            slot("experiment:1", HighlightMetricReason.EXPERIMENT, PulseSlotStatus.READY),
+            slot("insight:pop0", HighlightMetricReason.POPULAR, PulseSlotStatus.ERROR),
+            *(slot(f"insight:pop{i}", HighlightMetricReason.POPULAR, PulseSlotStatus.READY) for i in (1, 2, 3)),
+        ]
+
+        kept = highlights._popular_within_row(slots, set())
+
+        self.assertEqual([s.key for s in kept], ["experiment:1", "insight:pop1", "insight:pop2", "insight:pop3"])
+
+    @parameterized.expand([5, 6])
+    def test_progress_keeps_source_ranking_limit_and_dates_after_failure(self, routine_count: int) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="ranked"
+        )
+        inputs = HighlightSourceInputs(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=DAY.isoformat(),
+            scopes=None,
+            source_name="key_metrics",
+            highlights_id=str(row.id),
+        )
+        configured = [replace(metric(f"key:{i}"), reason=HighlightMetricReason.KEY_METRIC) for i in range(4)]
+        routine = [replace(metric(f"insight:{i}"), reason=HighlightMetricReason.ROUTINE) for i in range(routine_count)]
+        highlights.publish_pulse(inputs, HighlightFindings(pulse=tuple(configured)), [])
+        routine_inputs = replace(inputs, source_name="routine")
+        slots = [contracts.PulseSlot(key=m.key, name=m.name, reason=m.reason) for m in routine]
+        highlights.publish_pulse(routine_inputs, HighlightFindings(), slots)
+        row.refresh_from_db()
+        self.assertEqual(
+            [slot.key for slot in HIGHLIGHTS.validate_python(row.content).pulse_slots or []][:routine_count],
+            [m.key for m in routine],
+        )
+        highlights.publish_pulse(routine_inputs, HighlightFindings(pulse=tuple(routine)), slots)
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[
+                    HighlightSourceResult(source_name="routine", found=None, failed=True),
+                    HighlightSourceResult(source_name="key_metrics", found=None, failed=True),
+                ],
+            )
+        )
+        row.refresh_from_db()
+        final = HIGHLIGHTS.validate_python(row.content)
+        expected = [m.key for m in routine][:6]
+        self.assertEqual([m.key for m in final.pulse], expected)
+        self.assertEqual([slot.key for slot in final.pulse_slots or []], expected)
+        self.assertTrue(all(m.period_starts == [DAY - timedelta(days=1)] for m in final.pulse))
+
+    def test_retry_reuses_active_workflow_and_keeps_ready_numbers(self) -> None:
+        cache.clear()
+        connect = MagicMock()
+        connect.return_value.start_workflow = AsyncMock()
+        with patch.object(highlights, "sync_connect", connect):
+            highlights.get_highlights(team=self.team, user=self.user, scopes=None)
+            rows = TodayHighlights.objects.for_team(self.team.id)
+            first = rows.get()
+            inputs = HighlightSourceInputs(
+                team_id=self.team.id,
+                user_id=self.user.id,
+                local_day=DAY.isoformat(),
+                scopes=None,
+                source_name="routine",
+                highlights_id=str(first.id),
+            )
+            highlights.publish_pulse(
+                inputs,
+                HighlightFindings(pulse=(metric("fast"),)),
+                [contracts.PulseSlot(key="fast", name="Fast"), contracts.PulseSlot(key="slow", name="Slow")],
+            )
+            highlights.finalize(
+                FinalizeHighlightsInputs(
+                    team_id=self.team.id,
+                    highlights_id=str(first.id),
+                    results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+                )
+            )
+            rows.filter(id=first.id).update(created_at=timezone.now() - timedelta(seconds=1))
+            ready = highlights.get_highlights(team=self.team, user=self.user, scopes=None, refresh=True)
+            self.assertEqual(ready.status, HighlightsStatus.COMPUTING)
+            self.assertEqual([m.key for m in ready.pulse], ["fast"])
+            new = rows.exclude(id=first.id).get()
+            highlights.publish_pulse(
+                replace(inputs, highlights_id=str(new.id)),
+                HighlightFindings(),
+                [contracts.PulseSlot(key="fast", name="Fast"), contracts.PulseSlot(key="slow", name="Slow")],
+            )
+            pending = highlights.get_highlights(team=self.team, user=self.user, scopes=None, refresh=True)
+            self.assertEqual([m.key for m in pending.pulse], ["fast"])
+            self.assertEqual(
+                [s.status for s in pending.pulse_slots or []], [PulseSlotStatus.READY, PulseSlotStatus.PENDING]
+            )
+            self.assertEqual(connect.return_value.start_workflow.call_count, 2)
+            retry_at = timezone.now() + timedelta(seconds=highlights.FAILED_CACHE_SECONDS + 1)
+            with time_machine.travel(timezone.now() + timedelta(seconds=30), tick=False):
+                highlights.finalize(
+                    FinalizeHighlightsInputs(
+                        team_id=self.team.id,
+                        highlights_id=str(new.id),
+                        results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+                    )
+                )
+                for _ in range(3):
+                    limited = highlights.get_highlights(team=self.team, user=self.user, scopes=None, refresh=True)
+                    self.assertEqual(limited.status, HighlightsStatus.FAILED)
+                self.assertEqual(rows.count(), 2)
+                self.assertEqual(connect.return_value.start_workflow.call_count, 2)
+            with time_machine.travel(retry_at, tick=False):
+                retried = highlights.get_highlights(team=self.team, user=self.user, scopes=None, refresh=True)
+                self.assertEqual(retried.status, HighlightsStatus.COMPUTING)
+                self.assertEqual(rows.count(), 3)
+                self.assertEqual(connect.return_value.start_workflow.call_count, 3)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_finalization_keeps_a_concurrent_publication(team: Team, user: User) -> None:
+    row = TodayHighlights.objects.for_team(team.id).create(
+        team_id=team.id, user_id=user.id, local_day=DAY, key="concurrent"
+    )
+    source = HighlightSourceInputs(
+        team_id=team.id,
+        user_id=user.id,
+        local_day=DAY.isoformat(),
+        scopes=None,
+        source_name="routine",
+        highlights_id=str(row.id),
+    )
+    final = FinalizeHighlightsInputs(
+        team_id=team.id,
+        highlights_id=str(row.id),
+        results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+    )
+    pids: Queue[int] = Queue()
+
+    def run(action: Callable[[], None]) -> None:
+        close_old_connections()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_backend_pid()")
+                pids.put(cursor.fetchone()[0])
+            action()
+        finally:
+            connections.close_all()
+
+    def wait_for_blocked_connection(pid: int) -> None:
+        deadline = monotonic() + 10
+        while monotonic() < deadline:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT cardinality(pg_blocking_pids(%s))", [pid])
+                if cursor.fetchone()[0] > 0:
+                    return
+            sleep(0.01)
+        pytest.fail("The concurrent database operation did not wait for the row lock")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        with transaction.atomic():
+            TodayHighlights.objects.for_team(team.id).select_for_update().get(id=row.id)
+            publish = pool.submit(
+                run, partial(highlights.publish_pulse, source, HighlightFindings(pulse=(metric("fast"),)), [])
+            )
+            wait_for_blocked_connection(pids.get(timeout=10))
+            finish = pool.submit(run, partial(highlights.finalize, final))
+            wait_for_blocked_connection(pids.get(timeout=10))
+        publish.result(timeout=10)
+        finish.result(timeout=10)
+    row.refresh_from_db()
+    assert row.status == HighlightsStatus.READY
+    assert [metric.key for metric in HIGHLIGHTS.validate_python(row.content).pulse] == ["fast"]

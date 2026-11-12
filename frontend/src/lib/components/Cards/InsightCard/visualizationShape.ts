@@ -1,12 +1,12 @@
+import { getDisplay } from '~/queries/schema/node-accessors'
 import {
-    getDisplay,
     isDataTableNode,
     isDataVisualizationNode,
     isFunnelsQuery,
     isInsightVizNode,
     isPathsQuery,
     isRetentionQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
 import { ChartDisplayType, FunnelVizType, InsightModel } from '~/types'
 
 type VisualizationShape = 'line' | 'bar' | 'pie' | 'donut' | 'number' | 'table' | 'heatmap' | 'funnel'

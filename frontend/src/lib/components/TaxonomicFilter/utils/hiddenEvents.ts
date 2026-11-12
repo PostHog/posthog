@@ -1,9 +1,11 @@
-import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { ExcludedProperties, HiddenEventStandIn, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, deriveFromCoreFilterDefinitions } from '~/taxonomy/taxonomy'
 
 const EVENTS_MODE = FlagEvaluationsModeEnumApi.Number0
+
+const REACHES_SECOND_WORD = /[_\s]\S/
 
 /**
  * Events whose rows are moving out of the `events` table. Event pickers leave them out, because a
@@ -12,20 +14,29 @@ const EVENTS_MODE = FlagEvaluationsModeEnumApi.Number0
  * `searchTerms` are every string a search has to equal for us to treat it as a hunt for that event.
  * The label is in there because lists render core events by their label, so "Feature flag called" is
  * a string the user has actually seen and is as likely to type as the raw key.
+ *
+ * `standInPrefixTerms` add the name without its `$`, because the posthog.com docs write the event that way.
  */
-const EVENTS_HIDDEN_IN_QUERY_BUILDERS: { name: string; searchTerms: string[] }[] = Object.entries(
-    CORE_FILTER_DEFINITIONS_BY_GROUP.events
+const eventsHiddenInQueryBuilders = deriveFromCoreFilterDefinitions(
+    (): { name: string; searchTerms: string[]; standInPrefixTerms: string[] }[] =>
+        Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.events)
+            // The "All Events" remap in the taxonomy leaves the '' key holding no definition, so read defensively.
+            .filter(([, definition]) => definition?.hidden_in_query_builders)
+            .map(([name, definition]) => {
+                const searchTerms = [name, definition.label]
+                    .filter((term): term is string => typeof term === 'string' && term.length > 0)
+                    .map((term) => term.toLowerCase())
+                return {
+                    name,
+                    searchTerms,
+                    standInPrefixTerms: [...searchTerms, name.replace(/^\$/, '').toLowerCase()],
+                }
+            })
 )
-    // The "All Events" remap in the taxonomy leaves the '' key holding no definition, so read defensively.
-    .filter(([, definition]) => definition?.hidden_in_query_builders)
-    .map(([name, definition]) => ({
-        name,
-        searchTerms: [name, definition.label]
-            .filter((term): term is string => typeof term === 'string' && term.length > 0)
-            .map((term) => term.toLowerCase()),
-    }))
 
-const HIDDEN_EVENT_NAMES = EVENTS_HIDDEN_IN_QUERY_BUILDERS.map(({ name }) => name)
+const hiddenEventNamesInTaxonomy = deriveFromCoreFilterDefinitions((): string[] =>
+    eventsHiddenInQueryBuilders().map(({ name }) => name)
+)
 
 /**
  * Names the Events group adds to its own exclusions.
@@ -35,15 +46,39 @@ const HIDDEN_EVENT_NAMES = EVENTS_HIDDEN_IN_QUERY_BUILDERS.map(({ name }) => nam
  *
  * For an organization on mode 1, the team API reports Events while the
  * `FLAG_EVALUATIONS_READS_FORCE_EVENTS` instance setting is on, so its pickers show these events again.
+ *
+ * Every hidden name when the group offers stand-ins, whatever `includeHiddenEvents` says. The stand-in row then
+ * replaces the event's own row, so a definition the team still has does not list the event twice.
  */
 export function hiddenEventNames(
     flagEvaluationsMode: FlagEvaluationsModeEnumApi | undefined,
-    includeHiddenEvents?: boolean
+    includeHiddenEvents?: boolean,
+    offerHiddenEventStandIns?: boolean
 ): string[] {
-    if (includeHiddenEvents || (flagEvaluationsMode ?? EVENTS_MODE) === EVENTS_MODE) {
+    const hides =
+        offerHiddenEventStandIns || (!includeHiddenEvents && (flagEvaluationsMode ?? EVENTS_MODE) !== EVENTS_MODE)
+    return hides ? hiddenEventNamesInTaxonomy() : []
+}
+
+/**
+ * Unlike `hiddenEventMatchingSearch`, this matches a prefix, so "feature flag" finds the event.
+ * The prefix has to reach the second word of the name or label. The stand-in leads the list, and a search for
+ * "feature" or "$feature_" must keep a real event such as `$feature_view` at row 0.
+ */
+export function hiddenEventStandInsMatchingSearch(
+    searchQuery: string,
+    excludedEventNames?: readonly unknown[]
+): HiddenEventStandIn[] {
+    const query = searchQuery.trim().toLowerCase()
+    if (!REACHES_SECOND_WORD.test(query)) {
         return []
     }
-    return HIDDEN_EVENT_NAMES
+    return eventsHiddenInQueryBuilders()
+        .filter(
+            ({ name, standInPrefixTerms }) =>
+                !excludedEventNames?.includes(name) && standInPrefixTerms.some((term) => term.startsWith(query))
+        )
+        .map(({ name }) => ({ _type: 'hidden_event_stand_in', name, value: name }))
 }
 
 /** The https link in the move notices flag's payload, or null while there is no announcement to link to. */
@@ -65,7 +100,9 @@ export function eventsWithMoveNotice(
     flagEvaluationsMode: FlagEvaluationsModeEnumApi | undefined,
     moveNoticesEnabled: boolean
 ): string[] {
-    return moveNoticesEnabled && (flagEvaluationsMode ?? EVENTS_MODE) === EVENTS_MODE ? HIDDEN_EVENT_NAMES : []
+    return moveNoticesEnabled && (flagEvaluationsMode ?? EVENTS_MODE) === EVENTS_MODE
+        ? hiddenEventNamesInTaxonomy()
+        : []
 }
 
 /**
@@ -88,7 +125,7 @@ export function hiddenEventMatchingSearch(
     if (!query) {
         return null
     }
-    const match = EVENTS_HIDDEN_IN_QUERY_BUILDERS.find(({ searchTerms }) => searchTerms.includes(query))
+    const match = eventsHiddenInQueryBuilders().find(({ searchTerms }) => searchTerms.includes(query))
     return match && excludedEventNames.includes(match.name) ? match.name : null
 }
 

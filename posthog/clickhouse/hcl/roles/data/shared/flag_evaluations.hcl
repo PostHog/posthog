@@ -113,10 +113,11 @@ database "posthog" {
   table "sharded_flag_evaluations" {
     order_by     = ["team_id", "flag_key", "toDate(timestamp)", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toYYYYMM(timestamp)"
-    ttl          = "toDate(timestamp) + toIntervalDay(90)"
+    ttl          = "toDate(timestamp) + toIntervalDay(92)"
     settings = {
-      index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
+      index_granularity                = "8192"
+      materialize_ttl_recalculate_only = "1"
+      ttl_only_drop_parts              = "1"
     }
     extend = "_flag_evaluations_columns"
     patch_column "$group_0" {

@@ -1,0 +1,169 @@
+import type { Context } from './context'
+import { EXIT_USAGE } from './errors'
+import type { Output } from './output'
+import type { ParseFailure } from './schema'
+import { kebabCase } from './text'
+
+export interface ArgumentSpec {
+    description: string
+    optional?: boolean
+    // Collects every remaining argument into a list. Only the last argument can be variadic.
+    variadic?: boolean
+    // `-` reads the value from stdin, and an empty value is an error.
+    stdin?: boolean
+}
+
+// `env` and `config` are for global options only: the env vars and the posthog.json key path, such
+// as `cli.noFail`, that set them.
+interface OptionSource {
+    env?: readonly string[]
+    config?: string
+    // The posthog.json key means the opposite of the option, as `cli.telemetry: false` for --no-telemetry.
+    negate?: boolean
+    lenient?: boolean
+}
+
+export type OptionSpec =
+    | ({ type: 'boolean'; description: string; short?: string } & OptionSource)
+    | ({
+          type: 'string'
+          description: string
+          short?: string
+          // The name shown in help, as in `--host <url>`. Defaults to the option name.
+          placeholder?: string
+          choices?: readonly string[]
+          // The option can repeat, as in `--var a=1 --var b=2`, and its value is a list.
+          multiple?: boolean
+          // Turns the text into the value the command gets, such as a `Host`. It throws with `failure`
+          // when the text is not valid, so a bad flag or env var fails before the command runs.
+          parse?: (raw: string, failure: ParseFailure) => unknown
+      } & OptionSource)
+
+type ArgumentValues<Args> = {
+    [Name in keyof Args]: Args[Name] extends { variadic: true }
+        ? string[]
+        : Args[Name] extends { optional: true }
+          ? string | undefined
+          : string
+}
+
+export type OptionValues<Options> = {
+    [Name in keyof Options]: Options[Name] extends { type: 'boolean' }
+        ? boolean | undefined
+        : Options[Name] extends { multiple: true }
+          ? string[] | undefined
+          : Options[Name] extends { parse: (...args: never[]) => infer Parsed }
+            ? Parsed | undefined
+            : (Options[Name] extends { choices: readonly (infer Choice)[] } ? Choice : string) | undefined
+}
+
+interface CommandInput<Args, Options> {
+    args: ArgumentValues<Args>
+    options: OptionValues<Options>
+}
+
+interface RenderInput<Args, Options, Result> extends CommandInput<Args, Options> {
+    result: Result
+    out: Output
+}
+
+interface CommandDefinition<Args, Options, Result> {
+    description: string
+    args?: Args
+    // The key becomes the flag: `dotenvFile` is `--dotenv-file`.
+    options?: Options
+    // The command changes something in PostHog or on disk. HOG_DRY_RUN turns on its `dryRun` option,
+    // and fails it when it has none. Commands that only read run as usual in a dry run.
+    writes?: boolean
+    // The command runs when posthog.json is invalid, like `hog config check`, which reports why.
+    // Every other command stops, so it never runs with settings hog couldn't read.
+    allowsInvalidConfig?: boolean
+    // The command needs a person or this machine, like `hog setup`. In CI it fails before it starts,
+    // unless an agent runs it. `reason` finishes "`hog <command>` ...", and `hint` names what to run instead.
+    refusesCI?: { reason: string; hint: string }
+    // Personal API key scopes the command needs. `hog commands` lists them, and a 403 names them.
+    scopes?: readonly string[]
+    notes?: string
+    examples?: readonly string[]
+    // Does the work and returns data. It never prints: `human` and `agent` decide how the data
+    // looks. Import heavy dependencies here with `await import()`, so other commands don't load them.
+    run(input: CommandInput<Args, Options> & { ctx: Context }): Promise<Result> | Result
+    // What a person at a terminal sees. Defaults to the result as indented JSON.
+    human?(input: RenderInput<Args, Options, Result>): void
+    // What agents, pipes and `-o json` see. Defaults to the result as one line of JSON.
+    agent?(input: RenderInput<Args, Options, Result>): void
+    // Extra properties for the anonymous usage event: counts and names from the result, never
+    // values, paths or text the caller typed.
+    telemetry?(input: CommandInput<Args, Options> & { result: Result }): Record<string, unknown>
+    // What --raw prints, for a result that holds more than its views show. Defaults to the result.
+    raw?(result: Result): unknown
+    // The exit code for a result. Defaults to 0. Failures throw a HogError instead.
+    exitCode?(result: Result): number
+}
+
+// Methods, not function properties, so a command with specific arguments still fits `Command`.
+export interface Command<
+    Args extends Record<string, ArgumentSpec> = Record<string, ArgumentSpec>,
+    Options extends Record<string, OptionSpec> = Record<string, OptionSpec>,
+    Result = unknown,
+> extends CommandDefinition<Args, Options, Result> {
+    kind: 'command'
+}
+
+export interface Group {
+    kind: 'group'
+    description: string
+    commands: CommandTree
+    // Shorter names that work the same, like `et` for `error-tracking`. Help and agents use the full name.
+    aliases?: readonly string[]
+    // Runs when the group is called without a subcommand, as `hog skills`. Without it, that call fails with the group's help.
+    guide?: Command
+}
+
+// A command posthog-cli still owns. hog lists it and points the caller to `use`, with the same arguments.
+export interface Legacy {
+    kind: 'legacy'
+    description: string
+    use: string
+}
+
+export type CommandTree = Readonly<Record<string, Command | Group | Legacy>>
+
+export function defineCommand<
+    const Args extends Record<string, ArgumentSpec> = {},
+    const Options extends Record<string, OptionSpec> = {},
+    Result = void,
+>(definition: CommandDefinition<Args, Options, Result>): Command<Args, Options, Result> {
+    return { kind: 'command', ...definition }
+}
+
+export function defineGroup(definition: Omit<Group, 'kind'>): Group {
+    return { kind: 'group', ...definition }
+}
+
+export function defineLegacy(definition: Omit<Legacy, 'kind'>): Legacy {
+    return { kind: 'legacy', ...definition }
+}
+
+// `source` names where the value came from, such as `--host` or `HOG_HOST`, so the error says what to fix.
+export function parseOption(spec: OptionSpec, value: unknown, source: string, code: string): unknown {
+    if (spec.type !== 'string' || !spec.parse || value === undefined) {
+        return value
+    }
+    return spec.parse(String(value), { code, context: `${source} is not valid.`, exitCode: EXIT_USAGE })
+}
+
+export function longFlag(name: string): string {
+    return `--${kebabCase(name)}`
+}
+
+export function optionFlags(name: string, spec: OptionSpec): string {
+    const long = longFlag(name)
+    const flag = spec.type === 'string' ? `${long} <${spec.placeholder ?? kebabCase(name)}>` : long
+    return spec.short ? `-${spec.short}, ${flag}` : flag
+}
+
+export function argumentSyntax(name: string, spec: ArgumentSpec): string {
+    const label = `${kebabCase(name)}${spec.variadic ? '...' : ''}`
+    return spec.optional ? `[${label}]` : `<${label}>`
+}

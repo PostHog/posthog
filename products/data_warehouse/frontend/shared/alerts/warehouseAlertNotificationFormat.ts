@@ -61,6 +61,7 @@ function webhookHost(url: string | null | undefined): string | undefined {
     try {
         return new URL(url).host
     } catch {
-        return url
+        // Without a scheme the URL does not parse, and the raw text can hold the webhook secret.
+        return undefined
     }
 }

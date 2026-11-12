@@ -27,7 +27,7 @@ from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import count_cohort_members
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
@@ -257,8 +257,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
 
-        action = Action.objects.create(name="purchase", team=self.team, steps_json=[{"event": "purchase"}])
-        action.save()
+        action = create_action(name="purchase", team=self.team, steps_json=[{"event": "purchase"}])
 
         metric = ExperimentMeanMetric(
             source=ActionsNode(id=action.id),
@@ -728,12 +727,11 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         # Create an action for purchase events with specific properties
-        action = Action.objects.create(
+        action = create_action(
             name="Qualified Purchase",
             team=self.team,
             steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],
         )
-        action.save()
 
         for variant, purchase_count in [("control", 6), ("test", 8)]:
             for i in range(10):

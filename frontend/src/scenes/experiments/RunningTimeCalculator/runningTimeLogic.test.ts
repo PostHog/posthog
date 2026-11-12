@@ -1,6 +1,7 @@
 import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -11,6 +12,7 @@ import { Experiment } from '~/types'
 import { experimentLogic } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
 import { modalsLogic } from '../modalsLogic'
+import { roundUpDetectableEffect } from './calculations'
 import { runningTimeLogic } from './runningTimeLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -59,6 +61,15 @@ const metricResultWithBaseline = {
     metric_uuid: METRIC_UUID,
     baseline: { key: 'control', number_of_samples: 600, sum: 120, sum_squares: 48 },
     variant_results: [{ key: 'test', number_of_samples: 600, sum: 130, sum_squares: 52 }],
+}
+
+// The backend's projection for the result above: 1,200 exposures over ten days.
+const PROJECTION = {
+    days_since_launch: 10,
+    exposures_per_day: 120,
+    detectable_effect_now: 38.7,
+    upcoming_checkpoints: [{ weeks_since_launch: 2, detectable_effect: 32.7 }],
+    reachable_effect: 25.4,
 }
 
 // The latest completed run covers the one primary metric, so the metrics logic applies the baseline on mount.
@@ -123,6 +134,7 @@ describe('runningTimeLogic', () => {
             runningTimeTargetMock.mockResolvedValue({
                 recommended_sample_size: 2000,
                 minimum_detectable_effect: 30,
+                outlook: PROJECTION,
             })
             api.update.mockResolvedValue({
                 ...experiment,
@@ -172,6 +184,7 @@ describe('runningTimeLogic', () => {
             runningTimeTargetMock.mockResolvedValue({
                 recommended_sample_size: 2000,
                 minimum_detectable_effect: 30,
+                outlook: PROJECTION,
             })
             api.update.mockRejectedValue({
                 status: 409,
@@ -202,7 +215,7 @@ describe('runningTimeLogic', () => {
 
             logic = runningTimeLogic({ experiment })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticTargetSuccess']).toFinishAllListeners()
             runningTimeTargetMock.mockClear()
 
             logic.actions.setConfig({ mde: 15 })
@@ -223,9 +236,66 @@ describe('runningTimeLogic', () => {
 
             logic = runningTimeLogic({ experiment })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticTargetSuccess']).toFinishAllListeners()
 
             expect(logic.values.currentExposures).toEqual(1100)
+        })
+
+        it('counts the days left on the projection, also before 100 exposures and with results from before today', async () => {
+            // 90 exposures in results that end on day 9 make 10 a day, so the 180 of the target arrive on day 18.
+            runningTimeTargetMock.mockResolvedValue({
+                recommended_sample_size: 180,
+                minimum_detectable_effect: 30,
+                current_sample_size: 90,
+                outlook: { ...PROJECTION, days_since_launch: 10, exposures_per_day: 10 },
+            })
+            api.update.mockResolvedValue({ ...experiment, version: 4 })
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticTargetSuccess']).toFinishAllListeners()
+
+            expect(logic.values.remainingDays).toEqual(8)
+        })
+
+        it('keeps the same rows while the user takes a row with "Use" and moves the slider', async () => {
+            // At 120 exposures a day, the 1,996 that 30% needs arrive after week 2, which can detect 32.7%.
+            runningTimeTargetMock.mockResolvedValue({
+                recommended_sample_size: 1996,
+                minimum_detectable_effect: 30,
+                current_sample_size: 1200,
+                outlook: PROJECTION,
+            })
+            api.update.mockResolvedValue({ ...experiment, version: 4 })
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticTargetSuccess']).toFinishAllListeners()
+            const rows = (): [number, boolean][] | undefined =>
+                logic.values.outlook?.checkpoints.map(({ detectableEffect, isTarget }) => [detectableEffect, isTarget])
+
+            expect(rows()).toEqual([
+                [38.7, false],
+                [32.7, false],
+                [30, true],
+            ])
+
+            logic.actions.selectCheckpoint('week-2', roundUpDetectableEffect(32.7))
+
+            expect(rows()).toEqual([
+                [38.7, false],
+                [32.7, true],
+                [30, false],
+            ])
+            expect(logic.values.remainingDays).toEqual(4)
+            expect(logic.values.config.mde).toEqual(32.7)
+
+            logic.actions.setConfig({ mde: 36 })
+
+            expect(rows()).toEqual([
+                [38.7, false],
+                [36, true],
+                [32.7, false],
+            ])
         })
 
         it('asks again when the metric sums change without new exposures', async () => {
@@ -234,7 +304,7 @@ describe('runningTimeLogic', () => {
 
             logic = runningTimeLogic({ experiment })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticTargetSuccess']).toFinishAllListeners()
 
             metricsLogicInstance.actions.setPrimaryMetricsResults([
                 {
@@ -242,7 +312,7 @@ describe('runningTimeLogic', () => {
                     baseline: { ...metricResultWithBaseline.baseline, sum: 150, sum_squares: 90 },
                 } as any,
             ])
-            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculation']).toFinishAllListeners()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticTarget']).toFinishAllListeners()
 
             expect(runningTimeTargetMock).toHaveBeenCalledTimes(2)
         })
@@ -253,6 +323,7 @@ describe('runningTimeLogic', () => {
             runningTimeTargetMock.mockResolvedValueOnce({
                 recommended_sample_size: 2000,
                 minimum_detectable_effect: 30,
+                outlook: PROJECTION,
             })
             api.update.mockImplementation(async (_url: string, payload: unknown) => ({
                 ...experiment,
@@ -260,19 +331,22 @@ describe('runningTimeLogic', () => {
                 version: 4,
             }))
 
+            const captureSpy = jest.spyOn(posthog, 'capture')
             logic = runningTimeLogic({ experiment })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticTargetSuccess']).toFinishAllListeners()
+            const savedMde = logic.values.config.mde
             modalsLogic.actions.openRunningTimeConfigModal()
             logic.actions.setConfig({ mde: 15 })
             runningTimeTargetMock.mockResolvedValueOnce({
                 recommended_sample_size: 8000,
                 minimum_detectable_effect: 15,
+                outlook: PROJECTION,
             })
             api.update.mockClear()
 
             await expectLogic(logic, () => logic.actions.save())
-                .toDispatchActions(['loadAutomaticCalculationSuccess'])
+                .toDispatchActions(['loadAutomaticTargetSuccess'])
                 .toFinishAllListeners()
 
             expect(api.update).toHaveBeenLastCalledWith(
@@ -284,6 +358,11 @@ describe('runningTimeLogic', () => {
                     }),
                 })
             )
+            expect(captureSpy).toHaveBeenCalledWith(
+                'experiment running time settings saved',
+                expect.objectContaining({ minimum_detectable_effect: 15, previous_minimum_detectable_effect: savedMde })
+            )
+            captureSpy.mockRestore()
         })
 
         it('keeps the modal open with the edited config when the experiment save fails', async () => {
@@ -308,7 +387,14 @@ describe('runningTimeLogic', () => {
     })
 
     describe('isCalculating', () => {
-        it('stays true while the automatic estimate is in flight, then settles on success', async () => {
+        it.each([
+            ['an automatic experiment', {}, null],
+            [
+                'a manual experiment switched to automatic',
+                { exposure_estimate_config: { conversionRateInputType: 'manual' } },
+                { mode: 'automatic' as const },
+            ],
+        ])('stays true while the estimate of %s is in flight, then settles', async (_name, saved, edit) => {
             let resolveCalc: (value: unknown) => void = () => {}
             runningTimeTargetMock.mockReturnValue(
                 new Promise((resolve) => {
@@ -316,15 +402,22 @@ describe('runningTimeLogic', () => {
                 })
             )
             api.update.mockResolvedValue({ ...experiment, version: 4 })
+            experimentLogicInstance.actions.setExperiment({
+                ...experiment,
+                running_time_calculation: saved as Experiment['running_time_calculation'],
+            })
 
             logic = runningTimeLogic({ experiment })
             logic.mount()
+            if (edit) {
+                logic.actions.setConfig(edit)
+            }
 
-            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculation'])
+            await expectLogic(logic).toDispatchActions(['loadAutomaticTarget'])
             expect(logic.values.isCalculating).toBe(true)
 
             resolveCalc({ recommended_sample_size: 2000, minimum_detectable_effect: 30 })
-            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticTargetSuccess']).toFinishAllListeners()
             expect(logic.values.isCalculating).toBe(false)
         })
 
@@ -336,7 +429,7 @@ describe('runningTimeLogic', () => {
             logic = runningTimeLogic({ experiment })
             logic.mount()
 
-            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationFailure']).toFinishAllListeners()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticTargetFailure']).toFinishAllListeners()
             expect(logic.values.isCalculating).toBe(false)
         })
 
@@ -344,12 +437,13 @@ describe('runningTimeLogic', () => {
             runningTimeTargetMock.mockResolvedValue({
                 recommended_sample_size: 2000,
                 minimum_detectable_effect: 30,
+                outlook: PROJECTION,
             })
 
             logic = runningTimeLogic({ experiment })
             logic.mount()
             // The baseline fires the automatic estimate on mount; let it settle so only the recalculation state moves.
-            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticTargetSuccess']).toFinishAllListeners()
             expect(logic.values.isCalculating).toBe(false)
 
             metricsLogicInstance.actions.setRecalculationLoading(true)

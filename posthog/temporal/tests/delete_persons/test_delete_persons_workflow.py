@@ -3,12 +3,15 @@ import uuid as uuid_lib
 import pytest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from asgiref.sync import sync_to_async
 from temporalio.exceptions import ApplicationError
 
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person, bulk_delete
 from posthog.models.person.bulk_delete import PersonTombstoneFailed
+from posthog.models.person.util import lifecycle_delete_op_id
 from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.personhog_client.proto import DeletePersonsMode
 from posthog.temporal.delete_persons.delete_persons_workflow import (
@@ -50,12 +53,29 @@ class TestDeletePersonsActivity:
         assert [(d.id, d.version) for d in tombstone.distinct_ids] == [("d1", 1)]
         assert fake.tombstone_queue == {}
 
+    async def test_by_ids_runs_the_saga_under_the_workflow_run_and_attempt(self, activity_environment):
+        person_uuid = str(uuid_lib.uuid4())
+        with fake_personhog_client() as fake, _no_publish(), override_settings(PERSONHOG_WRITE_PATH="leader"):
+            fake.add_person(team_id=1, person_id=10, uuid=person_uuid, version=3, distinct_ids=["d1"])
+
+            deleted, _ = await activity_environment.run(
+                delete_persons_activity,
+                DeletePersonsActivityInputs(team_id=1, person_ids=[10], batch_size=1000),
+            )
+
+        assert deleted == 1
+        [call] = [call for call in fake.calls if call.method == "lifecycle.delete_persons"]
+        info = activity_environment.info
+        run_id = f"{info.workflow_run_id}:{info.attempt}"
+        assert call.request.op_id == str(lifecycle_delete_op_id(run_id, 1, [10]))
+        assert fake._persons_by_uuid[(1, person_uuid)].is_deleted is True
+
     async def test_by_ids_reads_distinct_ids_in_one_batch_and_pages_only_heavy_persons(self, activity_environment):
         counted: dict[int, int] = {}
 
-        def record_batch(team_id: int, persons: list[Person]) -> int:
+        def record_batch(team_id: int, persons: list[Person], *, run: bulk_delete.DeletionRun | None = None) -> int:
             counted.update({person.pk: len(person.distinct_ids) for person in persons})
-            return real_tombstone(team_id, persons)
+            return real_tombstone(team_id, persons, run=run)
 
         real_tombstone = bulk_delete.tombstone_and_publish_persons
         with (

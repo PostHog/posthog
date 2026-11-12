@@ -1,6 +1,5 @@
 import { useState } from 'react'
 
-import { IconBrain } from '@posthog/icons'
 import { Button, ItemRadio, MenuLabel, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
 import { SHEET_PARTS } from '~/layout/today/todayMenuParts'
@@ -21,6 +20,7 @@ import {
 import { ModelCostChip } from '../ModelCostChip'
 import { ModelCostFooter } from '../ModelCostFooter'
 import type { ComposerCodexBilling } from './ComposerModelEffortPickers'
+import { ComposerModelIcon } from './ComposerModelIcon'
 
 export interface ComposerModelEffortSheetProps {
     modelLabel: string
@@ -64,14 +64,19 @@ export function ComposerModelEffortSheet({
     const [open, setOpen] = useState(false)
     return (
         <>
-            <Button size="sm" onClick={() => setOpen(true)} data-attr="composer-model-sheet-open">
-                <IconBrain className="shrink-0 text-muted-foreground" />
-                <span className="max-w-32 truncate">{modelLabel}</span>
+            <Button
+                size="sm"
+                className="min-w-0 shrink"
+                onClick={() => setOpen(true)}
+                data-attr="composer-model-sheet-open"
+            >
+                <ComposerModelIcon
+                    model={selectedModel}
+                    ownPlan={billing?.value === ModelAccessEnumApi.OwnSubscription}
+                />
+                <span className="whitespace-nowrap">{modelLabel}</span>
                 {effortOptions.length > 0 && (
                     <span className="text-muted @max-[400px]/composer:hidden">{getEffortLabel(selectedEffort)}</span>
-                )}
-                {billing?.value === ModelAccessEnumApi.OwnSubscription && (
-                    <span className="text-muted">ChatGPT plan</span>
                 )}
             </Button>
             <TodaySheetMenu open={open} onOpenChange={setOpen} title="Model and reasoning">

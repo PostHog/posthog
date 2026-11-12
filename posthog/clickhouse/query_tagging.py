@@ -28,6 +28,7 @@ class AccessMethod(StrEnum):
     OAUTH = "oauth"
     SHARING_TOKEN = "sharing_token"
     ID_JAG = "id_jag"
+    OIDC_WORKLOAD = "oidc_workload"
     PROJECT_SECRET_API_KEY = "project_secret_api_key"
     TEAM_SECRET_TOKEN = "team_secret_token"
 
@@ -112,12 +113,14 @@ class Feature(StrEnum):
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
     WAREHOUSE_SUGGESTIONS = "warehouse_suggestions"
+    EVAL_SUGGESTIONS = "eval_suggestions"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
     INGESTION_WARNINGS = "ingestion_warnings"
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     DATA_QUALITY_CHECK = "data_quality_check"  # one data quality check assertion against its subject
+    BATCH_RUN_OUTCOME = "batch_run_outcome"  # a workflow batch run checks whether its sends errored
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"
@@ -238,6 +241,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ERROR_TRACKING_ISSUE_EVENTS_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
+        case NodeKind.INBOX_USAGE_QUERY:
+            return {"product": Product.SIGNALS}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
@@ -292,10 +297,12 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
             | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY
+            | NodeKind.MARKETING_ANALYTICS_RECOMMENDATIONS_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
-            NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            NodeKind.MCP_DASHBOARD_QUERY
+            | NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
             | NodeKind.MCP_MODEL_BREAKDOWN_QUERY
             | NodeKind.MCP_PROTOCOL_VERSION_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALL_BREAKDOWN_QUERY
@@ -339,6 +346,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ACTIONS_NODE
             | NodeKind.PERSONS_NODE
             | NodeKind.DATA_WAREHOUSE_NODE
+            | NodeKind.EXPERIMENT_WAREHOUSE_NATIVE_NODE
+            | NodeKind.EXPERIMENT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG
             | NodeKind.FUNNELS_DATA_WAREHOUSE_NODE
             | NodeKind.LIFECYCLE_DATA_WAREHOUSE_NODE
             | NodeKind.DATA_TABLE_NODE
@@ -403,6 +412,10 @@ def is_known_product_tag(value: str) -> bool:
     return value in _PRODUCT_TAG_VALUES
 
 
+# Where a HogQL rewrite moved a scan's flag calls: to `posthog.flag_evaluations`, or to a UNION ALL of it and `events`.
+FlagCallsRead = Literal["flag_evaluations", "union"]
+
+
 class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
@@ -445,6 +458,7 @@ class QueryTags(BaseModel):
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
     api_queries_budgeted: Optional[bool] = None  # server-set only; request tags cannot reach it
+    warehouse_suggestion_access: Optional[str] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
@@ -568,6 +582,8 @@ class QueryTags(BaseModel):
     directly_read_ids: Optional[list[str]] = None
     materialized_saved_query_id: Optional[str] = None
 
+    flag_calls_read: Optional[list[FlagCallsRead]] = None
+
     trend_volume_type: Optional[str] = None
 
     has_joins: Optional[bool] = None
@@ -686,6 +702,11 @@ def get_query_tag_value(key: str) -> Optional[Any]:
         return getattr(get_query_tags(), key)
     except (AttributeError, KeyError):
         return None
+
+
+def get_http_request_id() -> str | None:
+    http_request_id = get_query_tag_value("http_request_id")
+    return str(http_request_id) if isinstance(http_request_id, uuid.UUID) else None
 
 
 # Tag snapshots are isolated copy-on-write: every mutation goes through a top-level attribute
@@ -898,6 +919,13 @@ class QueryCounter:
     def max_query_time_ms(self):
         return self.max_query_time * 1000
 
+    def record_query_time(self, elapsed: float) -> None:
+        self.total_query_time += elapsed
+        self.count += 1
+        self.max_query_time = max(self.max_query_time, elapsed)
+        if elapsed > self.SLOW_QUERY_THRESHOLD_S:
+            self.slow_count += 1
+
     def __call__(self, execute, *args, **kwargs):
         import time
 
@@ -906,13 +934,7 @@ class QueryCounter:
         try:
             return execute(*args, **kwargs)
         finally:
-            elapsed = time.perf_counter() - start_time
-            self.total_query_time += elapsed
-            self.count += 1
-            if elapsed > self.max_query_time:
-                self.max_query_time = elapsed
-            if elapsed > self.SLOW_QUERY_THRESHOLD_S:
-                self.slow_count += 1
+            self.record_query_time(time.perf_counter() - start_time)
 
 
 @contextmanager

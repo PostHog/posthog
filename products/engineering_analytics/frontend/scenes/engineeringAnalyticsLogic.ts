@@ -70,7 +70,7 @@ export interface PullRequestRow {
     isDraft: boolean
     createdAt: string
     mergedAt: string | null
-    /** Coarse: created_at → merged_at. This is open-to-merge, never review/cycle time. Merged PRs only. */
+    /** The span from created_at to merged_at, never review or cycle time. Merged PRs only. */
     openToMergeSeconds: number | null
     labels: string[]
     runs: number
@@ -79,17 +79,16 @@ export interface PullRequestRow {
     pending: number
     /** Runs that settled without a verdict: cancelled, skipped, neutral, action required. */
     inconclusive: number
-    /** Workflow names behind `failing`, sorted. */
     failingWorkflows: string[]
-    /** Distinct head SHAs across the PR's workflow runs. Fork PRs unattributed. */
+    /** Distinct head SHAs across the PR's workflow runs. Fork PRs are unattributed. */
     pushes: number
-    /** Per-push CI rounds oldest first, capped server-side — drives the push-history sparkline. */
+    /** Oldest first, capped server-side. */
     pushHistory: PushCISampleApi[]
-    /** Workflow runs attributed to this PR that were a 2nd+ attempt. */
+    /** Runs attributed to this PR that were a second or later attempt. */
     rerunCycles: number
-    /** Estimated CI cost (USD) over the PR's billable jobs. Null when the job source isn't synced. */
+    /** Null when the job source isn't synced. */
     estimatedCostUsd: number | null
-    /** Billable (self-hosted) minutes over the PR's jobs. Null when the job source isn't synced. */
+    /** Null when the job source isn't synced. */
     billableMinutes: number | null
 }
 
@@ -100,11 +99,10 @@ export interface CardsData {
     failingCi: number
 }
 
-/** Bucket width of a workflow's history series, picked by the server from the window length. */
+/** The server picks the bucket width from the window length. */
 export type WorkflowGranularity = 'hour' | 'day' | 'week'
 
 export interface WorkflowHealthBucket {
-    /** Bucket start (ISO), aligned to the granularity (top of hour / midnight / Monday). */
     bucketStart: string
     runCount: number
     completed: number
@@ -123,19 +121,17 @@ export interface WorkflowHealthRow {
     p50Seconds: number | null
     p95Seconds: number | null
     lastFailureAt: string | null
-    /** Most recent completed run was a decisive failure; null when nothing has completed. Drives OK/RED. */
+    /** True when the most recent completed run was a decisive failure. Null when nothing has completed. */
     latestRunFailed: boolean | null
-    /** Raw conclusion of the most recent completed run (success / cancelled / skipped / …); null if none. */
     latestRunConclusion: string | null
-    /** Bucket width of `buckets`: 'hour', 'day', or 'week'. */
     granularity: WorkflowGranularity
     /** Zero-filled across the whole window, oldest first. */
     buckets: WorkflowHealthBucket[]
-    /** Billable CI minutes for this workflow within the scope; undefined when no cost data is loaded. */
+    /** Undefined when no cost data is loaded. */
     billableMinutes?: number | null
-    /** Estimated $ cost for this workflow within the scope; null when nothing was costable. */
+    /** Null when nothing was costable. */
     estimatedCostUsd?: number | null
-    /** Runs in the window that were a 2nd+ attempt. */
+    /** Runs in the window that were a second or later attempt. */
     rerunCycles?: number
     /** Runs on merge-queue gate branches, counted regardless of the active scope. Above zero marks a
      *  workflow the queue runs before a merge lands, so the list can rank it first. */
@@ -148,10 +144,9 @@ export interface WorkflowFailureSeries {
     labels: string[]
 }
 
-/** Bucket label per the shared series granularity, for chart tooltips. */
 export function formatBucket(bucketStart: string, granularity: WorkflowGranularity): string {
-    // Buckets are computed server-side on UTC boundaries, so the label must read them in UTC too —
-    // parsing in the browser's local timezone can shift a midnight bucket to the wrong day.
+    // The server computes buckets on UTC boundaries, so the label reads them in UTC. The browser's
+    // local timezone can shift a midnight bucket to the wrong day.
     const at = dayjs.utc(bucketStart)
     if (granularity === 'hour') {
         return at.format('MMM D, HH:mm')
@@ -162,7 +157,6 @@ export function formatBucket(bucketStart: string, granularity: WorkflowGranulari
     return at.format('MMM D')
 }
 
-/** Stacked sparkline series: bar height = completed runs, red portion = decisive failures. */
 export function workflowFailureSeries(
     buckets: WorkflowHealthBucket[],
     granularity: WorkflowGranularity
@@ -176,7 +170,7 @@ export function workflowFailureSeries(
     return { completed, failures, labels }
 }
 
-/** 'failing'/'passing' key off the latest settled run; rows with nothing completed show only under 'all'. */
+/** 'failing' and 'passing' key off the latest settled run. A row with nothing completed shows only under 'all'. */
 export type WorkflowStatusFilter = 'all' | 'failing' | 'passing'
 
 export interface WorkflowFilters {
@@ -203,7 +197,7 @@ export function prKeyOf(row: Pick<PullRequestRow, 'repoOwner' | 'repoName' | 'nu
     return `${row.repoOwner}/${row.repoName}#${row.number}`
 }
 
-/** ?? fallbacks: a new frontend can briefly hit an older backend predating the cost/push fields. */
+/** The ?? fallbacks cover a new frontend that briefly reads an older backend without the cost and push fields. */
 export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
     return {
         number: it.number,
@@ -263,12 +257,10 @@ export function isStuck(row: PullRequestRow, stuckCutoffMs: number): boolean {
     return row.state === 'open' && !row.isDraft && !row.isBot && Date.parse(row.createdAt) < stuckCutoffMs
 }
 
-/** Open, ready-for-review, and green — the "unblocked, could merge" pile. */
 export function isReady(row: PullRequestRow): boolean {
     return row.state === 'open' && !row.isDraft && ciStatusOf(row) === 'passing'
 }
 
-/** Open and burning re-run cycles — CI thrash worth a look. */
 export function isThrashing(row: PullRequestRow): boolean {
     return row.state === 'open' && row.rerunCycles > 0
 }
@@ -289,7 +281,8 @@ export function filterPullRequests(
     now: dayjs.Dayjs = dayjs()
 ): PullRequestRow[] {
     const search = filters.search.trim().toLowerCase()
-    // Hoisted: re-runs per keystroke over up to 1000 rows — no dayjs allocation in the row loop.
+    // Hoisted because the filter reruns per keystroke over up to PR_TABLE_LIMIT rows, so the row loop
+    // must allocate no dayjs.
     const stuckCutoffMs = filters.stuckOnly ? now.subtract(STUCK_AFTER_DAYS, 'day').valueOf() : 0
     return rows.filter((row) => {
         if (!matchesStateFilter(row, filters.state)) {
@@ -362,7 +355,6 @@ export interface TrunkQuarantinedTestRow {
     file: string
     ownerTeam: string
     status: string
-    quarantineSetting: string
     quarantinedAt: string
     ageDays: number
     overdue: boolean
@@ -770,7 +762,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 p50Seconds: it.p50_seconds,
                                 p95Seconds: it.p95_seconds,
                                 lastFailureAt: it.last_failure_at,
-                                // ?? fallbacks: a new frontend can briefly hit an older backend predating these fields.
+                                // The ?? fallbacks cover a new frontend that briefly reads an older backend without these fields.
                                 latestRunFailed: it.latest_run_failed ?? null,
                                 latestRunConclusion: it.latest_run_conclusion ?? null,
                                 granularity: (it.granularity ?? 'day') as WorkflowGranularity,
@@ -854,7 +846,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     file: it.file,
                                     ownerTeam: it.owner_team,
                                     status: it.status,
-                                    quarantineSetting: it.quarantine_setting,
                                     quarantinedAt: it.quarantined_at,
                                     ageDays: it.age_days,
                                     overdue: it.overdue,
@@ -885,7 +876,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 DEFAULT_FILTERS.search,
                 { setSearch: (_, { search }) => search, resetFilters: () => DEFAULT_FILTERS.search },
             ],
-            // Changing the state filter exits stuck-only — stuck implies open.
+            // Changing the state filter exits stuck-only, because stuck implies open.
             stuckOnly: [
                 DEFAULT_FILTERS.stuckOnly,
                 {
@@ -924,13 +915,13 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     resetWorkflowFilters: () => DEFAULT_WORKFLOW_FILTERS.status,
                 },
             ],
-            // Which GitHub source to read; null = backend default (oldest connected). Synced to `?source=`.
+            // Null selects the backend's default source, the oldest connected. Synced to `?source=`.
             sourceId: [
                 null as string | null,
                 { setSourceId: (_, { sourceId }) => sourceId, setScope: (_, { sourceId }) => sourceId },
             ],
-            // Repo scope of a multi-repo source. Cleared when the source changes on its own (the old repo
-            // belongs to the old source); the URL sets both together through setScope.
+            // Cleared when the source changes on its own, because the old repo belongs to the old source.
+            // The URL sets both together through setScope.
             scopeRepo: [null as string | null, { setScope: (_, { scopeRepo }) => scopeRepo, setSourceId: () => null }],
             pullRequestJumpText: ['', { setPullRequestJumpText: (_, { text }) => text }],
             // A scope change clears the message because picking a repository is one of the fixes it asks for.
@@ -951,8 +942,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadCardsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
-            // Whole-row click toggles a team's slice open (controlled LemonTable expansion, like the
-            // workflow runs table); a scope switch loads different teams, so open rows reset with it.
+            // A scope switch loads different teams, so open rows reset with it.
             expandedTrunkQuarantineTeams: [
                 [] as string[],
                 {
@@ -962,8 +952,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     setScope: () => [],
                 },
             ],
-            // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
-            // "connect a source" gate; only a real 'error' surfaces the board's own banner.
+            // 'notConnected' defers to the tab-level "connect a source" gate. Only 'error' shows the
+            // board's own banner.
             trunkQuarantineStatus: [
                 'ok' as LoaderStatus,
                 {
@@ -1016,7 +1006,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         DEFAULT_WORKFLOW_FILTERS
                     ),
             ],
-            // Until the job-level source syncs every cost field is null — scenes hide the column instead.
+            // Every cost field is null until the job-level source syncs, so scenes hide the column.
             workflowCostAvailable: [
                 (s) => [s.workflowHealth],
                 (workflowHealth: WorkflowHealthRow[]): boolean =>
@@ -1090,8 +1080,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (filters: PullRequestFilters): boolean =>
                     !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_FILTERS),
             ],
-            // Counted over the loaded list (the "most recent 1000" cap applies), not a separate backend
-            // aggregate like the ci_cards counts — fine while a repo's open backlog fits in that window.
+            // Counted over the loaded list, which PR_TABLE_LIMIT caps, not by a backend aggregate like
+            // the ci_cards counts. A larger open backlog undercounts.
             readyCount: [
                 (s) => [s.pullRequests],
                 (pullRequests: PullRequestRow[]): number => pullRequests.filter(isReady).length,
@@ -1148,9 +1138,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     const isScopeRepo = (source: GitHubSourceApi): boolean =>
                         source.repo.toLowerCase() === scopeRepo?.toLowerCase()
                     if (!sourceId) {
-                        // A repo-only scope (?repo with no ?source) resolves across sources — label that
-                        // repo. Otherwise prefer the first *synced* repo, matching the repo the backend
-                        // resolves by default (it skips still-backfilling repos), else the first entry.
+                        // A repo-only scope (?repo with no ?source) resolves across sources, so label that
+                        // repo. Otherwise prefer the first synced repo, which matches the backend's default
+                        // (it skips repos that are still backfilling), else the first entry.
                         return (
                             (scopeRepo && githubSources.find(isScopeRepo)) ||
                             githubSources.find((source) => source.synced) ||
@@ -1159,9 +1149,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         )
                     }
                     const ofSource = githubSources.filter((source) => source.id === sourceId)
-                    // Explicit repo wins; otherwise (a bookmarked `?source=` with no `?repo`) prefer the
-                    // first synced repo of this source, matching the repo the backend resolves by default —
-                    // else the header names an unsynced repo the loaders never read.
+                    // An explicit repo wins. Otherwise (a bookmarked `?source=` with no `?repo`) prefer the
+                    // first synced repo of this source, which matches the backend's default. Without that
+                    // the header names an unsynced repo the loaders never read.
                     return (
                         (scopeRepo && ofSource.find(isScopeRepo)) ||
                         ofSource.find((source) => source.synced) ||

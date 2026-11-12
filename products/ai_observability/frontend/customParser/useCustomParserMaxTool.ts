@@ -1,16 +1,15 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
-import { handleCreateParserRecipeCall, sampleForContext } from '@posthog/llm-normalizer'
+import { sampleForContext } from '@posthog/llm-normalizer'
 
 import { useMaxTool } from 'scenes/max/useMaxTool'
-import { teamLogic } from 'scenes/teamLogic'
+
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
-import { llmAnalyticsParserRecipesCreate } from '../generated/api'
 import { parserRecipesLogic } from '../settings/parserRecipesLogic'
 
 const MAX_EXISTING_RECIPES_CONTEXT_LENGTH = 4000
@@ -32,9 +31,9 @@ const AI_TRACE_PARSER_TOOL_CONTEXT_ITEM: AttachedContextItem = {
 export interface CustomParserMaxToolOptions {
     eventId: string
     traceId?: string | null
+    timestamp?: string
     input: unknown
     output: unknown
-    tools?: unknown
     inputRecognized: boolean
     outputRecognized: boolean
     isLoading: boolean
@@ -43,22 +42,21 @@ export interface CustomParserMaxToolOptions {
 
 /**
  * Registers the create_ai_trace_parser Max tool for an event that fell back to raw JSON.
- * The clientExecution handler validates the agent's YAML against this exact event, saves it
- * on success, and resumes the conversation with the verdict. Returns openMax (null while inactive).
+ * The server tests the agent's YAML against the event and saves it when it parses it; the
+ * callback then reloads the team's recipes so the open trace re-renders. Returns openMax (null while inactive).
  */
 export function useCustomParserMaxTool({
     eventId,
     traceId,
+    timestamp,
     input,
     output,
-    tools,
     inputRecognized,
     outputRecognized,
     isLoading,
     isGeneration,
 }: CustomParserMaxToolOptions): (() => void) | null {
-    const { currentTeamId } = useValues(teamLogic)
-    const { storedForMerge, customItems } = useValues(parserRecipesLogic)
+    const { customItems } = useValues(parserRecipesLogic)
     const { loadRecipes } = useActions(parserRecipesLogic)
 
     const unrecognized =
@@ -92,6 +90,8 @@ export function useCustomParserMaxTool({
             existingBlocks.push(`… (${omittedCount} more recipes omitted for length)`)
         }
         return {
+            trace_id: traceId ?? null,
+            trace_timestamp: timestamp ?? '(none)',
             event_uuid: eventId,
             event_type: isGeneration ? 'generation' : 'span',
             unrecognized,
@@ -99,24 +99,7 @@ export function useCustomParserMaxTool({
             sample_output: sampleForContext(output),
             existing_recipes: existingBlocks.length > 0 ? existingBlocks.join('\n') : '(none)',
         }
-    }, [active, eventId, isGeneration, unrecognized, input, output, customItems])
-
-    const validateAndSave = useCallback(
-        async (args: Record<string, any>): Promise<Record<string, unknown>> =>
-            handleCreateParserRecipeCall(args, {
-                eventId,
-                existingRecipes: storedForMerge,
-                sample: { input, output, tools, inputRecognized, outputRecognized },
-                saveRecipe: async (name, source) => {
-                    const created = await llmAnalyticsParserRecipesCreate(String(currentTeamId), { name, source })
-                    // Reloading applies the recipe to the live normalizer, re-rendering the open trace
-                    loadRecipes()
-                    lemonToast.success(`Custom parser "${name}" saved`)
-                    return created.id
-                },
-            }),
-        [eventId, storedForMerge, input, output, tools, inputRecognized, outputRecognized, currentTeamId, loadRecipes]
-    )
+    }, [active, traceId, timestamp, eventId, isGeneration, unrecognized, input, output, customItems])
 
     useAttachedContext(
         active
@@ -169,7 +152,13 @@ export function useCustomParserMaxTool({
         identifier: 'create_ai_trace_parser',
         active,
         context,
-        clientExecution: validateAndSave,
+        callback: (toolOutput: unknown) => {
+            // Reloading applies the saved recipe to the live normalizer, re-rendering the open trace
+            loadRecipes()
+            if (toolOutput && typeof toolOutput === 'object' && 'recipe_id' in toolOutput && toolOutput.recipe_id) {
+                lemonToast.success('Custom parser saved')
+            }
+        },
         initialMaxPrompt: '!Set up a custom parser so this event displays properly',
     })
 

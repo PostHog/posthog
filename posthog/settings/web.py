@@ -1,7 +1,7 @@
 # Web app specific settings/middleware/apps setup
 import os
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -13,13 +13,7 @@ from posthog.openapi.enum_names import ChoicesEnumNameOverrides
 from posthog.run_mode import derive_run_mode
 from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
-from posthog.settings.utils import (
-    generate_rsa_private_key_pem,
-    get_from_env,
-    get_list,
-    str_to_bool,
-    str_to_utc_datetime,
-)
+from posthog.settings.utils import generate_rsa_private_key_pem, get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 logger = structlog.get_logger(__name__)
@@ -58,7 +52,9 @@ PRODUCTS_APPS = [
     "products.tasks.backend.apps.TasksConfig",
     "products.canvas.backend.apps.CanvasConfig",
     "products.stamphog.backend.apps.StamphogConfig",
+    "products.knowledge_writer.backend.apps.KnowledgeWriterConfig",
     "products.today.backend.apps.TodayConfig",
+    "products.ui_customization.backend.apps.UiCustomizationConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.aeo.backend.apps.AEOConfig",
@@ -88,6 +84,7 @@ PRODUCTS_APPS = [
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
     "products.visual_review.backend.apps.VisualReviewConfig",
+    "products.release.backend.apps.ReleaseConfig",
     "products.replay_vision.backend.apps.ReplayVisionConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
@@ -187,6 +184,11 @@ _UNVERSIONED_STATIC_MIDDLEWARE = (
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    # Outside every middleware that can swap the response, so the deferred work rides on the one sent.
+    "posthog.after_response.AfterResponseMiddleware",
+    # Outside every middleware that can answer early (IP allowlist, CSRF, auth, IP restrictions),
+    # so the build skew counter sees the status of each API response the client receives.
+    "posthog.client_build_middleware.ClientBuildSkewMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
     # the request path. AllowIPMiddleware and axes read the IP at or after the view.
@@ -215,10 +217,13 @@ MIDDLEWARE = [
     "posthog.middleware.EnvironmentsRewriteMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.middleware.AuthenticationMiddleware",
     # Must run immediately after AuthenticationMiddleware so downstream middleware
     # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
     "posthog.middleware.AdminImpersonationMiddleware",
+    # Opens one authorization session per request, so `authorization.check()` without a subject
+    # uses the request's user. Middleware above this line runs outside the session and must pass a subject.
+    "products.authorization.backend.middleware.AuthorizationSessionMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.KnownLoginDeviceCookieMiddleware",
@@ -239,6 +244,7 @@ MIDDLEWARE = [
     # Must stay after AutoProjectMiddleware, which switches the user into the organization a
     # `/project/<id>` URL names. Ahead of it, the check judges the organization being left.
     "posthog.middleware.ActiveOrganizationMiddleware",
+    "posthog.middleware.IPRestrictionsMiddleware",
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
@@ -316,6 +322,7 @@ LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS + ("x-posthog-client-provenance",)
+CORS_EXPOSE_HEADERS = ["X-PostHog-Events-Default-After"]
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
@@ -329,7 +336,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
     "social_core.pipeline.social_auth.social_uid",
     "social_core.pipeline.social_auth.auth_allowed",
-    "ee.api.authentication.social_auth_allowed",
+    "posthog.api.sso.social_auth_allowed",
     "social_core.pipeline.social_auth.social_user",
     # Must stay ahead of association/provisioning so a mismatched authenticated identity is rejected first
     "posthog.api.authentication.social_identity_matches_session",
@@ -344,6 +351,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
+    "posthog.api.authentication.social_grant_staff_to_google_workspace_members",
     "posthog.api.authentication.social_login_notification",
     # Must stay last: it grants the step-up window, so every step that can still refuse the re-auth
     # has to have run first
@@ -497,6 +505,13 @@ if DEBUG:
     # a second source for 1300+ identical assets would make collectstatic warn about
     # duplicate destinations for no gain.
     STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
+    # A warehouse source plugin keeps its icon in its own directory. The frontend build copies those
+    # icons into dist, so this finder is DEBUG-only for the same reason as `frontend/public` above.
+    STATICFILES_FINDERS = [
+        "django.contrib.staticfiles.finders.FileSystemFinder",
+        "django.contrib.staticfiles.finders.AppDirectoriesFinder",
+        "products.warehouse_sources.backend.source_icons.SourceIconFinder",
+    ]
 
 # WhiteNoise serves precompressed files when present, so this only controls collectstatic output.
 if TEST:
@@ -535,9 +550,10 @@ WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
 # cache-bust can hold a stale SDK bundle after a release.
 WHITENOISE_MAX_AGE = get_from_env("WHITENOISE_MAX_AGE", 3600, type_cast=int)
 
-# Per-IP signup throttle rate (see posthog.rate_limit.SignupIPThrottle). Overridable per-env so
-# non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
+# Per-IP signup throttle rates (see posthog.rate_limit). Overridable per-env so non-prod
+# (e.g. dev deploy smoke-tests) can raise them without weakening the prod defaults.
 SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
+SIGNUP_ATTEMPT_IP_THROTTLE_RATE = get_from_env("SIGNUP_ATTEMPT_IP_THROTTLE_RATE", "10/hour")
 
 # Billing usage and spend exports stream a file from the billing service for as long as the
 # browser reads it, so both limits are per user (see ee.api.billing): how often an export may
@@ -560,8 +576,11 @@ EMAIL_VERIFICATION_SKIP_FOR_DOMAINS = [
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["posthog.auth.SessionAuthentication"],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_PAGINATION_CLASS": "posthog.api.pagination.DefaultLimitOffsetPagination",
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+        "posthog.ip_restrictions.IPRestrictionsPermission",
+    ],
     "DEFAULT_RENDERER_CLASSES": ["posthog.renderers.SafeJSONRenderer"],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "posthog.exceptions.exception_handler",
@@ -575,6 +594,8 @@ REST_FRAMEWORK = {
     ],
     # The default STRICT_JSON fails the whole request if the data can't be strictly JSON-serialized
     "STRICT_JSON": False,
+    # Keep the pre-3.18 list shape for `many=True` errors that API clients parse. DRF drops this setting in 3.20.
+    "LIST_SERIALIZER_ERRORS_AS_DICT": False,
 }
 
 if DEBUG:
@@ -650,18 +671,38 @@ SPECTACULAR_SETTINGS = {
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
             # Matches the shared alerts skeleton's PlatformAlert.State.
             "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
+            # The ai_observability playground asks the same System One question kinds, so both share one name.
+            "DecisionQuestionTypeEnum": "products.ml_inference.backend.facade.enums.DecisionQuestionType.choices",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # Dashboard filters and data catalog metric runs both take the query schema's IntervalType,
+            # a plain enum no class can carry.
+            "IntervalTypeEnum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
             # The anomaly and explain bodies keep this name; the metrics query clause's own
             # aggregation adds 'none' and is named by its MetricQueryAggregation class.
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
+            # Matches the workflows WorkflowImportSource (customerio), the source of an automation import.
+            "ImportProviderKeyEnum": "products.messaging.backend.models.provider_import_run.ImportProviderKey.choices",
             # Workflow steps and workflow template steps both take a field named `type` with this set.
             "HogFlowActionTypeEnum": "products.workflows.backend.models.hog_flow.hog_flow.SUPPORTED_ACTION_TYPES",
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+            # Keeps `EngineEnum` for the warehouse source engines. The saved-query run endpoint
+            # also has an `engine` field, which would otherwise rename this one.
+            "EngineEnum": [
+                "duckdb",
+                "postgres",
+                "mysql",
+                "snowflake",
+                "redshift",
+                "clickhouse",
+                "motherduck",
+                "trino",
+                None,
+            ],
             # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
             "RoleEnum": ["primary", "supporting"],
             # Keeps the name `CodeEnum` for the dataset conflict codes of ai_observability. A second field named
@@ -688,6 +729,9 @@ SPECTACULAR_SETTINGS = {
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
+            # Authentication classes declare their activity log credential type as a CredentialType
+            # literal, so no Choices class carries the set. The list is derived from that literal.
+            "ActivityLogCredentialTypeEnum": "posthog.models.activity_logging.utils.CREDENTIAL_TYPE_CHOICES",
             # Every grantable scope object, from posthog/scopes.py. The frontend's APIScopeObject type
             # derives from this enum, so the object list is never copied by hand.
             "ScopeObjectEnum": "products.access_control.backend.facade.enums.SCOPE_OBJECT_CHOICES",
@@ -730,6 +774,8 @@ SPECTACULAR_SETTINGS = {
             #
             # The choices come from a typing.Literal via get_args; there is no class.
             "BlockedByEnum": ["x_frame_options", "frame_ancestors"],
+            # ai_observability's dataset and trace exports report the same states.
+            "ExportStatusEnum": "products.ai_observability.backend.facade.contracts.TRACE_EXPORT_STATUSES",
             "FeatureFlagRequestTypeEnum": ["remote_evaluation", "local_evaluation"],
             "PropertyFilterTypeEnum": [
                 "event",
@@ -906,7 +952,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/organizations/@current/plugins/?$",
                 "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
                 "^/?api/(environments|projects)/\\d+/query/?$",
-                "^/?api/(environments|projects)/\\d+/tasks/[0-9a-fA-F-]+/runs/[^/]+/(logs|session_logs)/?$",
+                "^/?api/(environments|projects)/\\d+/tasks/[0-9a-fA-F-]+/runs/[^/]+/(logs|log_entries|session_logs)/?$",
                 # Deploy-static source catalog (no user input or secrets reflected): several
                 # hundred KB of JSON that compresses ~7x.
                 "^/?api/(environments|projects)/(\\d+|@current)/external_data_sources/wizard/?$",
@@ -992,6 +1038,9 @@ TYPESAFE_EGRESS_HOURLY_BUDGET = get_from_env("TYPESAFE_EGRESS_HOURLY_BUDGET", 20
 # way clients fetched feature flags before the Rust feature flags service.
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
+# Self-hosted installs turn this off: only the cloud billing task reads and deletes the request
+# counters, so elsewhere they grow in Redis forever. The Rust feature flags service reads the same variable.
+FLAGS_BILLING_COUNTERS_ENABLED = get_from_env("FLAGS_BILLING_COUNTERS_ENABLED", True, type_cast=str_to_bool)
 
 ####
 # /remote_config
@@ -1112,6 +1161,15 @@ WORKFLOWS_PERSON_BATCH_SIZE = int(get_from_env("WORKFLOWS_PERSON_BATCH_SIZE", 50
 if WORKFLOWS_PERSON_BATCH_SIZE < 1:
     # An empty page reports has_more, so the resolver would refetch it forever.
     raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
+# ClickHouse execution cap for one audience page of the batch resolver. Interactive HogQL runs under the
+# 60s default; a page query is background work for one caller, so it gets more time. The resolver's
+# HTTP budget (CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS) must stay above this value, so ClickHouse
+# always ends a slow query before the client gives up and a retry never overlaps a query that is still running.
+WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS = int(
+    get_from_env("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS", 180)
+)
+if WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS < 1:
+    raise ImproperlyConfigured("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS must be at least 1")
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
@@ -1125,20 +1183,14 @@ HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS: set[int] = {
 # at tier 0 and earns the next tier by sending cleanly over time, which bounds how much damage an
 # unproven team can do and keeps its early volume small enough that complaint feedback (which lags
 # by hours) arrives while total volume is still low.
-# The three lists are indexed by tier and must all be the same length. The top tier matches
+# Both lists are indexed by tier and must be the same length. The top tier matches
 # HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED so a fully graduated team is no more limited than it was
 # before tiers existed. Adjacent tiers stay roughly 3x apart: published warmup ramps (SendGrid,
 # Mailgun, Oracle) grow 25-50% per step and warn against jumps above 2x, and a promotion is an
 # overnight allowance jump, so a 3x step with the utilization bar below approximates that ramp
-# while keeping the tier count small enough to reason about. Two deliberate exceptions at the
-# bottom: tier 0 is a 100/day probation tier for completely unproven domains (SendGrid trials
-# start at 100/day, Customer.io at 200), and its hourly cap is half the daily cap rather than the
-# usual fifth so a first real send does not crawl at 20 an hour. The 10x step off tier 0 is fine
-# at that absolute volume.
-WORKFLOWS_EMAIL_TIER_HOURLY_CAPS: list[int] = [
-    int(cap)
-    for cap in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_HOURLY_CAPS", "50,200,600,2000,6000,20000,60000,200000"))
-]
+# while keeping the tier count small enough to reason about. Tier 0 is a 100/day probation tier
+# for completely unproven domains (SendGrid trials start at 100/day, Customer.io at 200), so the
+# 10x step off it is fine at that absolute volume.
 WORKFLOWS_EMAIL_TIER_DAILY_CAPS: list[int] = [
     int(cap)
     for cap in get_list(
@@ -1242,6 +1294,7 @@ OIDC_RSA_PRIVATE_KEYS_INACTIVE = [
 ]
 
 OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
+OAUTH_STALE_APPLICATION_GRACE_PERIOD = 60 * 60 * 24 * 30  # 30 days
 
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
@@ -1292,14 +1345,7 @@ OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
-
-# A provisioning partner whose app predates the signing requirement may call unsigned until the grace period ends.
-PROVISIONING_SIGNING_REQUIRED_SINCE: datetime = get_from_env(
-    "PROVISIONING_SIGNING_REQUIRED_SINCE", datetime(2026, 10, 16, tzinfo=UTC), type_cast=str_to_utc_datetime
-)
-PROVISIONING_UNSIGNED_GRACE_UNTIL: datetime = get_from_env(
-    "PROVISIONING_UNSIGNED_GRACE_UNTIL", datetime(2026, 10, 23, 16, tzinfo=UTC), type_cast=str_to_utc_datetime
-)
+OAUTH2_PROVIDER_DEVICE_GRANT_MODEL = "posthog.OAuthDeviceGrant"
 
 ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
 ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)
@@ -1436,8 +1482,8 @@ DEV_GATEWAY_MINT_KEY = get_from_env("DEV_GATEWAY_MINT_KEY", "")
 DEV_GATEWAY_TEAM_ID = get_from_env("DEV_GATEWAY_TEAM_ID", 0, type_cast=int)
 DEV_GATEWAY_TOKEN_CAP_USD = get_from_env("DEV_GATEWAY_TOKEN_CAP_USD", "25")
 DEV_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_TTL_SECONDS", 8 * 60 * 60, type_cast=int)
-# Caps minted in the trailing 24 hours count against this, so the gateway's reserved cap per token
-# makes it a hard ceiling on what one user can spend in a day.
+# Caps minted in the trailing 24 hours count against this until revoked, then only what the token
+# spent. The limit is approximate, because cost that settles after a revoke is not counted.
 DEV_GATEWAY_DAILY_CAP_USD = get_from_env("DEV_GATEWAY_DAILY_CAP_USD", "50")
 DEV_GATEWAY_MINTS_PER_HOUR = get_from_env("DEV_GATEWAY_MINTS_PER_HOUR", 20, type_cast=int)
 
@@ -1466,10 +1512,22 @@ MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS = get_list(get_from_env("MCP_STORE_SLACK_DE
 # AEO citation-tracking POC (products/aeo). The scheduled runner only covers
 # teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
 AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
-AEO_TARGET_DOMAINS = get_list(get_from_env("AEO_TARGET_DOMAINS", "posthog.com"))
+# Scores brand sentiment on the evals Temporal queue after each run. Off until that worker carries the model.
+AEO_BRAND_SENTIMENT_ENABLED = get_from_env("AEO_BRAND_SENTIMENT_ENABLED", False, type_cast=str_to_bool)
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
+AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")
+# A full daily run covers the whole prompt set, so the cap only guards against a runaway import.
+AEO_MAX_PROMPTS_PER_RUN = get_from_env("AEO_MAX_PROMPTS_PER_RUN", 2000, type_cast=int)
+AEO_RUN_CONCURRENCY = get_from_env("AEO_RUN_CONCURRENCY", 16, type_cast=int)
+# The run day starts here, just before the first beat dispatch at 07:30 UTC. A prompt checked
+# since the boundary is not due until the next one, so the catch-up dispatches that follow a
+# killed run only pick up the prompts it missed, however late the previous day's run finished.
+AEO_RUN_DAY_START_UTC_HOUR = get_from_env("AEO_RUN_DAY_START_UTC_HOUR", 7, type_cast=int)
 EXA_API_KEY = get_from_env("EXA_API_KEY", "")
+# The Perplexity engine also needs the AI gateway. It stays off until legal confirms which
+# Perplexity terms cover the stored web_search output.
+AEO_PERPLEXITY_ENABLED = get_from_env("AEO_PERPLEXITY_ENABLED", False, type_cast=str_to_bool)
 CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", "claude-sonnet-5")
 CONTENT_AUTOPILOT_SAFETY_MODEL = get_from_env("CONTENT_AUTOPILOT_SAFETY_MODEL", "claude-haiku-4-5")
 
@@ -1600,4 +1658,4 @@ WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS: list[int] = [
 # 0 rejects every stream (emergency lever).
 SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS = get_from_env("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS", 500, type_cast=int)
 
-CONTEXT_SELECTION_TIMEOUT_SECONDS = 3.0
+CONTEXT_SELECTION_TIMEOUT_SECONDS = 8.0

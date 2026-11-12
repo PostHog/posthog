@@ -31,7 +31,7 @@ _MIN_REMOTELY_EVALUATED_SHARE_TO_CLEAR = 0.5
 
 
 class PinnedShareUnknownReason(StrEnum):
-    # pinned: the finding's `evidence.reason`, which the health finding events track.
+    # pinned: the finding's `reason`.
     NOT_MEASURED = "not_measured"
     TOO_FEW_PEOPLE = "too_few_people"
     # Most calls carry no version: local evaluation in a server SDK, a bootstrap, or the customer's own assignment.
@@ -89,6 +89,11 @@ class PinnedShareGrade:
     share: float | None
     unknown_reason: PinnedShareUnknownReason | None
 
+    @property
+    def finding_reason(self) -> str | None:
+        """The finding's `reason` when the share is unknown."""
+        return None if self.unknown_reason is None else self.unknown_reason.value
+
     def evidence(self) -> dict[str, str | int | float | None]:
         evidence: dict[str, str | int | float | None] = {}
         if self.measurement is not None:
@@ -102,8 +107,6 @@ class PinnedShareGrade:
             )
         if self.share is not None:
             evidence["pinned_share"] = round(self.share, 4)
-        if self.unknown_reason is not None:
-            evidence["reason"] = self.unknown_reason.value
         return evidence
 
     def sentence(self, them: str) -> str:
@@ -169,7 +172,29 @@ def percent(share: float) -> str:
     return f"{share * 100:.1f}".removesuffix(".0") + "%"
 
 
-def _measure(pins: PinnedConditions, traffic: ConditionSetTraffic) -> PinnedShareMeasurement:
+@frozen
+class PinnedVariant:
+    key: str
+    pinned_people: int
+    # The variant's pinned people, and its weight in the split of the people assigned at random.
+    people: float
+
+    @property
+    def share(self) -> float:
+        return self.pinned_people / self.people if self.people else 0.0
+
+
+@frozen
+class PinnedTraffic:
+    # The people that a condition set served, without those pinned to a variant with 0% in the split.
+    matched_people: int
+    # The start of the window that the people are counted in.
+    since: datetime
+    # The variants with a weight in the split, then any other variant that a weighted condition pins, in that order.
+    variants: tuple[PinnedVariant, ...]
+
+
+def pinned_traffic(pins: PinnedConditions, traffic: ConditionSetTraffic) -> PinnedTraffic:
     excluded_numbers = {condition.number for condition in pins.unweighted}
     matched_people = sum(people for number, people in traffic.people_by_set.items() if number not in excluded_numbers)
     pinned_by_variant = dict.fromkeys(pinned_variant_keys(pins.weighted), 0)
@@ -178,22 +203,32 @@ def _measure(pins: PinnedConditions, traffic: ConditionSetTraffic) -> PinnedShar
             pinned_by_variant[condition.pinned_variant] += traffic.people_by_set.get(condition.number, 0)
     randomized_people = matched_people - sum(pinned_by_variant.values())
     weights = {variant.key: variant.rollout_percentage for variant in pins.split}
+    split_keys = [variant.key for variant in pins.split if variant.key and variant.rollout_percentage != 0]
 
     def variant_people(key: str) -> float:
         weight = weights.get(key)
         # An unreadable weight counts as the whole split, which gives the lowest share the pins can have.
-        return pinned_by_variant[key] + randomized_people * (1.0 if weight is None else weight / 100)
+        return pinned_by_variant.get(key, 0) + randomized_people * (1.0 if weight is None else weight / 100)
 
-    def share(key: str) -> float:
-        people = variant_people(key)
-        return pinned_by_variant[key] / people if people else 0.0
-
-    most_pinned_variant = max(pinned_by_variant, key=share)
-    return PinnedShareMeasurement(
-        most_pinned_variant=most_pinned_variant,
-        pinned_people=pinned_by_variant[most_pinned_variant],
-        variant_people=variant_people(most_pinned_variant),
+    return PinnedTraffic(
         matched_people=matched_people,
+        since=traffic.since,
+        variants=tuple(
+            PinnedVariant(key=key, pinned_people=pinned_by_variant.get(key, 0), people=variant_people(key))
+            for key in dict.fromkeys([*split_keys, *pinned_by_variant])
+        ),
+    )
+
+
+def _measure(pins: PinnedConditions, traffic: ConditionSetTraffic) -> PinnedShareMeasurement:
+    measured = pinned_traffic(pins, traffic)
+    by_key = {variant.key: variant for variant in measured.variants}
+    most_pinned = by_key[max(pinned_variant_keys(pins.weighted), key=lambda key: by_key[key].share)]
+    return PinnedShareMeasurement(
+        most_pinned_variant=most_pinned.key,
+        pinned_people=most_pinned.pinned_people,
+        variant_people=most_pinned.people,
+        matched_people=measured.matched_people,
         remotely_evaluated_share=traffic.remotely_evaluated_calls / traffic.calls if traffic.calls else None,
         since=traffic.since,
         team_timezone=traffic.team_timezone,

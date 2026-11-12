@@ -29,7 +29,7 @@ function createMockContext(): Context {
             // Staff-only tools require their OAuth-hidden scope explicitly on the key
             // (`*` alone does not match) plus a staff user, so grant both here to keep
             // their schemas in the snapshot surface.
-            getApiKey: async () => ({ scopes: ['*', ...OAUTH_SCOPES_HIDDEN] }),
+            getApiKey: async () => ({ scopes: ['*', ...OAUTH_SCOPES_HIDDEN, 'signal_scout_monitoring:write'] }),
             getAiConsentGiven: async () => true,
             getUser: async () => ({ is_staff: true }),
         } as any,
@@ -90,29 +90,43 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     // visual-review, etc.) stay off to keep the surface stable.
     // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
     const featureFlags = {
+        'self-driving-usage-display': true,
         tracing: true,
-        'logs-agent-tools': true,
         tasks: true,
         'tasks-mcp-agent-run-start': true,
         loops: true,
         'agent-platform': true,
         'experiment-setup-context': true,
         'scout-trials': true,
-        'signals-report-checks-replace': true,
+        'signals-report-monitoring': true,
         'inbox-report-actions-mcp': true,
+        'inbox-reports-create-mcp': true,
         'signals-reviewer-exclusions-mcp': true,
         'ai-observability-offline-evaluations': true,
+        'workflows-supabase-auth-emails': true,
         'warehouse-suggestions': true,
+        'workflows-destination-suggestion': true,
         'scouts-tool-access': true,
         'subscription-source-summaries': true,
         'marketing-analytics-conversion-setup-ai': true,
+        'marketing-analytics-recommendations': true,
         'workflows-mcp-onboarding': true,
+        'workflows-sending-tier-requests': true,
         'insight-data-checks': true,
         'workflows-transactional-email-api': true,
+        'workflows-email-from-code': true,
         'activity-summary': true,
+        'warehouse-migration-import': true,
+        'activity-summary-search': true,
+        'inbox-reports-search': true,
+        'personal-inbox-ranking': true,
         'aeo-citation-tracking': true,
+        'mcp-session-recording-console-logs': true,
         'anomalies-search': true,
+        'warehouse-multi-destination': true,
         'feature-flag-rules-v2-mcp': true,
+        'discussions-slack-sync': true,
+        'ui-customization': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
         a.name.localeCompare(b.name)

@@ -1,9 +1,7 @@
 import { IconExternal } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
-/** The test-id cell every test table shares: a truncating mono id, linked out when a URL
- *  exists. Render inside a `w-full max-w-0` column so a long nodeid truncates instead of
- *  pushing the table wider than the scene. */
+/** Render inside a `w-full max-w-0` column, so a long nodeid truncates instead of widening the table. */
 export function TestIdCell({
     nodeid,
     url,
@@ -22,7 +20,7 @@ export function TestIdCell({
                     targetBlankIcon={false}
                     className="flex max-w-full items-center gap-1 font-mono text-xs"
                 >
-                    {/* Icon leads so truncating a long nodeid never clips it away. */}
+                    {/* The icon leads so truncating a long nodeid never clips it away. */}
                     <IconExternal className="shrink-0" />
                     <span className="truncate">{nodeid}</span>
                 </Link>

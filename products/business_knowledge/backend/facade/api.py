@@ -1,5 +1,8 @@
+from datetime import datetime
 from uuid import UUID
 
+from products.business_knowledge.backend import billing
+from products.business_knowledge.backend.facade.contracts import KnowledgeHit, KnowledgeUsageByTeam
 from products.business_knowledge.backend.models import KnowledgeGapSuggestion, KnowledgeLearningRun
 
 
@@ -11,3 +14,23 @@ def purge_ticket_derived_rows(*, team_id: int, ticket_id: UUID) -> None:
     """
     KnowledgeGapSuggestion.objects.for_team(team_id).filter(ticket_id=ticket_id).delete()
     KnowledgeLearningRun.objects.for_team(team_id).filter(evidence_key__startswith=f"{ticket_id}:").delete()
+
+
+def get_usage_by_team(begin: datetime, end: datetime) -> KnowledgeUsageByTeam:
+    """Chunks ingested and queries per canonical team in [begin, end), for the usage report."""
+    return billing.usage_by_team(begin, end)
+
+
+def search_knowledge(*, team_id: int, query: str, limit: int = 5) -> list[KnowledgeHit]:
+    """Keyword search over the team's knowledge, best match first."""
+    from products.business_knowledge.backend import logic  # noqa: PLC0415 — keeps LLM clients off django.setup()
+
+    return [
+        KnowledgeHit(
+            document_title=result.document_title,
+            heading_path=result.heading_path,
+            url=result.url,
+            content=result.content,
+        )
+        for result in logic.search_knowledge(team_id, query, limit=limit)
+    ]

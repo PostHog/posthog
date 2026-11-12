@@ -3,7 +3,7 @@ import './SearchPerformanceTable.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -37,6 +37,7 @@ export function SearchPerformanceTable({
     emptyState = 'No results match this date range. Try a wider date range.',
     onSelect,
     queryKey = SEARCH_PERFORMANCE_QUERY_KEY,
+    embedded = false,
 }: {
     query: MarketingAnalyticsSearchQuery
     metrics: SearchMetrics
@@ -44,6 +45,7 @@ export function SearchPerformanceTable({
     emptyState?: React.ReactNode
     onSelect?: (row: MarketingAnalyticsSearchRow) => void
     queryKey?: string
+    embedded?: boolean
 }): JSX.Element {
     const logic = searchPerformanceTableLogic({ query, queryKey })
     const {
@@ -146,6 +148,7 @@ export function SearchPerformanceTable({
                 tableLayout="fixed"
                 firstColumnSticky
                 allowContentScroll
+                embedded={embedded}
                 className={clsx('SearchPerformanceTable [&_th]:whitespace-normal', {
                     'SearchPerformanceTable--paginated': rows.length > 10,
                     'SearchPerformanceTable--wrap-text': wrapText,
@@ -161,30 +164,27 @@ export function SearchPerformanceTable({
                 emptyState={emptyState}
                 columns={[
                     {
-                        title: query.breakdown === 'page' ? 'Landing page' : 'Keyword or query',
+                        title:
+                            query.breakdown === 'page'
+                                ? 'Landing page'
+                                : query.breakdown === 'search_term'
+                                  ? 'Search term or query'
+                                  : 'Keyword or query',
                         key: 'keyword',
                         width: 260,
                         render: (_, row) => (
                             <div className="min-w-0">
                                 {onSelect && (row.page || row.keyword) ? (
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        noPadding
-                                        fullWidth
-                                        truncate={!wrapText}
+                                    <Link
                                         onClick={() => onSelect(row)}
+                                        className={clsx(
+                                            'block max-w-full hover:underline',
+                                            wrapText ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'
+                                        )}
+                                        title={row.page ?? row.keyword ?? ''}
                                     >
-                                        <span
-                                            className={clsx(
-                                                'block text-link',
-                                                wrapText ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'
-                                            )}
-                                            title={row.page ?? row.keyword ?? ''}
-                                        >
-                                            {row.page ?? row.keyword}
-                                        </span>
-                                    </LemonButton>
+                                        {row.page ?? row.keyword}
+                                    </Link>
                                 ) : (
                                     <span
                                         className={clsx(
