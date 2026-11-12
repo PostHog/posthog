@@ -53,16 +53,18 @@ const pause = (ms: number, signal: AbortSignal): Promise<void> =>
         signal.addEventListener('abort', done, { once: true })
     })
 
-export async function seed({ card }: LoadedCard, postgres: PostgresRouter): Promise<SeedState> {
+export async function seed({ card }: LoadedCard, postgres: PostgresRouter, signal: AbortSignal): Promise<SeedState> {
     const teamIds: number[] = []
     const flowIds: SeedState['flowIds'] = {}
     for (let i = 0; i < card.setup.teams; i++) {
+        signal.throwIfAborted()
         const { team } = await createTestTeamFixture(postgres)
         const integration = await insertIntegration(postgres, team.id, {
             kind: 'email',
             config: { ...SENDER, verified: true },
         })
         for (const { name } of card.drive.traffic) {
+            signal.throwIfAborted()
             const kind = trafficKind(name)
             const flows = [{ key: name, flow: kind.flow }]
             if (kind.followUp) {

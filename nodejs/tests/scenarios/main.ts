@@ -8,7 +8,7 @@ import { EXIT_CODE, exitCodeOf } from './runner/status'
 import { credentialsOf } from './scorecard/write'
 
 const CARDS_DIR = path.join(__dirname, 'cards')
-const USAGE = 'Usage: scenarios run <card id or path>... [--profile <file>]'
+const USAGE = 'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>]'
 
 function cardPathOf(card: string): string {
     return card.endsWith('.yaml') || card.includes('/') ? path.resolve(card) : path.join(CARDS_DIR, `${card}.yaml`)

@@ -1,12 +1,23 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { SESv2Client } from '@aws-sdk/client-sesv2'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { once } from 'events'
+import fs, {
+    appendFileSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    readdirSync,
+    rmSync,
+    writeFileSync,
+} from 'fs'
 import http from 'http'
-import { AddressInfo } from 'net'
+import { AddressInfo, Server, Socket, connect, createServer } from 'net'
 import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
+import { Client } from 'pg'
 import { Registry, collectDefaultMetrics } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import { ProxyAgent } from 'undici'
@@ -102,7 +113,7 @@ describe('runner', () => {
         edgeUrl: () => 'http://127.0.0.1:1',
         role: (name) => ({ name, url: 'http://127.0.0.1:1', metricsUrl: processMetrics.url }),
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
-        health: () => Promise.resolve({ healthy: true, down: [] }),
+        dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
         down: () => Promise.resolve(),
@@ -128,32 +139,53 @@ describe('runner', () => {
         await api.close()
     })
 
-    it.each<[string, () => void, RegExp, unknown]>([
+    it.each<[string, () => void, LoadedCard, RegExp, unknown]>([
         [
             'seeds through the database the profile names',
             () => undefined,
+            withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
             /^the run stopped: .*127\.0\.0\.1:1\b/,
+            undefined,
+        ],
+        [
+            'seeds through the database the profile builds from its connection settings',
+            () => undefined,
+            withSettings({
+                DATABASE_URL: '',
+                POSTHOG_DB_NAME: 'scenario',
+                POSTHOG_POSTGRES_HOST: '127.0.0.1',
+                POSTHOG_POSTGRES_PORT: '3',
+            }),
+            /^the run stopped: .*127\.0\.0\.1:3\b/,
             undefined,
         ],
         [
             'keeps the result when its evidence cannot be written',
             () => writeFileSync(stateDir, 'not a directory'),
+            withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
             /; the evidence could not be written: .*ENOTDIR/,
             undefined,
         ],
         [
-            'keeps the published verdict when the scorecard files cannot be written',
+            'fails the run when the disk fills while its scorecard is written',
             () => {
-                api.onCapture = ({ properties }) =>
-                    mkdirSync(path.join(String(properties.evidence_dir), 'scorecard-event.json'))
+                const write = fs.writeFileSync
+                jest.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
+                    if (!String(file).endsWith('scorecard.json.partial')) {
+                        return write(file, data, options)
+                    }
+                    write(file, String(data).slice(0, 8))
+                    throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+                })
             },
-            /^the run stopped: [^;]*$/,
-            expect.stringMatching(/^the scorecard files could not be written: EISDIR/),
+            withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
+            /; the evidence could not be written: ENOSPC/,
+            undefined,
         ],
-    ])('%s', async (_story, arrange, statusReason, scorecardError) => {
+    ])('%s', async (_story, arrange, loaded, statusReason, scorecardError) => {
         arrange()
 
-        const result = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+        const result = await runner.run(loaded, NEVER_ABORTED)
 
         expect(result).toMatchObject({
             status: 'invalid',
@@ -164,6 +196,168 @@ describe('runner', () => {
             expect.objectContaining({ run_id: result.runId, status: 'invalid', status_reason: result.statusReason }),
         ])
     })
+
+    it('saves the verdict with the event it publishes once, before publication, and leaves it as written', async () => {
+        let onDisk: unknown
+        api.onCapture = ({ properties }) => {
+            onDisk = parseJSON(readFileSync(path.join(String(properties.evidence_dir), 'scorecard.json'), 'utf8'))
+        }
+
+        const result = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+
+        expect(result.recorded).toBe(true)
+        expect(onDisk).toEqual({
+            ...result,
+            recorded: undefined,
+            captured: undefined,
+            scorecardError: undefined,
+            event: api.captured[0].properties,
+        })
+        expect(parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))).toEqual(onDisk)
+        expect(readdirSync(result.evidenceDir).filter((file) => file.startsWith('scorecard'))).toEqual([
+            'scorecard.json',
+        ])
+    })
+
+    it.each<[string, boolean, AbortSignal, RegExp]>([
+        ['when a seed insert waits on a table lock', true, NEVER_ABORTED, /statement timeout/],
+        ['when the run was interrupted before seeding', false, AbortSignal.abort(), /seeding was interrupted/],
+        [
+            'when the run was interrupted before seeding without a reason',
+            false,
+            AbortSignal.abort(null),
+            /seeding was interrupted/,
+        ],
+    ])(
+        'stops seeding without a fixture %s',
+        async (_story, lockOrganizations, signal, statusReason) => {
+            const schema = scratchSchema(defaultConfig.DATABASE_URL, `scenario_seed_${process.pid}`, [
+                'posthog_organization',
+            ])
+            await schema.create()
+            const holder = new Client({ connectionString: schema.url })
+            await holder.connect()
+            try {
+                if (lockOrganizations) {
+                    await holder.query('BEGIN')
+                    await holder.query('LOCK TABLE posthog_organization IN ACCESS EXCLUSIVE MODE')
+                }
+
+                const result = await runner.run(withSettings({ DATABASE_URL: schema.url }), signal)
+
+                await holder.query('ROLLBACK')
+                const { rows } = await holder.query('SELECT id FROM posthog_organization')
+                expect(result).toMatchObject({
+                    status: 'invalid',
+                    statusReason: expect.stringMatching(new RegExp(`^the run stopped: .*${statusReason.source}`)),
+                })
+                expect(rows).toEqual([])
+            } finally {
+                await holder.end()
+                await schema.drop()
+            }
+        },
+        20_000
+    )
+
+    type Stall = 'startup' | 'query'
+
+    const stalling = async (
+        stall: Stall,
+        onStalled: () => void
+    ): Promise<{ server: Server; clients: Socket[]; sockets: Socket[] }> => {
+        const database = new URL(defaultConfig.DATABASE_URL)
+        const clients: Socket[] = []
+        const sockets: Socket[] = []
+        const server = createServer((client) => {
+            clients.push(client)
+            sockets.push(client)
+            if (stall === 'startup') {
+                client.once('data', onStalled).resume()
+                return
+            }
+            const upstream = connect(Number(database.port), database.hostname)
+            sockets.push(upstream)
+            let ready = false
+            let pending = Buffer.alloc(0)
+            upstream.on('data', (chunk: Buffer) => {
+                pending = Buffer.concat([pending, chunk])
+                while (pending.length >= 5 && pending.length >= 1 + pending.readUInt32BE(1)) {
+                    ready ||= pending[0] === 0x5a
+                    pending = pending.subarray(1 + pending.readUInt32BE(1))
+                }
+                client.write(chunk)
+            })
+            upstream.on('end', () => client.end())
+            client.on('data', (chunk: Buffer) => {
+                if (ready) {
+                    onStalled()
+                    return
+                }
+                upstream.write(chunk)
+            })
+            client.on('end', () => upstream.end())
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        return { server, clients, sockets }
+    }
+
+    it.each<[string, Stall, unknown[] | undefined, string]>([
+        ['the database never answers its startup', 'startup', undefined, 'seeding did not finish within 2000 ms'],
+        ['the database never answers a seed query', 'query', undefined, 'seeding did not finish within 2000 ms'],
+        [
+            'the run is interrupted while the database never answers its startup',
+            'startup',
+            [],
+            'seeding was interrupted',
+        ],
+        [
+            'the run is interrupted without a reason while the database never answers its startup',
+            'startup',
+            [null],
+            'seeding was interrupted',
+        ],
+    ])(
+        'ends the seeding stage and requires a restart when %s',
+        async (_story, stall, abortWith, why) => {
+            const interrupt = new AbortController()
+            let stalled = false
+            const { server, clients, sockets } = await stalling(stall, () => {
+                stalled = true
+                if (abortWith !== undefined) {
+                    interrupt.abort(...abortWith)
+                }
+            })
+            try {
+                const proxied = new URL(defaultConfig.DATABASE_URL)
+                proxied.hostname = '127.0.0.1'
+                proxied.port = String((server.address() as AddressInfo).port)
+                const bounded = createRunner(
+                    environment,
+                    { ...process.env, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL },
+                    { seedWithinMs: 2000 }
+                )
+
+                const result = await bounded.run(withSettings({ DATABASE_URL: proxied.toString() }), interrupt.signal)
+
+                expect(stalled).toBe(true)
+                expect(result).toMatchObject({
+                    status: 'invalid',
+                    statusReason: `the run stopped: ${why}; its connections were destroyed, restart required`,
+                })
+                await Promise.all(clients.map((client) => (client.closed ? Promise.resolve() : once(client, 'close'))))
+                await expect(
+                    bounded.run(withSettings({ DATABASE_URL: proxied.toString() }), NEVER_ABORTED)
+                ).rejects.toThrow(
+                    /^The seeding stage of run \S+ was cut short .* Restart the runner, then run the card again\.$/
+                )
+            } finally {
+                sockets.forEach((socket) => socket.destroy())
+                await new Promise((resolve) => server.close(resolve))
+            }
+        },
+        20_000
+    )
 
     it('produces with the Kafka settings the card profile names', async () => {
         const profile = path.join(cacheHome, 'profile.yaml')
@@ -431,7 +625,7 @@ describe('runner through seed, drive and judge', () => {
             exits.push(...(action.kind === 'kill' ? killExits(action.role) : []))
             return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
         },
-        health: () => Promise.resolve({ healthy: true, down: [] }),
+        dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
         down: async () => {
@@ -646,8 +840,13 @@ describe('runner through seed, drive and judge', () => {
                 ({ answer }) => answer.accepted
             )
             expect(result).toMatchObject(verdict)
-            expect(evidenceOf(result, 'scorecard.json')).toEqual(result)
-            expect(evidenceOf(result, 'scorecard-event.json')).toEqual(api.captured[0]?.properties)
+            expect(evidenceOf(result, 'scorecard.json')).toEqual({
+                ...result,
+                recorded: undefined,
+                captured: undefined,
+                scorecardError: undefined,
+                event: api.captured[0]?.properties,
+            })
             expect(api.captured.map(({ properties }) => properties)).toEqual([
                 expect.objectContaining({
                     run_id: result.runId,
