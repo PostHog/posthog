@@ -103,6 +103,7 @@ new Gauge({
 
 export class CaptureWatermark {
     private readonly partitions = new Map<string, PartitionWatermarks>()
+    private assignments?: () => TopicPartition[]
 
     constructor(
         lane: string,
@@ -149,6 +150,16 @@ export class CaptureWatermark {
         }
     }
 
+    /**
+     * Reports only the partitions that `assignments` returns at scrape time. The consumer completes a revocation in
+     * the background, so a batch that it read before the revocation can hold a partition again after `forget`. That
+     * batch never stores its offsets, and without this check the pod reports its capture time until the pod stops.
+     */
+    public reportOnly(assignments: () => TopicPartition[]): this {
+        this.assignments = assignments
+        return this
+    }
+
     /** Called on revoke, so that only the next owner of the partition reports it. */
     public forget(partitions: TopicPartition[]): void {
         for (const { topic, partition } of partitions) {
@@ -157,6 +168,14 @@ export class CaptureWatermark {
     }
 
     public snapshot(nowMs = Date.now()): CaptureWatermarkRow[] {
+        if (this.assignments) {
+            const assigned = new Set(this.assignments().map(({ topic, partition }) => partitionKey(topic, partition)))
+            for (const key of this.partitions.keys()) {
+                if (!assigned.has(key)) {
+                    this.partitions.delete(key)
+                }
+            }
+        }
         const rows: CaptureWatermarkRow[] = []
         for (const { topic, partition, byData } of this.partitions.values()) {
             for (const [data, watermark] of byData) {
