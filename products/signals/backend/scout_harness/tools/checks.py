@@ -112,7 +112,7 @@ def _check_pause(check: SignalReportCheck, report_status: str, now: datetime) ->
             )
     elif check.kind != SignalReportCheck.Kind.AGENT or not legacy_agent_checks_enabled(check.report):
         because = f"its report is `{report_status}`"
-        if report_status not in (SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING):
+        if report_status != SignalReport.Status.RESOLVED:
             return CheckPause(
                 reason=ReportCheckPauseReason.REPORT_NOT_RESOLVED,
                 because=because,
