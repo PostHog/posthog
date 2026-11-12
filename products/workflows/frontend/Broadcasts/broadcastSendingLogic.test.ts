@@ -66,6 +66,7 @@ describe('broadcastSendingLogic', () => {
         await expectLogic(logic).toDispatchActions(['closeSendingRateModal']).toFinishAllListeners()
 
         expect(patches).toEqual([{ email_sending_rate_limit: draft }])
+        expect(wizard.values.emailRateLimit).toEqual(draft)
         expect(logic.values.sendingRateModalOpen).toBe(false)
     })
 })
