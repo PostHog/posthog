@@ -333,6 +333,15 @@ class TestErrorTracking(APIBaseTest):
                 404,
                 "Issue not found",
             ),
+            (
+                "malformed_issue_id",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                BLOCKS_CHECKOUT.key,
+                False,
+                404,
+                "Issue not found",
+                True,
+            ),
         ]
     )
     def test_issue_tag_correction_writes_nothing_when_rejected(
@@ -343,13 +352,14 @@ class TestErrorTracking(APIBaseTest):
         other_team: bool,
         expected_status: int,
         expected_detail: str,
+        malformed_id: bool = False,
     ) -> None:
         self._enable_issue_tags(enabled_flags)
         team = Team.objects.create(organization=self.organization) if other_team else self.team
         issue = ErrorTrackingIssue.objects.create(team=team)
 
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/tag",
+            f"/api/environments/{self.team.id}/error_tracking/issues/{'not-a-uuid' if malformed_id else issue.id}/tag",
             data={"key": key, "value": True},
             format="json",
         )
