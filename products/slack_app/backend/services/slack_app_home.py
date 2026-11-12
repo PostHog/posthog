@@ -35,13 +35,10 @@ from posthog.templatetags.posthog_assets import absolute_asset_url
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_byos_enabled,
-    is_slack_app_daily_work_focus_enabled,
-    is_slack_app_oauth_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.logic.daily_focus import (
     cached_zone,
+    can_run_daily_focus,
     parse_clock,
     resolve_daily_focus,
     set_daily_focus_time,
@@ -95,11 +92,7 @@ from products.slack_app.backend.services.slack_user_info import (
     find_member_by_cached_slack_email,
     is_slack_workspace_admin,
 )
-from products.slack_app.backend.services.slack_user_oauth import (
-    build_invite_url,
-    find_linked_posthog_user,
-    linked_user_token,
-)
+from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
     get_team_workspace_integration,
@@ -1819,7 +1812,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         return HttpResponse(status=200)
 
     if action_id == ACTION_SET_DAILY_FOCUS:
-        if _resolve_daily_focus_state(integration, slack_user_id) is not None:
+        if can_run_daily_focus(integration, slack_user_id):
             if any(option.get("value") == DAILY_FOCUS_VALUE for option in action.get("selected_options") or []):
                 turn_on_daily_focus(integration, slack_user_id, source="home")
             else:
@@ -1829,7 +1822,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
 
     if action_id == ACTION_SET_DAILY_FOCUS_TIME:
         picked = parse_clock(action.get("selected_time"))
-        if picked is not None and _resolve_daily_focus_state(integration, slack_user_id) is not None:
+        if picked is not None and can_run_daily_focus(integration, slack_user_id):
             set_daily_focus_time(integration, slack_user_id, picked)
         republish()
         return HttpResponse(status=200)
@@ -2626,12 +2619,9 @@ class DailyFocusHomeState:
 
 
 def _resolve_daily_focus_state(integration: WorkspaceIntegration, slack_user_id: str) -> DailyFocusHomeState | None:
-    """None when the flag is off or the person's Slack link cannot search, because the daily work focus cannot run.
-    Reads the cached timezone, so the Home render makes no Slack call."""
-    if not is_slack_app_daily_work_focus_enabled(integration):
-        return None
-    token = linked_user_token(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
-    if token is None or "search:read.public" not in token.scopes:
+    """None when the daily work focus cannot run for the person. Reads the cached timezone, so the Home render makes
+    no Slack call."""
+    if not can_run_daily_focus(integration, slack_user_id):
         return None
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
     zone = cached_zone(integration.id, slack_user_id)
