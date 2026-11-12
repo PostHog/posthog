@@ -121,7 +121,6 @@ def create_isolated_demo_data(
 
 
 def _case_org_name(label: str, suffix: str) -> str:
-    # Organization.name holds 64 characters, so a long case name is cut to fit. The suffix keeps names unique.
     max_label = Organization._meta.get_field("name").max_length - len(f"Hedgebox (-{suffix})")
     return f"Hedgebox ({label[:max_label]}-{suffix})"
 

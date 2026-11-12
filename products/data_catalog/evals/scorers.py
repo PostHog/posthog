@@ -80,11 +80,7 @@ def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
 
 
 def _final_answer(parser: LogParser) -> str | None:
-    """The answer the user reads: a scout run's `finish` report, else the last chat message.
-
-    A scout run delivers its report through the `finish` tool, so its last chat message can be a
-    progress note such as "I'm checking which issues the exceptions come from".
-    """
+    """A scout run delivers its report through `finish`, so its last chat message can be a progress note."""
     for call in reversed(parser.get_tool_calls(FINISH_TOOL)):
         report = call.input.get("report")
         if not call.is_error and isinstance(report, str) and report.strip():

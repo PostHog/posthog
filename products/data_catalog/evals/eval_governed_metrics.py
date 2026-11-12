@@ -432,7 +432,7 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
         ),
         # Definition question with an empty catalog: the measure is only written down in a
         # saved insight, so the settled answer is a reusable definition the catalog lacks.
-        # The instructions already say the project has no saved metrics, so the agent skips
+        # The instructions say the project has no saved metrics, so the agent skips
         # `metric-list`. Pins the proactive close — users don't know proposals exist, so the
         # agent has to ask — and pins that asking is not license to create one unprompted.
         SandboxedEvalCase(
@@ -515,9 +515,9 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             },
             setup=seed_operational_metric,
         ),
-        # Operational measure with an empty catalog: the instructions already say nothing
-        # governs the measure, so the agent skips `metric-list` and hand-derives the rate
-        # with no clarifying stall.
+        # Operational measure with an empty catalog: the instructions say nothing governs
+        # the measure, so the agent skips `metric-list` and hand-derives the rate with no
+        # clarifying stall.
         SandboxedEvalCase(
             name="scout_operational_no_match",
             prompt=(
