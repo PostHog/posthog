@@ -93,6 +93,16 @@ fn not_served(partition: u32) -> Status {
     Status::failed_precondition(format!("partition {partition} is not served by this pod"))
 }
 
+fn record_pg_load_ages(person: &CachedPerson, now_ms: i64) {
+    let seconds_since = |ms: i64| (now_ms - ms).max(0) as f64 / 1000.0;
+    histogram!("personhog_leader_pg_load_person_age_seconds")
+        .record(seconds_since(person.created_at));
+    if let Some(last_seen_at) = person.last_seen_at {
+        histogram!("personhog_leader_pg_load_last_seen_age_seconds")
+            .record(seconds_since(last_seen_at));
+    }
+}
+
 /// A committed document, with the locks the handler took for it, so the
 /// handler keeps them until it is done with the document.
 struct Committed {
@@ -433,6 +443,7 @@ impl PersonHogLeaderService {
                     "source" => "pg", "outcome" => "ok"
                 )
                 .increment(1);
+                record_pg_load_ages(&person, Utc::now().timestamp_millis());
                 self.cache.put(partition, key.clone(), person.clone());
                 Ok(person)
             }
