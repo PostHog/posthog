@@ -406,6 +406,59 @@ class TransactionalEmailResults:
     median_hours_to_convert: float | None
 
 
+class CodeEmailSourceOrigin(LabeledStrEnum):
+    MANUAL = "manual", "Manual"
+    DETECTED = "detected", "Detected from GitHub"
+
+
+@frozen
+class CodeManagedEmail:
+    """An email sent from code under a `template_key` with no template, as the Transactional emails list shows it."""
+
+    id: UUID
+    key: str
+    hog_flow_id: UUID
+    description: str
+    tags: tuple[str, ...]
+    sensitive: bool
+    source_url: str | None
+    source_origin: CodeEmailSourceOrigin | None
+    created_at: datetime
+
+
+class CodeManagedEmailNotFound(Exception):
+    pass
+
+
+@frozen
+class CodeEmailSourceCandidate:
+    """A file in a connected GitHub repository that holds a code email's key."""
+
+    repository: str
+    path: str
+    line: int
+    url: str
+    call_site: bool
+
+
+@frozen
+class CodeEmailSourceCandidates:
+    candidates: tuple[CodeEmailSourceCandidate, ...]
+    complete: bool
+
+
+class CodeEmailSourceKeyUnsearchable(Exception):
+    """GitHub can't search for the key: it is blank, spans lines, or is longer than a search allows."""
+
+
+class CodeEmailSourceSearchUnavailable(Exception):
+    """No GitHub installation answered the search."""
+
+    def __init__(self, *, shed: bool) -> None:
+        super().__init__("budget shed" if shed else "GitHub error")
+        self.shed = shed
+
+
 @frozen
 class TransactionalEmailActivityEvent:
     uuid: str

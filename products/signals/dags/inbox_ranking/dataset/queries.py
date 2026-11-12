@@ -7,6 +7,7 @@ query is bounded `[{labels_epoch}, {snapshot_end})` so a partition is reproducib
 day.
 """
 
+import json
 import uuid
 import datetime
 from collections.abc import Mapping
@@ -24,6 +25,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 
+from products.signals.backend.ranking.sinks import REPORT_FACTS_EVENT
 from products.signals.dags.inbox_ranking.common import (
     FIXED_DISMISSAL_REASONS,
     HUMAN_ACTOR_KINDS,
@@ -104,6 +106,44 @@ def hogql_rows(sql: str, *, team: Team, query_type: str, snapshot_end: datetime.
         ch_user=ClickHouseUser.SIGNALS,
     )
     return [tuple(row) for row in response.results or []]
+
+
+# The facts events the sweep in this deployment captured during one day. The report filter runs in
+# Python, because a day's newborn ids would make an inline tuple too long for one query.
+REPORT_FACTS_SQL = f"""
+SELECT timestamp, properties
+FROM events
+WHERE event = '{REPORT_FACTS_EVENT}'
+  AND timestamp >= toDateTime({{window_start}}) AND timestamp < toDateTime({{window_end}})
+  AND ifNull(toString(properties.environment), '') = {{environment}}
+"""
+
+
+def report_facts_events(
+    team: Team, *, window_start: datetime.datetime, window_end: datetime.datetime, environment: str
+) -> list[tuple[datetime.datetime, dict[str, Any]]]:
+    """Every `inbox_ranking_report_facts_recorded` event of this deployment inside the window, as
+    `(timestamp, properties)` rows."""
+    response = execute_hogql_query(
+        query=REPORT_FACTS_SQL,
+        team=team,
+        query_type="inbox_ranking_report_facts_events",
+        placeholders={
+            "window_start": ast.Constant(value=utc_bound(window_start)),
+            "window_end": ast.Constant(value=utc_bound(window_end)),
+            "environment": ast.Constant(value=environment),
+        },
+        limit_context=LimitContext.SAVED_QUERY,
+        workload=etl_workload(),
+        settings=HogQLGlobalSettings(max_execution_time=600),
+        # The dag runs without a user; the read is a trusted internal ETL over the dogfood project.
+        bypass_warehouse_access_control=True,
+        ch_user=ClickHouseUser.SIGNALS,
+    )
+    return [
+        (timestamp, json.loads(properties) if isinstance(properties, str) else dict(properties or {}))
+        for timestamp, properties in response.results or []
+    ]
 
 
 def canonical_report_uuid(report_id: str | None) -> str | None:
