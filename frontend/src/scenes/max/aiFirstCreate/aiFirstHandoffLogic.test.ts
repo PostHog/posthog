@@ -288,18 +288,28 @@ describe('aiFirstHandoffLogic', () => {
         toast.mockRestore()
     })
 
-    // The panel logic outlives this page, so the lookup's continuation must not route from a page left behind.
-    it('does not route once the page is left during the lookup', async () => {
+    // The panel logic outlives this page, so a step's continuation must not route from a page left behind.
+    it.each(['lookup', 'preparation'] as const)('does not route once the page is left during the %s', async (step) => {
         const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
         const panel = runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
         panel.mount()
-        let resolveFinder: (id: string | null) => void = () => {}
-        findCreatedId.mockImplementation(() => new Promise((resolve) => (resolveFinder = resolve)))
+        let finishStep: () => void = () => {}
+        const stepPending = new Promise<void>((resolve) => (finishStep = resolve))
+        if (step === 'lookup') {
+            findCreatedId.mockImplementation(async () => {
+                await stepPending
+                return CREATED_ID
+            })
+        } else {
+            logic.unmount()
+            logic = aiFirstHandoffLogic({ ...handoff(), prepareCreated: () => stepPending })
+            logic.mount()
+        }
 
         toolStreamEventsLogic.actions.emitToolEvent(createEvent({}))
         await flush()
         logic.unmount()
-        resolveFinder(CREATED_ID)
+        finishStep()
         await flush()
 
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
