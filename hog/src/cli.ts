@@ -404,6 +404,10 @@ const RENAMED: Record<string, { to: string; hint: string }> = {
         hint: 'The experimental commands are top level in hog, as in `hog endpoints pull` for `posthog-cli exp endpoints pull`.',
     },
     update: { to: 'upgrade', hint: 'Run `hog upgrade`.' },
+    skill: {
+        to: 'skills list|add',
+        hint: '`hog skills list` lists the skills, and `hog skills add <id...>` replaces `posthog-cli api skill install`.',
+    },
 }
 
 function toHogError(caught: unknown): HogError {

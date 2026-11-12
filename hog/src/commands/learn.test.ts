@@ -60,7 +60,10 @@ function fakeSkills(answer: LearnResult | SkillsError = READ): FakeSkills {
 
                     return 'code' in answer ? { ok: false, error: answer } : { ok: true, value: answer }
                 },
-                installable: async () => ({ ok: true, value: { skills: [], assets: NETWORK } }),
+                installable: async () => ({
+                    ok: true,
+                    value: { skills: [], assets: NETWORK, release: { assets: NETWORK } },
+                }),
                 instrumentSkills: async () => ({ ok: true, value: { skills: [], assets: NETWORK } }),
                 install: async () => ({ ok: false, error: { code: 'unknown_skill', message: 'Unknown skill' } }),
             }

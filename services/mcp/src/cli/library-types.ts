@@ -143,6 +143,14 @@ export interface InstallableSkill {
     tags: string[]
 }
 
+/**
+ * The context-mill release that one `installable` call loaded. `install` writes from it instead of
+ * loading the release again, so a batch of installs waits for one download, or one failed download.
+ */
+export interface SkillsRelease {
+    readonly assets: SkillAssetStatus[]
+}
+
 export interface InstalledSkill {
     id: string
     directory: string
@@ -189,10 +197,16 @@ export interface SkillsLibrary {
     learn(request: LearnRequest): Promise<SkillsResult<LearnResult>>
     /** The `posthog:instrument-*` skills. Downloads only context-mill, not the product skills. */
     instrumentSkills(): Promise<SkillsResult<{ skills: string[]; assets: SkillAssetStatus[] }>>
-    installable(): Promise<SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[] }>>
-    /** Writes a skill into `.agents/skills/<id>` under `cwd`, as `posthog-cli api skill install` does. */
+    installable(): Promise<
+        SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[]; release: SkillsRelease }>
+    >
+    /**
+     * Writes a skill into `<skillsDir>/<id>` under `cwd`. `skillsDir` defaults to `.agents/skills`, where
+     * `posthog-cli api skill install` writes. A write that would land outside `cwd`, through `..` or a
+     * symlink, fails with `install_failed`. Without `release`, the call loads the release itself.
+     */
     install(
         id: string,
-        options: { cwd: string; force?: boolean }
+        options: { cwd: string; force?: boolean; skillsDir?: string; release?: SkillsRelease }
     ): Promise<SkillsResult<{ skill: InstalledSkill; assets: SkillAssetStatus[] }>>
 }

@@ -59,6 +59,7 @@ In CI, you can set both sets of names while some jobs still run posthog-cli.
 | `exp schema pull -o <file>`                        | `schema pull --file <file>`                                                                          |
 | `exp schema status`                                | `schema status`                                                                                      |
 | `api tools`, `search`, `info`, `schema`, `call`    | `api tools`, `search`, `info`, `schema`, `call`, with `-o json` for `--json`                         |
+| `api skill list`, `api skill install <id>`         | `skills list`, `skills add <id...>`. `add` writes to the folder your agent reads                     |
 
 `hog et` is short for `hog error-tracking`.
 `hog error-tracking upload` detects what each path holds, so one command uploads JavaScript, Hermes, ProGuard, dSYM and ELF symbols, and `--kind` skips detection.
@@ -67,7 +68,7 @@ Run `hog <command> --help` for every flag, or `hog commands -o json` for all of 
 Not in hog yet, so keep posthog-cli for them:
 
 - `update`. It becomes `hog upgrade` when hog ships.
-- `api skill` and `api agents-md`. They come back as top-level commands.
+- `api agents-md`. It comes back as a top-level command.
 - `exp logs import`, `exp task`, and `exp query editor`.
 
 hog lists these and prints the posthog-cli command to run instead.

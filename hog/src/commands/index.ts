@@ -12,6 +12,7 @@ import { LEGACY_COMMANDS } from './legacy'
 import query from './query'
 import schema from './schema'
 import setup from './setup'
+import skills from './skills'
 
 export const COMMANDS: CommandTree = {
     setup,
@@ -20,6 +21,7 @@ export const COMMANDS: CommandTree = {
     query,
     api,
     learn,
+    skills,
     'error-tracking': errorTracking,
     endpoints,
     schema,

@@ -25,6 +25,7 @@ import type {
     SkillsFetch,
     SkillsLibrary,
     SkillsLibraryOptions,
+    SkillsRelease,
     SkillsResult,
 } from './library-types'
 import { installSkill, type InstallableSkills, listSkills, SkillInstallError } from './skills'
@@ -105,6 +106,11 @@ async function writeAtomically(file: string, contents: Uint8Array | string): Pro
 
 interface ContextMillRelease extends InstallableSkills {
     omnibus(): SkillCatalog | undefined
+}
+
+interface LoadedRelease {
+    release: ContextMillRelease
+    assets: SkillAssetStatus[]
 }
 
 // The release counts as valid when its manifest loads. Every other file stays zipped until a call
@@ -397,11 +403,18 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
         }
     })
 
-    const loadRelease = async (): Promise<
-        SkillsResult<{ release: ContextMillRelease; assets: SkillAssetStatus[] }>
-    > => {
+    const loadRelease = async (): Promise<SkillsResult<LoadedRelease>> => {
         const { release, assets } = await loadContextMill()
         return release ? { ok: true, value: { release, assets } } : { ok: false, error: offline(assets) }
+    }
+
+    // The releases `installable` handed out. A load that fell back to the cache isn't memoized, so
+    // without this each install of a batch would wait for the network to fail again.
+    const handedOut = new WeakMap<SkillsRelease, ContextMillRelease>()
+
+    const releaseFor = async (handle: SkillsRelease | undefined): Promise<SkillsResult<LoadedRelease>> => {
+        const release = handle && handedOut.get(handle)
+        return release && handle ? { ok: true, value: { release, assets: handle.assets } } : loadRelease()
     }
 
     return {
@@ -453,13 +466,19 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
             }
         },
 
-        async installable(): Promise<SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[] }>> {
+        async installable(): Promise<
+            SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[]; release: SkillsRelease }>
+        > {
             const loaded = await loadRelease()
             if (!loaded.ok) {
                 return loaded
             }
 
-            return { ok: true, value: { skills: await listSkills(loaded.value.release), assets: loaded.value.assets } }
+            const { release, assets } = loaded.value
+            const handle: SkillsRelease = { assets }
+            handedOut.set(handle, release)
+
+            return { ok: true, value: { skills: await listSkills(release), assets, release: handle } }
         },
 
         async instrumentSkills(): Promise<SkillsResult<{ skills: string[]; assets: SkillAssetStatus[] }>> {
@@ -481,8 +500,8 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
             }
         },
 
-        async install(id, { cwd, force }) {
-            const loaded = await loadRelease()
+        async install(id, { cwd, force, skillsDir, release: handle }) {
+            const loaded = await releaseFor(handle)
             if (!loaded.ok) {
                 return loaded
             }
@@ -490,7 +509,10 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
             const { release, assets } = loaded.value
 
             try {
-                return { ok: true, value: { skill: await installSkill(id, { cwd, force, source: release }), assets } }
+                return {
+                    ok: true,
+                    value: { skill: await installSkill(id, { cwd, force, skillsDir, source: release }), assets },
+                }
             } catch (error) {
                 return { ok: false, error: installError(id, error) }
             }

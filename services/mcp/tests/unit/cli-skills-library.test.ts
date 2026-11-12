@@ -435,18 +435,29 @@ describe('CLI skills library', () => {
         expect(result).toEqual({ ok: false, error: { code, message: expect.stringContaining(message) } })
     })
 
-    it('installs a context-mill skill from the downloaded release', async () => {
+    it('installs a batch from the release installable listed, without asking the network again', async () => {
         const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-skills-install-'))
-        const library = createSkillsLibrary({ cacheDir: await cacheDir(), fetch: fakeFetch(ONLINE).fetch })
+        const cache = await cacheDir()
+        await warmCache(cache)
+        const outage = fakeFetch({ [CONTEXT_MILL_URL]: new TypeError('Unable to connect') })
+        const library = createSkillsLibrary({ cacheDir: cache, fetch: outage.fetch })
 
-        const installed = await library.install('audit', { cwd: dir })
-        const unknown = await library.install('missing', { cwd: dir })
+        const listed = await library.installable()
+        const release = listed.ok ? listed.value.release : undefined
+        const installed = await library.install('audit', { cwd: dir, release })
+        const again = await library.install('audit', { cwd: dir, skillsDir: '.claude/skills', release })
+        const unknown = await library.install('missing', { cwd: dir, release })
 
         expect(installed.ok && installed.value.skill.fileCount).toBe(1)
+        expect(again.ok && again.value.assets).toEqual([expect.objectContaining({ origin: 'cache' })])
         await expect(fs.readFile(path.join(dir, '.agents', 'skills', 'audit', 'SKILL.md'), 'utf8')).resolves.toBe(
             '# Audit\n'
         )
+        await expect(fs.readFile(path.join(dir, '.claude', 'skills', 'audit', 'SKILL.md'), 'utf8')).resolves.toBe(
+            '# Audit\n'
+        )
         expect(unknown).toEqual({ ok: false, error: { code: 'unknown_skill', message: 'Unknown skill "missing".' } })
+        expect(outage.requests.map((request) => request.url)).toEqual([CONTEXT_MILL_URL])
     })
 
     it('refuses to install a skill whose archive is past the extraction limit, and keeps the installed copy', async () => {
