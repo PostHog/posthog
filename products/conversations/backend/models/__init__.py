@@ -22,6 +22,7 @@ from .email_thread import (
 from .github_comment_mapping import GithubCommentMapping
 from .inbound_event import ConversationInboundEvent, ConversationInboundEventSource, InboundPayloadTooLargeError
 from .intercom_import_job import IntercomImportJob
+from .mailgun_domain_registration import MailgunDomainRegistration
 from .purged_ticket_thread import PurgedTicketThread
 from .restore_token import ConversationRestoreToken
 from .signing_secret import SigningSecret
@@ -64,6 +65,7 @@ __all__ = [
     "GithubCommentMapping",
     "InboundPayloadTooLargeError",
     "IntercomImportJob",
+    "MailgunDomainRegistration",
     "Priority",
     "PurgedTicketThread",
     "RuleType",

@@ -26,6 +26,9 @@ from products.conversations.backend.mailgun import (
     send_mime,
 )
 from products.conversations.backend.models import EmailMessageMapping, EmailOutboxMessage, Ticket
+from products.conversations.backend.services.mailgun_domain_cleanup import (
+    cleanup_mailgun_domains as run_mailgun_domain_cleanup,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -331,3 +334,31 @@ def flush_pending_email_replies() -> None:
         _process_outbox_row(outbox)
 
     logger.info("flush_pending_email_replies_completed", count=len(batch))
+
+
+@shared_task(
+    name="products.conversations.backend.tasks.cleanup_mailgun_domains",
+    ignore_result=True,
+)
+@skip_team_scope_audit
+def cleanup_mailgun_domains(dry_run: bool = False) -> None:
+    """Free Mailgun domain slots held by domains this region registered and no live support email setup uses."""
+    try:
+        result = run_mailgun_domain_cleanup(dry_run=dry_run)
+    except MailgunNotConfigured:
+        return
+
+    logger.info(
+        "cleanup_mailgun_domains_completed",
+        dry_run=dry_run,
+        mailgun_domain_count=result.mailgun_domain_count,
+        candidates=result.candidates if dry_run else len(result.candidates),
+        abandoned_setups=result.abandoned_setups if dry_run else len(result.abandoned_setups),
+        unowned_orphans=result.unowned_orphans,
+        kept=result.kept,
+        adopted_registrations=result.adopted_registrations,
+        deleted=result.deleted,
+        failed=result.failed,
+        pruned_registrations=result.pruned_registrations,
+        throttled=result.throttled,
+    )
