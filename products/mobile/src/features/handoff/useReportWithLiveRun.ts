@@ -13,7 +13,7 @@ import { useHandoffStore } from './handoffStore'
 import { useHandoffEntry } from './hooks'
 import { mergeLiveRun, runTarget } from './liveReport'
 import type { RunStreamState } from './types'
-import { useAppActive, useTaskRun } from './useTaskRun'
+import { useAppActive, useTaskRun, waitForRunRecovery } from './useTaskRun'
 
 const STREAM_REFRESH_INTERVAL_MS = 2000
 
@@ -98,7 +98,8 @@ export function useReportWithLiveRun(reportId: string): QueryState<ReportView> {
     const data = useMemo(() => (live && report ? mergeLiveRun(report, entry) : report), [live, report, entry])
     const reconnecting = useDelayedReconnecting(
         active && data?.task?.connection === 'reconnecting',
-        `${reportId}:${data?.task?.taskId}:${data?.task?.runId}`
+        `${reportId}:${data?.task?.taskId}:${data?.task?.runId}`,
+        (signal) => waitForRunRecovery(reportId, data?.task?.runId, signal)
     )
     const visibleData = useMemo(
         () =>

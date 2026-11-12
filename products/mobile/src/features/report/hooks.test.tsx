@@ -10,7 +10,7 @@ import { setSessionTokens } from '@/auth/tokens'
 import { useHandoffStore } from '@/features/handoff/handoffStore'
 import { useReportWithLiveRun } from '@/features/handoff/useReportWithLiveRun'
 import { useFeatureAccess, useScopeErrorStore } from '@/features/views/useViewsAccess'
-import { RECONNECT_NOTICE_DELAY_MS } from '@/lib/useDelayedReconnecting'
+import { RECONNECT_CHECK_TIMEOUT_MS, RECONNECT_NOTICE_DELAY_MS } from '@/lib/useDelayedReconnecting'
 import { reportFixture } from '@/model/adapters/testFixtures'
 import type { QueryState, ReportView } from '@/model/types'
 
@@ -372,6 +372,10 @@ describe('useReport', () => {
             await act(async () => {
                 await jest.advanceTimersByTimeAsync(1)
             })
+            expect(result.current.data?.task?.connection).toBeUndefined()
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(RECONNECT_CHECK_TIMEOUT_MS)
+            })
             expect(result.current.data?.task?.connection).toBe('reconnecting')
             setConnection('connected')
             expect(result.current.data?.task?.connection).toBe('connected')
@@ -383,6 +387,17 @@ describe('useReport', () => {
             setConnection('connected')
             await act(async () => {
                 await jest.advanceTimersByTimeAsync(RECONNECT_NOTICE_DELAY_MS)
+            })
+            expect(result.current.data?.task?.connection).toBe('connected')
+
+            setConnection('reconnecting')
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(RECONNECT_NOTICE_DELAY_MS + 1000)
+            })
+            expect(result.current.data?.task?.connection).toBeUndefined()
+            setConnection('connected')
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(RECONNECT_CHECK_TIMEOUT_MS)
             })
             expect(result.current.data?.task?.connection).toBe('connected')
         } finally {

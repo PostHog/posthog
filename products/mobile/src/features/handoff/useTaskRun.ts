@@ -62,6 +62,28 @@ export function isFatal(error: unknown): boolean {
     )
 }
 
+export function waitForRunRecovery(reportId: string, runId: string | undefined, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+        const pending = (): boolean => {
+            const live = useHandoffStore.getState().reports[reportId]?.live
+            return live?.runId === runId && live?.connection === 'reconnecting'
+        }
+        if (signal.aborted || !pending()) {
+            resolve()
+            return
+        }
+        const finish = (): void => {
+            unsubscribe()
+            signal.removeEventListener('abort', finish)
+            resolve()
+        }
+        const unsubscribe = useHandoffStore.subscribe(() => {
+            if (!pending()) finish()
+        })
+        signal.addEventListener('abort', finish, { once: true })
+    })
+}
+
 interface FollowArgs {
     /** The report's project, which owns the task. */
     scope: ProjectScope | null

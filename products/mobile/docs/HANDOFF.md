@@ -162,7 +162,7 @@ Frames follow `products/tasks/backend/presentation/views/api.py` (stream view) a
 | `error`                    | Server closes. Fetch the run; stop if terminal, else reconnect with backoff.                                                                        |
 | content (no `event:`)      | Saved as the cursor (`id`), deduped by envelope `event_id`, reduced below.                                                                          |
 
-The report indicator keeps the last known activity during the first 10 seconds of recovery. Normal stream rotation and cursor resync do not show a reconnecting indicator.
+The report indicator keeps the last known activity during the first 10 seconds of recovery. It then waits up to 5 more seconds for the existing reconnect loop to recover before showing a warning. Recovery during that check cancels the warning without opening a second stream. Normal stream rotation and cursor resync do not show a reconnecting indicator.
 
 Reconnects back off 2 s doubling to 30 s, 10 attempts per drop and 30 per screen visit, and fetch
 the run first so a finished run stops. A 503 at admission waits `Retry-After`. 401, 403 and 404 stop.

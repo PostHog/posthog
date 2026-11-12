@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react-native'
+import { act, cleanup, renderHook } from '@testing-library/react-native'
 
 import { LIVE_DEMO_READ_MS, LiveDemo } from '@/demo/live'
 import { RECONNECT_NOTICE_DELAY_MS } from '@/lib/useDelayedReconnecting'
@@ -32,6 +32,7 @@ describe('useLiveFeed', () => {
     })
 
     afterEach(() => {
+        cleanup()
         jest.useRealTimers()
         jest.restoreAllMocks()
     })
@@ -73,7 +74,7 @@ describe('useLiveFeed', () => {
         unmount()
     })
 
-    test('the Live chip keeps its count during brief failures and warns after the delay', async () => {
+    test.each([false, true])('the Live chip verifies recovery before warning (still failing: %s)', async (failing) => {
         const respond = jest.spyOn(LiveDemo.prototype, 'respond')
         const { result } = renderHook(() => useLiveUsersOnline())
         await advance(LIVE_DEMO_READ_MS)
@@ -85,12 +86,20 @@ describe('useLiveFeed', () => {
         })
         await advance(30_000 + LIVE_DEMO_READ_MS)
         expect(result.current).toMatchObject({ count, reconnecting: false })
+        if (failing) {
+            respond.mockImplementationOnce(() => {
+                throw new Error('Live unavailable')
+            })
+        }
         await advance(RECONNECT_NOTICE_DELAY_MS - 1)
         expect(result.current).toMatchObject({ count, reconnecting: false })
         await advance(1)
-        expect(result.current).toMatchObject({ count: null, reconnecting: true })
+        expect(result.current).toMatchObject({ count, reconnecting: false })
+        await advance(LIVE_DEMO_READ_MS)
+        expect(result.current.reconnecting).toBe(failing)
+        expect(result.current.count === null).toBe(failing)
 
-        await advance(30_000 + LIVE_DEMO_READ_MS)
+        await advance((failing ? 60_000 : 30_000) + LIVE_DEMO_READ_MS)
         expect(result.current.reconnecting).toBe(false)
         expect(result.current.count).toBeGreaterThan(0)
     })
@@ -119,6 +128,9 @@ describe('useLiveFeed', () => {
             await advance(RECONNECT_NOTICE_DELAY_MS - 1)
             expect(result.current.status).toBe('live')
             await advance(1)
+            expect(result.current.status).toBe('live')
+            expect(onError).not.toHaveBeenCalled()
+            await advance(LIVE_DEMO_READ_MS * 4)
             expect(result.current.status).toBe('reconnecting')
             expect(onError).toHaveBeenCalledTimes(1)
             expect(onError).toHaveBeenLastCalledWith('refresh_failed')
@@ -135,13 +147,40 @@ describe('useLiveFeed', () => {
             fail()
             act(() => result.current.pull())
             await advance(LIVE_DEMO_READ_MS * 4)
-            await advance(1000)
-            expect(result.current.status).toBe('live')
             respond.mockImplementation(original)
-            act(() => result.current.pull())
-            await advance(LIVE_DEMO_READ_MS * 4 + RECONNECT_NOTICE_DELAY_MS)
+            await advance(RECONNECT_NOTICE_DELAY_MS + LIVE_DEMO_READ_MS * 4)
             expect(result.current.status).toBe('live')
             expect(onError).toHaveBeenCalledTimes(1)
+        }
+    )
+
+    test.each(['active', 'tab blur', 'app background'])(
+        'recovery verification joins an in-flight refresh or cancels when hidden (%s)',
+        async (visibility) => {
+            const original = LiveDemo.prototype.respond
+            const respond = jest.spyOn(LiveDemo.prototype, 'respond')
+            const onError = jest.fn()
+            const { result, rerender } = renderHook(() => useLiveFeed(onError))
+            await advance(LIVE_DEMO_READ_MS * 4)
+            const readKeys = respond.mock.calls.map(([key]) => key)
+            respond.mockImplementation(() => {
+                throw new Error('Live unavailable')
+            })
+            act(() => result.current.pull())
+            await advance(LIVE_DEMO_READ_MS * 4)
+            await advance(RECONNECT_NOTICE_DELAY_MS - 1)
+            respond.mockImplementation(original)
+            const beforeRefresh = respond.mock.calls.length
+            act(() => result.current.pull())
+            mockFocused = visibility !== 'tab blur'
+            mockAppActive = visibility !== 'app background'
+            rerender({})
+            await advance(LIVE_DEMO_READ_MS * 4 + RECONNECT_NOTICE_DELAY_MS)
+            expect(result.current.status).toBe('live')
+            expect(onError).not.toHaveBeenCalled()
+            expect(respond.mock.calls.slice(beforeRefresh).map(([key]) => key)).toEqual(
+                visibility === 'tab blur' ? [] : readKeys
+            )
         }
     )
 

@@ -260,7 +260,10 @@ export function useLiveUsersOnline(): { count: number | null; reconnecting: bool
     const reconnecting = useDelayedReconnecting(
         counted.screenActive &&
             (stats.active ? stats.failed : counted.state.failures > 0 || (counted.state.data === null && stats.failed)),
-        source
+        source,
+        async (): Promise<void> => {
+            await (stats.active ? stats.controller : counted.controller)?.checkRecovery()
+        }
     )
     const count = stats.active ? stats.count : counted.state.data
     const [lastCount, setLastCount] = useState<{ source: LiveSource | null; count: number } | null>(null)
@@ -346,7 +349,13 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     // Keep one message per failure streak, including when polling pauses and resumes.
     const failing = main.state.failures > 0
     const hasData = main.state.data !== null
-    const reconnecting = useDelayedReconnecting(failing && !paused && main.screenActive, source)
+    const reconnecting = useDelayedReconnecting(
+        failing && !paused && main.screenActive,
+        source,
+        async (): Promise<void> => {
+            await main.controller?.checkRecovery()
+        }
+    )
     const errorKind: LiveErrorKind | null = !hasData && failing ? 'load_failed' : reconnecting ? 'refresh_failed' : null
     const onErrorRef = useRef(onError)
     onErrorRef.current = onError
