@@ -564,12 +564,29 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
 
         assert failing_query.called
 
-    def test_overview_dimensional_matches_v2(self):
+    @parameterized.expand(
+        [
+            ("no_filter", [], [3, 4, 3]),
+            # Like v2, the overview maps a page filter to the entry page, so it counts the sessions that
+            # started on the page and every pageview in them.
+            (
+                "pathname_exact",
+                [EventPropertyFilter(key="$pathname", value="/", operator=PropertyOperator.EXACT)],
+                None,
+            ),
+            (
+                "pathname_contains",
+                [EventPropertyFilter(key="$pathname", value="blog", operator=PropertyOperator.ICONTAINS)],
+                None,
+            ),
+        ]
+    )
+    def test_overview_dimensional_matches_v2(self, _name, properties, expected_counts):
         def run(modifiers, web_query_modifiers):
             runner = WebOverviewQueryRunner(
                 query=WebOverviewQuery(
                     dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
-                    properties=[],
+                    properties=properties,
                     webQueryModifiers=web_query_modifiers,
                 ),
                 team=self.team,
@@ -594,4 +611,5 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             (item.key, item.value) for item in v2.results
         ]
         # visitors, views, sessions: user_a has 2 pageviews, user_b and user_c have 1 each.
-        assert [item.value for item in dimensional.results[:3]] == [3, 4, 3]
+        if expected_counts is not None:
+            assert [item.value for item in dimensional.results[:3]] == expected_counts
