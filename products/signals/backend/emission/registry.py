@@ -161,13 +161,9 @@ def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str,
 def _register_all_emitters() -> None:
     # Tier-3 feedback / reviews
     from products.signals.backend.emission.aha_ideas import AHA_CONFIG
-    from products.signals.backend.emission.airbrake_groups import AIRBRAKE_CONFIG
-    from products.signals.backend.emission.amazon_cloudwatch_alarm_history import AMAZON_CLOUDWATCH_ALARM_HISTORY_CONFIG
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
-    from products.signals.backend.emission.appsignal_anomaly_incidents import APPSIGNAL_ANOMALY_CONFIG
     from products.signals.backend.emission.appsignal_exception_incidents import APPSIGNAL_CONFIG
-    from products.signals.backend.emission.appsignal_performance_incidents import APPSIGNAL_PERFORMANCE_CONFIG
     from products.signals.backend.emission.asana_tasks import ASANA_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
     from products.signals.backend.emission.aws_guardduty_findings import AWS_GUARDDUTY_CONFIG
@@ -222,25 +218,19 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.incident_io_incidents import INCIDENT_IO_CONFIG
     from products.signals.backend.emission.instatus_incidents import INSTATUS_CONFIG
     from products.signals.backend.emission.intercom_conversations import INTERCOM_CONFIG
+    from products.signals.backend.emission.intercom_tickets import INTERCOM_TICKETS_CONFIG
     from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
     from products.signals.backend.emission.lacework_alerts import LACEWORK_CONFIG
     from products.signals.backend.emission.langsmith_feedback import LANGSMITH_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
-    from products.signals.backend.emission.logicmonitor_alerts import LOGICMONITOR_ALERTS_CONFIG
     from products.signals.backend.emission.microsoft_defender_cloud_apps_alerts import (
         MICROSOFT_DEFENDER_CLOUD_APPS_CONFIG,
     )
     from products.signals.backend.emission.mintlify_feedback import MINTLIFY_CONFIG
     from products.signals.backend.emission.monday_items import MONDAY_CONFIG
     from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
-    from products.signals.backend.emission.mux_errors import MUX_ERRORS_CONFIG
-    from products.signals.backend.emission.newrelic_alert_issues import NEWRELIC_ALERT_ISSUES_CONFIG
-    from products.signals.backend.emission.newrelic_errors import (
-        NEWRELIC_JAVASCRIPT_ERRORS_CONFIG,
-        NEWRELIC_TRANSACTION_ERRORS_CONFIG,
-    )
     from products.signals.backend.emission.okendo_reviews import OKENDO_CONFIG
     from products.signals.backend.emission.opsgenie_alerts import OPSGENIE_CONFIG
     from products.signals.backend.emission.orca_security_alerts import ORCA_SECURITY_CONFIG
@@ -249,6 +239,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.plain_threads import PLAIN_CONFIG
     from products.signals.backend.emission.plane_work_items import PLANE_CONFIG
     from products.signals.backend.emission.productboard_notes import PRODUCTBOARD_CONFIG
+    from products.signals.backend.emission.pylon_issues import PYLON_CONFIG
     from products.signals.backend.emission.qualtrics_survey_responses import QUALTRICS_CONFIG
 
     # Tier-2 security scanners
@@ -352,6 +343,8 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.HELPSCOUT, "conversations", HELPSCOUT_CONFIG)
     register_signal_source(ExternalDataSourceType.DECAGON, "conversations", DECAGON_CONFIG)
     register_signal_source(ExternalDataSourceType.VITALLY, "Conversations", VITALLY_CONFIG)
+    register_signal_source(ExternalDataSourceType.INTERCOM, "tickets", INTERCOM_TICKETS_CONFIG)
+    register_signal_source(ExternalDataSourceType.PYLON, "issues", PYLON_CONFIG)
     # Search analytics (record kind: search_opportunity)
     register_signal_source(
         ExternalDataSourceType.GOOGLESEARCHCONSOLE, "search_analytics_by_query_page", GOOGLE_SEARCH_CONSOLE_CONFIG
@@ -424,19 +417,6 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", AZURE_EXCEPTIONS_CONFIG)
     register_signal_source(ExternalDataSourceType.APPSIGNAL, "exception_incidents", APPSIGNAL_CONFIG)
     register_signal_source(ExternalDataSourceType.CURSOR, "bugbot_reviews", CURSOR_CONFIG)
-    # Monitoring alerts and error tracking. New Relic and AppSignal keep one record kind per product,
-    # so one inbox toggle covers every table of the product.
-    register_signal_source(ExternalDataSourceType.NEWRELIC, "alert_issues", NEWRELIC_ALERT_ISSUES_CONFIG)
-    register_signal_source(ExternalDataSourceType.NEWRELIC, "javascript_errors", NEWRELIC_JAVASCRIPT_ERRORS_CONFIG)
-    register_signal_source(ExternalDataSourceType.NEWRELIC, "transaction_errors", NEWRELIC_TRANSACTION_ERRORS_CONFIG)
-    register_signal_source(ExternalDataSourceType.APPSIGNAL, "performance_incidents", APPSIGNAL_PERFORMANCE_CONFIG)
-    register_signal_source(ExternalDataSourceType.APPSIGNAL, "anomaly_incidents", APPSIGNAL_ANOMALY_CONFIG)
-    register_signal_source(
-        ExternalDataSourceType.AMAZONCLOUDWATCH, "alarm_history", AMAZON_CLOUDWATCH_ALARM_HISTORY_CONFIG
-    )
-    register_signal_source(ExternalDataSourceType.LOGICMONITOR, "alerts", LOGICMONITOR_ALERTS_CONFIG)
-    register_signal_source(ExternalDataSourceType.AIRBRAKE, "groups", AIRBRAKE_CONFIG)
-    register_signal_source(ExternalDataSourceType.MUX, "errors", MUX_ERRORS_CONFIG)
 
 
 _register_all_emitters()
