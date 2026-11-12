@@ -49,7 +49,7 @@ export class TeamWorkflowsConfigService {
     private lazyLoader: LazyLoader<TeamWorkflowsConfig>
 
     constructor(
-        private postgres: PostgresRouter,
+        private postgres: Pick<PostgresRouter, 'query'>,
         pubSub: PubSub
     ) {
         this.lazyLoader = new LazyLoader({

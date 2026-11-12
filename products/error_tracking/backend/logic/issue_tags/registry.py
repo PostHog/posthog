@@ -2,6 +2,7 @@ from typing import ClassVar, Protocol
 
 from posthog.dataclasses import frozen
 
+from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG
 from products.error_tracking.backend.models import ErrorTrackingIssueTag
 
 
@@ -42,7 +43,25 @@ class IssueTagDefinition:
         return sources_by_rank[: sources_by_rank.index(source)]
 
 
-ISSUE_TAG_DEFINITIONS: tuple[IssueTagDefinition, ...] = ()
+ISSUE_TAG_DEFINITIONS: tuple[IssueTagDefinition, ...] = (
+    IssueTagDefinition(
+        key="cause_in_trace",
+        label="Cause in trace",
+        description="The stack trace shows where in your code the error starts.",
+        question_version=1,
+        enabled_flag=ISSUE_TAGS_FLAG,
+        taggers=(
+            JevTaggerConfig(
+                instructions=(
+                    "Does the stack trace point at the application's own code clearly enough that a developer "
+                    "could fix it without reproducing the error?"
+                ),
+                yes_at=0.7,
+                no_at=0.3,
+            ),
+        ),
+    ),
+)
 
 
 def get_issue_tag_definition(key: str) -> IssueTagDefinition:
