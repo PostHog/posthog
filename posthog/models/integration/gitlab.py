@@ -473,27 +473,48 @@ class GitLabIntegration:
             default_branch=project.get("default_branch"),
         )
 
-    def token_reaches_only_connected_project(self, *, timeout: float = 10) -> bool:
-        """Whether the token belongs to the bot user of the connected project's access token.
+    def _get_json_or_raise(self, path: str, *, endpoint: str, timeout: float) -> Any:
+        response = self._request("GET", self.hostname, path, self._access_token(), endpoint=endpoint, timeout=timeout)
+        if response.status_code in (401, 403, 404):
+            return None
+        if response.status_code != 200:
+            raise GitLabIntegrationError(
+                f"GitLabIntegration: failed to read {endpoint}: {response.text[:300]}",
+                transient=response.status_code == 429 or response.status_code >= 500,
+            )
+        return self._json(response)
 
-        GitLab names that bot `project_<id>_bot_<suffix>` and never adds it to another project. A
-        personal or group token fails, because the sandbox holds the token and a personal token
-        can also call account-wide APIs.
+    def token_reaches_only_connected_project(self, *, timeout: float = 10) -> bool:
+        """Whether the token is an access token of the connected project.
+
+        The sandbox holds the token, and a personal or group token can reach more than this project.
+        A username can be registered by anyone, so the proof is the project's own token list: the
+        token's id must appear there with the same bot user. Any answer GitLab refuses counts as no.
         """
         connected_id = self.integration.config.get("project_id")
         if connected_id is None:
             return False
-        response = self._request(
-            "GET", self.hostname, "user", self._access_token(), endpoint="/api/v4/user", timeout=timeout
+        user = self._get_json_or_raise("user", endpoint="/api/v4/user", timeout=timeout)
+        if not isinstance(user, dict) or user.get("bot") is not True:
+            return False
+        username = user.get("username")
+        if not isinstance(username, str) or not username.startswith(f"project_{connected_id}_bot"):
+            return False
+        token = self._get_json_or_raise(
+            "personal_access_tokens/self", endpoint="/api/v4/personal_access_tokens/self", timeout=timeout
         )
-        if response.status_code != 200:
-            raise GitLabIntegrationError(
-                f"GitLabIntegration: failed to read the token's user: {response.text[:300]}",
-                transient=response.status_code == 429 or response.status_code >= 500,
-            )
-        user = self._json(response)
-        username = user.get("username") if isinstance(user, dict) else None
-        return isinstance(username, str) and username.startswith(f"project_{connected_id}_bot")
+        if not isinstance(token, dict) or token.get("id") is None:
+            return False
+        project_token = self._get_json_or_raise(
+            f"projects/{connected_id}/access_tokens/{token['id']}",
+            endpoint="/api/v4/projects/{id}/access_tokens/{token_id}",
+            timeout=timeout,
+        )
+        return (
+            isinstance(project_token, dict)
+            and project_token.get("user_id") is not None
+            and project_token.get("user_id") == user.get("id") == token.get("user_id")
+        )
 
     @staticmethod
     def _merge_request(payload: dict[str, Any]) -> GitLabMergeRequest:

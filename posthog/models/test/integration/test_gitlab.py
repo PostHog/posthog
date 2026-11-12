@@ -307,48 +307,74 @@ class TestGitLabIntegrationModel:
         assert mock_request.call_args.kwargs["allow_redirects"] is False
 
     @pytest.mark.parametrize(
-        "status_code, username, expected",
+        "user, token, project_token, expected",
         [
-            (200, "project_7_bot_4ffca233d8298ea1", True),
-            (200, "project_70_bot_4ffca233d8298ea1", False),
-            (200, "group_3_bot_9a1b2c3d", False),
-            (200, "jane.doe", False),
-            (429, None, "transient"),
-            (500, None, "transient"),
-            (401, None, "permanent"),
+            (
+                (200, {"id": 41, "bot": True, "username": "project_7_bot_4ffca233"}),
+                (200, {"id": 9, "user_id": 41}),
+                (200, {"id": 9, "user_id": 41}),
+                True,
+            ),
+            ((200, {"id": 41, "bot": False, "username": "project_7_bot_carol"}), None, None, False),
+            ((200, {"id": 41, "bot": True, "username": "group_3_bot_9a1b2c3d"}), None, None, False),
+            (
+                (200, {"id": 41, "bot": True, "username": "project_7_bot_4ffca233"}),
+                (200, {"id": 9, "user_id": 41}),
+                (404, {"message": "404 Not Found"}),
+                False,
+            ),
+            (
+                (200, {"id": 41, "bot": True, "username": "project_7_bot_4ffca233"}),
+                (200, {"id": 9, "user_id": 41}),
+                (200, {"id": 9, "user_id": 52}),
+                False,
+            ),
+            ((429, {}), None, None, "transient"),
+            (
+                (200, {"id": 41, "bot": True, "username": "project_7_bot_4ffca233"}),
+                (503, {}),
+                None,
+                "transient",
+            ),
         ],
         ids=[
             "project_token",
-            "other_project_token",
+            "personal_token_with_squatted_username",
             "group_token",
-            "personal_token",
+            "token_not_in_project_list",
+            "token_of_another_bot",
             "rate_limited",
-            "server_error",
-            "revoked_token",
+            "gitlab_unavailable",
         ],
     )
     @patch("requests.request")
     @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
     def test_token_reaches_only_connected_project(
-        self, _mock_is_url_allowed, mock_request, status_code, username, expected
+        self, _mock_is_url_allowed, mock_request, user, token, project_token, expected
     ):
         from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
 
+        def response(status_and_body):
+            status_code, body = status_and_body
+            mocked = MagicMock(status_code=status_code)
+            mocked.json.return_value = body
+            return mocked
+
+        mock_request.side_effect = [response(answer) for answer in (user, token, project_token) if answer]
         integration = MagicMock(
             kind="gitlab",
             config={"hostname": "https://gitlab.com", "project_id": 7},
             sensitive_config={"access_token": "token123"},
         )
-        mock_request.return_value = MagicMock(status_code=status_code)
-        mock_request.return_value.json.return_value = {"username": username}
 
         if isinstance(expected, bool):
             assert GitLabIntegration(integration).token_reaches_only_connected_project() is expected
         else:
             with pytest.raises(GitLabIntegrationError) as error:
                 GitLabIntegration(integration).token_reaches_only_connected_project()
-            assert error.value.transient is (expected == "transient")
-        assert mock_request.call_args.args[1] == "https://gitlab.com/api/v4/user"
+            assert error.value.transient is True
+        if expected is True:
+            assert mock_request.call_args.args[1] == "https://gitlab.com/api/v4/projects/7/access_tokens/9"
 
     @pytest.mark.parametrize(
         "status_code, permissions, expected_path",
