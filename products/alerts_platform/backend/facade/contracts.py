@@ -428,6 +428,7 @@ class PlatformAlertRuntime:
     next_check_at: datetime | None
     grouping: Grouping
     labels: dict[str, str]
+    annotations: dict[str, str]
 
 
 @frozen
@@ -437,6 +438,8 @@ class PlatformStateChange:
     occurred_at: datetime
     previous_state: PlatformAlertState
     state: PlatformAlertState
+    # The group whose state moved. Empty for an alert that does not group.
+    grouping_key: str = ""
 
 
 @frozen
@@ -498,6 +501,8 @@ class PlatformCheckEvent:
     condition: dict[str, Any]
     query_duration_ms: int | None
     error_message: str | None
+    # The group the check moved. Empty for an alert that does not group.
+    grouping_key: str = ""
 
 
 @frozen
@@ -556,6 +561,34 @@ class PlatformControlHistory:
     changes: tuple[PlatformControlChange, ...]
     oldest_at: datetime
     toggle_before: ControlChangeKind | None
+
+
+@frozen
+class StateInterval:
+    """A stretch of an alert's recent past with one state and one enabled setting, as alert lists draw it."""
+
+    start: datetime
+    end: datetime
+    state: PlatformAlertState
+    enabled: bool
+
+
+@frozen
+class PlatformAlertListHistory:
+    """What an alert list shows of each configuration's checks, keyed by configuration id."""
+
+    last_checks: dict[UUID, PlatformLastCheck]
+    # State changes across every group.
+    histories: dict[UUID, PlatformAlertHistory]
+    controls: dict[UUID, PlatformControlHistory]
+
+
+@frozen
+class PlatformAlertEvents:
+    """A configuration's notable checks across every group and its control-plane changes, newest first."""
+
+    checks: PlatformCheckEventPage
+    changes: PlatformControlChangePage
 
 
 class SkipReason(StrEnum):
@@ -1049,6 +1082,19 @@ class NativeConfigurationMatch:
 
 
 @frozen
+class EnabledNativeConfiguration:
+    """One enabled alert of a kind with no source row, with what a source's own readers of its
+    enabled alerts need, such as the insight an insight alert watches."""
+
+    id: UUID
+    team_id: int
+    name: str
+    created_at: datetime
+    created_by_id: int | None
+    source_config: dict[str, Any]
+
+
+@frozen
 class PlatformAlertConfigurationView:
     """One configuration and its instances, as a reader outside this product sees them.
 
@@ -1205,6 +1251,26 @@ class SourceAdmission(Protocol):
     ) -> None: ...
 
 
+class NativeEditGuard(Protocol):
+    """Refuses an edit to an alert with no source row that only the source's own API may make.
+
+    The source's API checks some settings against data the platform cannot see, such as the query
+    an alert reads. For an alert with a source row, `mirror` refuses an edit to them. An alert with
+    no source row has no mirror, so this refuses it. It runs in the edit's transaction, after the
+    edit is validated, and raises `InvalidPlatformAlertEdit`. An edit the source's API made, which
+    has passed those checks, skips it.
+    """
+
+    def __call__(
+        self,
+        *,
+        team_id: int,
+        current: PlatformAlertConfigurationEdit,
+        edit: PlatformAlertConfigurationEdit,
+        check_interval_minutes: int,
+    ) -> None: ...
+
+
 class NativeAlertRemoveDestinations(Protocol):
     """Removes the destinations of an alert the platform owns that is about to be deleted, with a
     source row or without one. `alert_id` is the id they match on, the alert's public id.
@@ -1242,6 +1308,18 @@ class NativeAlertLifecycle:
 
 
 @frozen
+class ActivitySource:
+    """What an alert watches in its source's product, named on its activity log entries so the entry
+    can link there after the alert is gone."""
+
+    id: str
+    name: str
+
+
+ActivitySourceLookup = Callable[[int, Mapping[str, Any]], ActivitySource | None]
+
+
+@frozen
 class SourceConfigSpec:
     """A source kind's schema for `source_config` and its rules for a whole edit.
 
@@ -1271,6 +1349,8 @@ class SourceConfigSpec:
     native: NativeAlertLifecycle | None = None
     # For a kind with both `create` and `native`: whether a team's new alert gets no source row.
     native_create: Callable[[int], bool] | None = None
+    # For a kind with `native`: what `mirror` refuses for an alert with a source row.
+    native_edit_guard: NativeEditGuard | None = None
     # A PostHog feature flag a project needs, beside `platform-alerts`, to create alerts of this kind.
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
@@ -1282,6 +1362,8 @@ class SourceConfigSpec:
     # `source_config` keys an edit keeps the stored value of when it leaves them out. A stored config
     # without one predates it, so an edit that fills it in does not end the alert's firings.
     kept_source_config_keys: frozenset[str] = frozenset()
+    # What an alert watches, by team and `source_config`, for its activity log entries.
+    activity_source: ActivitySourceLookup | None = None
 
     @property
     def creatable(self) -> bool:

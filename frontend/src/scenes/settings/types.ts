@@ -336,6 +336,7 @@ export type SettingId =
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
     | 'ai-visibility-brands'
+    | 'ai-visibility-engines'
     | 'workflows-frequency-cap'
     | 'workflows-ai-task-limits'
     | 'workflows-replay-vision-limits'

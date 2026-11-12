@@ -55,8 +55,8 @@ function bucketInterval(bucketSeconds: number): TimeInterval {
 
 /**
  * Live preview of the log volume a filter group matches over the last 24h, broken down by service.
- * Shared by the drop-rule and retention-rule editors — one request serves both metrics, since each
- * row carries `count` and `bytes_uncompressed`.
+ * Shared by the drop-rule and retention-rule editors. The request ranks by `metric`, and a row
+ * carries `bytes_uncompressed` only when `metric` is `bytes`.
  */
 export function LogsFilterVolumeSparkline({
     filterGroup,

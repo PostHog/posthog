@@ -1,6 +1,5 @@
-// Shared by the repo hub, the PR list, and the author page. Author is attribution, not an aggregation
-// level (SPEC §2): the handle links to the author's PR list (a filter for finding work), never to a
-// per-author metric or ranking. Hidden on the author page itself, where every row is the same author.
+// Author is attribution, not an aggregation level (SPEC §2). The handle links to the author's PR list,
+// never to a per-author metric or ranking.
 
 import { combineUrl } from 'kea-router'
 import { ReactNode } from 'react'
@@ -22,13 +21,11 @@ import { CIStatusTag } from './CIStatusTag'
 import { PullRequestStateTag } from './PullRequestStateTag'
 import { PushHistorySparkline } from './PushHistorySparkline'
 
-/** The PR's detail page, carrying the active source so it opens scoped to the same one. */
 function detailUrlOf(row: PullRequestRow, sourceId: string | null): string {
     return withCurrentScope(urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number), sourceId)
 }
 
-/** How long the PR has been (or was) open, in the shared hours/days headline format.
- *  Null for closed-unmerged PRs: the list carries no closed_at, so their open time is unknown. */
+/** Null for closed-unmerged PRs, because the list carries no closed_at. */
 function openTimeOf(row: PullRequestRow): { seconds: number; label: string } | null {
     const end = row.mergedAt ?? (row.state === 'open' ? dayjs().toISOString() : null)
     if (!end) {
@@ -41,17 +38,14 @@ function openTimeOf(row: PullRequestRow): { seconds: number; label: string } | n
 export interface PullRequestTableProps {
     rows: PullRequestRow[]
     loading: boolean
-    /** Threaded into row links so the PR's detail page reads the same source. */
     sourceId: string | null
-    /** Author column is redundant on the author page (every row is the same author) — hide it there. */
     showAuthor?: boolean
-    /** Show the Created date column and default the sort to newest-first. Off for the hub's triage order. */
+    /** Also defaults the sort to newest first. */
     showCreated?: boolean
-    /** Rows per page — the list page's 25 by default; the hub passes a small page to stay scannable. */
     pageSize?: number
     emptyState?: ReactNode
     dataAttr?: string
-    /** Drop the table's own border when it sits inside a LemonCard (the hub) — avoids a double frame. */
+    /** Drops the table's own border inside a LemonCard, to avoid a double frame. */
     embedded?: boolean
 }
 

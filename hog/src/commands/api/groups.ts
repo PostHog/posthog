@@ -25,7 +25,7 @@ export default defineCommand({
             known ? ['group', 'tools', 'usable'] : ['group', 'tools'],
             result.map((group) => (known ? [group.group, group.tools, group.usable] : [group.group, group.tools]))
         )
-        out.line(out.style('Run `hog api tools <group>` to list the tools in a group.', 'dim'))
+        out.notes({ notes: [out.style('Run `hog api tools <group>` to list the tools in a group.', 'dim')] })
     },
 
     agent({ result, out }) {

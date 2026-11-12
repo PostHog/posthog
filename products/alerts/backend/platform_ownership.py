@@ -7,14 +7,18 @@ the same transaction, and every writer locks the insight row before the platform
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime
+from typing import Any, Final
 from uuid import UUID
 
 from django.db import transaction
 
+import posthoganalytics
+
 from posthog.models.team.team import Team
+from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
 
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
@@ -28,16 +32,32 @@ from products.alerts.backend.platform_cutover import (
     hand_over,
     has_begun_cutover,
     in_an_environment,
+    team_cutover_at,
 )
-from products.alerts.backend.platform_insight_alert import insight_row_settings, interval_of
+from products.alerts.backend.platform_insight_alert import (
+    alert_from_platform,
+    insight_of,
+    insight_row_settings,
+    interval_of,
+    native_insight_alert_view,
+)
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
-from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_copy, update_owned_copy
+from products.alerts_platform.backend.facade.api import (
+    close_owned_firings_now,
+    create_configuration,
+    delete_copy,
+    update_configuration,
+    update_owned_copy,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
+    Grouping,
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
+    PlatformAlertConfigurationView,
     PlatformAlertCreateRefused,
     PlatformAlertUpsert,
+    SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 
@@ -46,10 +66,100 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 _EDITED_FIELDS = ("name", "source_config", "schedule_restriction")
 
 
+# Turns on, per team, insight alert creates that make no insight row. Off until insight's rollback
+# window closes, because rollback hands an alert back through its insight row.
+NATIVE_CREATE_FLAG: Final = "insight-alerts-native-create"
+
+
+def creates_native_alert(team_id: int) -> bool:
+    """Whether a new insight alert of the team gets no insight row. An environment keeps the row,
+    because the platform keeps its alerts on the project's team."""
+    team = Team.objects.only("id", "uuid", "organization_id", "parent_team_id").get(id=team_id)
+    if team.parent_team_id is not None:
+        return False
+    return bool(
+        posthoganalytics.feature_enabled(
+            NATIVE_CREATE_FLAG,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                # Both regions read flags from one PostHog project, and project ids repeat across regions.
+                "project": {"id": str(team.id), "uuid": str(team.uuid)},
+            },
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def create_native_alert(
+    *, team_id: int, insight_id: int, created_by_id: int | None, fields: Mapping[str, Any]
+) -> PlatformAlertConfigurationView:
+    """Creates an insight alert with no insight row from a create the insight API or the Max tool
+    checked, in the caller's transaction, after its limit checks. `fields` holds the alert's other
+    fields by name, with `threshold` as the threshold's configuration and `snoozed_until` parsed.
+    Its subscribers are the caller's to write.
+
+    Raises `PlatformCannotOwn` for an alert the platform cannot evaluate, and like `create_configuration`.
+    """
+    threshold_configuration = fields.get("threshold")
+    alert = AlertConfiguration(
+        team_id=team_id,
+        insight_id=insight_id,
+        created_by_id=created_by_id,
+        **{field: value for field, value in fields.items() if field != "threshold"},
+    )
+    if threshold_configuration is not None:
+        alert.threshold = Threshold(team_id=team_id, insight_id=insight_id, configuration=threshold_configuration)
+    if alert.schedule_start_time is not None:
+        alert.next_check_at = next_check_at_after_schedule_restriction_change(alert)
+    upsert = platform_upsert_of(alert)
+    if upsert is None:
+        raise PlatformCannotOwn("The alerts platform can't run checks at this frequency.")
+    view = create_configuration(
+        team_id=alert.team_id,
+        source_kind=SourceKind.INSIGHT,
+        edit=PlatformAlertConfigurationEdit(
+            name=upsert.name,
+            enabled=upsert.enabled,
+            source_config=upsert.source_config,
+            grouping=Grouping(),
+            schedule_restriction=upsert.schedule_restriction,
+            evaluation_periods=upsert.evaluation_periods,
+            datapoints_to_alarm=upsert.datapoints_to_alarm,
+            cooldown_minutes=upsert.cooldown_minutes,
+            check_interval_minutes=upsert.check_interval_minutes,
+        ),
+        created_by_id=alert.created_by_id,
+        natively=True,
+    )
+    anchored = upsert.anchor_time is not None
+    if not anchored and alert.snoozed_until is None:
+        return view
+    # A create stores the kind's schedule and no mute, so a start time and a snooze take the writes
+    # an edit uses.
+    written = update_configuration(
+        team_id=team_id,
+        source_kinds=[SourceKind.INSIGHT.value],
+        configuration_id=view.id,
+        change=lambda stored: stored,
+        snooze_until=alert.snoozed_until,
+        snooze_changed=alert.snoozed_until is not None,
+        cadence=upsert if anchored else None,
+        rescheduled=anchored,
+        source_checked=True,
+    )
+    assert written is not None
+    return written
+
+
 def on_created(alert: AlertConfiguration, at: datetime) -> bool:
     """Hands a new alert, locked by the caller, to the platform when its team has begun the cutover,
     so the team never has to be cut over again for it. False when the alert stays with insight."""
-    return platform_takes_new_alert(alert) and delivers_as_it_does_today(alert) and hand_over(alert, at)
+    if not (platform_takes_new_alert(alert) and delivers_as_it_does_today(alert)):
+        return False
+    # A week of its own per alert would keep the insight stack shadowing while the team adds alerts.
+    return hand_over(alert, at, shadow_from=team_cutover_at(alert.team_id, new_alert_id=alert.id))
 
 
 def platform_takes_new_alert(alert: AlertConfiguration) -> bool:
@@ -190,6 +300,55 @@ def mirror_platform_edit(
 
 def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurationEdit) -> None:
     # The inverse of `platform_upsert_of`.
+    _refuse_what_only_the_insight_api_checks(alert, edit)
+    condition = edit.source_config[SOURCE_CONDITION_KEY]
+    update_fields = ["name", "condition", "schedule_restriction"]
+    if edit.enabled != alert.enabled:
+        # The shadow evaluation still runs this row, so an on or off moves its state the way the insight API does.
+        update_fields.extend(apply_enable(alert) if edit.enabled else apply_disable(alert))
+    if condition["comparison"] != alert.condition or condition["threshold"] != _threshold_of(alert):
+        update_fields.extend(apply_threshold_change(alert))
+        _write_threshold(alert, condition["threshold"])
+        update_fields.append("threshold")
+    alert.name = edit.name
+    alert.condition = condition["comparison"]
+    alert.schedule_restriction = edit.schedule_restriction
+    alert.save(update_fields=list(dict.fromkeys(update_fields)))
+
+
+def guard_native_insight_edit(
+    *,
+    team_id: int,
+    current: PlatformAlertConfigurationEdit,
+    edit: PlatformAlertConfigurationEdit,
+    check_interval_minutes: int,
+) -> None:
+    """Refuses a platform edit to an insight alert with no insight row that `_write_insight_row`
+    refuses for an alert with one."""
+    insight = insight_of(team_id, current.source_config)
+    if insight is None:
+        raise InvalidPlatformAlertEdit("source_config", "The alert's insight no longer exists.")
+    stored = current.source_config
+    condition = stored.get(SOURCE_CONDITION_KEY) or {}
+    threshold = condition.get("threshold")
+    alert = AlertConfiguration(
+        team_id=team_id,
+        insight=insight,
+        enabled=current.enabled,
+        config=stored.get("config") or {},
+        detector_config=condition.get("detector"),
+        threshold=Threshold(configuration=threshold) if threshold else None,
+        calculation_interval=interval_of(check_interval_minutes),
+        skip_weekend=stored.get("skip_weekend", False),
+        evaluation_delay_intervals=stored.get("evaluation_delay_intervals", 0),
+        investigation_agent_enabled=stored.get("investigation_agent_enabled", False),
+        investigation_gates_notifications=stored.get("investigation_gates_notifications", False),
+        investigation_inconclusive_action=stored.get("investigation_inconclusive_action", "notify"),
+    )
+    _refuse_what_only_the_insight_api_checks(alert, edit)
+
+
+def _refuse_what_only_the_insight_api_checks(alert: AlertConfiguration, edit: PlatformAlertConfigurationEdit) -> None:
     if edit.source_config["insight_id"] != alert.insight_id:
         raise InvalidPlatformAlertEdit("source_config", "An insight alert cannot move to another insight.")
     if edit.enabled and not alert.enabled and is_llm_detector_config(alert.detector_config):
@@ -223,18 +382,46 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
         )
     except ValueError as error:
         raise InvalidPlatformAlertEdit("source_config", str(error)) from error
-    update_fields = ["name", "condition", "schedule_restriction"]
-    if edit.enabled != alert.enabled:
-        # The shadow evaluation still runs this row, so an on or off moves its state the way the insight API does.
-        update_fields.extend(apply_enable(alert) if edit.enabled else apply_disable(alert))
-    if condition["comparison"] != alert.condition or condition["threshold"] != _threshold_of(alert):
-        update_fields.extend(apply_threshold_change(alert))
-        _write_threshold(alert, condition["threshold"])
-        update_fields.append("threshold")
-    alert.name = edit.name
-    alert.condition = condition["comparison"]
-    alert.schedule_restriction = edit.schedule_restriction
-    alert.save(update_fields=list(dict.fromkeys(update_fields)))
+
+
+def write_native_alert_edit(
+    *, team_id: int, alert_id: UUID, changes: Mapping[str, Any], snooze_changed: bool, rescheduled: bool
+) -> PlatformAlertConfigurationView | None:
+    """Writes an edit the insight API checked onto an insight alert with no insight row. `changes`
+    holds the alert's fields the edit sets, by name, with `threshold` as the threshold's
+    configuration. `rescheduled` says the edit moved the alert's due time, to `next_check_at`.
+    None when the alert is gone.
+
+    Raises like `on_updated`.
+    """
+    view = native_insight_alert_view(team_id, alert_id, lock=True)
+    if view is None:
+        return None
+    # Not the API's presentation, which fills in a threshold the alert may not have.
+    alert = alert_from_platform(view, team_id=team_id, enabled=view.enabled)
+    if alert is None:
+        return None
+    alert.schedule_start_time = view.anchor_time
+    for field, value in changes.items():
+        if field == "threshold":
+            alert.threshold = Threshold(configuration=value) if value is not None else None
+        else:
+            setattr(alert, field, value)
+    if not can_move(alert):
+        raise PlatformCannotOwn("The alerts platform runs this alert, and it can't run checks at this frequency.")
+    upsert = platform_upsert_of(alert)
+    assert upsert is not None
+    return update_configuration(
+        team_id=team_id,
+        source_kinds=[SourceKind.INSIGHT.value],
+        configuration_id=alert_id,
+        change=_platform_change_of(upsert),
+        snooze_until=alert.snoozed_until,
+        snooze_changed=snooze_changed,
+        cadence=upsert,
+        rescheduled=rescheduled,
+        source_checked=True,
+    )
 
 
 def admit_platform_write(

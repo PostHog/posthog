@@ -24,7 +24,7 @@ import { todayTourLogic } from './todayTourLogic'
 export function TodayNavSwitchDialog(): JSX.Element {
     const { newNavDialogOpen } = useValues(navSwitchLogic)
     const { setNewNavDialogOpen, switchNav, dismissNewNavDialog, newNavDialogClosed } = useActions(navSwitchLogic)
-    const { tourCompleted } = useValues(todayTourLogic)
+    const { tourCompleted, tourJustCompleted } = useValues(todayTourLogic)
     const { startTour } = useActions(todayTourLogic)
     const reducedMotion = useReducedMotion()
     const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 60, power: 6, duration: 2500 })
@@ -50,19 +50,32 @@ export function TodayNavSwitchDialog(): JSX.Element {
                 onOpenChangeComplete={(open: boolean) => !open && newNavDialogClosed()}
             >
                 <DialogContent overlayClassName="TodayNavSwitchDialog__overlay" data-attr="today-nav-switch-dialog">
-                    <DialogHeader className="items-center gap-2 pt-6 text-center">
-                        <DialogTitle className="text-xl tracking-tight">
-                            PostHog is{' '}
-                            <Highlight animate delay={200}>
-                                changing
-                            </Highlight>
-                        </DialogTitle>
-                        <DialogDescription className="text-sm">
-                            We've thought long and hard about how you use PostHog and it's time for a change.
-                            <br />
-                            It's all about framing.
-                        </DialogDescription>
-                    </DialogHeader>
+                    {tourJustCompleted ? (
+                        <DialogHeader className="items-center gap-2 pt-6 text-center">
+                            <DialogTitle className="text-xl tracking-tight">
+                                Wow, you actually{' '}
+                                <Highlight animate delay={200}>
+                                    finished
+                                </Highlight>{' '}
+                                the tour
+                            </DialogTitle>
+                            <DialogDescription className="text-sm">You're ready to go.</DialogDescription>
+                        </DialogHeader>
+                    ) : (
+                        <DialogHeader className="items-center gap-2 pt-6 text-center">
+                            <DialogTitle className="text-xl tracking-tight">
+                                PostHog is{' '}
+                                <Highlight animate delay={200}>
+                                    changing
+                                </Highlight>
+                            </DialogTitle>
+                            <DialogDescription className="text-sm">
+                                We've thought long and hard about how you use PostHog and it's time for a change.
+                                <br />
+                                It's all about framing.
+                            </DialogDescription>
+                        </DialogHeader>
+                    )}
                     <div className="flex flex-col items-center gap-6 px-6 pb-6 text-center">
                         {/* No `@posthog/brand` hoggie has this art yet, so it ships as a local, size-optimized PNG. */}
                         <img
@@ -73,10 +86,16 @@ export function TodayNavSwitchDialog(): JSX.Element {
                             decoding="async"
                             className="h-auto w-full"
                         />
-                        <p className="m-0 text-sm text-balance text-muted-foreground">
-                            It's still being ironed out, but we think you'll like it. You can switch back to the older
-                            design until {OLD_NAV_SUNSET}, but we suggest you give it a try!
-                        </p>
+                        {tourJustCompleted ? (
+                            <p className="m-0 text-sm text-balance text-muted-foreground">
+                                Feedback is welcome. We're listening.
+                            </p>
+                        ) : (
+                            <p className="m-0 text-sm text-balance text-muted-foreground">
+                                It's still being ironed out, but we think you'll like it. You can switch back to the
+                                older design until {OLD_NAV_SUNSET}, but we suggest you give it a try!
+                            </p>
+                        )}
                     </div>
                     <DialogFooter>
                         <Button

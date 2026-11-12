@@ -33,7 +33,17 @@ from products.ai_observability.backend.api import (
     TaggerViewSet,
     TraceReviewViewSet,
 )
-from products.ai_observability.backend.presentation.views import TraceViewSet
+from products.ai_observability.backend.presentation.views.trace_clusters import TraceClustersViewSet
+from products.ai_observability.backend.presentation.views.trace_evaluations import TraceEvaluationsViewSet
+from products.ai_observability.backend.presentation.views.trace_exports import TraceExportViewSet
+from products.ai_observability.backend.presentation.views.trace_feedback import TraceFeedbackViewSet
+from products.ai_observability.backend.presentation.views.trace_nodes import TraceNodeViewSet
+from products.ai_observability.backend.presentation.views.trace_pull_request import TracePullRequestViewSet
+from products.ai_observability.backend.presentation.views.trace_resource import TRACE_LOOKUP
+from products.ai_observability.backend.presentation.views.trace_review import TraceReviewStatusViewSet
+from products.ai_observability.backend.presentation.views.trace_search import TraceSearchViewSet
+from products.ai_observability.backend.presentation.views.trace_summary import TraceSummaryViewSet
+from products.ai_observability.backend.presentation.views.traces import TraceViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -58,12 +68,24 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_ai_observability_instrumentation_checklist",
         ["team_id"],
     )
-    routers.projects.register(
+    traces_router = routers.projects.register(
         r"ai_observability/traces",
         TraceViewSet,
         "project_ai_observability_traces",
         ["team_id"],
     )
+    for prefix, viewset, basename in [
+        ("nodes", TraceNodeViewSet, "project_ai_observability_trace_nodes"),
+        ("evaluations", TraceEvaluationsViewSet, "project_ai_observability_trace_evaluations"),
+        ("clusters", TraceClustersViewSet, "project_ai_observability_trace_clusters"),
+        ("feedback", TraceFeedbackViewSet, "project_ai_observability_trace_feedback"),
+        ("review", TraceReviewStatusViewSet, "project_ai_observability_trace_review"),
+        ("search", TraceSearchViewSet, "project_ai_observability_trace_search"),
+        ("summary", TraceSummaryViewSet, "project_ai_observability_trace_summary"),
+        ("pull_request", TracePullRequestViewSet, "project_ai_observability_trace_pull_request"),
+        ("exports", TraceExportViewSet, "project_ai_observability_trace_exports"),
+    ]:
+        traces_router.register(prefix, viewset, basename, ["team_id", TRACE_LOOKUP])
     routers.root.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
     # @me/spend is only useful where billing data is available; mirrors the
     # CLOUD/DEBUG/TEST gate the registration carried inline.

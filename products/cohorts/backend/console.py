@@ -263,3 +263,10 @@ class ResaveCohortsTool(ConsoleTool):
                 undo_hint="PostHog Admin cannot remove the added people. Remove them from the cohort in the app.",
             ),
         ]
+
+
+console.register_moved_page(
+    old_path="admin/resave-cohorts/",
+    title="Re-save cohorts",
+    url="/admin/console/tools/resave-cohorts/",
+)

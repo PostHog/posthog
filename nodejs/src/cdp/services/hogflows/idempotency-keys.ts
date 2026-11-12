@@ -114,14 +114,22 @@ const sortKeys = (value: unknown): unknown => {
 export type IdempotencyReservation =
     | { status: 'reserved' }
     // The key already queued a run for the same request.
-    | { status: 'replayed'; invocationId: string }
+    | { status: 'replayed'; invocationId: string; scheduledAt?: string; replayFields?: ReplayFields }
     // The first request with the key has not finished queueing yet.
     | { status: 'in_flight' }
     // The key was used for a different request.
     | { status: 'conflict' }
     | { status: 'unavailable' }
 
-type StoredKey = { fingerprint: string; invocationId: string; queued: boolean }
+export type ReplayFields = Record<string, number>
+
+type StoredKey = {
+    fingerprint: string
+    invocationId: string
+    queued: boolean
+    scheduledAt?: string
+    replayFields?: ReplayFields
+}
 
 type PendingCompletion = { redisKey: string; value: StoredKey; expiresAt: number }
 
@@ -200,14 +208,37 @@ export class IdempotencyKeys {
         if (stored.fingerprint !== fingerprint) {
             return { status: 'conflict' }
         }
-        return stored.queued ? { status: 'replayed', invocationId: stored.invocationId } : { status: 'in_flight' }
+        if (!stored.queued) {
+            return { status: 'in_flight' }
+        }
+        return {
+            status: 'replayed',
+            invocationId: stored.invocationId,
+            scheduledAt: stored.scheduledAt,
+            ...(stored.replayFields && { replayFields: stored.replayFields }),
+        }
     }
 
-    async markQueued(teamId: number, key: string, fingerprint: string, invocationId: string): Promise<void> {
+    async markQueued(
+        teamId: number,
+        key: string,
+        fingerprint: string,
+        invocationId: string,
+        replayFields?: ReplayFields,
+        scheduledAt?: string,
+        latestDueAt?: Date
+    ): Promise<void> {
+        const dueAt = latestDueAt?.getTime() ?? (scheduledAt ? Date.parse(scheduledAt) : 0)
         const completion: PendingCompletion = {
             redisKey: this.redisKey(teamId, key),
-            value: { fingerprint, invocationId, queued: true },
-            expiresAt: Date.now() + QUEUED_TTL_SECONDS * 1000,
+            value: {
+                fingerprint,
+                invocationId,
+                queued: true,
+                ...(replayFields && { replayFields }),
+                ...(scheduledAt && { scheduledAt }),
+            },
+            expiresAt: Math.max(Date.now(), dueAt) + QUEUED_TTL_SECONDS * 1000,
         }
         for (let attempt = 1; attempt <= MARK_QUEUED_INLINE_ATTEMPTS; attempt++) {
             try {

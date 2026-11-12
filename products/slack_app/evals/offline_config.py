@@ -23,6 +23,9 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         "model_override_match": OfflineScorer(kind="boolean", version=UUID("01a1557c-ee78-7412-9b90-2ecf80591aa0")),
         "no_unasked_override": OfflineScorer(kind="boolean", version=UUID("01a1557c-fd45-7a93-8852-b64bcf13eeb8")),
     },
+    "needs_repo": {
+        "needs_repo": OfflineScorer(kind="boolean", version=UUID("01a1cb12-ad4f-7cb7-ab46-c1ed42db9cc7")),
+    },
     "posthog_first": {
         "docs_searched": OfflineScorer(kind="boolean", version=UUID("01a1557d-0f40-7999-9f55-d969442fe434")),
         "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557d-0682-75c3-bb88-5a620ba6ce5d")),
