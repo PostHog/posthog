@@ -224,6 +224,19 @@ class SignalSourceProduct(StrEnum):
     AZURE_APPLICATION_INSIGHTS = "azure_application_insights"
     APPSIGNAL = "appsignal"
     CURSOR = "cursor"
+    # Feedback, NPS and review tools
+    BEAMER = "beamer"
+    BEAMER_NPS = "beamer_nps"
+    CHAMELEON = "chameleon"
+    ETSY = "etsy"
+    FEATUREBASE_SURVEYS = "featurebase_surveys"
+    G2 = "g2"
+    GUMROAD = "gumroad"
+    TRUSTPILOT_PRODUCT_REVIEWS = "trustpilot_product_reviews"
+    USERVOICE_NPS = "uservoice_nps"
+    VITALLY_NPS = "vitally_nps"
+    WOOCOMMERCE = "woocommerce"
+    YOTPO = "yotpo"
 
 
 class SignalSourceType(StrEnum):
@@ -378,6 +391,18 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.AZURE_APPLICATION_INSIGHTS: "Azure Application Insights",
     SignalSourceProduct.APPSIGNAL: "AppSignal",
     SignalSourceProduct.CURSOR: "Cursor",
+    SignalSourceProduct.BEAMER: "Beamer",
+    SignalSourceProduct.BEAMER_NPS: "Beamer NPS",
+    SignalSourceProduct.CHAMELEON: "Chameleon",
+    SignalSourceProduct.ETSY: "Etsy",
+    SignalSourceProduct.FEATUREBASE_SURVEYS: "Featurebase surveys",
+    SignalSourceProduct.G2: "G2",
+    SignalSourceProduct.GUMROAD: "Gumroad",
+    SignalSourceProduct.TRUSTPILOT_PRODUCT_REVIEWS: "Trustpilot product reviews",
+    SignalSourceProduct.USERVOICE_NPS: "UserVoice NPS",
+    SignalSourceProduct.VITALLY_NPS: "Vitally NPS",
+    SignalSourceProduct.WOOCOMMERCE: "WooCommerce",
+    SignalSourceProduct.YOTPO: "Yotpo",
 }
 
 

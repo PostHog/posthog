@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 
 from products.signals.backend.emission._survey import SurveyAnswer, free_text_description, is_free_text_kind
+from products.signals.backend.emission.featurebase_survey_responses import FEATUREBASE_SURVEY_CONFIG
 from products.signals.backend.emission.formbricks_responses import FORMBRICKS_CONFIG
 from products.signals.backend.emission.qualtrics_survey_responses import QUALTRICS_CONFIG
 from products.signals.backend.emission.surveymonkey_survey_responses import SURVEYMONKEY_CONFIG
@@ -123,6 +124,21 @@ CASES = [
         TEXT,
         "12:5",
         id="surveysparrow",
+    ),
+    pytest.param(
+        FEATUREBASE_SURVEY_CONFIG,
+        {"id": "resp1", "survey_id": "S1", "created_at": "2026-01-01T00:00:00Z"},
+        "responses",
+        [
+            {"pageId": "p1", "type": "rating", "value": 4},
+            {"pageId": "p2", "type": "multiple-choice", "value": ["66dc54128b989696d050008b"]},
+            {"pageId": "p3", "type": "link", "value": "https://example.com/roadmap"},
+            {"pageId": "p4", "type": "text", "value": TEXT},
+            {"pageId": "p5", "type": "text", "value": "jane@example.com"},
+        ],
+        TEXT,
+        "resp1",
+        id="featurebase_surveys",
     ),
 ]
 

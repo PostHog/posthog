@@ -1,0 +1,35 @@
+"""Signal emitter for vitally `NPS_Responses` (record kind: feedback).
+
+`feedback` is the free-text comment left with the score. A bare score with no comment is skipped.
+`nps_type` is detractor, passive or promoter. `userId` and `accountId` are not read, because they
+identify the respondent.
+"""
+
+from products.signals.backend.emission._common import make_flat_emitter
+from products.signals.backend.emission._prompts import FEEDBACK_ACTIONABILITY_PROMPT, FEEDBACK_SUMMARIZATION_PROMPT
+from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
+from products.signals.backend.emission.registry import SignalSourceTableConfig
+
+VITALLY_NPS_FIELDS = ("id", "feedback", "score", "nps_type", "created_at")
+
+VITALLY_NPS_CONFIG = SignalSourceTableConfig(
+    source_product="vitally_nps",
+    source_type="feedback",
+    emitter=make_flat_emitter(
+        source_product="vitally_nps",
+        source_type="feedback",
+        id_field="id",
+        title_field="feedback",
+        extra_fields=("score", "nps_type", "created_at"),
+    ),
+    record_fetcher=data_warehouse_record_fetcher,
+    partition_field="created_at",
+    partition_field_is_datetime_string=True,
+    fields=VITALLY_NPS_FIELDS,
+    where_clause="feedback IS NOT NULL AND feedback != ''",
+    max_records=200,
+    first_sync_lookback_days=1,
+    actionability_prompt=FEEDBACK_ACTIONABILITY_PROMPT,
+    summarization_prompt=FEEDBACK_SUMMARIZATION_PROMPT,
+    description_summarization_threshold_chars=2000,
+)
