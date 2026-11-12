@@ -14,5 +14,5 @@
             "@/*": ["./src/*"]
         }
     },
-    "include": ["src", "test", "scripts"]
+    "include": ["src", "test", "scripts", "release"]
 }
