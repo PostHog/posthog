@@ -12,6 +12,7 @@ import { InsightShortId } from '~/types'
 
 interface PlatformAlertActivityContext {
     source_kind?: string
+    alert_id?: string
     source_id?: InsightShortId | null
     source_name?: string | null
 }
@@ -22,8 +23,9 @@ function alertName(logItem: ActivityLogItem): JSX.Element {
     const name = logItem.detail?.name || 'Alert'
     const context = logItem.detail?.context as PlatformAlertActivityContext | undefined
     // A deleted logs alert has no page left to open.
-    if (context?.source_kind === 'logs' && logItem.activity !== 'deleted' && logItem.item_id) {
-        return <Link to={urls.logsAlertDetail(logItem.item_id)}>{name}</Link>
+    const alertId = context?.alert_id || logItem.item_id
+    if (context?.source_kind === 'logs' && logItem.activity !== 'deleted' && alertId) {
+        return <Link to={urls.logsAlertDetail(alertId)}>{name}</Link>
     }
     return <strong>{name}</strong>
 }

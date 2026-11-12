@@ -25,6 +25,8 @@ from products.alerts_platform.backend.models import PlatformAlertConfiguration
 @dataclasses.dataclass(frozen=True)
 class PlatformAlertConfigurationContext(ActivityContextBase):
     source_kind: str
+    # The id the source's pages know the alert by, which differs from `item_id` for a copy of a source row.
+    alert_id: str
     # What the alert watches in its source's product, such as an insight's short id and name.
     source_id: str | None = None
     source_name: str | None = None
@@ -36,6 +38,7 @@ def _context(instance: PlatformAlertConfiguration) -> PlatformAlertConfiguration
     source = lookup(instance.team_id, instance.source_config) if lookup is not None else None
     return PlatformAlertConfigurationContext(
         source_kind=instance.source_kind,
+        alert_id=str(instance.destination_alert_id),
         source_id=source.id if source is not None else None,
         source_name=source.name if source is not None else None,
     )

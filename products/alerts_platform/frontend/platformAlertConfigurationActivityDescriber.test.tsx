@@ -33,6 +33,12 @@ describe('platformAlertConfigurationActivityDescriber', () => {
             ['/logs/alerts/alert-uuid'],
         ],
         [
+            'a copied logs alert links the id its page knows',
+            logItem('updated', { source_kind: 'logs', alert_id: 'logs-row-uuid' }),
+            'updated the logs alert Signups dropped',
+            ['/logs/alerts/logs-row-uuid'],
+        ],
+        [
             'a deleted logs alert links nothing',
             logItem('deleted', { source_kind: 'logs' }),
             'deleted the logs alert',
