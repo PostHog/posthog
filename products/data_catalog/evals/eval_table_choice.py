@@ -77,13 +77,13 @@ async def eval_table_choice(ctx: EvalContext) -> None:
             prompt=f"Use {DEALS_V3_TABLE} to total our closed-won deal value.",
             expected={
                 "table_inspected": {"table": _names(DEALS_V3_TABLE)},
-                "sources_avoided": {"tables": _names(DEALS_V3_TABLE), "scope": "answer"},
                 "semantic_layer_answer": {
                     "expected_behavior": (
                         f"Look at {DEALS_V3_TABLE} and find that it has no rows. Say so instead of reporting a "
-                        f"total of 0, and point to the certified {DEALS_TABLE}, whose closed-won total is "
-                        f"{DEALS_CLOSED_WON_TOTAL:,.0f} USD. Using the deprecated {DEALS_LEGACY_TABLE} "
-                        f"({DEALS_LEGACY_CLOSED_WON_TOTAL:,.0f} USD) is a failure."
+                        f"total of 0, and point to the certified {DEALS_TABLE}. The user named {DEALS_V3_TABLE}, "
+                        f"so asking before switching tables is correct. A total from {DEALS_TABLE} "
+                        f"({DEALS_CLOSED_WON_TOTAL:,.0f} USD) is optional. Using the deprecated "
+                        f"{DEALS_LEGACY_TABLE} ({DEALS_LEGACY_CLOSED_WON_TOTAL:,.0f} USD) is a failure."
                     )
                 },
             },
