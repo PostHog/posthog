@@ -175,19 +175,23 @@ class TestTransactionalEmailStatus(EmailsApiTestBase):
     def test_records_each_read_for_usage(self, _flag, _name, rows, expected_outcome, expected_status):
         self._status_rows(rows)
 
+        analytics = FakeAnalytics()
+
         with patch(
-            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
-        ) as capture:
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture",
+            side_effect=analytics.capture,
+        ):
             self.client.get(self._url(self.message_id))
 
-        assert capture.call_args.kwargs["event"] == "transactional email api status read"
-        assert capture.call_args.kwargs["properties"] == {
-            "team_id": self.team.id,
-            "outcome": expected_outcome,
-            "status": expected_status,
-            "auth_method": "project_secret_api_key",
-            "authorized_by": "hog_flow",
-        }
+        assert analytics.properties_of("transactional email api status read") == [
+            {
+                "team_id": self.team.id,
+                "outcome": expected_outcome,
+                "status": expected_status,
+                "auth_method": "project_secret_api_key",
+                "authorized_by": "hog_flow",
+            }
+        ]
 
     @parameterized.expand(
         [
@@ -203,14 +207,18 @@ class TestTransactionalEmailStatus(EmailsApiTestBase):
     ):
         self._status_rows([("queued", 0, "")])
 
+        analytics = FakeAnalytics()
+
         with patch(
-            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
-        ) as capture:
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture",
+            side_effect=analytics.capture,
+        ):
             response = self._psak_client(scopes).get(self._url(self.message_id))
 
         assert response.status_code == expected_status
-        if expected_authorized_by:
-            assert capture.call_args.kwargs["properties"]["authorized_by"] == expected_authorized_by
+        assert [event["authorized_by"] for event in analytics.properties_of("transactional email api status read")] == (
+            [expected_authorized_by] if expected_authorized_by else []
+        )
 
     def test_a_session_cannot_read_a_status(self, _flag):
         self._status_rows([("queued", 0, "")])
