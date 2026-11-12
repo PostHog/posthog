@@ -286,7 +286,11 @@ export type ExternalRequestConfig = Pick<
 >
 
 export function parseNumberFromEnv(key: string, raw: string, fallback: number): number {
-    const value = parseFloat(raw.trim().replace(/^(["'])(.*)\1$/, '$2'))
+    const unquoted = raw
+        .trim()
+        .replace(/^(["'])(.*)\1$/, '$2')
+        .trim()
+    const value = unquoted === '' ? NaN : Number(unquoted)
     if (Number.isFinite(value)) {
         return value
     }

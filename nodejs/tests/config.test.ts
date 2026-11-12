@@ -69,13 +69,17 @@ describe('config', () => {
             ["'3008'", 3008],
             ['" 3008.12 "', 3008.12],
             ['.5', 0.5],
+            ['0x10', 16],
         ])('reads a number from the env value %s', (value, expected) => {
             expect(read(value)).toEqual(expected)
         })
 
-        test.each(['"3008', 'abc', '', 'Infinity'])('keeps the default for the env value %p', (value) => {
-            expect(read(value)).toEqual(defaultValue)
-        })
+        test.each(['"3008', 'abc', '', ' ', 'Infinity', '10ms', '1_000'])(
+            'keeps the default for the env value %p',
+            (value) => {
+                expect(read(value)).toEqual(defaultValue)
+            }
+        )
     })
 
     test('a service started with quoted and unparsable numbers reads the quoted one and logs the other', async () => {
