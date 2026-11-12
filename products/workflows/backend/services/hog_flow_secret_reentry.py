@@ -109,14 +109,15 @@ def _sources(stored: WorkflowEditState, live_secrets_only: bool, template_cache:
 
 def _held_secrets(
     stored: WorkflowEditState, live_secrets_only: bool, template_cache: TemplateCache
-) -> dict[tuple[str, str], _SecretSource]:
-    held: dict[tuple[str, str], _SecretSource] = {}
+) -> dict[str, dict[str, _SecretSource]]:
+    """Each filled stored secret, by step id and input key, with the source validation recovers it from."""
+    held: dict[str, dict[str, _SecretSource]] = {}
     for source in _sources(stored, live_secrets_only, template_cache):
         for step_id, entries in source.secrets.items():
             for key, entry in (entries if isinstance(entries, dict) else {}).items():
                 # A blank optional secret holds nothing the code could send.
                 if isinstance(entry, dict) and entry.get("value") not in (None, "", {}):
-                    held.setdefault((str(step_id), str(key)), source)
+                    held.setdefault(str(step_id), {}).setdefault(str(key), source)
     return held
 
 
@@ -159,14 +160,14 @@ def _canonical_content(content: Mapping[str, Any], secret_keys_by_step: dict[str
 
 
 def _secret_keys_by_step(
-    contents: list[Mapping[str, Any]], held: dict[tuple[str, str], _SecretSource], template_cache: TemplateCache
+    contents: list[Mapping[str, Any]], held: dict[str, dict[str, _SecretSource]], template_cache: TemplateCache
 ) -> dict[str, set[str]]:
     keys: dict[str, set[str]] = {}
     for content in contents:
         for step_id, step in _steps(content.get("actions")).items():
             keys.setdefault(step_id, set()).update(secret_keys_for_action(step, template_cache))
-    for step_id, key in held:
-        keys.setdefault(step_id, set()).add(key)
+    for step_id, held_keys in held.items():
+        keys.setdefault(step_id, set()).update(held_keys)
     return keys
 
 
@@ -192,7 +193,8 @@ def secrets_to_type_again(
         return {}
     new_steps = _steps(content.get("actions"))
     declared = {step_id: secret_keys_for_action(step, template_cache) for step_id, step in new_steps.items()}
-    stored_contents = list({id(source.content): source.content for source in held.values()}.values())
+    sources = [source for by_key in held.values() for source in by_key.values()]
+    stored_contents = list({id(source.content): source.content for source in sources}.values())
     secret_keys = _secret_keys_by_step([content, *stored_contents], held, template_cache)
     new_canonical = _canonical_content(content, secret_keys)
     changed = supplies_variables or any(
@@ -203,8 +205,8 @@ def secrets_to_type_again(
     if not changed and not typed_one:
         return {}
     result: dict[str, list[str]] = {}
-    for step_id, key in sorted(held):
-        if key in declared.get(step_id, set()):
+    for step_id, held_keys in sorted(held.items()):
+        for key in sorted(held_keys.keys() & declared.get(step_id, set())):
             missing = result.setdefault(step_id, [])
             if key not in typed.get(step_id, _NOTHING_TYPED).entered:
                 missing.append(key)
