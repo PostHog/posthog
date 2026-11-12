@@ -135,7 +135,6 @@ export function isQueryableLive(schema: ExternalDataSourceSchema): boolean {
     )
 }
 
-// Locked rows are skipped; rows already in the requested state are left out of the request.
 export function buildLiveQueryPayloads(
     schemas: ExternalDataSourceSchema[],
     enabled: boolean
