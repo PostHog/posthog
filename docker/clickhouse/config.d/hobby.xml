@@ -10,6 +10,10 @@
     <trace_log remove="1"/>
     <total_memory_profiler_step>0</total_memory_profiler_step>
 
+    <!-- ClickHouse collects these metrics every second by default. The instance status page is the
+         only reader, and it can show values that are a minute old. -->
+    <asynchronous_metrics_update_period_s>60</asynchronous_metrics_update_period_s>
+
     <!-- PostHog reads query_log, so it stays on. config.xml flushes it every 500 ms, and each flush
          writes a new part that must be merged later. -->
     <query_log>
