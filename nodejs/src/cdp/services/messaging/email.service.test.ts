@@ -3880,28 +3880,39 @@ describe('EmailService', () => {
             }
         )
 
-        it('fails a marketing API send whose filled-in unsubscribe links would pass the SES message limit, without sending it', async () => {
-            const html = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
-            const text = '{{ unsubscribe_url }} '.repeat(1_000_000)
-            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
-            invocation.state.messageCategory = { id: randomUUID(), type: 'marketing' }
-            invocation.state.send = {
-                content: { subject: 'News', html, text },
-                from: { integrationId: getIntegrationId(1) },
-                tracking: { captureEngagement: true },
-            }
-            invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, message_category_type: 'marketing' }
-            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html, text })
+        it.each([
+            { body: 'many links', text: '{{ unsubscribe_url }} '.repeat(1_000_000) },
+            {
+                body: 'multibyte text and links',
+                text: '界'.repeat(6_000_000) + '{{ unsubscribe_url }} '.repeat(70_000),
+            },
+        ])(
+            'fails a marketing API send whose $body would pass the SES message limit once filled in, without sending it',
+            async ({ text }) => {
+                const html = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                invocation.state.messageCategory = { id: randomUUID(), type: 'marketing' }
+                invocation.state.send = {
+                    content: { subject: 'News', html, text },
+                    from: { integrationId: getIntegrationId(1) },
+                    tracking: { captureEngagement: true },
+                }
+                invocation.hogFunction.metadata = {
+                    ...invocation.hogFunction.metadata,
+                    message_category_type: 'marketing',
+                }
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html, text })
 
-            const result = await service.executeSendEmail(invocation)
+                const result = await service.executeSendEmail(invocation)
 
-            expect(ses.sent).toEqual([])
-            expect(result.error).toEqual(
-                expect.stringContaining(
-                    'Failed to send email: filling in each unsubscribe link would make it larger than the 40 MB that SES accepts.'
+                expect(ses.sent).toEqual([])
+                expect(result.error).toEqual(
+                    expect.stringContaining(
+                        'Failed to send email: filling in each unsubscribe link would make it larger than the 40 MB that SES accepts.'
+                    )
                 )
-            )
-        })
+            }
+        )
 
         it('does not capture a PostHog event when engagement capture is disabled for the team', async () => {
             // Default config has capture_workflows_engagement_events=false, so even on success no event is queued.

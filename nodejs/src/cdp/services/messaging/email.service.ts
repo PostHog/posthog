@@ -1663,7 +1663,7 @@ export class EmailService {
             preferencesTokenSourceForInvocation(invocation)
         )
         const htmlUrl = escapeHtml(url)
-        if (filledLength(params.html, htmlUrl) + filledLength(params.text, url) > SES_MAX_MESSAGE_LENGTH) {
+        if (filledBytes(params.html, htmlUrl) + filledBytes(params.text, url) > MESSAGE_MAX_BYTES) {
             throw new Error(
                 'Failed to send email: filling in each unsubscribe link would make it larger than the 40 MB that SES accepts.'
             )
@@ -1727,14 +1727,16 @@ export class EmailService {
     }
 }
 
-const SES_MAX_MESSAGE_LENGTH = 40 * 1024 * 1024
-
-const filledLength = (body: string | undefined, url: string): number => {
-    let length = body?.length ?? 0
-    for (const placeholder of body?.matchAll(UNSUBSCRIBE_PLACEHOLDER) ?? []) {
-        length += url.length - placeholder[0].length
+const filledBytes = (body: string | undefined, url: string): number => {
+    if (!body) {
+        return 0
     }
-    return length
+    const urlBytes = Buffer.byteLength(url, 'utf8')
+    let bytes = Buffer.byteLength(body, 'utf8')
+    for (const placeholder of body.matchAll(UNSUBSCRIBE_PLACEHOLDER)) {
+        bytes += urlBytes - Buffer.byteLength(placeholder[0], 'utf8')
+    }
+    return bytes
 }
 
 const replaceUnsubscribePlaceholder = (body: string, url: string): string =>
