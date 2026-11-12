@@ -365,6 +365,26 @@
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "customer-analytics-membership-deletion",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-membership-deletion-team",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-membership-discovery",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "customer-analytics-membership-discovery-team",
+    "product": "customer_analytics",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "customer-analytics-ownership-claims-coordinator",
     "product": "customer_analytics",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
@@ -611,12 +631,12 @@
   },
   {
     "temporal_workflow_type": "experiment-regular-metrics-workflow",
-    "product": "temporal/experiments",
+    "product": "experiments",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "experiment-saved-metrics-workflow",
-    "product": "temporal/experiments",
+    "product": "experiments",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
@@ -626,7 +646,7 @@
   },
   {
     "temporal_workflow_type": "experiment-timeseries-recalculation-workflow",
-    "product": "temporal/experiments",
+    "product": "experiments",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
@@ -733,6 +753,16 @@
     "temporal_workflow_type": "insight-alert-platform-late-chart",
     "product": "alerts",
     "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "intercom-import-batch",
+    "product": "conversations",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "intercom-import-coordinator",
+    "product": "conversations",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "knowledge-writer-merge-check",
