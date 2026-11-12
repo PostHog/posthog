@@ -85,7 +85,11 @@ def _without_derived_fields(entry: Any) -> Any:
 
 def _authored_input(item: Any, secret: bool) -> Any:
     authored = _without_derived_fields(item)
-    if secret and isinstance(authored, dict):
+    if not isinstance(authored, dict):
+        return authored
+    # The worker evaluates an input without templating as Hog.
+    authored["templating"] = authored.get("templating") or "hog"
+    if secret:
         # A secret's value is compared apart, but how the worker evaluates it, such as its templating, counts.
         authored.pop("value", None)
     return authored
