@@ -16,14 +16,14 @@ import { ReleaseTrackGrid } from './ReleaseTrackGrid'
 import { ReleaseTrackLabel } from './ReleaseTrackLabel'
 import { ReleaseTrackLane } from './ReleaseTrackLane'
 import { Lane, Scale, Track, buildTrack } from './releaseTracks'
-import { ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS, isEnrollingEarlyAccess } from './releaseUtils'
+import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS, isEnrollingEarlyAccess } from './releaseUtils'
 import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
 
 const TRACK_NAME = 264
 const TRACK_MIN_DAY = 12
 const TRACK_MIN_DAYS = 21
 const TRACK_MAX_PAST_DAYS = 90
-const TRACK_MAX_FUTURE_DAYS = 90
+const TRACK_MAX_FUTURE_DAYS = CALENDAR_DAYS_AFTER
 const TRACK_PAGE_SIZE = 20
 const TRACK_LABEL_ROOM = 120
 
