@@ -20,6 +20,9 @@ PAGE_SIZE = 100
 REQUESTS_PER_SECOND = 2
 MAX_RATE_LIMIT_WAITS = 5
 MAX_RETRY_AFTER_SECONDS = 60
+# A long contact scan sees the odd timeout or 5xx. Retrying here keeps them from using up the whole step's retries.
+MAX_TRANSIENT_RETRIES = 3
+TRANSIENT_RETRY_BASE_SECONDS = 2
 DEFAULT_TIMEOUT_SECONDS = 30
 USER_AGENT = "posthog-messaging-import/1.0"
 
@@ -56,10 +59,12 @@ class ResendClient:
         api_key: str,
         timeout: int = DEFAULT_TIMEOUT_SECONDS,
         max_rate_limit_waits: int = MAX_RATE_LIMIT_WAITS,
+        max_transient_retries: int = MAX_TRANSIENT_RETRIES,
     ):
         self._api_key = api_key
         self._timeout = timeout
         self._max_rate_limit_waits = max_rate_limit_waits
+        self._max_transient_retries = max_transient_retries
         self._next_request_at = 0.0
 
     def __repr__(self) -> str:
@@ -95,6 +100,7 @@ class ResendClient:
 
     def _get(self, path: str, params: dict[str, Any] | None) -> dict[str, Any]:
         waits = 0
+        retries = 0
         while True:
             self._pace()
             try:
@@ -106,6 +112,10 @@ class ResendClient:
                     allow_redirects=False,
                 )
             except requests.RequestException as e:
+                if retries < self._max_transient_retries:
+                    retries += 1
+                    time.sleep(TRANSIENT_RETRY_BASE_SECONDS**retries)
+                    continue
                 # The exception text can hold the request's details, so only its type leaves this function.
                 raise ResendAPIError(f"Couldn't reach Resend ({type(e).__name__}).") from None
             if response.status_code == 429:
@@ -113,6 +123,10 @@ class ResendClient:
                     raise ResendRateLimited("Resend asked PostHog to slow down.", status_code=429)
                 waits += 1
                 time.sleep(_retry_after_seconds(response))
+                continue
+            if response.status_code >= 500 and retries < self._max_transient_retries:
+                retries += 1
+                time.sleep(TRANSIENT_RETRY_BASE_SECONDS**retries)
                 continue
             return _parse(response)
 
