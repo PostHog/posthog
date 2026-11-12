@@ -108,6 +108,9 @@ def _sync_slices(window_start: datetime, window_end: datetime) -> Iterator[SyncS
 
 
 def _run_sync(team: Team, *, window_start: datetime, window_end: datetime, budget: int, page_size: int) -> RunOutcome:
+    # The hourly rollup reads whole hours, so the embeddings are read from the same start: an intent first
+    # called between the start of that hour and window_start would otherwise never get a vector.
+    window_start = corpus.start_of_hour(window_start)
     run = persist.start_run(
         team, kind=Kind.SYNC, run_id=_run_id(Kind.SYNC, window_end), window_start=window_start, window_end=window_end
     )
@@ -172,9 +175,12 @@ ASSIGNMENT_INSERT_SETTINGS: dict[str, Any] = {
 
 
 def _rebuild_daily(team: Team, *, window_start: datetime, window_end: datetime) -> None:
+    # A sync run that follows an outage rolls up hours up to MAX_SYNC_CATCH_UP back; their days need totals too.
+    # The extra day covers an hour that starts in the day before window_start's local day.
+    catch_up_start = window_end - MAX_SYNC_CATCH_UP - timedelta(days=1)
     rollups.rebuild_topic_daily(
         team_id=team.pk,
-        window_start=window_start,
+        window_start=min(window_start, catch_up_start),
         window_end=window_end,
         now=datetime.now(tz=UTC),
         timezone=team.timezone,

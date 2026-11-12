@@ -52,6 +52,7 @@ from posthog.hogql.restricted_properties import (
     restricted_feature_flag_names,
     restricted_key_path,
     restricted_property_keys_for_table_type,
+    wildcard_reads_restricted_mirrored_column,
 )
 from posthog.hogql.transforms.grouped_clauses import (
     GroupedClauseTracker,
@@ -1315,6 +1316,14 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             # A wildcard left unexpanded, such as `tuple(*)`, prints as `*` and would skip the per-column mask.
             raise QueryError(
                 "A wildcard can't read this embedding table because some of its rows are hidden from you. List the columns instead."
+            )
+        if (
+            self.context.restricted_properties
+            and isinstance(node.type, ast.AsteriskType)
+            and wildcard_reads_restricted_mirrored_column(node.type.table_type, self.context)
+        ):
+            raise QueryError(
+                "A wildcard can't read this table because some of its columns are hidden from you. List the columns instead."
             )
         if (
             self.context.restricted_properties
