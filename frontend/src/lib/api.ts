@@ -796,10 +796,6 @@ export class ApiRequest {
         return this.events(teamId).addPathComponent(id)
     }
 
-    public tags(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('tags')
-    }
-
     // # Logs
     public logs(projectId?: ProjectType['id']): ApiRequest {
         return this.teamProjectDetail(projectId).addPathComponent('logs')
@@ -3024,12 +3020,6 @@ const api = {
         },
     },
 
-    tags: {
-        async list(projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()): Promise<string[]> {
-            return new ApiRequest().tags(projectId).get()
-        },
-    },
-
     eventDefinitions: {
         async get({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<EventDefinition> {
             return new ApiRequest().eventDefinitionDetail(eventDefinitionId).get()
@@ -4454,6 +4444,8 @@ const api = {
                 const response = await fetch(url, {
                     headers: { Authorization: `Bearer ${token}` },
                     credentials: 'omit',
+                    // A long page URL as the Referer pushes the headers past recording-api's size limit, which answers 431.
+                    referrerPolicy: 'no-referrer',
                     signal: controller.signal,
                 })
                 if (!response.ok) {

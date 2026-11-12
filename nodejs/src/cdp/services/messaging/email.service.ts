@@ -44,10 +44,16 @@ import {
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
-import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
+import {
+    parseAddressList as parseMailboxList,
+    quoteMailbox,
+    removeSuppressedRecipients,
+    unquoteMailbox,
+} from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
+import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import {
     PreferencesTokenSource,
     RecipientTokensService,
@@ -185,7 +191,7 @@ class EmailSendDeadlineError extends Error {
 
 class MessageTooLargeError extends Error {
     constructor() {
-        super('The attachment files of this email are larger than one email can carry')
+        super('This email and its attachment files are larger than one email can carry')
         this.name = 'MessageTooLargeError'
     }
 }
@@ -238,7 +244,7 @@ function describeAttachmentFailure(
     if (error instanceof MessageTooLargeError) {
         return {
             reason: EMAIL_MESSAGE_TOO_LARGE,
-            message: `${EMAIL_MESSAGE_TOO_LARGE}: the attachment files of this email are larger than one email can carry, so it was not sent.`,
+            message: `${EMAIL_MESSAGE_TOO_LARGE}: this email and its attachment files are larger than one email can carry, so it was not sent.`,
         }
     }
     if (isAttachmentLoadFailure(error)) {
@@ -259,6 +265,11 @@ class UnverifiedEmailDomainError extends Error {
 
 const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
     !isTest && 'hogFlow' in invocation
+
+const deliveredRecipients = (params: CyclotronInvocationQueueParametersEmailType): string[] => [
+    unquoteMailbox(params.to.email),
+    ...[...parseMailboxList(params.cc), ...parseMailboxList(params.bcc)].map(({ email }) => email),
+]
 
 function pickThrottleRetryDelayMs(): number {
     // Constant 500–1000ms jitter is plenty: the local Valkey bucket already
@@ -550,7 +561,7 @@ export class EmailService {
         // Required, so that a caller which builds the service without it fails to compile. Pass null
         // only where no email status is recorded.
         private emailStatusService: EmailStatusService | null,
-        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>,
+        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report' | 'reportEmailSent'>,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null,
@@ -929,6 +940,13 @@ export class EmailService {
             addLog('info', `Email sent to ${sendParams.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
             success = true
             result.emailSendResult = { status: 'accepted' }
+            if (isRealWorkflowSend(invocation, isTest)) {
+                void this.workflowsActivationReporter.reportEmailSent(
+                    invocation.teamId,
+                    invocation.functionId,
+                    deliveredRecipients(sendParams)
+                )
+            }
         } catch (error) {
             if (error instanceof SESThrottleError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
@@ -1446,6 +1464,16 @@ export class EmailService {
                   params.preheader
               )
             : null
+        if (
+            files.length > 0 &&
+            estimateMessageBytes(
+                files.map(({ bytes }) => bytes.byteLength),
+                [html ?? '', params.text ?? ''],
+                sanitizeEmailSubject(params.subject)
+            ) > MESSAGE_MAX_BYTES
+        ) {
+            throw new MessageTooLargeError()
+        }
         const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 
         const sendEmailParams: SendEmailCommandInput = {

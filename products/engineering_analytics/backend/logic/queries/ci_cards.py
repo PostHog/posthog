@@ -1,17 +1,11 @@
-"""Curated query: headline counts for the open-PR backlog.
-
-Open PRs joined to their head-SHA CI rollup, collapsed into four counts. ``stuck``
-is a fixed rule (open, non-draft, non-bot, older than 7 days), so there is no
-window parameter.
-"""
+"""Headline counts for the open-PR backlog. They describe current state, so they take no window."""
 
 from products.engineering_analytics.backend.facade.contracts import CICardSummary
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 _EMPTY = CICardSummary(open_prs=0, repos=0, stuck=0, failing_ci=0)
 
-# Every _SELECT metric below is gated on OPEN_PR_SQL, and it also scopes the rollup CTEs to the same PRs
-# (see query_ci_cards).
+# query_ci_cards scopes the CI rollup to this predicate, so every _SELECT metric must be gated on it.
 OPEN_PR_SQL = "state = 'open'"
 FAILING_CI_SQL = "coalesce(ci.failing, 0) > 0"
 
@@ -35,7 +29,6 @@ _SELECT = f"""
 
 
 def query_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
-    # Every count only reads CI for open PRs, so the rollup scan is scoped to their head SHAs.
     response = curated.run(
         curated.pr_rollup_query(_SELECT, pr_scope_where=OPEN_PR_SQL),
         query_type="engineering_analytics.ci_cards",
