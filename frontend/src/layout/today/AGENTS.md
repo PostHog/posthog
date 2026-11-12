@@ -4,6 +4,14 @@
 
 - **The Products pane lists every product the current navigation lists, except Home.** People go there to find everything. Home is the rail's Home item, so it is the only page left out. Never filter any other product out of `todayProductsLogic`'s `products`, even when another rail pane (People, Analytics) also links to it. Opening such a product from the Products pane keeps that pane open (`paneAfterNavigation` in `todayShellLogic.ts`). `todayProductsLogic.test.ts` fails if the list drifts from `getNavProductItems` less Home.
 
+## Hover cards
+
+These rules apply to every sidebar list the rail opens, for example Products, Spaces, People and Analytics.
+
+- **A row shows its hover card only through `TodayPreviewTrigger`, under a `TodayPreviewCardProvider`.** Do not give a row a second hover card of its own. A tooltip on a control inside the row, such as the star button, is fine. The trigger carries the shared behavior below, and a row that skips it loses that behavior.
+- **A click on a row closes its hover card, and the card stays shut until the pointer or focus leaves that row.** A card left open after a click covers the page the click opened. `TodayPreviewTrigger` does this with `dismissFor` and `rearm` on the card context. Do not remove it, and do not stop a click on a row from reaching the trigger's capture handler.
+- **An open row menu keeps the card shut.** Report the menu with `useTodayPreviewMenuReport` from its `onOpenChange`.
+
 ## Recents sections
 
 These rules apply to every sidebar section that lists items a person recently opened, for example Recents in the People and Analytics panes.

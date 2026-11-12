@@ -33,6 +33,11 @@ export function TodayPreviewTrigger({
             delay={OPEN_DELAY_MS}
             closeDelay={CLOSE_DELAY_MS}
             render={inline ? <span /> : <div className="min-w-0" />}
+            // Capture, so a row control that stops propagation still closes the card.
+            onClickCapture={(event) => card.dismissFor(event.currentTarget)}
+            onPointerLeave={(event) => card.rearm(event.currentTarget)}
+            // Keyboard focus never leaves with the pointer, so a row activated with Enter rearms when focus moves on.
+            onBlur={(event) => card.rearm(event.currentTarget)}
         >
             {children}
         </PreviewCard.Trigger>

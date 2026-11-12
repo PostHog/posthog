@@ -234,6 +234,7 @@ rules:
           - '/frontend/src/layout/panel-layout/ProjectTree/*.test.*'
           - '/frontend/src/layout/panel-layout/ProjectTree/menus/*.test.*'
           - '/frontend/src/layout/panel-layout/navbar/*.test.*'
+          - '/frontend/src/layout/today/TodayPreviewCardProvider.test.tsx'
           - '/frontend/src/lib/charts/*.test.*'
           - '/frontend/src/lib/forms/*.test.*'
           - '/frontend/src/lib/hooks/*.test.*'
