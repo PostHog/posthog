@@ -39,12 +39,23 @@ async def minio_client(bucket_name):
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
     ) as client:
+        created = False
         try:
             await client.head_bucket(Bucket=bucket_name)
         except Exception:
             await client.create_bucket(Bucket=bucket_name)
+            created = True
 
         yield client
+
+        if created:
+            # Local object storage allocates volumes per bucket and stops accepting writes when they run out.
+            paginator = client.get_paginator("list_objects_v2")
+            async for page in paginator.paginate(Bucket=bucket_name):
+                keys = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+                if keys:
+                    await client.delete_objects(Bucket=bucket_name, Delete={"Objects": keys})
+            await client.delete_bucket(Bucket=bucket_name)
 
 
 @pytest_asyncio.fixture
