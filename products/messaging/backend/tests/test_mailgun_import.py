@@ -186,13 +186,13 @@ class TestMailgunImport(BaseTest):
         run = self._run(["templates"])
 
         templates = {row.key: row for row in MessageTemplate.objects.filter(team_id=self.team.id)}
-        assert set(templates) >= {"welcome", "mg-example-com-welcome", "eu-welcome"}
+        assert set(templates) >= {"welcome", "mg-example-com-5b21c8439f-welcome", "eu-welcome"}
         assert all(row.transactional_hog_flow_id is None for row in templates.values())
         assert templates["welcome"].content["email"]["subject"] == "Welcome {{ variables.name }}"
         assert templates["welcome"].content["email"]["replyTo"] == "help@mg.example.com"
         assert "{{ variables.city | raw }}" in templates["welcome"].content["email"]["html"]
         assert "{{ unsubscribe_url }}" in templates["welcome"].content["email"]["html"]
-        assert "Hi {{ variables.Name }}" in templates["mg-example-com-welcome"].content["email"]["html"]
+        assert "Hi {{ variables.Name }}" in templates["mg-example-com-5b21c8439f-welcome"].content["email"]["html"]
         assert "Hallo" in templates["eu-welcome"].content["email"]["html"]
         assert not any("Old hello" in row.content["email"]["html"] for row in templates.values())
 
@@ -211,6 +211,34 @@ class TestMailgunImport(BaseTest):
         old = MessageTemplate.objects.get(team_id=self.team.id, key="welcome-version-v1")
         assert "Old hello" in old.content["email"]["html"]
         assert "Hello" in MessageTemplate.objects.get(team_id=self.team.id, key="welcome").content["email"]["html"]
+        list_calls = [call for call in self.mailgun.calls if call["path"].endswith("/templates")]
+        assert list_calls and all(call["query"]["limit"] == "10" for call in list_calls)
+
+    def test_a_version_mailgun_lost_skips_only_that_version(self) -> None:
+        self.mailgun.failures = [Failure(r"/v4/templates/welcome/versions/v1$", 404)]
+
+        run = self._run(["templates"], region="us", template_versions="all")
+
+        assert not MessageTemplate.objects.filter(team_id=self.team.id, key="welcome-version-v1").exists()
+        active = MessageTemplate.objects.get(team_id=self.team.id, key="welcome")
+        assert "Hello" in active.content["email"]["html"]
+        items = {item["label"]: item for item in run.progress["templates"]["items"]}
+        assert any("couldn't find the versions v1" in note for note in items["welcome"]["notes"])
+
+    def test_templates_from_domains_with_similar_names_both_import(self) -> None:
+        us = self.mailgun.data["us"]
+        welcome = us["domain_templates"]["mg.example.com"][0]
+        for index, name in enumerate(("a.b.example.com", "a-b.example.com")):
+            us["domains"].append({**us["domains"][0], "name": name, "id": f"similar-{index}"})
+            us["domain_templates"][name] = [
+                {**welcome, "versions": [{**welcome["versions"][0], "template": f"<p>From {name}</p>"}]}
+            ]
+
+        self._run(["templates"], region="us")
+
+        html = {row.key: row.content["email"]["html"] for row in MessageTemplate.objects.filter(team_id=self.team.id)}
+        assert html["a-b-example-com-532e2dc4fb-welcome"] == "<p>From a.b.example.com</p>"
+        assert html["a-b-example-com-68d7a9476c-welcome"] == "<p>From a-b.example.com</p>"
 
     def test_every_request_is_a_documented_read_with_basic_auth(self) -> None:
         self._run(region="both")
@@ -245,6 +273,27 @@ class TestMailgunImport(BaseTest):
 
         assert seen and all(url.startswith(US) for url in seen)
         assert len(self._suppressions()) == 4
+
+    def test_an_account_whose_domains_all_belong_to_subaccounts_can_start(self) -> None:
+        us = self.mailgun.data["us"]
+        us["domains"] = [domain for domain in us["domains"] if domain.get("subaccount_id")]
+
+        run = self._start(["bounces"], "us")
+
+        assert run.status == "queued"
+
+    def test_the_credential_check_does_not_wait_out_a_spent_rate_limit(self) -> None:
+        original = self._get
+
+        def spent(url: str, **kwargs: Any) -> MagicMock:
+            response = original(url, **kwargs)
+            response.headers = {**response.headers, "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "30000"}
+            return response
+
+        with patch(f"{CLIENT}.requests.get", spent):
+            self._start(["bounces"], "us")
+
+        self.sleep.assert_not_called()
 
     def test_a_region_with_no_domains_for_the_key_stops_before_any_run(self) -> None:
         with self.assertRaisesRegex(ImportCredentialsInvalid, "no domains for this key in the US region"):
@@ -469,7 +518,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             (
                 "unclosed_block_is_closed",
                 "{{#if a}}x",
-                "{% if variables.a and variables.a != empty and variables.a != 0 %}x{% endif %}",
+                "{% if variables.a and variables.a.length != 0 and variables.a != 0 %}x{% endif %}",
             ),
         ]
     )
@@ -500,6 +549,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("list_unsubscribe", {"template": "%mailing_list_unsubscribe_url%"}, "imported from the list"),
             ("unknown_engine", {"template": "x", "engine": "mustache"}, "lists the engine mustache"),
             ("unclosed", {"template": "{{#if a}}x"}, "never closed"),
+            ("go_value_in_a_tag", {"engine": "go", "template": '<a href="{{.URL}}">x</a>'}, "inside HTML tags"),
         ]
     )
     def test_notes_name_what_to_review(self, _name: str, version: dict, expected: str) -> None:
@@ -510,3 +560,15 @@ class TestMailgunTemplateConversion(SimpleTestCase):
 
     def test_unclosed_braces_scan_in_linear_time(self) -> None:
         assert convert_text("{{ " * 20000).text.count('{{ "{{" }}') == 20000
+
+    @parameterized.expand(
+        [
+            ("many_loops", "{{#each xs}}{{/each}}" * 32000),
+            ("deep_long_paths", "".join(f"{{{{#with {chr(97 + i % 26) * 200}}}}}" for i in range(400))),
+        ]
+    )
+    def test_a_template_that_converts_too_large_stays_plain_text(self, _name: str, source: str) -> None:
+        converted = convert_text(source)
+
+        assert converted.too_large
+        assert converted.text == f"{{% raw %}}{source}{{% endraw %}}"

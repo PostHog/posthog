@@ -97,6 +97,7 @@ ALL_TAGS = "*"
 # The label PostHog uses for a sender's MAIL FROM subdomain unless the person picks another.
 MAIL_FROM_DEFAULT = "feedback"
 TEMPLATE_KEY_MAX_LENGTH = 400
+VERSIONED_TEMPLATE_PAGE_SIZE = 10
 _MAX_KEY_NAME_LENGTH = 150
 CATEGORY_KEY_MAX_LENGTH = 64
 _UNSAFE_IN_KEY = re.compile(r"[^A-Za-z0-9_-]+")
@@ -305,7 +306,7 @@ class MailgunImportProvider(ImportProvider):
         for region in regions:
             client = MailgunClient(api_key, region, timeout=CREDENTIAL_CHECK_TIMEOUT_SECONDS, max_rate_limit_waits=0)
             with _translated_errors(INVALID_KEY_MESSAGE):
-                domains = client.get("/v4/domains", {"limit": 1}).get("items") or []
+                domains = client.get("/v4/domains", {"limit": 1, "include_subaccounts": "true"}).get("items") or []
             regions_with_domains += bool(domains)
             # Mailgun's Analyst role reads domains and templates, but not suppressions, so ask before the run starts.
             first = domains[0] if domains and isinstance(domains[0], dict) else {}
@@ -745,8 +746,9 @@ def _save_list_members(context: ImportContext, target: _Target, items: list[dict
     return SavedPage(imported=changed, counts=counts, items=items_out)
 
 
-def _template_owner_targets(clients: Mapping[MailgunRegion, MailgunClient]) -> list[_Target]:
-    params = {"limit": TEMPLATE_PAGE_SIZE}
+def _template_owner_targets(clients: Mapping[MailgunRegion, MailgunClient], all_versions: bool) -> list[_Target]:
+    # A page holds every version's content until it saves, so pages are smaller when every version imports.
+    params = {"limit": VERSIONED_TEMPLATE_PAGE_SIZE if all_versions else TEMPLATE_PAGE_SIZE}
     # An empty name sorts first, so account templates run before any domain's.
     account = [
         _Target(region=region, owner=owner, name="", path="/v4/templates", params=params)
@@ -762,7 +764,7 @@ def _fetch_templates(
     all_versions = context.settings.get(VERSIONS_SETTING) == ALL_VERSIONS
     yield from _read_targets(
         clients,
-        _template_owner_targets(clients),
+        _template_owner_targets(clients, all_versions),
         checkpoint,
         partial(_read_template_versions, all_versions=all_versions),
         partial(_save_templates, context),
@@ -784,12 +786,24 @@ def _read_template_versions(
             detail = _as_dict(body.get("template"))
             active = _as_dict(detail.get("version")) or None
             selected: list[dict[str, Any]] = [active] if active else []
+            missing_versions: list[str] = []
             if all_versions:
                 active_tag = active.get("tag") if active else None
                 for version in versions:
                     if version.get("tag") and version.get("tag") != active_tag:
-                        selected.append(_read_version(client, path, version, target))
-            templates.append({**item, **detail, "selected": selected, "version_tags": [v.get("tag") for v in versions]})
+                        try:
+                            selected.append(_read_version(client, path, version, target))
+                        except MailgunNotFound:
+                            missing_versions.append(str(version["tag"]))
+            templates.append(
+                {
+                    **item,
+                    **detail,
+                    "selected": selected,
+                    "version_tags": [v.get("tag") for v in versions],
+                    "missing_versions": missing_versions,
+                }
+            )
         except MailgunNotFound:
             templates.append({**item, "missing": True})
     return templates
@@ -804,11 +818,11 @@ def _read_version(client: MailgunClient, path: str, version: dict[str, Any], tar
 
 def _template_key(target: _Target, name: str, version_tag: str | None) -> str:
     """Stable across imports, so a rerun finds what it made. Mailgun names repeat across domains and regions and can
-    hold characters a key can't, so a name that lost characters also carries a hash of the original."""
+    hold characters a key can't, so a name or domain that lost characters also carries a hash of the original."""
     scope = [part for part in ("eu" if target.region == MailgunRegion.EU else "", target.owner, target.name) if part]
     return "-".join(
         [
-            *(_key_part(part) for part in scope if part),
+            *(_hashed_key_part(part) for part in scope),
             _hashed_key_part(name),
             *(["version", _hashed_key_part(version_tag)] if version_tag else []),
         ]
@@ -886,7 +900,13 @@ def _save_templates(
                 )
                 continue
             email, sender_notes = _email_content(version, converted, senders, target)
-            notes = (*converted.notes, *converted.send_notes, *sender_notes, *_other_versions_note(template, version))
+            notes = (
+                *converted.notes,
+                *converted.send_notes,
+                *sender_notes,
+                *_other_versions_note(template, version),
+                *_missing_versions_note(template, version),
+            )
             created = create_template(
                 context.team_id,
                 context.created_by_id,
@@ -923,6 +943,16 @@ def _other_versions_note(template: dict[str, Any], version: dict[str, Any]) -> t
     shown = ", ".join(others[:_MAX_NOTED_ITEMS])
     more = f" and {len(others) - _MAX_NOTED_ITEMS} more" if len(others) > _MAX_NOTED_ITEMS else ""
     return (f"PostHog imported the active version, {version.get('tag')}. Still in Mailgun: {shown}{more}.",)
+
+
+def _missing_versions_note(template: dict[str, Any], version: dict[str, Any]) -> tuple[str, ...]:
+    missing = template.get("missing_versions") or []
+    selected = template.get("selected") or []
+    if not missing or version is not selected[0]:
+        return ()
+    shown = ", ".join(_clean(tag) for tag in missing[:_MAX_NOTED_ITEMS])
+    more = f" and {len(missing) - _MAX_NOTED_ITEMS} more" if len(missing) > _MAX_NOTED_ITEMS else ""
+    return (f"Mailgun couldn't find the versions {shown}{more}, so they didn't import. Import again.",)
 
 
 def _senders(team_id: int) -> dict[str, IntegrationRecord]:

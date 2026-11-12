@@ -186,7 +186,7 @@ class MailgunClient:
                 time.sleep(_reset_wait_seconds(response) or min(2**waits, MAX_WAIT_SECONDS))
                 continue
             body = _parse(response)
-            if _remaining(response) == 0:
+            if _remaining(response) == 0 and self._max_rate_limit_waits:
                 time.sleep(_reset_wait_seconds(response) or 1)
             return body
 
