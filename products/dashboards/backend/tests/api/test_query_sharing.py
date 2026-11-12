@@ -13,6 +13,7 @@ from posthog.test.base import (
 from unittest.mock import patch
 
 from django.http import StreamingHttpResponse
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -85,8 +86,8 @@ class TestDashboardQuerySharingAccess(APIBaseTest):
 
 
 class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTest):
-    @parameterized.expand([("top_n", False), ("counts", True)])
-    def test_shared_results_are_independently_cached(self, _name: str, counts: bool) -> None:
+    @parameterized.expand([("top_n", False, False), ("counts", True, False), ("daily_counts", True, True)])
+    def test_shared_results_are_independently_cached(self, _name: str, counts: bool, daily: bool) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Sharing test")
         queries = [
             "SELECT event, count() AS n FROM events GROUP BY event ORDER BY n DESC, event LIMIT 1",
@@ -96,6 +97,14 @@ class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTe
         if counts:
             queries = ["SELECT count() AS n FROM events", "SELECT count(uuid) AS n FROM events WHERE event = 'alpha'"]
             expected = [[[3]], [[2]]]
+        if daily:
+            # The runner's paginator adds a LIMIT to these, unlike the scalar counts above.
+            daily_sql = (
+                "SELECT toDate(timestamp) AS day, count() AS n FROM events{} GROUP BY toDate(timestamp) ORDER BY day"
+            )
+            queries = [daily_sql.format(""), daily_sql.format(" WHERE event = 'alpha'")]
+            today = timezone.now().date().isoformat()
+            expected = [[[today, 3]], [[today, 2]]]
         tiles = [
             DashboardTile.objects.create(
                 dashboard=dashboard,

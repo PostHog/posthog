@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQueryResponse
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.multi_query import SharingQuery
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
@@ -38,6 +39,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
         executor.send_raw_query = False
         executor.hogql = sql
         executor.clickhouse_settings = None
+        executor.limit_context = LimitContext.QUERY
         executor.query_modifiers = None
         executor.limit = None
         executor.offset = None

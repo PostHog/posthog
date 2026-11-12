@@ -10,6 +10,7 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.batch import BatchQueryResult
+from posthog.hogql.constants import LimitContext, get_max_limit_for_context
 from posthog.hogql.multi_query import ExecutionGroup, MultiQueryPlanner, SharingQuery
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.sharing_rules import CountFusionRule, SameAggregationTopNRule
@@ -71,11 +72,10 @@ class DashboardQuerySharing:
         return executor.execute()
 
     @staticmethod
-    def _unlimit_scalar_count(query: SharingQuery) -> SharingQuery:
+    def _lift_pagination_limit(query: SharingQuery) -> SharingQuery:
         node = query.query
         if (
             isinstance(node, ast.SelectQuery)
-            and not node.group_by
             and (node.offset is None or (isinstance(node.offset, ast.Constant) and node.offset.value == 0))
             and not node.limit_percent
             and not node.limit_with_ties
@@ -86,11 +86,11 @@ class DashboardQuerySharing:
             unbounded = clone_expr(node)
             unbounded.limit = None
             unbounded.offset = None
-            candidate = replace(query, query=unbounded)
+            # A scalar count returns one row, so only grouped counts need the runner's page size applied after routing.
+            candidate = replace(query, query=unbounded, default_limit=node.limit.value if node.group_by else None)
             probe = MultiQueryPlanner([CountFusionRule()]).plan(
                 [candidate, replace(candidate, query_id=f"{query.query_id}-probe")]
             )
-            # A scalar count always returns one row, so the runner's pagination limit cannot affect it.
             if len(probe.groups) == 1:
                 return candidate
         return query
@@ -100,9 +100,14 @@ class DashboardQuerySharing:
         if settings is not None:
             settings.read_overflow_mode = "throw"
             settings.timeout_overflow_mode = "throw"
+        query = clone_expr(group.query)
+        row_cap = get_max_limit_for_context(executor.limit_context or LimitContext.QUERY)
+        # Without its own LIMIT the shared query would get the default page size and drop rows a member needs.
+        if isinstance(query, ast.SelectQuery) and query.limit is None:
+            query.limit = ast.Constant(value=row_cap)
         shared = _CancellableExecutor(
             cancelled=self.cancelled,
-            query=clone_expr(group.query),
+            query=query,
             team=executor.team,
             user=executor.user,
             user_access_control=executor.context.user_access_control,
@@ -112,7 +117,13 @@ class DashboardQuerySharing:
             ch_user=executor.ch_user,
             limit_context=executor.limit_context,
         ).execute()
-        if shared.error or shared.hasMore or shared.results is None or shared.types is None:
+        if (
+            shared.error
+            or shared.hasMore
+            or shared.results is None
+            or shared.types is None
+            or len(shared.results) >= row_cap
+        ):
             raise ValueError("Incomplete shared query result")
         split = group.split(
             BatchQueryResult(
@@ -142,7 +153,7 @@ class DashboardQuerySharing:
         eligible = False
         try:
             query = executor.prepare_for_sharing(query_id=query_id, scope_key=self._scope)
-            query = self._unlimit_scalar_count(query)
+            query = self._lift_pagination_limit(query)
             # An identical partner probes eligibility without waiting on unsupported queries.
             probe = self._planner.plan([query, replace(query, query_id=f"{query_id}-probe")])
             eligible = len(probe.groups) == 1
