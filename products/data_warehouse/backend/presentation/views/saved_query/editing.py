@@ -3,6 +3,7 @@
 import copy
 import uuid
 from datetime import timedelta
+from graphlib import TopologicalSorter
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from django.conf import settings
@@ -23,6 +24,7 @@ from posthog.hogql.database.database import (
     is_reserved_models_name,
     models_namespace_chain,
 )
+from posthog.hogql.database.models import SavedQuery, TableNode
 from posthog.hogql.direct_sql.trino_adapter import ensure_read_only_raw_trino_statement
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import get_table_names
@@ -502,6 +504,23 @@ class DataWarehouseSavedQuerySerializer(
             return set()
         return set(resolved.type.columns)
 
+    @staticmethod
+    def _saved_query_table_nodes(view: DataWarehouseSavedQuery, database: Database) -> list[TableNode]:
+        nodes: list[TableNode] = []
+        seen_node_ids: set[int] = set()
+        chains = [view.name_chain]
+        if (models_chain := models_namespace_chain(view)) is not None:
+            chains.append(models_chain)
+        for chain in chains:
+            node = database.get_table_node(chain)
+            saved_query_id = (
+                node.table.id if isinstance(node.table, SavedQuery) else getattr(node.table, "saved_query_id", None)
+            )
+            if id(node) not in seen_node_ids and saved_query_id == str(view.id):
+                nodes.append(node)
+                seen_node_ids.add(id(node))
+        return nodes
+
     def _breaking_column_change(
         self,
         instance: DataWarehouseSavedQuery,
@@ -512,46 +531,72 @@ class DataWarehouseSavedQuerySerializer(
         if not removed_columns:
             return None
 
-        dependent_ids = modeling_api.dependent_saved_query_ids(instance.team_id, [instance.id]).get(
-            instance.id, frozenset()
+        downstream_node_ids = modeling_api.reachable_node_ids(
+            instance.team_id,
+            modeling_api.saved_query_node_ids(instance.team_id, instance.id),
+            upstream=False,
+            max_depth=None,
         )
-        if not dependent_ids:
+        downstream_ids = modeling_api.get_saved_query_ids_for_nodes(instance.team_id, downstream_node_ids)
+        if not downstream_ids:
             return None
 
-        dependents = list(
-            DataWarehouseSavedQuery.objects.filter(team_id=instance.team_id, id__in=dependent_ids)
+        downstream_views_by_id = {
+            view.id: view
+            for view in DataWarehouseSavedQuery.objects.filter(team_id=instance.team_id, id__in=downstream_ids)
             .exclude(deleted=True)
             .order_by("name", "id")
-        )
+        }
+        sorter: TopologicalSorter[uuid.UUID] = TopologicalSorter({view_id: set() for view_id in downstream_views_by_id})
+        for source_id, target_ids in modeling_api.dependent_saved_query_ids(
+            instance.team_id, set(downstream_views_by_id)
+        ).items():
+            for target_id in target_ids & set(downstream_views_by_id):
+                sorter.add(target_id, source_id)
+        downstream_views = [downstream_views_by_id[view_id] for view_id in sorter.static_order()]
+
+        if not downstream_views:
+            return None
         # Dependency validation must not depend on which downstream views the editor can open.
         database = Database.create_for(team=instance.team, bypass_warehouse_access_control=True)
         current_outputs = {
-            dependent.id: output
-            for dependent in dependents
-            if (output := self._resolved_output_columns(dependent, database)) is not None
+            view.id: output
+            for view in downstream_views
+            if (output := self._resolved_output_columns(view, database)) is not None
         }
 
         pending = copy.copy(instance)
         pending.query = pending_query
         pending.set_columns(inferred_columns)
-        table_node = database.get_table_node(instance.name_chain)
-        current_table = table_node.table
-        table_node.table = pending.hogql_definition()
+        current_tables: dict[int, tuple[TableNode, Any]] = {}
+
+        def replace_view(view: DataWarehouseSavedQuery) -> None:
+            table = view.hogql_definition()
+            for node in self._saved_query_table_nodes(view, database):
+                current_tables.setdefault(id(node), (node, node.table))
+                node.table = table
+
+        replace_view(pending)
         try:
-            affected = [
-                dependent
-                for dependent in dependents
-                if dependent.id in current_outputs
-                and (
-                    (pending_output := self._resolved_output_columns(dependent, database)) is None
-                    or bool(current_outputs[dependent.id] - pending_output)
+            affected: list[DataWarehouseSavedQuery] = []
+            for view in downstream_views:
+                pending_output = self._resolved_output_columns(view, database)
+                if pending_output is None:
+                    if view.id in current_outputs:
+                        affected.append(view)
+                    continue
+                pending_view = copy.copy(view)
+                pending_view.set_columns(
+                    {name: column for name, column in (view.columns or {}).items() if name in pending_output}
                 )
-            ]
+                replace_view(pending_view)
         finally:
-            table_node.table = current_table
+            for node, current_table in current_tables.values():
+                node.table = current_table
 
         if not affected:
             return None
+        affected.sort(key=lambda view: (view.name, view.id))
 
         affected_ids = [dependent.id for dependent in affected]
         visible_ids = (
