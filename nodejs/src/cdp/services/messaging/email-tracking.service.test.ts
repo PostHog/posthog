@@ -937,6 +937,8 @@ describe('EmailTrackingService', () => {
             ])(
                 'names the email on the bounced event of %s',
                 async (_name, emailConfig, sentTags, transactional, identity) => {
+                    hub.CDP_EMAIL_TEMPLATE_TAGS_TEAMS = String(team.id)
+                    consumer = new CdpSesWebhooksConsumer(hub, createCdpConsumerDeps(hub))
                     const hogFlow = await insertHogFlow(
                         hub.postgres,
                         new FixtureHogFlowBuilder()
