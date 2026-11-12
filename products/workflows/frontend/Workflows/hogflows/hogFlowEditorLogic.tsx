@@ -226,6 +226,7 @@ export interface hogFlowEditorLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     edgesByActionId: Record<string, HogFlowEdge[]> // workflowLogic
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType> // workflowLogic
+    isViewOnly: boolean // workflowLogic
     workflow: HogFlow // workflowLogic
     dropzoneNodes: DropzoneNode[]
     edges: HogFlowActionEdge[]
@@ -752,6 +753,7 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
@@ -1641,6 +1643,7 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
@@ -2155,7 +2158,8 @@ export interface hogFlowEditorLogicMeta {
         selectedNode: (
             nodes: HogFlowActionNode[],
             selectedNodeId: string | null,
-            workflow: HogFlow
+            workflow: HogFlow,
+            isViewOnly: boolean
         ) => HogFlowActionNode | null
         selectedNodeCanBeDeleted: (
             selectedNode: HogFlowActionNode | null,
@@ -2176,6 +2180,10 @@ export type hogFlowEditorLogicType = MakeLogicType<
     hogFlowEditorLogicMeta
 >
 
+function isDeletableStep(action: HogFlowAction, isViewOnly: boolean): boolean {
+    return !isViewOnly && !['trigger', 'exit'].includes(action.type)
+}
+
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
@@ -2183,7 +2191,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     connect(() => ({
         values: [
             workflowLogic,
-            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById'],
+            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById', 'isViewOnly'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
             integrationsLogic,
@@ -2329,11 +2337,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         selectedNode: [
-            (s) => [s.nodes, s.selectedNodeId, s.workflow],
+            (s) => [s.nodes, s.selectedNodeId, s.workflow, s.isViewOnly],
             (
                 nodes: HogFlowActionNode[],
                 selectedNodeId: string | null,
-                workflow: HogFlow
+                workflow: HogFlow,
+                isViewOnly: boolean
             ): HogFlowActionNode | null => {
                 const node = nodes.find((node) => node.id === selectedNodeId)
                 if (node || !selectedNodeId) {
@@ -2347,7 +2356,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                           type: 'action',
                           data: action,
                           position: { x: 0, y: 0 },
-                          deletable: !['trigger', 'exit'].includes(action.type),
+                          deletable: isDeletableStep(action, isViewOnly),
                           selectable: true,
                           draggable: false,
                           connectable: false,
@@ -2409,7 +2418,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             type: 'action',
                             data: migratedAction,
                             position: { x: 0, y: 0 },
-                            deletable: !['trigger', 'exit'].includes(migratedAction.type),
+                            deletable: isDeletableStep(migratedAction, values.isViewOnly),
                             selectable: true,
                             draggable: false,
                             connectable: false,

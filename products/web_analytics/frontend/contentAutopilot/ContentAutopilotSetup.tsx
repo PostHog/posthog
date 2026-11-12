@@ -51,11 +51,8 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
 
     if (!onboarding) {
         return (
-            <LemonCard hoverEffect={false} className="p-4">
-                <div className="mb-4">
-                    <h2 className="m-0">Site settings</h2>
-                    <p className="m-0 mt-1 text-muted">Change this site's sources and research boundaries.</p>
-                </div>
+            <LemonCard hoverEffect={false} className="w-full max-w-3xl p-4">
+                <p className="m-0 mb-4 text-secondary">Change this site's sources and research boundaries.</p>
                 <div className="flex flex-col gap-5">
                     <ContentAutopilotSiteFields draft={profileDraft} />
                     <ContentAutopilotSourceFields draft={profileDraft} />

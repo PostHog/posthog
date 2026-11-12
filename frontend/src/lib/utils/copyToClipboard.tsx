@@ -1,6 +1,6 @@
 import { IconCopy } from '@posthog/icons'
-import { lemonToast } from '@posthog/lemon-ui'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { writeToClipboard } from 'lib/utils/writeToClipboard'
 
 export async function copyToClipboard(

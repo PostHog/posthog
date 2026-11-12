@@ -395,7 +395,7 @@ _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "sour
 WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
 
 
-def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
+def cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
     try:
         return feature_enabled_or_false(
             WORKFLOWS_COHORT_CONDITIONS_FLAG,
@@ -1695,7 +1695,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             get_team = self.context.get("get_team")
             if get_team is None:
                 return False
-            return _cohort_conditions_rolled_out(user, str(get_team().organization_id))
+            return cohort_conditions_rolled_out(user, str(get_team().organization_id))
         except Exception:
             return False
 
@@ -5336,7 +5336,7 @@ class HogFlowViewSet(
                 user is not None
                 and not user.is_anonymous
                 and not isinstance(user, SyntheticUser)
-                and _cohort_conditions_rolled_out(user, str(self.team.organization_id))
+                and cohort_conditions_rolled_out(user, str(self.team.organization_id))
             )
         if self._cohort_conditions_rollout:
             return True
