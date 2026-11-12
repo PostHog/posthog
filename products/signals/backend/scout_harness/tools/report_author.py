@@ -96,9 +96,8 @@ class ScoutRunReportAuthor:
 
     @property
     def can_edit_reports(self) -> bool:
-        # Read from the channel the runner stamped when the run started, like `_run_can_emit_report`,
-        # because the run's prompt was built from that tool list. A run without the stamp counts as
-        # unable to edit, so its hints never send it to an endpoint that can refuse it.
+        # The stamp, not the skill, because the run's prompt was built from the stamped tool list. An
+        # unstamped run counts as unable to edit, so no hint sends it to an endpoint that can refuse it.
         return (self.run.metadata or {}).get("report_channel") in ("edit", "both")
 
     @property
@@ -189,7 +188,6 @@ class UserReportAuthor:
 
     @property
     def can_edit_reports(self) -> bool:
-        # The report API lets a person file a report, not edit one.
         return False
 
     @property

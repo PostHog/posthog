@@ -55,7 +55,6 @@ class _QualityCheck:
     hint: QualityHint
     applies: Callable[[str], bool]
     repair: Callable[[str], str] | None = None
-    # Sent instead of `hint` to a caller that cannot call edit_report, when `hint` tells the caller to edit.
     hint_without_edit: QualityHint | None = None
 
 
