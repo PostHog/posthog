@@ -19,7 +19,7 @@
 // failed diff in the workflow, which never reaches this script. That is a
 // different statement from "everything": it means "unknown".
 //
-// The bias is relaxed in exactly two places, both bounded by what one PR can
+// The bias is relaxed in exactly three places, all bounded by what one PR can
 // name in another. The conflict that lanes exist to prevent is semantic rather
 // than textual, because a textual one would force a rebase and a retest: PR A
 // renames a facade function and updates every current caller, PR B adds a new
@@ -72,6 +72,32 @@
 //      the product graph means every member reaches every other, so any seed inside it
 //      expanded to the whole backend and the cascade could not distinguish
 //      products at all.
+//
+//   3. A warehouse source vendor directory (products/warehouse_sources/sources/
+//      <vendor>/, every directory there except the SDK) claims only the vendor
+//      lane, not the warehouse_sources product lane. A vendor imports nothing but
+//      the SDK and third-party packages, and tach, import-linter and a repo
+//      invariant enforce that, so no code outside the vendor can reference its
+//      symbols. That makes the SDK the vendors' only direct import, and narrowing
+//      2 already bounds a cascade at direct importers. The lane is therefore
+//      claimed by the SDK and every other file of the warehouse_sources product,
+//      by the products/ root files that vendor tests collect, by the repo
+//      invariants that walk the vendor tree, and by the Python toolchain domain,
+//      because a lockfile change reaches a vendor's third-party packages
+//      directly. It is not claimed by the rest of posthog/ or by other products,
+//      which reach a vendor only through the SDK.
+//
+//      This keeps a vendor PR out of the lane that every core PR claims. A vendor
+//      PR queued in that lane is tested on top of the core PRs ahead of it, and
+//      that diff starts the full backend suite for a change no backend test
+//      imports. In its own lane, the queue run holds only vendor changes, and the
+//      warehouse sources job in ci-python.yml narrows it to the changed vendors.
+//
+//      ACCEPTED RISK: a core PR that changes what the SDK returns and a vendor PR
+//      that depends on the old behavior merge in parallel, and neither queue run
+//      held both. The core PR's own queue run tests every vendor already on
+//      master, so the gap is the new vendor code only. The hourly master run of
+//      the full vendor suite is the net for it.
 //
 // That bias is the opposite of the one in ci-*.yml path filters. Those filters
 // decide which tests to run, where an over-broad match wastes runner minutes
@@ -1505,6 +1531,31 @@ const pyProduct = (product) => `py:product:${product}`
 const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
 
+// See narrowing 3 at the top of this file. The directory layout and the SDK
+// name match tools/warehouse_sources_vendor_selection.py, which narrows the
+// vendor tests by the same rule.
+const WAREHOUSE_SOURCES_PRODUCT = 'warehouse_sources'
+const WAREHOUSE_SOURCE_PLUGIN_DIR = 'products/warehouse_sources/sources/'
+const WAREHOUSE_SOURCE_SDK_DIR = 'sdk'
+const WAREHOUSE_SOURCE_VENDORS = 'py:warehouse-source-vendors'
+const REPO_INVARIANTS_DIR = 'posthog/test/repo_invariants/'
+
+// Without the product, the lane would name a target that no other PR can
+// claim, so the vendor files fall through to the ordinary rules.
+function hasWarehouseSourceVendorLane(context) {
+    return context.products.includes(WAREHOUSE_SOURCES_PRODUCT)
+}
+
+function isWarehouseSourceVendorFile(file) {
+    if (!file.startsWith(WAREHOUSE_SOURCE_PLUGIN_DIR)) {
+        return false
+    }
+    // A file directly in the plugin directory (its conftest.py, __init__.py)
+    // is collected by every vendor's tests, so it is not inside one vendor.
+    const segments = file.slice(WAREHOUSE_SOURCE_PLUGIN_DIR.length).split('/')
+    return segments.length >= 2 && segments[0] !== WAREHOUSE_SOURCE_SDK_DIR
+}
+
 // Internal sentinel for a file whose crate radius only the determinator's
 // answer can state, because the path names no crate directory to seed from
 // (rust/Cargo.lock). Consumed by the determinator resolution at the end of
@@ -1563,6 +1614,9 @@ function allKnownTargets(context) {
         targets.add(pyProduct(product))
         targets.add(feProduct(product))
     }
+    if (hasWarehouseSourceVendorLane(context)) {
+        targets.add(WAREHOUSE_SOURCE_VENDORS)
+    }
     for (const service of services) {
         targets.add(`svc:${service}`)
     }
@@ -1596,6 +1650,9 @@ function addPythonLanes(targets, context) {
     targets.add('py:core')
     for (const product of context.products) {
         targets.add(pyProduct(product))
+    }
+    if (hasWarehouseSourceVendorLane(context)) {
+        targets.add(WAREHOUSE_SOURCE_VENDORS)
     }
     // pyproject.toml roots products, but Python also lives under tools/, and the
     // pr-approval-agent engine holds a lane of its own through .stamphog.
@@ -2019,12 +2076,22 @@ function computeTargets(changedFiles, context) {
             continue
         }
 
+        if (isWarehouseSourceVendorFile(file) && hasWarehouseSourceVendorLane(context)) {
+            targets.add(WAREHOUSE_SOURCE_VENDORS)
+            continue
+        }
+
         for (const lane of nodeLanesForWorkspaceFile(file, context)) {
             targets.add(lane)
         }
 
         if (top === 'posthog' || top === 'clickhouse-udfs' || (top === 'ee' && segments[1] !== 'frontend')) {
             allPyProducts()
+            // Several repo invariants walk the vendor tree, and the warehouse
+            // sources job in ci-python.yml runs them on every vendor change.
+            if (file.startsWith(REPO_INVARIANTS_DIR) && hasWarehouseSourceVendorLane(context)) {
+                targets.add(WAREHOUSE_SOURCE_VENDORS)
+            }
             continue
         }
         // The desktop app bundles the agent workspace and the desktop-* workflows test it,
@@ -2130,6 +2197,9 @@ function computeTargets(changedFiles, context) {
         if (top === 'products' && segments.length === 2) {
             allPyProducts()
             allFeProducts()
+            if (hasWarehouseSourceVendorLane(context)) {
+                targets.add(WAREHOUSE_SOURCE_VENDORS)
+            }
             continue
         }
         if (top === 'products' && segments.length > 2) {
@@ -2155,6 +2225,11 @@ function computeTargets(changedFiles, context) {
                 targets.add(feProduct(product))
             }
             if (isBackend || (!isBackend && !isFrontend && !isWorkspaceOnly)) {
+                // The SDK and the product code it imports are what every vendor
+                // runs on, so they share the vendor lane as well as their own.
+                if (product === WAREHOUSE_SOURCES_PRODUCT) {
+                    targets.add(WAREHOUSE_SOURCE_VENDORS)
+                }
                 if (isBackend && deletedFiles.has(file)) {
                     // The tach map is read from the head tree, so a deleted or
                     // renamed-away file is not in it and its importers are

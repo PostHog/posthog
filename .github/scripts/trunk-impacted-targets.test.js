@@ -1919,6 +1919,48 @@ test('the cascade names direct importers and stops before the next hop', () => {
     ])
 })
 
+// A vendor imports only the SDK, so the SDK is its one direct importer edge and
+// core sits a hop beyond it. If a reader below loses the vendor lane, a change
+// that can break a vendor merges in parallel with one, which is the failure
+// lanes exist to prevent. If core gains it, every vendor PR queues behind core
+// PRs again and the queue runs the full backend suite for it.
+test('a warehouse source vendor claims only the vendor lane, which every vendor reader shares', () => {
+    const vendorLane = 'py:warehouse-source-vendors'
+    const context = { ...CONTEXT, products: [...CONTEXT.products, 'warehouse_sources'] }
+    const vendorDir = 'products/warehouse_sources/sources/acme'
+    assert.deepEqual(
+        computeTargets(
+            [
+                `${vendorDir}/source.py`,
+                `${vendorDir}/icon.png`,
+                `${vendorDir}/tests/test_acme.py`,
+                `${vendorDir}/README.md`,
+            ],
+            context
+        ),
+        [vendorLane]
+    )
+
+    const readers = [
+        'products/warehouse_sources/sources/sdk/source.py',
+        'products/warehouse_sources/sources/conftest.py',
+        'products/warehouse_sources/backend/facade/api.py',
+        'products/conftest.py',
+        'posthog/test/repo_invariants/test_dataclass_defaults.py',
+        'mypy.ini',
+        'bin/download-mmdb',
+    ]
+    for (const file of readers) {
+        assert.equal(computeTargets([file], context).includes(vendorLane), true, file)
+    }
+    for (const file of ['posthog/models/user.py', 'products/alpha/backend/api.py']) {
+        assert.equal(computeTargets([file], context).includes(vendorLane), false, file)
+    }
+
+    assert.equal(computeTargets([`${vendorDir}/source.py`], CONTEXT).includes(vendorLane), false)
+    assert.equal(allKnownTargets(CONTEXT).includes(vendorLane), false)
+})
+
 // The base CONTEXT keeps an empty tach graph, so no product is declared in it.
 // A product `tach check` does not constrain has no bounded importer set: any
 // module may import it, so its change still has to reach every backend lane.
