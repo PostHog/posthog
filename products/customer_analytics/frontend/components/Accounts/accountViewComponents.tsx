@@ -14,6 +14,7 @@ import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabConten
 import { AccountAutomationsExpansion } from './AccountAutomationsExpansion'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
+import { AccountDotMatrixTile } from './AccountDotMatrixTile'
 import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
 import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
 import { AccountNotesExpansion } from './AccountNotesExpansion'
@@ -43,7 +44,7 @@ export type AccountSystemTabKind =
     | 'meetings'
     | 'automations'
 
-export type AccountViewComponentKind = AccountSystemTabKind | 'properties' | 'session_replays'
+export type AccountViewComponentKind = AccountSystemTabKind | 'properties' | 'session_replays' | 'dot_matrix'
 
 interface AccountViewComponentBase {
     tagName: string
@@ -53,6 +54,8 @@ interface AccountViewComponentBase {
     ConfigEditor?: (props: AccountViewTileConfigEditorProps) => JSX.Element
     onConfigSaved?: (config: AccountViewTileConfig) => void
     tileInsetClassName?: string
+    tileContentClassName?: string
+    remountOnConfigReload?: boolean
 }
 
 export interface AccountSystemTabDefinition extends AccountViewComponentBase {
@@ -63,7 +66,7 @@ export interface AccountSystemTabDefinition extends AccountViewComponentBase {
 export type AccountViewComponentDefinition =
     | AccountSystemTabDefinition
     | (AccountViewComponentBase & {
-          kind: 'properties' | 'session_replays'
+          kind: 'properties' | 'session_replays' | 'dot_matrix'
           systemTabId?: never
       })
 
@@ -124,6 +127,21 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
                 {...getTileLogicProps(props)}
             />
         ),
+    },
+    {
+        kind: 'dot_matrix',
+        tagName: 'DotMatrix',
+        label: 'Dot matrix',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX,
+        Component: (props) => (
+            <AccountDotMatrixTile
+                accountId={props.accountId}
+                externalId={props.externalId}
+                {...getTileLogicProps(props)}
+            />
+        ),
+        tileContentClassName: '',
+        remountOnConfigReload: false,
     },
     {
         kind: 'notes',

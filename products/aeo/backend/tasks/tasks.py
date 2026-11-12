@@ -29,9 +29,13 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.aeo.backend import suggestions
+from products.aeo.backend import keyword_suggestions, suggestions
 from products.aeo.backend.catalog import recompute_own_citations, sync_brands_from_run
-from products.aeo.backend.facade.contracts import AEO_CITATION_TRACKING_FLAG, PromptSuggestionRequest
+from products.aeo.backend.facade.contracts import (
+    AEO_CITATION_TRACKING_FLAG,
+    KeywordSuggestionRequest,
+    PromptSuggestionRequest,
+)
 from products.aeo.backend.runner import run_citation_checks
 
 logger = structlog.get_logger(__name__)
@@ -189,6 +193,32 @@ def suggest_aeo_prompts_task(team_id: int, job_id: str, request: dict) -> None:
         # Without this the client would poll a pending job until it expires.
         suggestions.fail_job(team_id, job_id, "Prompt suggestions failed. Try again in a minute.")
         logger.exception("aeo_prompt_suggestions_task_failed", team_id=team_id)
+        raise
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=SUGGESTION_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=SUGGESTION_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit  # Team is the tenant; keywords, prompts and checks are read via for_team
+def suggest_aeo_keywords_task(team_id: int, job_id: str, request: dict) -> None:
+    try:
+        keyword_suggestions.run_job(
+            team_id,
+            job_id,
+            KeywordSuggestionRequest(
+                domain=request["domain"],
+                brand=request["brand"],
+                description=request["description"],
+                count=request["count"],
+            ),
+        )
+    except Exception:
+        # Without this the client would poll a pending job until it expires.
+        keyword_suggestions.fail_job(team_id, job_id, keyword_suggestions.FAILED_ERROR)
+        logger.exception("aeo_keyword_suggestions_task_failed", team_id=team_id)
         raise
 
 

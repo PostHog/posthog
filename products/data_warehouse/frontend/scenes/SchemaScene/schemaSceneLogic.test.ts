@@ -6,6 +6,8 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSchemaStatus, ExternalDataSchemaWithSource } from '~/types'
 
+import * as warehouseSourcesApi from 'products/warehouse_sources/frontend/generated/api'
+
 import { schemaSceneLogic } from './schemaSceneLogic'
 
 jest.mock('lib/api')
@@ -37,6 +39,27 @@ describe('schemaSceneLogic', () => {
     afterEach(() => {
         logic?.unmount()
         jest.restoreAllMocks()
+    })
+
+    it.each([
+        ['warehouse source with a CDC engine', 'warehouse', 'postgres', true],
+        ['direct query source', 'direct', 'postgres', false],
+        ['source type without CDC', 'warehouse', undefined, false],
+    ] as const)('sourceSupportsCdc for a %s', async (_, accessMethod, cdcEngine, expected) => {
+        jest.spyOn(api.externalDataSchemas, 'get').mockResolvedValue(
+            makeSchema({ source: { source_type: 'Postgres', access_method: accessMethod } as any })
+        )
+        const wizardSpy = jest
+            .spyOn(warehouseSourcesApi, 'externalDataSourcesWizardRetrieve')
+            .mockResolvedValue({ Postgres: { name: 'Postgres', cdcEngine } } as any)
+        logic.actions.loadSchema()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.loadSourceConfig()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(wizardSpy).toHaveBeenCalledWith(expect.any(String), { source_type: 'Postgres' })
+        expect(logic.values.sourceSupportsCdc).toBe(expected)
     })
 
     it('resyncSchema toggles the loading flag around the request and resyncs by id', async () => {
