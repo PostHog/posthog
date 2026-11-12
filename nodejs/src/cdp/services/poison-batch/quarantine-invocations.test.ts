@@ -66,6 +66,25 @@ describe('InvocationQuarantine', () => {
             expect(await parseQuarantinedInvocation(message(value))).toMatchObject({ ...expected, queue: 'hogdlq' })
         })
 
+        // ClickHouse skips a results row whose first_scheduled_at it cannot parse, and the quarantine would leave no
+        // record. Without the field, the row falls back to scheduled_at, like any other writer.
+        it.each([
+            ['2026-11-12 08:00:00.123456', '2026-11-12 08:00:00.123456'],
+            ['2026-11-12 08:00:00', '2026-11-12 08:00:00'],
+            ['2026-11-12T08:00:00.000Z', undefined],
+            ['2026-02-30 08:00:00.000000', undefined],
+            ['garbage', undefined],
+            [1731398400, undefined],
+        ])('keeps state.firstScheduledAt %p only in the format ClickHouse reads', async (firstScheduledAt, kept) => {
+            const value = Buffer.from(
+                JSON.stringify({ id: 'id', teamId: 7, functionId: 'fn', state: { ...state, firstScheduledAt } })
+            )
+
+            const read = await parseQuarantinedInvocation(message(value))
+
+            expect(read.state).toEqual(kept === undefined ? state : { ...state, firstScheduledAt: kept })
+        })
+
         // A divert copies the message the hog worker produced unchanged, so the dead letter worker reads that format.
         it.each([true, false])(
             'identifies an invocation the queue produced with compression %p',

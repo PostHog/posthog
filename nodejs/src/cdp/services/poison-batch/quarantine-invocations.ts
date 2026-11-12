@@ -119,6 +119,24 @@ export class InvocationQuarantine {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value)
 
+const CLICKHOUSE_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$/
+
+// The results service writes firstScheduledAt into first_scheduled_at verbatim, and ClickHouse skips a row whose
+// value it cannot parse. Without the field, the row falls back to scheduled_at like any other writer's row.
+const withReadableFirstScheduledAt = (state: Record<string, unknown>): Record<string, unknown> => {
+    const { firstScheduledAt, ...rest } = state
+    if (firstScheduledAt === undefined) {
+        return state
+    }
+    const readable =
+        typeof firstScheduledAt === 'string' &&
+        CLICKHOUSE_DATETIME.test(firstScheduledAt) &&
+        // A day past the end of its month passes the pattern, and Date rolls it over to the next month.
+        new Date(`${firstScheduledAt.slice(0, 19).replace(' ', 'T')}Z`).toISOString().slice(0, 19) ===
+            firstScheduledAt.slice(0, 19).replace(' ', 'T')
+    return readable ? state : rest
+}
+
 /**
  * Reads a message that crashed the worker without throwing, because a throw here would crash the worker on
  * the same message again. A payload that does not parse keeps the invocation id, team and function from the
@@ -143,7 +161,7 @@ export async function parseQuarantinedInvocation(message: Message): Promise<Cycl
         teamId: typeof body.teamId === 'number' ? body.teamId : Number(headers.teamId),
         functionId: typeof body.functionId === 'string' ? body.functionId : (headers.functionId ?? ''),
         parentRunId: typeof body.parentRunId === 'string' ? body.parentRunId : undefined,
-        state: isRecord(body.state) ? body.state : null,
+        state: isRecord(body.state) ? withReadableFirstScheduledAt(body.state) : null,
         queue: DEAD_LETTER_QUEUE,
         queuePriority: typeof body.queuePriority === 'number' ? body.queuePriority : 0,
         queueSource: 'kafka',
