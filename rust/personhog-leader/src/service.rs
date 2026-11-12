@@ -1293,6 +1293,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         // rendering would otherwise be unparseable on the way back). The
         // measured size is then the stored size.
         let sanitize_stats = sanitize_for_jsonb(&mut new_properties);
+        let mut properties_changed = actually_updated
+            || sanitize_stats.nul_strings > 0
+            || sanitize_stats.clamped_numbers > 0;
         if sanitize_stats.nul_strings > 0 {
             counter!("personhog_leader_properties_nul_sanitized_total")
                 .increment(sanitize_stats.nul_strings);
@@ -1330,6 +1333,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                                 .to_string(),
                         });
                         new_properties = trimmed;
+                        properties_changed = true;
                     }
                     // Reachable only when trim_target == threshold and the
                     // stored size sits exactly on it: nothing to trim, but
@@ -1337,6 +1341,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                     // state, discarding the update like the arm above.
                     TrimResult::Fits => {
                         new_properties = person_properties.clone();
+                        properties_changed = false;
                     }
                     TrimResult::CannotFit => {
                         counter!(
@@ -1377,6 +1382,11 @@ impl PersonHogLeader for PersonHogLeaderService {
             }
         }
 
+        let properties_outcome = if properties_changed {
+            "changed"
+        } else {
+            "unchanged"
+        };
         let properties_bytes = serde_json::to_vec(&new_properties)
             .map_err(|e| Status::internal(format!("serialize updated properties: {e}")))?;
         // A version this pod already put on the wire is spent even when
@@ -1402,7 +1412,17 @@ impl PersonHogLeader for PersonHogLeaderService {
         let committed = self
             .commit_document(partition, &cache_key, updated_person, guard, inflight_guard)
             .await?;
-        counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
+        counter!(
+            "personhog_leader_updates_total",
+            "outcome" => "updated",
+            "properties" => properties_outcome
+        )
+        .increment(1);
+        counter!(
+            "personhog_leader_updated_properties_bytes_total",
+            "properties" => properties_outcome
+        )
+        .increment(jsonb_size as u64);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {
             person: Some(committed.proto),
