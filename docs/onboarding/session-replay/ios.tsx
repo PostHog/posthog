@@ -107,6 +107,13 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // Before SDK version 4.0, also set config.sessionReplayConfig.screenshotMode = true,
                                             // otherwise replays are recorded as wireframes and SwiftUI screens aren't recorded.
 
+                                            // Experimental. Moves screenshot capture to a background queue, which can
+                                            // reduce main-thread hangs and dropped frames on complex screens or high
+                                            // refresh rate (120Hz ProMotion) displays. May trigger Xcode's Main Thread
+                                            // Checker and briefly freeze the app on the first capture.
+                                            // Default is false. Requires SDK version 3.58.1 or higher.
+                                            config.sessionReplayConfig.screenshotModeBackgroundCapture = false
+
                                             // Minimum time (in seconds) between snapshots. Default is 1.0s.
                                             // Snapshots are taken when views lay out, so this caps how often one
                                             // can be captured rather than setting a fixed frame rate.
