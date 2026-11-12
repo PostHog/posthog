@@ -183,7 +183,7 @@ const JOURNEY_FIRST_STEP_COPY: Record<
         journey: {
             title: 'Pick your first journey',
             description:
-                'Start from a template or from scratch. Next, you set up the email it sends from. Then it opens in the editor as a draft, and nothing sends until you launch it.',
+                'Start from a template or from scratch. Next, you set up how it reaches people. Then it opens in the editor as a draft, and nothing sends until you launch it.',
         },
         channel: {
             title: 'Connect the address your journey sends from',
