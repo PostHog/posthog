@@ -16,6 +16,7 @@ from products.workflows.backend.services.customerio_import import conditions
 _COHORT_OPERATORS = {"eq", "!eq", "contains", "!contains", "gt", "lt", "exists", "!exists", "bw"}
 _ABSOLUTE_DATE_OPERATORS = {"timestamp_gta", "timestamp_lta", "timestamp_bw"}
 _GROUP_TYPES = {"and": "AND", "or": "OR"}
+_REGEX_SYNTAX = set("\\.^$|?*+()[]{}")
 
 
 def segment_cohort_filters(segment_conditions: Any) -> SegmentCohortFilters:
@@ -79,6 +80,8 @@ class _Translation:
         if attribute is None and node.get("type") in (None, "attribute") and "field" in node:
             attribute = node
         if attribute is None:
+            attribute = _current_attribute(node)
+        if attribute is None:
             self.untranslated.append(describe_rule(node))
             return []
         if attribute is not node and attribute.get("inverse"):
@@ -97,7 +100,48 @@ class _Translation:
         if filters is None or (len(filters) > 1 and group_type == "OR"):
             self.untranslated.append(description)
             return []
-        return [_with_set_value(item) for item in filters]
+        return [_with_set_value(_ignoring_case(item)) for item in filters]
+
+
+def _current_attribute(node: dict[str, Any]) -> dict[str, Any] | None:
+    """The attribute check in an `attribute_change` rule, which is how Customer.io stores "attribute is X".
+
+    Its `to` filter is the check on the current value. A `from` filter only repeats it, inverted, so any other
+    `from`, or a time window, is a rule this can't read as a plain attribute check.
+    """
+    event = node.get("event")
+    if not isinstance(event, dict) or event.get("type") != "attribute_change":
+        return None
+    field = event.get("name")
+    filters = event.get("filters")
+    leaves = filters.get("and") if isinstance(filters, dict) else None
+    if not isinstance(field, str) or not field or not isinstance(leaves, list) or node.get("within") not in (0, None):
+        return None
+    to = [leaf for leaf in leaves if isinstance(leaf, dict) and leaf.get("field") == "to"]
+    if len(to) != 1:
+        return None
+
+    def check(leaf: dict[str, Any]) -> tuple[Any, ...]:
+        return (leaf.get("operator"), leaf.get("value"), leaf.get("value2"))
+
+    for leaf in leaves:
+        if leaf is to[0]:
+            continue
+        mirrors_to = (
+            isinstance(leaf, dict)
+            and leaf.get("field") == "from"
+            and check(leaf) == check(to[0])
+            and bool(leaf.get("inverse")) != bool(to[0].get("inverse"))
+        )
+        if not mirrors_to:
+            return None
+    return {
+        "field": field,
+        "operator": to[0].get("operator"),
+        "value": to[0].get("value"),
+        "value2": to[0].get("value2"),
+        "inverse": bool(to[0].get("inverse")),
+    }
 
 
 def describe_rule(node: dict[str, Any]) -> str:
@@ -148,6 +192,23 @@ def _change_detail(filters: Any) -> str:
 def _days(seconds: int) -> str:
     days = seconds / 86400
     return f"{days:g} days" if days >= 1 else f"{seconds // 3600 or 1} hours"
+
+
+def _ignoring_case(item: dict[str, Any]) -> dict[str, Any]:
+    # Customer.io compares segment values without case: it saves "DE" as "de" and still matches "DE".
+    if item["operator"] not in ("exact", "is_not") or not isinstance(item.get("value"), str):
+        return item
+    pattern = "".join(_any_case(character) for character in item["value"])
+    return {**item, "operator": "regex" if item["operator"] == "exact" else "not_regex", "value": f"^{pattern}$"}
+
+
+def _any_case(character: str) -> str:
+    # A character class rather than an (?i) flag, which the JavaScript HogVM can't read.
+    lower, upper = character.lower(), character.upper()
+    if lower != upper and len(lower) == 1 and len(upper) == 1:
+        return f"[{lower}{upper}]"
+    # Only the characters every engine reads as syntax: Rust's regex rejects some escapes Python's re.escape adds.
+    return f"\\{character}" if character in _REGEX_SYNTAX else character
 
 
 def _with_set_value(item: dict[str, Any]) -> dict[str, Any]:

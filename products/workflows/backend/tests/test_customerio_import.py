@@ -1,4 +1,5 @@
 import io
+import re
 import json
 import base64
 from datetime import UTC, datetime
@@ -46,6 +47,27 @@ from products.workflows.backend.services.customerio_import.translator import _js
 
 def _encode(condition: list[dict[str, Any]]) -> str:
     return base64.b64encode(quote(json.dumps(condition)).encode()).decode()
+
+
+def _attribute_rule(attribute: dict[str, Any]) -> dict[str, Any]:
+    check = {key: attribute[key] for key in ("operator", "value", "value2") if key in attribute}
+    check.setdefault("operator", "eq")
+    negated = bool(attribute.get("inverse"))
+    return {
+        "event": {
+            "type": "attribute_change",
+            "name": attribute["field"],
+            "filters": {
+                "and": [
+                    {"field": "to", **check, "inverse": negated},
+                    {"field": "from", **check, "inverse": not negated},
+                ]
+            },
+        },
+        "times": 1,
+        "within": 0,
+        "inverse": False,
+    }
 
 
 def _onboarding_campaign() -> CampaignSource:
@@ -480,12 +502,15 @@ class TestCustomerioConditions(SimpleTestCase):
     def test_segment_attribute_rules_become_cohort_groups(self) -> None:
         rules = {
             "or": [
-                {"attribute": {"field": "plan", "operator": "eq", "value": "trial"}},
+                _attribute_rule({"field": "plan", "operator": "eq", "value": "trial"}),
                 {
                     "and": [
-                        {"attribute": {"field": "email", "operator": "exists"}},
-                        {"attribute": {"field": "company", "operator": "contains", "value": "test"}, "inverse": True},
-                        {"attribute": {"field": "seats", "operator": "bw", "value": "1", "value2": "9"}},
+                        _attribute_rule({"field": "email", "operator": "exists"}),
+                        {
+                            **_attribute_rule({"field": "company", "operator": "contains", "value": "test"}),
+                            "inverse": True,
+                        },
+                        _attribute_rule({"field": "seats", "operator": "bw", "value": "1", "value2": "9"}),
                     ]
                 },
             ]
@@ -497,7 +522,9 @@ class TestCustomerioConditions(SimpleTestCase):
                 "values": [
                     {
                         "type": "OR",
-                        "values": [{"key": "plan", "operator": "exact", "type": "person", "value": "trial"}],
+                        "values": [
+                            {"key": "plan", "operator": "regex", "type": "person", "value": "^[tT][rR][iI][aA][lL]$"}
+                        ],
                     },
                     {
                         "type": "AND",
@@ -515,27 +542,42 @@ class TestCustomerioConditions(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "an attribute change is not an attribute value",
+                "a change from one value to another",
                 {
                     "and": [
                         {
                             "event": {
                                 "type": "attribute_change",
                                 "name": "plan",
-                                "filters": {"and": [{"field": "to", "operator": "eq", "value": "trial"}]},
+                                "filters": {
+                                    "and": [
+                                        {"field": "to", "operator": "eq", "value": "trial", "inverse": False},
+                                        {"field": "from", "operator": "eq", "value": "free", "inverse": False},
+                                    ]
+                                },
                             },
                             "times": 1,
                             "within": 0,
                         }
                     ]
                 },
+                ["plan changed to trial from free"],
+            ),
+            (
+                "an attribute change within a time window",
+                {"and": [{**_attribute_rule({"field": "plan", "value": "trial"}), "within": 604800}]},
                 ["plan changed to trial"],
+            ),
+            (
+                "an attribute check with no exact cohort operator",
+                {"and": [_attribute_rule({"field": "plan", "operator": "one_of", "value": '["gold","silver"]'})]},
+                ['plan one_of ["gold","silver"] (an unsupported operator)'],
             ),
             (
                 "one translatable rule does not carry the segment",
                 {
                     "and": [
-                        {"attribute": {"field": "plan", "operator": "eq", "value": "trial"}},
+                        _attribute_rule({"field": "plan", "operator": "eq", "value": "trial"}),
                         {"event": {"type": "event", "name": "signed_in"}, "times": 3, "within": 604800},
                     ]
                 },
@@ -543,17 +585,17 @@ class TestCustomerioConditions(SimpleTestCase):
             ),
             (
                 "a relative date would keep people who aged out",
-                {"and": [{"attribute": {"field": "created_at", "operator": "timestamp_gt", "value": "-2592000"}}]},
+                {"and": [_attribute_rule({"field": "created_at", "operator": "timestamp_gt", "value": "-2592000"})]},
                 ["created_at timestamp_gt -2592000 (a relative date)"],
             ),
             (
                 "a range inside an any-of group",
-                {"or": [{"attribute": {"field": "seats", "operator": "bw", "value": "1", "value2": "9"}}]},
+                {"or": [_attribute_rule({"field": "seats", "operator": "bw", "value": "1", "value2": "9"})]},
                 ["seats bw 1"],
             ),
             (
                 "rules three levels deep",
-                {"and": [{"or": [{"and": [{"attribute": {"field": "plan", "value": "trial"}}]}]}]},
+                {"and": [{"or": [{"and": [_attribute_rule({"field": "plan", "value": "trial"})]}]}]},
                 ["rules grouped more than two levels deep"],
             ),
             (
@@ -563,14 +605,14 @@ class TestCustomerioConditions(SimpleTestCase):
             ),
             (
                 "an operator that is not a string",
-                {"and": [{"attribute": {"field": "plan", "operator": ["eq"], "value": "trial"}}]},
+                {"and": [_attribute_rule({"field": "plan", "operator": ["eq"], "value": "trial"})]},
                 ["plan (an unsupported operator)"],
             ),
             ("no rules", {}, ["the segment has no rules"]),
             ("an empty group", {"and": []}, ["the segment has no rules"]),
             (
                 "a negated group",
-                {"and": [{"not": {"or": [{"attribute": {"field": "plan", "value": "trial"}}]}}]},
+                {"and": [{"not": {"or": [_attribute_rule({"field": "plan", "value": "trial"})]}}]},
                 ["a negated group of rules"],
             ),
         ]
@@ -585,13 +627,13 @@ class TestCustomerioConditions(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("outer inverse", {"attribute": {"field": "plan", "value": "trial"}, "inverse": True}, "is_not"),
-            ("inner inverse", {"attribute": {"field": "plan", "value": "trial", "inverse": True}}, "is_not"),
-            ("not wrapper", {"not": {"attribute": {"field": "plan", "value": "trial"}}}, "is_not"),
+            ("outer inverse", {**_attribute_rule({"field": "plan", "value": "trial"}), "inverse": True}, "not_regex"),
+            ("inner inverse", _attribute_rule({"field": "plan", "value": "trial", "inverse": True}), "not_regex"),
+            ("not wrapper", {"not": _attribute_rule({"field": "plan", "value": "trial"})}, "not_regex"),
             (
                 "not wrapper around an inner inverse",
-                {"not": {"attribute": {"field": "plan", "value": "trial", "inverse": True}}},
-                "exact",
+                {"not": _attribute_rule({"field": "plan", "value": "trial", "inverse": True})},
+                "regex",
             ),
         ]
     )
@@ -600,8 +642,31 @@ class TestCustomerioConditions(SimpleTestCase):
 
         assert filters is not None
         assert filters["properties"]["values"][0]["values"] == [
-            {"key": "plan", "type": "person", "operator": operator, "value": "trial"}
+            {"key": "plan", "type": "person", "operator": operator, "value": "^[tT][rR][iI][aA][lL]$"}
         ]
+
+    @parameterized.expand(
+        [
+            ("country code", "de", ["DE", "de", "De"], ["DEU", "d"]),
+            ("accents and emoji", "zoë 🚀", ["Zoë 🚀", "ZOË 🚀"], ["Zoe 🚀"]),
+            (
+                "regex characters",
+                "a.b+(c) #1 & ~x-y",
+                ["A.B+(C) #1 & ~X-Y"],
+                ["aXb+(c) #1 & ~x-y", "a.bb(c) #1 & ~x-y"],
+            ),
+        ]
+    )
+    def test_segment_values_match_without_case(
+        self, _name: str, value: str, matching: list[str], not_matching: list[str]
+    ) -> None:
+        filters = segment_cohort_filters({"and": [_attribute_rule({"field": "country", "value": value})]}).filters
+
+        assert filters is not None
+        pattern = filters["properties"]["values"][0]["values"][0]["value"]
+        assert [bool(re.search(pattern, candidate)) for candidate in matching + not_matching] == [True] * len(
+            matching
+        ) + [False] * len(not_matching)
 
     @parameterized.expand(
         [
@@ -764,7 +829,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         )
         source = _onboarding_campaign()
         campaign = {**source.campaign, "type": "seg_attr", "trigger": {"and": [{"segment": {"id": 7}}]}}
-        rules = {"and": [{"attribute": {"field": "plan", "operator": "eq", "value": "pro"}}]}
+        rules = {"and": [_attribute_rule({"field": "plan", "operator": "eq", "value": "pro"})]}
         response = self._post(
             {
                 "source": "customerio",
@@ -810,7 +875,7 @@ class TestWorkflowImportAPI(APIBaseTest):
                     "id": "16",
                     "name": "Active trials",
                     "type": "dynamic",
-                    "conditions": {"and": [{"attribute": {"field": "plan", "operator": "eq", "value": "trial"}}]},
+                    "conditions": {"and": [_attribute_rule({"field": "plan", "operator": "eq", "value": "trial"})]},
                 }
             ],
             **overrides,
@@ -874,7 +939,7 @@ class TestWorkflowImportAPI(APIBaseTest):
     def test_one_import_creates_at_most_the_cohort_budget(self, _name: str, dry_run: bool, first: str) -> None:
         source = _onboarding_campaign()
         templates = list(source.templates.values())
-        rules = {"and": [{"attribute": {"field": "plan", "operator": "eq", "value": "trial"}}]}
+        rules = {"and": [_attribute_rule({"field": "plan", "operator": "eq", "value": "trial"})]}
         campaigns: list[dict[str, Any]] = [
             {
                 "campaign": {
@@ -927,14 +992,14 @@ class TestWorkflowImportAPI(APIBaseTest):
         ]
     )
     def test_each_translated_operator_makes_a_realtime_cohort(self, _name: str, attribute: dict[str, Any]) -> None:
-        filters = segment_cohort_filters({"and": [{"attribute": attribute}]}).filters
+        filters = segment_cohort_filters({"and": [_attribute_rule(attribute)]}).filters
         assert filters is not None
 
         _, cohort_type, errors = validate_filters_and_compute_realtime_support(filters, self.team)
         assert (cohort_type, errors) == (CohortType.REALTIME, None)
 
     def test_segment_name_longer_than_a_cohort_name_is_cut(self) -> None:
-        rules = {"and": [{"attribute": {"field": "plan", "operator": "eq", "value": "trial"}}]}
+        rules = {"and": [_attribute_rule({"field": "plan", "operator": "eq", "value": "trial"})]}
         segment = {"id": "16", "name": "x" * 450, "type": "dynamic", "conditions": rules}
 
         response = self._segment_import(segments=[segment])
