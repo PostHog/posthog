@@ -79,6 +79,18 @@ class TestResendAutomationTranslation(SimpleTestCase):
             'Read variables.NAME: {{ "Alice" | default: "variables.NAME" }} {{ variables.NAME-SUFFIX }}'
         )
 
+    def test_a_variable_that_names_another_is_filled_once(self) -> None:
+        variables = {f"V{i:03d}": {"var": f"event.variables.V{i + 1:03d}.variables.V{i + 1:03d}"} for i in range(16)}
+        step = {"key": "send", "type": "send_email", "config": {"template": {"id": "t1", "variables": variables}}}
+        translated = translate_automation(
+            _automation([step], [{"from": "start", "to": "send"}]), {"t1": _email("{{ variables.V000 }}")}
+        )
+
+        action = next(action for action in translated.workflow["actions"] if action["id"] == "send")
+        assert action["config"]["inputs"]["email"]["value"]["subject"] == (
+            "{{ event.properties.variables.V001.variables.V001 }}"
+        )
+
     def test_custom_contact_properties_lose_the_properties_prefix(self) -> None:
         send = {
             "key": "send",

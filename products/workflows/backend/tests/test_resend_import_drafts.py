@@ -55,8 +55,25 @@ class TestResendAutomationDrafts(BaseTest):
             assert self._import(_automation("a2")).notes == ("bad step",)
         unreadable = {**_automation("a3"), "steps": [{"key": "wait", "type": "delay", "config": "1 hour"}]}
         assert self._import(unreadable).status == "failed"
+        object_type = {**_automation("a4"), "steps": [{"key": "start", "type": {"name": "trigger"}}]}
+        assert self._import(object_type).status == "created"
 
         assert [self._import(_automation(key)).status for key in ("a1", "a2")] == ["created", "created"]
+
+    @parameterized.expand([("deactivated",), ("no_workflow_edit_access",)])
+    def test_a_starter_who_lost_access_creates_no_draft(self, name: str) -> None:
+        if name == "deactivated":
+            self.user.is_active = False
+            self.user.save()
+        with patch.object(
+            drafts.UserAccessControl,
+            "check_access_level_for_resource",
+            side_effect=lambda resource, *_a, **_k: name == "deactivated" or resource != "hog_flow",
+        ):
+            result = self._import(_automation("a1"))
+
+        assert result.status == "failed"
+        assert not HogFlow.objects.filter(team=self.team).exists()
 
     @parameterized.expand(
         [
