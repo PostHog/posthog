@@ -884,6 +884,8 @@ def test_send_weekly_digest_batch_stops_sending_once_the_activity_is_cancelled(
     with (
         override_settings(**WEBHOOK_SETTINGS),
         patch("posthog.temporal.weekly_digest.activities.requests.Session", return_value=session),
+        # A full batch of records persists from the organization's `finally`, which still runs after the cancellation.
+        patch("posthog.temporal.weekly_digest.activities.RECORD_BATCH_SIZE", 1),
         pytest.raises(ActivityCancelled),
     ):
         activity_environment.run(

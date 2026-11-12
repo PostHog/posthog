@@ -1154,6 +1154,9 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
     workflows_session = requests.Session()
 
     def record_sent(records: list[tuple[str, MessagingRecord]]) -> None:
+        # A cancellation can reach this from an organization's `finally` after only some of its members got a
+        # post. The next attempt resends every organization in the batch, and the Idempotency-Key stops repeats.
+        _raise_if_cancelled()
         # An organization with a failed post keeps sent_at empty, so the next attempt resends it.
         delivered = [record for organization_id, record in records if organization_id not in failed_organization_ids]
         if len(delivered) < len(records):
