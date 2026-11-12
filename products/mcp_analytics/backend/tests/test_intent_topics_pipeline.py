@@ -2,7 +2,7 @@ import os
 
 os.environ.setdefault("NUMBA_THREADING_LAYER", "workqueue")
 
-from datetime import timedelta  # noqa: E402
+from datetime import UTC, datetime, timedelta  # noqa: E402
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events  # noqa: E402
 from unittest.mock import patch  # noqa: E402
@@ -190,6 +190,17 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert sorted(str(t.pk) for t in MCPIntentTopic.active.filter(team=self.team)) == first_ids
         assert MCPIntentClusteringRun.objects.filter(team=self.team, kind="refit", status="succeeded").count() == 2
 
+    @patch("products.mcp_analytics.backend.intent_topics.pipeline.labeling.label_topics", return_value={})
+    def test_assign_inserts_one_day_at_a_time(self, _mock_labels) -> None:
+        pipeline.run_refit(self.team, now=NOW)
+
+        with patch.object(pipeline, "sync_execute", wraps=pipeline.sync_execute) as insert:
+            assign = pipeline.run_assign(self.team, window_start=NOW - timedelta(days=7), window_end=NOW)
+
+        assert insert.call_count == 7
+        assert assign.n_intents == 120
+        assert sum(r[1] for r in self._assignments()) == 120
+
     def test_assign_without_topics_is_skipped(self) -> None:
         outcome = pipeline.run_assign(self.team, window_start=NOW - timedelta(days=1), window_end=NOW)
 
@@ -239,3 +250,20 @@ class TestSyncWindow(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
         start = pipeline.sync_window_start(self.team, now=NOW)
 
         assert start == NOW - pipeline.MAX_SYNC_CATCH_UP
+
+
+class TestAssignmentSlices:
+    def test_cuts_the_window_into_days_without_gap_or_overlap(self) -> None:
+        start = datetime(2026, 11, 1, 6, 30, tzinfo=UTC)
+        end = start + timedelta(days=2, hours=5)
+
+        assert list(pipeline.assignment_slices(start, end)) == [
+            (start, start + timedelta(days=1)),
+            (start + timedelta(days=1), start + timedelta(days=2)),
+            (start + timedelta(days=2), end),
+        ]
+
+    def test_an_empty_window_has_no_slices(self) -> None:
+        moment = datetime(2026, 11, 1, tzinfo=UTC)
+
+        assert list(pipeline.assignment_slices(moment, moment)) == []

@@ -152,6 +152,18 @@ WHERE run_id = {run_id}
 """
 
 
+ASSIGNMENT_SLICE = timedelta(days=1)
+
+
+def assignment_slices(window_start: datetime, window_end: datetime) -> Iterator[tuple[datetime, datetime]]:
+    """[window_start, window_end) cut into consecutive pieces of at most ASSIGNMENT_SLICE, with no gap or overlap."""
+    cursor = window_start
+    while cursor < window_end:
+        slice_end = min(cursor + ASSIGNMENT_SLICE, window_end)
+        yield cursor, slice_end
+        cursor = slice_end
+
+
 def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
     run = persist.start_run(
         team,
@@ -167,10 +179,19 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
         persist.finish_run(run, status=Status.SKIPPED_TOO_FEW, error_message=message)
         return RunOutcome(run.run_id, Kind.ASSIGN, Status.SKIPPED_TOO_FEW, error_message=message)
     try:
-        sql, params = build_assignment_insert(
-            team_id=team.pk, run_id=run.run_id, window_start=window_start, window_end=window_end, topics=topics, pca=pca
-        )
-        sync_execute(sql, params, team_id=team.pk, workload=Workload.OFFLINE)
+        # One INSERT ... SELECT per day: the insert holds its result in memory until it is forwarded to the shards
+        # (about 0.3 GB per million rows), and the post-refit window is a month of intents. Per day, peak memory
+        # stays near 1 GB however long the window is.
+        for slice_start, slice_end in assignment_slices(window_start, window_end):
+            sql, params = build_assignment_insert(
+                team_id=team.pk,
+                run_id=run.run_id,
+                window_start=slice_start,
+                window_end=slice_end,
+                topics=topics,
+                pca=pca,
+            )
+            sync_execute(sql, params, team_id=team.pk, workload=Workload.OFFLINE)
         response = execute_hogql_query(
             query=parse_select(_ASSIGNMENT_COUNTS_SQL, placeholders={"run_id": ast.Constant(value=run.run_id)}),
             team=team,
