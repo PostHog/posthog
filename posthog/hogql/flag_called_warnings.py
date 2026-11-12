@@ -37,6 +37,12 @@ FLAG_CALLED_ON_EVENTS_AFTER_MOVE_WARNING = (
 )
 
 
+FLAG_CALLED_STAYS_ON_EVENTS_WARNING = (
+    f"Once PostHog stops writing flag calls to the events table, this query keeps reading {FLAG_CALLED_EVENT} events "
+    "from there, so it misses new flag calls. Filter on that event alone, or query posthog.flag_evaluations directly."
+)
+
+
 def flag_called_fails_after_move_warning(reason: str) -> str:
     return (
         f"Once PostHog stops writing flag calls to the events table, this query fails because {reason}. Change that "
@@ -276,15 +282,12 @@ def _union_refusal(node: ast.SelectQuery, scan: EventsScan, position: int) -> st
     return None
 
 
-def _mode_2_check(
-    node: ast.SelectQuery, found: _FoundScan, literals: list[LiteralSpan], union_on: bool
-) -> _ScanCheck | None:
-    """How the swap or the union reads the scan of `found` once flag calls are only in flag_evaluations, or None when
-    the scan stays on events.
+def _mode_2_check(node: ast.SelectQuery, found: _FoundScan, literals: list[LiteralSpan], union_on: bool) -> _ScanCheck:
+    """How the scan of `found` reads flag calls once they are only in flag_evaluations.
 
     It follows the rules of `_EventsScanSwapper` and `_UnionRenamer`. The swap moves a scan whose filters pin `event` to
     flag calls. It moves a joined scan only when the query names it `events`. The union reads a sampled first scan and
-    every scan the swap leaves, when `union_on`. A scan that neither reads stays on events.
+    every scan the swap leaves, when `union_on`. A scan that neither reads stays on events and misses new flag calls.
     """
     scan, position = found.scan, found.position
     sampled = scan.join.sample is not None and not scan.join.sample.samples_all_rows()
@@ -295,7 +298,7 @@ def _mode_2_check(
     elif union_on:
         refusal = _union_refusal(node, scan, position)
     else:
-        return None
+        return _ScanCheck(scan=scan, literals=literals, warning=FLAG_CALLED_STAYS_ON_EVENTS_WARNING)
     warning = flag_called_fails_after_move_warning(refusal) if refusal is not None else None
     return _ScanCheck(scan=scan, literals=literals, warning=warning)
 
@@ -321,9 +324,7 @@ class _MoveRefusalFinder(ScanVisitor):
             finder.visit(node)
             if not finder.literals:
                 continue
-            check = _mode_2_check(node, found, finder.literals, self.union_on)
-            if check is not None:
-                self.frames[-1].append(check)
+            self.frames[-1].append(_mode_2_check(node, found, finder.literals, self.union_on))
 
     def visit_field(self, node: ast.Field) -> None:
         for check in self.frames[-1] if self.frames else []:

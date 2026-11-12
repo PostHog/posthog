@@ -30,6 +30,7 @@ from posthog.hogql.flag_called_warnings import (
     FLAG_CALLED_ON_EVENTS_AFTER_MOVE_WARNING,
     FLAG_CALLED_ON_EVENTS_NOTICE,
     FLAG_CALLED_SPLIT_BY_AGE_NOTICE,
+    FLAG_CALLED_STAYS_ON_EVENTS_WARNING,
     flag_called_fails_after_move_warning,
     flag_called_missing_field_warning,
 )
@@ -430,7 +431,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("equals", _FLAG_CALLED_QUERY, True, 1),
-            ("in_list", "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')", True, 1),
+            param(
+                "in_list",
+                "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
+                True,
+                1,
+                move_message=FLAG_CALLED_STAYS_ON_EVENTS_WARNING,
+            ),
             ("namespaced_table", "SELECT count() FROM posthog.events WHERE event = '$feature_flag_called'", True, 1),
             ("aliased_table", "SELECT count() FROM events AS e WHERE e.event = '$feature_flag_called'", True, 1),
             ("aliased_column", "SELECT event AS name FROM events WHERE name = '$feature_flag_called'", True, 1),
@@ -441,6 +448,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 True,
                 1,
                 move_message=flag_called_fails_after_move_warning("it uses SAMPLE"),
+            ),
+            param(
+                "ratio_sample_read_by_the_union_after_the_move_from_events_mode",
+                "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'",
+                True,
+                1,
+                union_enabled=True,
             ),
             param(
                 "ratio_sample_read_by_the_union_after_the_move",
@@ -634,6 +648,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 True,
                 1,
                 mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                move_message=FLAG_CALLED_STAYS_ON_EVENTS_WARNING,
             ),
             param(
                 "mixed_scan_the_union_would_decline_with_the_union_off",
@@ -641,6 +656,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 True,
                 1,
                 mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                move_message=FLAG_CALLED_STAYS_ON_EVENTS_WARNING,
             ),
             param(
                 "mixed_scan_with_the_union_off_once_events_gets_no_flag_calls",

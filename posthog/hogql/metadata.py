@@ -60,7 +60,6 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.taxonomy_validation import validate_taxonomy_references
-from posthog.hogql.transforms.flag_calls_union import union_applies
 from posthog.hogql.type_system import runtime_type_from_constant_type
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -399,7 +398,9 @@ def _flag_called_notices(
             else:
                 if refusals is None:
                     # Once events gets no flag calls, the swap raises for each query that this finds.
-                    refusals = flag_called_move_refusals(hogql_ast, union_on=union_applies(context))
+                    # The union flag decides the mode 2 read even while the current mode doesn't read flag_evaluations.
+                    union_on = context.database is not None and context.database.flag_calls_union_enabled
+                    refusals = flag_called_move_refusals(hogql_ast, union_on=union_on)
                 if span in refusals:
                     move_warnings.append(candidate.model_copy(update={"message": refusals[span], "url": url}))
                 else:
