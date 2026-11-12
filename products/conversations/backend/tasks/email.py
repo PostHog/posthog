@@ -1,5 +1,6 @@
 """Email outbox send, retry, and periodic flush."""
 
+import re
 import html as html_mod
 from datetime import timedelta
 from email.utils import formataddr
@@ -27,6 +28,7 @@ from products.conversations.backend.mailgun import (
     send_mime,
 )
 from products.conversations.backend.models import EmailMessageMapping, EmailOutboxMessage, Ticket
+from products.conversations.backend.services.attachments import load_linked_attachments
 
 logger = structlog.get_logger(__name__)
 
@@ -39,6 +41,19 @@ EMAIL_OUTBOX_BACKOFF_BASE_SECONDS = 60
 EMAIL_OUTBOX_BACKOFF_MAX_SECONDS = 3600  # cap retry spacing at ~1h during a long outage
 EMAIL_OUTBOX_MAX_AGE = timedelta(days=5)  # give up past this (comfortably > a Fri-Mon block)
 EMAIL_OUTBOX_FLUSH_BATCH_SIZE = 100
+
+# Django builds message/* and multipart/* parts from structured objects, not bytes, and it splits
+# the type on "/". A stored type outside this set would make the MIME build raise on every retry.
+_ATTACHABLE_MIME_MAINTYPES = frozenset({"application", "audio", "font", "image", "model", "text", "video"})
+_MIME_SUBTYPE_RE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]*")
+
+
+def _attachment_mime_type(content_type: str) -> str:
+    mime_type = content_type.split(";", 1)[0].strip().lower()
+    maintype, _, subtype = mime_type.partition("/")
+    if maintype in _ATTACHABLE_MIME_MAINTYPES and _MIME_SUBTYPE_RE.fullmatch(subtype):
+        return mime_type
+    return "application/octet-stream"
 
 
 def _set_comment_delivery_status(team_id: int, comment_id: UUID, status_value: str) -> None:
@@ -210,6 +225,8 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         headers=headers,
     )
     email_message.attach_alternative(html_body, "text/html")
+    for attachment in load_linked_attachments(outbox.team_id, comment.rich_content):
+        email_message.attach(attachment.file_name, attachment.content, _attachment_mime_type(attachment.content_type))
 
     recipients = [ticket.email_from, *cc]
     mime_bytes = mime_bytes_with_crlf(email_message)
