@@ -149,12 +149,12 @@ export function InsightEmptyState({
                 {hasCustomCopy || !explainEmptyInsight ? (
                     <EmptyHeader>
                         <QuillInsightEmptyStateIcon icon={quillIcon ?? <IconLineGraph />} />
-                        <EmptyTitle className="text-xl">{heading}</EmptyTitle>
+                        <EmptyTitle className="text-lg">{heading}</EmptyTitle>
                         {detail && <EmptyDescription className="text-sm">{detail}</EmptyDescription>}
                     </EmptyHeader>
                 ) : (
                     <QuillInsightEmptyStateNextSteps defaultDetail={detail} icon={quillIcon}>
-                        <EmptyTitle className="text-xl">{heading}</EmptyTitle>
+                        <EmptyTitle className="text-lg">{heading}</EmptyTitle>
                     </QuillInsightEmptyStateNextSteps>
                 )}
             </Empty>
