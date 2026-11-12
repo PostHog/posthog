@@ -1,5 +1,3 @@
-"""Orchestration for the DORA deploy-metrics read."""
-
 from datetime import datetime
 from typing import cast, get_args
 

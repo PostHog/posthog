@@ -63,6 +63,11 @@
     }
 }
 
+// Quill puts popovers above modals, but the annotation modal opens from this one and must cover it.
+[data-quill-portal]:has(> .AnnotationsPopover--quill) {
+    z-index: var(--z-annotation-popover);
+}
+
 .AnnotationCard {
     // TextContent scrolls by default. In the popover, only .LemonModal__content scrolls.
     .RichMarkdownEditor,

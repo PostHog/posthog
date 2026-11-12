@@ -19,28 +19,28 @@ export const getSvelteClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm install posthog-js
+                                    npm install posthog-js@1
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add posthog-js
+                                    yarn add posthog-js@1
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                    pnpm add posthog-js
+                                    pnpm add posthog-js@1
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'bun',
                                 code: dedent`
-                                    bun add posthog-js
+                                    bun add posthog-js@1
                                 `,
                             },
                         ]}
@@ -112,28 +112,28 @@ export const getSvelteServerSteps = (ctx: OnboardingComponentsContext): StepDefi
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm install posthog-node --save
+                                    npm install posthog-node@5 --save
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add posthog-node
+                                    yarn add posthog-node@5
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                    pnpm add posthog-node
+                                    pnpm add posthog-node@5
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'bun',
                                 code: dedent`
-                                    bun add posthog-node
+                                    bun add posthog-node@5
                                 `,
                             },
                         ]}

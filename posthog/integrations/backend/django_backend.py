@@ -5,11 +5,17 @@ typed as the read-only `IntegrationRecord`.
 """
 
 import builtins
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
+from datetime import datetime
+from typing import Any, cast
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 
+import structlog
+
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.integrations.backend.patching import changed_fields
 from posthog.integrations.backend.protocol import (
     KindScope,
@@ -27,19 +33,87 @@ from posthog.integrations.contracts import (
     IntegrationNotFound,
     IntegrationPatch,
     IntegrationRecord,
+    RepositoryCache,
+    UpdatedRows,
 )
 from posthog.integrations.enums import AuthType
-from posthog.models.integration.auth_types import ANY, default_auth_type
-from posthog.models.integration.model import (
-    Integration,
-    IntegrationQuerySet,
+from posthog.integrations.secret_reads import (
     UndecryptedIntegrationSecretError,
-    defer_repository_cache_fields,
+    integration_secret_decrypt_counter,
+    looks_encrypted,
 )
+from posthog.models.integration.auth_types import ANY, default_auth_type
+from posthog.models.integration.model import Integration, IntegrationQuerySet, defer_repository_cache_fields
 from posthog.models.integration.oauth import OauthIntegration
+
+logger = structlog.get_logger(__name__)
 
 # The unique key of a row: (team, kind, external id).
 _UNIQUE_KEY_CONSTRAINT = "posthog_integration_kind_id_unique"
+
+
+# Every load of an over-encrypted row peels it again, so report each (row, field) once per process.
+_REPORTED_LIMIT = 4096
+_reported_over_encrypted: OrderedDict[tuple[int, str], None] = OrderedDict()
+
+
+def _first_report(row_id: int | None, field_name: str) -> bool:
+    if row_id is None:
+        return True
+    key = (row_id, field_name)
+    if key in _reported_over_encrypted:
+        _reported_over_encrypted.move_to_end(key)
+        return False
+    _reported_over_encrypted[key] = None
+    if len(_reported_over_encrypted) > _REPORTED_LIMIT:
+        _reported_over_encrypted.popitem(last=False)
+    return True
+
+
+def peel_secret_layers(row: Integration) -> None:
+    """Remove the extra encryption layers of the secrets that the row loaded with. `Integration.from_db` calls it.
+
+    `sensitive_config` sets `ignore_decrypt_errors=True`, so a read-then-save of a row whose secret
+    failed to decrypt writes that ciphertext back encrypted again, and one decrypt (the field's own)
+    then leaves ciphertext behind. The secret under the layers is intact, so remove them here. A value
+    that no configured key opens stays as it is, and `readable_secret` refuses to give it out.
+    """
+    field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))
+    recovered: builtins.list[str] = []
+
+    def peeled(value: object, top_key: str) -> object:
+        if isinstance(value, dict):
+            return {key: peeled(item, top_key) for key, item in value.items()}
+        if isinstance(value, builtins.list):
+            return [peeled(item, top_key) for item in value]
+        if not looks_encrypted(value):
+            return value
+        plain = field.decrypt_all_layers(cast(str, value))
+        if plain is None:
+            return value
+        recovered.append(top_key)
+        return plain
+
+    sensitive_config = row.sensitive_config
+    if not isinstance(sensitive_config, dict):
+        return
+    cleaned = {key: peeled(value, key) for key, value in sensitive_config.items()}
+    if not recovered:
+        return
+    row.sensitive_config = cleaned
+    # A deferred `kind` would cost a query, so read only what the row loaded.
+    kind = row.__dict__.get("kind") or "unknown"
+    for field_name in sorted(set(recovered)):
+        if not _first_report(row.pk, field_name):
+            continue
+        integration_secret_decrypt_counter.labels(kind=kind, result="recovered").inc()
+        logger.warning(
+            "integration_sensitive_config_over_encrypted",
+            integration_id=row.pk,
+            team_id=row.__dict__.get("team_id"),
+            kind=kind,
+            field=field_name,
+        )
 
 
 def _rows() -> IntegrationQuerySet:
@@ -171,6 +245,16 @@ class DjangoBackend:
     def count(self, scope: RowScope, row_filter: RowFilter) -> int:
         return self._selected(scope, row_filter).count()
 
+    def count_by_external_ids(self, scope: RowScope, *, external_ids: Sequence[str]) -> dict[str, int]:
+        grouped = (
+            _rows()
+            .filter(_scope_q(scope), integration_id__in=builtins.list(external_ids))
+            .order_by()
+            .values("integration_id")
+            .annotate(count=Count("id"))
+        )
+        return {str(row["integration_id"]): row["count"] for row in grouped}
+
     def get_by_external_id(self, scope: RowScope, *, external_id: str, id: int) -> IntegrationRecord:
         try:
             return _rows().filter(_scope_q(scope)).get(integration_id=external_id, id=id)
@@ -240,7 +324,9 @@ class DjangoBackend:
                 )
             row.config = new_config
             row.sensitive_config = new_sensitive_config
-            update_fields = ["config", "sensitive_config"]
+            # A new config is a reconnect, so the errors of the old connection go.
+            row.errors = ""
+            update_fields = ["config", "sensitive_config", "errors"]
             if new.created_by_id is not None:
                 row.created_by_id = new.created_by_id
                 update_fields.append("created_by")
@@ -257,6 +343,23 @@ class DjangoBackend:
 
     def delete(self, scope: RowScope, *, team_id: int, id: int) -> None:
         self._row(scope, team_id, id).delete()
+
+    def change_external_id(self, scope: RowScope, *, team_id: int, id: int, external_id: str) -> IntegrationRecord:
+        with transaction.atomic():
+            row = self._row(scope, team_id, id, lock=True)
+            if row.integration_id == external_id:
+                return row
+            row.integration_id = external_id
+            try:
+                with transaction.atomic():
+                    row.save(update_fields=["integration_id"])
+            except IntegrityError as error:
+                if not _is_unique_key_violation(error):
+                    raise
+                raise IntegrationConflict(
+                    f"Team {team_id} already has a {row.kind!r} integration with external id {external_id!r}"
+                ) from error
+            return row
 
     def update_by_external_id(self, scope: RowScope, *, external_id: str, patch: IntegrationPatch) -> int:
         # One `bulk_update` writes the changed rows, so no `post_save` signal fires.
@@ -296,3 +399,47 @@ class DjangoBackend:
             if update_fields:
                 row.save(update_fields=update_fields)
             return TokenRefresh(record=row, result="error" if row.errors else "refreshed" if expired else "stale_token")
+
+    def update_where(self, scope: RowScope, row_filter: RowFilter, patch: IntegrationPatch) -> UpdatedRows:
+        changed: builtins.list[int] = []
+        with transaction.atomic():
+            # Lock in id order, so two writers of overlapping rows cannot deadlock.
+            rows = builtins.list(self._selected(scope, row_filter).select_for_update().order_by("id"))
+            for row in rows:
+                update_fields = _patch_row(row, patch)
+                if update_fields:
+                    row.save(update_fields=update_fields)
+                    changed.append(row.id)
+        rows.sort(key=lambda row: (row.created_at, row.id))
+        return UpdatedRows(records=tuple(rows), changed_ids=frozenset(changed))
+
+    def get_repository_cache(self, scope: RowScope, *, team_id: int, id: int) -> RepositoryCache:
+        stored = (
+            self._team_rows(scope, team_id)
+            .filter(id=id)
+            .values_list("repository_cache", "repository_cache_updated_at")
+            .first()
+        )
+        if stored is None:
+            raise IntegrationNotFound(f"No integration {id!r} in {scope!r} for team {team_id}")
+        repositories, updated_at = stored
+        return RepositoryCache(repositories=repositories, updated_at=updated_at)
+
+    def set_repository_cache(
+        self,
+        scope: RowScope,
+        *,
+        team_id: int,
+        id: int,
+        repositories: builtins.list[dict[str, object]] | None,
+        updated_at: datetime,
+    ) -> None:
+        # A queryset update writes only the cache columns, so a concurrent write of the config is kept.
+        fields: dict[str, Any] = {"repository_cache_updated_at": updated_at}
+        if repositories is not None:
+            fields["repository_cache"] = repositories
+        if not self._team_rows(scope, team_id).filter(id=id).update(**fields):
+            raise IntegrationNotFound(f"No integration {id!r} in {scope!r} for team {team_id}")
+
+    def expire_repository_cache_by_external_id(self, scope: RowScope, *, external_id: str) -> int:
+        return _rows().filter(_scope_q(scope), integration_id=external_id).update(repository_cache_updated_at=None)

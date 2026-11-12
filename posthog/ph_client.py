@@ -11,6 +11,7 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
+from posthoganalytics.contexts import get_tags
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud, is_hobby
@@ -37,6 +38,13 @@ def drop_exception_capture(message: dict[str, Any]) -> dict[str, Any] | None:
     return message
 
 
+def suppress_last_seen_updates(message: dict[str, Any]) -> dict[str, Any]:
+    event = message.get("event", "")
+    if event == "$exception" or event.startswith("$ai_") or get_tags().get("$update_person_last_seen_at") is False:
+        message.setdefault("properties", {})["$update_person_last_seen_at"] = False
+    return message
+
+
 BeforeSend = Callable[[dict[str, Any]], dict[str, Any] | None]
 
 
@@ -44,7 +52,7 @@ def self_hosted_capture_reaches_posthog() -> bool:
     return is_hobby() and not settings.TEST and not settings.SELF_CAPTURE
 
 
-def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> BeforeSend | None:
+def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> BeforeSend:
     # A self-hosted install captures to the PostHog US project by default. Its exceptions carry
     # that install's own stack traces and data, so they must not reach our error tracking.
     hooks: list[BeforeSend] = []
@@ -52,8 +60,7 @@ def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> Be
         hooks.append(filter_scout_experiment_capture)
     if self_hosted:
         hooks.append(drop_exception_capture)
-    if not hooks:
-        return None
+    hooks.append(suppress_last_seen_updates)
     if len(hooks) == 1:
         return hooks[0]
 
@@ -267,14 +274,19 @@ def get_client(region: str = "US", **kwargs: Any):
     # project. Callers can still pass `disabled` explicitly to override.
     kwargs.setdefault("disabled", bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)))
     before_send = kwargs.get("before_send")
+    private_scout_capture = settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE
 
     def capture_filter(message: dict[str, Any]) -> dict[str, Any] | None:
-        if filter_scout_experiment_capture(message) is None:
+        if private_scout_capture and filter_scout_experiment_capture(message) is None:
             return None
-        return before_send(message) if before_send is not None else message
+        if before_send is not None:
+            next_message = before_send(message)
+            if next_message is None:
+                return None
+            message = next_message
+        return suppress_last_seen_updates(message)
 
-    if settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE:
-        kwargs["before_send"] = capture_filter
+    kwargs["before_send"] = capture_filter
 
     return Posthog(
         api_key,

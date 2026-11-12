@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import type { Choice } from '@/core/prompts'
 import { parseOrThrow, type ParseFailure } from '@/core/schema'
 
 // An http or https origin, plus the path a self-hosted PostHog can sit under. It is normalized, so
@@ -43,13 +44,38 @@ export function parseHost(raw: unknown, failure?: Partial<ParseFailure>): Host {
     return parseOrThrow(HostSchema, raw, { code: 'invalid_host', ...failure })
 }
 
-export const REGIONS = { us: parseHost('https://us.posthog.com'), eu: parseHost('https://eu.posthog.com') }
+export const REGION_IDS = ['us', 'eu'] as const
+
+export type RegionId = (typeof REGION_IDS)[number]
+
+// The PostHog Cloud regions. `REGIONS` holds the app's host, and `INGESTION_HOSTS` where the SDKs
+// send events.
+export const REGIONS: Record<RegionId, Host> = {
+    us: parseHost('https://us.posthog.com'),
+    eu: parseHost('https://eu.posthog.com'),
+}
+
+export const INGESTION_HOSTS: Record<RegionId, Host> = {
+    us: parseHost('https://us.i.posthog.com'),
+    eu: parseHost('https://eu.i.posthog.com'),
+}
+
+// How a person picks a region at a terminal.
+export const REGION_CHOICES: readonly Choice<RegionId>[] = [
+    { value: 'us', label: 'US Cloud', hint: 'us.posthog.com' },
+    { value: 'eu', label: 'EU Cloud', hint: 'eu.posthog.com' },
+]
+
+export function regionOf(host: Host | undefined): RegionId | undefined {
+    return host === undefined ? undefined : REGION_IDS.find((id) => sameHost(REGIONS[id], host))
+}
 
 // A posthog.json comes with the repository, so it only picks between the PostHog Cloud regions. Any
 // other host needs --host or HOG_HOST, so a repository can't send a person's login or a CI job's
 // token elsewhere.
 export function cloudRegion(host: Host | undefined): Host | undefined {
-    return host && Object.values(REGIONS).find((region) => hostKey(region) === hostKey(host))
+    const region = regionOf(host)
+    return region === undefined ? undefined : REGIONS[region]
 }
 
 // The origin of a host, without its path: its scheme, host name and port. Every map of logins is
@@ -58,6 +84,10 @@ export type HostKey = string & z.$brand<'HostKey'>
 
 export function hostKey(host: Host): HostKey {
     return new URL(host).origin as HostKey
+}
+
+export function sameHost(a: Host, b: Host): boolean {
+    return hostKey(a) === hostKey(b)
 }
 
 // Keeps the path a self-hosted PostHog can sit under, such as https://example.com/posthog.

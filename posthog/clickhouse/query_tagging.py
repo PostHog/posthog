@@ -113,6 +113,7 @@ class Feature(StrEnum):
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
     WAREHOUSE_SUGGESTIONS = "warehouse_suggestions"
+    EVAL_SUGGESTIONS = "eval_suggestions"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
     INGESTION_WARNINGS = "ingestion_warnings"
@@ -411,6 +412,10 @@ def is_known_product_tag(value: str) -> bool:
     return value in _PRODUCT_TAG_VALUES
 
 
+# Where a HogQL rewrite moved a scan's flag calls: to `posthog.flag_evaluations`, or to a UNION ALL of it and `events`.
+FlagCallsRead = Literal["flag_evaluations", "union"]
+
+
 class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
@@ -453,6 +458,7 @@ class QueryTags(BaseModel):
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
     api_queries_budgeted: Optional[bool] = None  # server-set only; request tags cannot reach it
+    warehouse_suggestion_access: Optional[str] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
@@ -575,6 +581,8 @@ class QueryTags(BaseModel):
     warehouse_table_ids: Optional[list[str]] = None
     directly_read_ids: Optional[list[str]] = None
     materialized_saved_query_id: Optional[str] = None
+
+    flag_calls_read: Optional[list[FlagCallsRead]] = None
 
     trend_volume_type: Optional[str] = None
 

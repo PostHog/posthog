@@ -32,13 +32,13 @@ import { ANALYTICS_TYPES, AnalyticsType } from './analyticsUtils'
 type AnalyticsSort = NonNullable<AnalyticsListDisplayConfiguration['default_sort']>
 
 const SORT_OPTIONS: FilterOption<AnalyticsOrderBy>[] = [
-    { value: '-last_viewed_at', label: 'Last viewed' },
+    { value: '-last_viewed_at', label: 'Last viewed by me' },
     { value: '-created_at', label: 'Created' },
 ]
 
 // Only a header click or a link reaches these orders, so each shows as a row only while it is in force.
 const OLDEST_FIRST_OPTIONS: Partial<Record<AnalyticsOrderBy, FilterOption<AnalyticsOrderBy>>> = {
-    last_viewed_at: { value: 'last_viewed_at', label: 'Last viewed, oldest first' },
+    last_viewed_at: { value: 'last_viewed_at', label: 'Last viewed by me, oldest first' },
     created_at: { value: 'created_at', label: 'Created, oldest first' },
 }
 

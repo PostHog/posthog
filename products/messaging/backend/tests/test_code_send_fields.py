@@ -1,13 +1,9 @@
-import base64
 from typing import Any
 
 from django.http import QueryDict
-from django.test import RequestFactory, SimpleTestCase
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
-
-from posthog.exceptions import exception_handler
 
 from products.messaging.backend.presentation.views.code_send_fields import (
     AttachmentSize,
@@ -33,8 +29,11 @@ ADDRESS_VERDICTS = [
 ]
 
 
+INVOICE = "a" * 64
+
+
 def _attachment(**fields: Any) -> dict[str, str]:
-    return {"filename": "invoice.pdf", "content": "JVBERi0xLjQ=", **fields}
+    return {"sha256": INVOICE, "filename": "invoice.pdf", **fields}
 
 
 def _code_send(fields: dict[str, Any]) -> SendEmailSerializer:
@@ -43,106 +42,239 @@ def _code_send(fields: dict[str, Any]) -> SendEmailSerializer:
     )
 
 
-def _refusal(fields: dict[str, Any]) -> dict[str, Any]:
+def _refusal_code(fields: dict[str, Any], *path: str | int) -> str:
     serializer = _code_send(fields)
     assert not serializer.is_valid()
-    response = exception_handler(ValidationError(serializer.errors), {"request": RequestFactory().post("/")})
-    assert response is not None
-    return with_code_send_reason(response.data)
+    error: Any = serializer.errors
+    for step in path:
+        error = error[step]
+    return (error[0] if isinstance(error, list) else error).code
 
 
 class TestCodeSendFieldRefusals(SimpleTestCase):
     @parameterized.expand(
         [
-            ("cc_with_a_display_name", {"cc": "Jane <jane@example.com>"}, "cc__0"),
-            ("cc_with_two_addresses_in_one", {"cc": "jane@example.com, joe@example.com"}, "cc__0"),
+            ("cc_with_a_display_name", {"cc": "Jane <jane@example.com>"}, ("cc", 0), "invalid"),
+            ("cc_with_two_addresses_in_one", {"cc": "jane@example.com, joe@example.com"}, ("cc", 0), "invalid"),
             (
-                "content_that_is_not_base64",
-                {"attachments": [_attachment(content="not base64!")]},
-                "attachments__0__content",
+                "executable",
+                {"attachments": [_attachment(filename="setup.EXE")]},
+                ("attachments", 0, "filename"),
+                "blocked_file_type",
             ),
-            ("empty_content", {"attachments": [_attachment(content="")]}, "attachments__0__content"),
-            ("executable", {"attachments": [_attachment(filename="setup.EXE")]}, "attachments__0__filename"),
-            ("registry_file", {"attachments": [_attachment(filename="settings.reg")]}, "attachments__0__filename"),
+            (
+                "registry_file",
+                {"attachments": [_attachment(filename="settings.reg")]},
+                ("attachments", 0, "filename"),
+                "blocked_file_type",
+            ),
             (
                 "executable_with_a_trailing_dot",
                 {"attachments": [_attachment(filename="setup.exe.")]},
-                "attachments__0__filename",
+                ("attachments", 0, "filename"),
+                "blocked_file_type",
             ),
             (
                 "filename_with_a_path",
                 {"attachments": [_attachment(), _attachment(filename="../invoice.pdf")]},
-                "attachments__1__filename",
+                ("attachments", 1, "filename"),
+                "unsafe_filename",
             ),
             (
                 "filename_with_a_line_break",
                 {"attachments": [_attachment(filename="invoice\r\n.pdf")]},
-                "attachments__0__filename",
+                ("attachments", 0, "filename"),
+                "unsafe_filename",
             ),
             (
                 "content_type_that_is_not_a_mime_type",
                 {"attachments": [_attachment(content_type="pdf")]},
-                "attachments__0__content_type",
+                ("attachments", 0, "content_type"),
+                "not_mime_type",
             ),
             (
                 "content_id_with_brackets",
                 {"attachments": [_attachment(content_id="<logo>")]},
-                "attachments__0__content_id",
+                ("attachments", 0, "content_id"),
+                "unsafe_content_id",
             ),
-            ("attachment_that_is_not_an_object", {"attachments": ["invoice.pdf"]}, "attachments__0"),
+            (
+                "sha256_in_upper_case",
+                {"attachments": [_attachment(sha256="A" * 64)]},
+                ("attachments", 0, "sha256"),
+                "invalid",
+            ),
+            (
+                "attachment_without_a_sha256",
+                {"attachments": [{"filename": "invoice.pdf"}]},
+                ("attachments", 0, "sha256"),
+                "required",
+            ),
+            (
+                "attachment_with_inline_content",
+                {"attachments": [_attachment(content="JVBERi0xLjQ=")]},
+                ("attachments", 0, "content"),
+                "unknown_attachment_field",
+            ),
+            (
+                "attachment_that_is_not_an_object",
+                {"attachments": ["invoice.pdf"]},
+                ("attachments", 0, "non_field_errors"),
+                "invalid",
+            ),
             (
                 "attachment_with_a_camel_case_key",
                 {"attachments": [_attachment(contentId="logo")]},
-                "attachments__0__contentId",
+                ("attachments", 0, "contentId"),
+                "unknown_attachment_field",
             ),
             (
                 "attachment_with_an_empty_key",
                 {"attachments": [_attachment(**{"": "", "contentId": "logo"})]},
-                "attachments__0__",
+                ("attachments", 0, ""),
+                "unknown_attachment_field",
             ),
-            (
-                "attachments_too_large",
-                {"attachments": [_attachment(content=base64.b64encode(b"x" * 300_000).decode())] * 2},
-                "attachments",
-            ),
-        ]
-    )
-    def test_refuses_an_extra_field_it_cannot_send(self, _name: str, fields: dict[str, Any], attr: str) -> None:
-        refused = _refusal(fields)
-
-        assert (refused["type"], refused["code"], refused["attr"]) == ("invalid_request", "invalid_request", attr)
-        assert refused["why"] and refused["fix"]
-
-    @parameterized.expand(
-        [
-            ("too_many_bcc", {"bcc": [f"user{i}@example.com" for i in range(11)]}, "bcc", "at most 10 addresses"),
-            ("too_many_attachments", {"attachments": [_attachment()] * 11}, "attachments", "at most 10 files"),
+            ("too_many_bcc", {"bcc": [f"user{i}@example.com" for i in range(11)]}, ("bcc",), "max_length"),
+            ("too_many_attachments", {"attachments": [_attachment()] * 11}, ("attachments",), "max_length"),
+            ("too_many_attachments_that_are_also_invalid", {"attachments": [{}] * 11}, ("attachments",), "max_length"),
             (
                 "filename_too_long",
                 {"attachments": [_attachment(filename="a" * 252 + ".pdf")]},
-                "attachments__0__filename",
-                "255 characters",
+                ("attachments", 0, "filename"),
+                "max_length",
             ),
             (
                 "content_type_too_long",
                 {"attachments": [_attachment(content_type=f"application/{'x' * 67}")]},
-                "attachments__0__content_type",
-                "78 characters",
+                ("attachments", 0, "content_type"),
+                "max_length",
             ),
             (
                 "content_id_too_long",
                 {"attachments": [_attachment(content_id="x" * 79)]},
-                "attachments__0__content_id",
-                "78 characters",
+                ("attachments", 0, "content_id"),
+                "max_length",
             ),
         ]
     )
-    def test_explains_the_limit_a_refused_field_passed(
-        self, _name: str, fields: dict[str, Any], attr: str, fix: str
+    def test_refuses_an_extra_field_it_cannot_send(
+        self, _name: str, fields: dict[str, Any], path: tuple[str | int, ...], code: str
     ) -> None:
-        refused = _refusal(fields)
+        assert _refusal_code(fields, *path) == code
 
-        assert (refused["code"], refused["attr"]) == ("invalid_request", attr)
+    @parameterized.expand(
+        [
+            ("too_many_bcc", "bcc", "max_length", "invalid_request", None, "at most 10 addresses"),
+            ("too_many_attachments", "attachments", "max_length", "too_many_attachments", None, "at most 10 files"),
+            (
+                "filename_too_long",
+                "attachments__0__filename",
+                "max_length",
+                "invalid_request",
+                None,
+                "`filename` to 255 characters",
+            ),
+            (
+                "content_type_too_long",
+                "attachments__0__content_type",
+                "max_length",
+                "invalid_request",
+                None,
+                "`content_type` to 78 characters",
+            ),
+            (
+                "content_id_too_long",
+                "attachments__0__content_id",
+                "max_length",
+                "invalid_request",
+                None,
+                "`content_id` to 78 characters",
+            ),
+            (
+                "blocked_file_type",
+                "attachments__0__filename",
+                "blocked_file_type",
+                "blocked_file_type",
+                None,
+                "a different file type",
+            ),
+            (
+                "unsafe_filename",
+                "attachments__0__filename",
+                "unsafe_filename",
+                "unsafe_filename",
+                None,
+                "only the file name",
+            ),
+            (
+                "not_mime_type",
+                "attachments__0__content_type",
+                "not_mime_type",
+                "not_mime_type",
+                None,
+                "leave `content_type` out",
+            ),
+            (
+                "unsafe_content_id",
+                "attachments__0__content_id",
+                "unsafe_content_id",
+                "unsafe_content_id",
+                None,
+                "as `cid:logo`",
+            ),
+            (
+                "sha256_that_is_not_lowercase_hex",
+                "attachments__0__sha256",
+                "invalid",
+                "invalid_request",
+                None,
+                "64 lowercase hex characters",
+            ),
+            (
+                "file_sent_inline",
+                "attachments__0__content",
+                "unknown_attachment_field",
+                "invalid_request",
+                None,
+                "messaging/attachments/uploads/",
+            ),
+            (
+                "attachment_with_an_unknown_key",
+                "attachments__0__contentId",
+                "unknown_attachment_field",
+                "invalid_request",
+                None,
+                "as `{sha256, filename}`",
+            ),
+            (
+                "attachment_that_is_not_an_object",
+                "attachments__0__non_field_errors",
+                "invalid",
+                "invalid_request",
+                "attachments__0",
+                "as `{sha256, filename}`",
+            ),
+            ("unparseable_copy_address", "cc__0", "invalid", "invalid_request", None, "bare addresses"),
+            (
+                "field_the_pipeline_lacks",
+                "attachments",
+                "field_not_accepted",
+                "field_not_accepted",
+                None,
+                "without this field",
+            ),
+        ]
+    )
+    def test_explains_how_to_fix_a_refused_field(
+        self, _name: str, attr: str, code: str, reported_code: str, reported_attr: str | None, fix: str
+    ) -> None:
+        refused = with_code_send_reason({"type": "validation_error", "code": code, "detail": "Refused.", "attr": attr})
+
+        assert (refused["type"], refused["code"], refused["attr"]) == (
+            "invalid_request",
+            reported_code,
+            reported_attr or attr,
+        )
         assert fix in refused["fix"]
 
     @parameterized.expand(
@@ -150,10 +282,7 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
             ("one_address", {"cc": "copy@example.com"}),
             ("empty_lists", {"cc": [], "bcc": [], "attachments": []}),
             ("ten_addresses", {"bcc": [f"user{i}@example.com" for i in range(10)]}),
-            (
-                "attachments_at_the_size_limit",
-                {"attachments": [_attachment(content=base64.b64encode(b"x" * 262_144).decode())] * 2},
-            ),
+            ("ten_attachments", {"attachments": [_attachment()] * 10}),
         ]
     )
     def test_accepts_extra_fields_at_their_limits(self, _name: str, fields: dict[str, Any]) -> None:
@@ -162,7 +291,11 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
         assert serializer.is_valid(), serializer.errors
 
     @parameterized.expand(
-        [(field, address, accepted) for field in ("cc", "bcc") for address, accepted in ADDRESS_VERDICTS]
+        [
+            *(("cc", address, accepted) for address, accepted in ADDRESS_VERDICTS),
+            ("bcc", "jane=tag@example.com", True),
+            ("bcc", "jane@localhost", False),
+        ]
     )
     def test_takes_the_copy_addresses_the_pipeline_takes(self, field: str, address: str, accepted: bool) -> None:
         if accepted:
@@ -170,7 +303,7 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
             assert serializer.is_valid(), serializer.errors
             assert serializer.validated_data[field] == [address]
         else:
-            assert _refusal({field: [address]})["attr"] == f"{field}__0"
+            assert _refusal_code({field: [address]}, field, 0) == "invalid"
 
 
 class TestAttachmentSize(SimpleTestCase):
@@ -179,44 +312,18 @@ class TestAttachmentSize(SimpleTestCase):
             ("no_attachments_field", {}, AttachmentSize(count=0, bytes=0)),
             ("null_attachments", {"attachments": None}, AttachmentSize(count=0, bytes=0)),
             ("empty_attachments", {"attachments": []}, AttachmentSize(count=0, bytes=0)),
-            (
-                "files_with_and_without_padding",
-                {
-                    "attachments": [
-                        _attachment(content="YSxi"),
-                        _attachment(content="aGk="),
-                        _attachment(content="aQ=="),
-                    ]
-                },
-                AttachmentSize(count=3, bytes=6),
-            ),
-            (
-                "a_file_over_the_inline_limit",
-                {"attachments": [_attachment(content=base64.b64encode(b"x" * 600_001).decode())]},
-                AttachmentSize(count=1, bytes=600_001),
-            ),
-            (
-                "one_file_that_is_not_base64",
-                {"attachments": [_attachment(content="YSxi"), _attachment(content="not base64!")]},
-                AttachmentSize(count=2, bytes=None),
-            ),
-            (
-                "base64_without_its_padding",
-                {"attachments": [_attachment(content="aGk")]},
-                AttachmentSize(count=1, bytes=None),
-            ),
-            ("a_file_without_content", {"attachments": [{"filename": "a.pdf"}]}, AttachmentSize(count=1, bytes=None)),
+            ("uploaded_files", {"attachments": [_attachment(), _attachment()]}, AttachmentSize(count=2, bytes=None)),
             ("a_file_that_is_not_an_object", {"attachments": ["invoice.pdf"]}, AttachmentSize(count=1, bytes=None)),
             ("attachments_that_are_not_a_list", {"attachments": "invoice.pdf"}, AttachmentSize(count=None, bytes=None)),
             ("a_body_that_is_not_an_object", ["invoice.pdf"], AttachmentSize(count=None, bytes=None)),
             (
                 "a_form_body",
-                QueryDict("attachments[0]filename=a.pdf&attachments[0]content=aGk%3D"),
+                QueryDict(f"attachments[0]filename=a.pdf&attachments[0]sha256={INVOICE}"),
                 AttachmentSize(count=None, bytes=None),
             ),
         ]
     )
-    def test_counts_the_decoded_bytes_only_when_every_file_is_base64(
+    def test_counts_the_files_and_leaves_their_bytes_to_the_pipeline(
         self, _name: str, body: Any, expected: AttachmentSize
     ) -> None:
         assert attachment_size(body) == expected

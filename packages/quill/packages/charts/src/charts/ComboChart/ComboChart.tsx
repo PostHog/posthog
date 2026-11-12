@@ -34,6 +34,7 @@ import {
     computeDivergingStackData,
     computePercentStackData,
     computeStackData,
+    hasNegativeStackValue,
     computeTopStackedKeyByAxis,
     resolveYScaleForSeries,
     type StackedBand,
@@ -131,7 +132,9 @@ function ComboChartInner<Meta = unknown>({
         if (barLayout === 'percent') {
             return computePercentStackData(barSeries, labels)
         }
-        return divergingStack ? computeDivergingStackData(barSeries, labels) : computeStackData(barSeries, labels)
+        return divergingStack || hasNegativeStackValue(barSeries)
+            ? computeDivergingStackData(barSeries, labels)
+            : computeStackData(barSeries, labels)
     }, [barLayout, divergingStack, series, labels, seriesTypeOf])
 
     // Per-axis topmost bar — only bar layers below the cap forgo corner rounding. Non-bar series are

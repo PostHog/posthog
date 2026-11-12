@@ -18,6 +18,7 @@ export const LOGGED_OUT_SCENES = [
     'Login',
     'Login2FA',
     'OAuthAuthorize',
+    'OAuthDeviceAuthorize',
     'OrganizationCreationConfirm',
     'PasswordReset',
     'PasswordResetComplete',

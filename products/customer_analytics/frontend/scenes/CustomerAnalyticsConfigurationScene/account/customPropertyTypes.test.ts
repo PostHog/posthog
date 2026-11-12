@@ -11,6 +11,7 @@ import {
     isNumericDisplayType,
     labelForDisplayType,
     optionLabelError,
+    runLogsWindow,
     runOutcomeNote,
     sourceSyncStatus,
 } from './customPropertyTypes'
@@ -143,6 +144,27 @@ describe('customPropertyTypes', () => {
             ['the run failed', { status: 'failed' }],
         ])('stays quiet when %s', (_name, overrides) => {
             expect(runOutcomeNote(buildRun(overrides), 'people')).toBeNull()
+        })
+    })
+
+    describe('runLogsWindow', () => {
+        const startedAt = '2026-08-21T14:29:00.400Z'
+
+        it.each([
+            ['a finished run', 'UTC', '2026-08-21T14:30:05.700Z', '2026-08-21 14:29:00', '2026-08-21 14:30:06'],
+            [
+                'a finished run in the team timezone',
+                'America/New_York',
+                '2026-08-21T14:30:05.700Z',
+                '2026-08-21 10:29:00',
+                '2026-08-21 10:30:06',
+            ],
+            ['a running run', 'UTC', null, '2026-08-21 14:29:00', undefined],
+        ])('covers %s', (_name, timezone, finishedAt, dateFrom, dateTo) => {
+            expect(runLogsWindow({ started_at: startedAt, finished_at: finishedAt }, timezone)).toEqual({
+                dateFrom,
+                dateTo,
+            })
         })
     })
 })

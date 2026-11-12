@@ -18,6 +18,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { featureFlagLogic, peekFeatureFlag, reportFeatureFlagExposure } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
@@ -175,7 +176,8 @@ interface InboxDetailFrameProps {
     report: SignalReport
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
-    /** Extra primary action(s) rendered after the shared report actions. */
+    /** The pull request's "Open in GitHub" action. When it is set, the frame does not show the implement
+     * action: "View task" adds nothing next to the pull request, and the runs section still links the task. */
     primaryAction?: ReactNode
     /** Whether the report column gets the Summary / Files changed tab bar. Driven by whether the report has
      * a PR (known immediately), not by whether the diff has loaded, so the bar doesn't pop in a beat later
@@ -290,19 +292,30 @@ export function InboxDetailFrame({
 
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const implementButton =
-        showCreatePr || reportTaskToOpen ? (
-            <ImplementButton
-                report={report}
-                reportTaskToOpen={reportTaskToOpen}
-                implementationDisabledReason={implementationDisabledReason}
-                openChoicesFromLink={linkImplementReportId === report.id}
-                onChoicesOpenedFromLink={() => setLinkImplementReportId(null)}
-            />
-        ) : null
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const implementButtonVariant = peekFeatureFlag(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
+    const hasImplementButton = !primaryAction && (showCreatePr || !!reportTaskToOpen)
+    if (
+        hasImplementButton &&
+        summaryHasSolution &&
+        (implementButtonVariant === 'control' || implementButtonVariant === 'test')
+    ) {
+        reportFeatureFlagExposure(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
+    }
+    const implementButtonInHeader = !summaryHasSolution || implementButtonVariant === 'test'
+    const implementButton = hasImplementButton ? (
+        <ImplementButton
+            report={report}
+            position={implementButtonInHeader ? 'header' : 'body'}
+            reportTaskToOpen={reportTaskToOpen}
+            implementationDisabledReason={implementationDisabledReason}
+            openChoicesFromLink={linkImplementReportId === report.id}
+            onChoicesOpenedFromLink={() => setLinkImplementReportId(null)}
+        />
+    ) : null
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
         icon: action.icon,
@@ -398,7 +411,7 @@ export function InboxDetailFrame({
                         <ReportSummaryBody
                             summary={report.summary}
                             chartPlacements={chartPlacements}
-                            implementButton={implementButton}
+                            implementButton={implementButtonInHeader ? null : implementButton}
                             pullRequestNote={pullRequestNote}
                             impactMetrics={impactMetrics}
                             expectedImpact={expectedImpact}
@@ -478,7 +491,15 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_CLASS}>
                         <ReportStatusSection
                             report={currentReport ?? report}
-                            onPriorityChange={updatePriority}
+                            onPriorityChange={(priority) => {
+                                captureInboxReportAction({
+                                    report,
+                                    actionType: 'change_priority',
+                                    surface: 'detail_pane',
+                                    extra: { new_priority: priority },
+                                })
+                                updatePriority(priority)
+                            }}
                             prioritySaving={prioritySaving}
                         />
                         {isMonitoring && <ReportChecksSection report={report} />}
@@ -612,9 +633,9 @@ export function InboxDetailFrame({
                     </LemonButton>
                     {railToggleButton}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                     {primaryAction}
-                    {!summaryHasSolution && implementButton}
+                    {implementButtonInHeader && implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}

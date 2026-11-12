@@ -9,11 +9,19 @@ model instances that callers write.
 import builtins
 import dataclasses
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from enum import Enum
 from typing import Protocol
 
 from posthog.dataclasses import frozen
-from posthog.integrations.contracts import ConfigValue, CrossTeamFilter, IntegrationPatch, IntegrationRecord
+from posthog.integrations.contracts import (
+    ConfigValue,
+    CrossTeamFilter,
+    IntegrationPatch,
+    IntegrationRecord,
+    RepositoryCache,
+    UpdatedRows,
+)
 from posthog.integrations.enums import AuthType
 from posthog.integrations.observability import TokenRefreshResult
 
@@ -107,6 +115,10 @@ class StorageBackend(Protocol):
 
     def count(self, scope: RowScope, row_filter: RowFilter) -> int: ...
 
+    def count_by_external_ids(self, scope: RowScope, *, external_ids: Sequence[str]) -> dict[str, int]:
+        """How many rows of every team have each external id. An external id without rows is not a key."""
+        ...
+
     def get_by_external_id(self, scope: RowScope, *, external_id: str, id: int) -> IntegrationRecord:
         """The row of any team with this id and this external id."""
         ...
@@ -124,8 +136,9 @@ class StorageBackend(Protocol):
     def upsert(self, scope: RowScope, new: NewIntegration) -> tuple[IntegrationRecord, bool]:
         """Create the row, or replace the config and the sensitive config of the row with the same key.
 
-        `new.created_by_id=None` keeps the creator of an existing row. Returns True when the row is
-        new. Raises `IntegrationConflict` when the existing row is not in the scope.
+        A replace also clears `errors`. `new.created_by_id=None` keeps the creator of an existing row.
+        Returns True when the row is new. Raises `IntegrationConflict` when the existing row is not in
+        the scope.
         """
         ...
 
@@ -134,6 +147,13 @@ class StorageBackend(Protocol):
         ...
 
     def delete(self, scope: RowScope, *, team_id: int, id: int) -> None: ...
+
+    def change_external_id(self, scope: RowScope, *, team_id: int, id: int, external_id: str) -> IntegrationRecord:
+        """Give the row another external id under a row lock.
+
+        Raises `IntegrationConflict` when the team has a row of the kind with that external id, in any scope.
+        """
+        ...
 
     def update_by_external_id(self, scope: RowScope, *, external_id: str, patch: IntegrationPatch) -> int:
         """Apply the patch to the rows of every team with this external id. Returns how many rows changed."""
@@ -151,4 +171,30 @@ class StorageBackend(Protocol):
         An empty `stale_access_token` matches a row without an access token. A failed refresh stores
         `errors` and does not raise. The lock stops two workers from spending the same refresh token.
         """
+        ...
+
+    def update_where(self, scope: RowScope, row_filter: RowFilter, patch: IntegrationPatch) -> UpdatedRows:
+        """Apply the patch to every row that the filter selects, under row locks, all or none.
+
+        A row that the patch does not change is not written. Each changed row is saved on its own, so
+        the save signals fire.
+        """
+        ...
+
+    def get_repository_cache(self, scope: RowScope, *, team_id: int, id: int) -> RepositoryCache: ...
+
+    def set_repository_cache(
+        self,
+        scope: RowScope,
+        *,
+        team_id: int,
+        id: int,
+        repositories: builtins.list[dict[str, object]] | None,
+        updated_at: datetime,
+    ) -> None:
+        """Store the time of a fetch, and the list when it is not None. None keeps the stored list."""
+        ...
+
+    def expire_repository_cache_by_external_id(self, scope: RowScope, *, external_id: str) -> int:
+        """Mark the cached list of every team's row with this external id as stale. Returns how many rows it reached."""
         ...

@@ -562,6 +562,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if self.scope_object == "insight" and self.request.GET.get("short_id") is not None:
             include_all_if_admin = True
 
+        if self.scope_object == "early_access_feature" and self.request.GET.get("ids") is not None:
+            include_all_if_admin = True
+
         return self.user_access_control.filter_queryset_by_access_level(
             queryset, include_all_if_admin=include_all_if_admin
         )

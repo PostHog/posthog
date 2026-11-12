@@ -7,6 +7,13 @@ before stay in the results, so the results mix two audiences. That is informatio
 order of conditions that serve different variants moves the people who match several of them to another variant.
 How many is unknown, so that is info too.
 
+A lower rollout stops serving some people who were already exposed. They get no variant, or the variant of a later
+condition. The rollout and the variant are two independent draws, so the people without a variant leave every variant
+in the same proportion and the sample ratio holds. Their later events still count for the variant they got first, which
+pulls the difference between the variants toward zero. That can hide a difference but not create one, so it is info.
+People who reach a later condition with an override, or of another group type, can switch variants. How many is
+unknown, so that is info too.
+
 A variant override that was removed moves the people its condition matches from its variant to a random one, and
 their exposures under that variant stay in the results. It is graded by the share of that variant's users the
 condition serves, as the forced-variant check grades an override in place. When fewer than MIN_EXPOSED_UNITS_TO_WARN
@@ -20,10 +27,11 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
 )
-from products.experiments.backend.health.checks.change_wording import suggested_start, the_change
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT, suggested_start, the_change
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
     changes_to_check,
+    count_only_after,
     exposed_when,
     few_exposed_units,
     leave_out,
@@ -32,12 +40,14 @@ from products.experiments.backend.health.checks.flag_change_findings import (
 from products.experiments.backend.health.condition_changes import (
     ConditionsChangeShape,
     ConditionsNetEffect,
+    LoweredRollout,
     RemovedOverride,
     conditions_net_effect,
 )
 from products.experiments.backend.health.context import (
     FlagHistory,
     FlagHistoryNotChecked,
+    FlagState,
     HealthContext,
     ReachableCondition,
 )
@@ -52,11 +62,12 @@ from products.experiments.backend.health.pinned_share import (
 )
 from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.split_changes import format_change_time
-from products.feature_flags.backend.facade.edits import ConditionsChange
+from products.feature_flags.backend.facade.edits import ConditionsChange, ReleaseCondition
 
 _TITLE = "The release conditions changed after launch"
 _OVERRIDE_TITLE = "A variant override was removed after launch"
 _REORDERED_TITLE = "The order of the release conditions changed after launch"
+_ROLLOUT_TITLE = "A release condition's rollout was lowered after launch"
 _REVERTED_TITLE = "The release conditions changed and were set back"
 _NOT_CHECKED_TITLE = "Release condition changes were not checked"
 
@@ -111,6 +122,9 @@ def release_conditions_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
                 f"Review {change} in the flag history.",
             ],
         )
+    lowered = _users_lost(ctx.flag, history.release_conditions, effect.lowered_rollouts)
+    if lowered:
+        return _rollout_reduced(history, effect, lowered)
     # Only an override changed. The forced-variant check reports one that is still in place, and the removed ones
     # were graded above.
     if effect.shape != ConditionsChangeShape.REVERTED or removed:
@@ -143,6 +157,80 @@ def _edited_overrides(effect: ConditionsNetEffect) -> list[str]:
         f"Sets {names} have variant overrides, so users who now match them or no longer match them may also have "
         "switched variants."
     ]
+
+
+def _users_lost(
+    flag: FlagState | None, conditions: tuple[ReleaseCondition, ...], lowered: tuple[LoweredRollout, ...]
+) -> tuple[LoweredRollout, ...]:
+    """The lowered rollouts that cost users their variant, as far as the flag shows. A missed finding beats a wrong
+    one."""
+    if flag is None:
+        return ()
+    # A condition the flag service doesn't reach now, at 0% or behind one that serves everyone, may never have served
+    # anyone.
+    reached = {condition.number for condition in flag.reachable_conditions}
+    return tuple(
+        rollout
+        for rollout in lowered
+        if rollout.condition_number in reached and not _kept_by_a_later_condition(flag, conditions, reached, rollout)
+    )
+
+
+def _kept_by_a_later_condition(
+    flag: FlagState, conditions: tuple[ReleaseCondition, ...], reached: set[int], rollout: LoweredRollout
+) -> bool:
+    """Whether every user this condition no longer serves gets the same variant from a later condition."""
+    own = conditions[rollout.condition_number - 1]
+    # With early exit, a user outside a matching condition's rollout gets no variant and reaches no later condition.
+    if flag.early_exit or own.variant is not None:
+        return False
+    for number, later in enumerate(conditions, start=1):
+        if number <= rollout.condition_number or number not in reached:
+            continue
+        # Without an override, a condition on the same identifier draws the same variant from the same hash.
+        if later.variant is not None or later.aggregation != own.aggregation:
+            return False
+        # Each user has one rollout hash, so a condition without filters at the old rollout or higher serves them all.
+        if not later.property_keys and later.rollout >= rollout.before:
+            return True
+    return False
+
+
+def _rollout_reduced(
+    history: FlagHistory, effect: ConditionsNetEffect, lowered: tuple[LoweredRollout, ...]
+) -> ExperimentHealthFinding:
+    subject = "it no longer serves" if len(lowered) == 1 else "these conditions no longer serve"
+    return _finding(
+        history,
+        effect,
+        subcode=ConditionsChangeShape.ROLLOUT_REDUCED,
+        title=_ROLLOUT_TITLE,
+        sentences=[
+            _lowered(lowered, history.team_timezone),
+            f"Users {subject} get no variant, or the variant of a later condition.",
+            "Their exposures stay in the results, and their later events still count for the variant they got first.",
+            count_only_after(max(rollout.lowered_at for rollout in lowered), history.team_timezone),
+        ],
+    )
+
+
+def _lowered(lowered: tuple[LoweredRollout, ...], team_timezone: str) -> str:
+    if len(lowered) == 1:
+        rollout = lowered[0]
+        at = format_change_time(rollout.lowered_at, team_timezone)
+        return (
+            f"The rollout of Set {rollout.condition_number} was lowered on {at} and is at {rollout.after:g}% now, "
+            f"down from {rollout.before:g}%."
+        )
+    first_at = format_change_time(min(rollout.lowered_at for rollout in lowered), team_timezone)
+    last_at = format_change_time(max(rollout.lowered_at for rollout in lowered), team_timezone)
+    when = f"on {first_at}" if first_at == last_at else f"between {first_at} and {last_at}"
+    sets = [
+        f"Set {rollout.condition_number} is at {rollout.after:g}% now, down from {rollout.before:g}%"
+        for rollout in lowered
+    ]
+    listed = f"{', '.join(sets[:-1])}, and {sets[-1]}"
+    return f"The rollouts of {len(lowered)} release conditions were lowered {when}: {listed}."
 
 
 def removed_overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
@@ -226,6 +314,7 @@ def _override_removed(
             *_measured(grade, removed),
             f"Reset the experiment, or move its start date to "
             f"{suggested_start(last_changed_at, history.team_timezone)}.",
+            RESET_EFFECT,
         ],
         grade=grade,
         diagnostic_ref="A7",
