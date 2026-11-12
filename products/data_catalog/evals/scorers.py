@@ -57,6 +57,7 @@ METRIC_LIST_TOOL = "metric-list"
 METRIC_DESCRIBE_TOOL = "metric-describe"
 METRIC_RUN_TOOL = "data-catalog-metric-run"
 QUESTION_TOOL = "askuserquestion"
+FINISH_TOOL = "finish"
 CERTIFICATION_PROPOSE_TOOL = "data-catalog-certification-propose"
 _INFO_SCHEMA = "information_schema"
 _INFO_SYNTHETIC_PREFIX = "__info__:"
@@ -76,6 +77,19 @@ def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
     if not raw_log:
         return None
     return LogParser.cached(raw_log, initial_prompt=(output or {}).get("prompt", "") or "")
+
+
+def _final_answer(parser: LogParser) -> str | None:
+    """The answer the user reads: a scout run's `finish` report, else the last chat message.
+
+    A scout run delivers its report through the `finish` tool, so its last chat message can be a
+    progress note such as "I'm checking which issues the exceptions come from".
+    """
+    for call in reversed(parser.get_tool_calls(FINISH_TOOL)):
+        report = call.input.get("report")
+        if not call.is_error and isinstance(report, str) and report.strip():
+            return report
+    return parser.get_final_agent_message()
 
 
 def _requested(expected: dict | None, name: str) -> bool:
@@ -690,7 +704,7 @@ class GovernedBehaviorCorrectness(JudgedScorer):
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
 
         parser = _parser_for(output)
-        final = parser.get_final_agent_message() if parser is not None else None
+        final = _final_answer(parser) if parser is not None else None
         if not isinstance(final, str) or not final.strip():
             return Score(name=self._name(), score=0.0, metadata={"reason": "no final message"})
 
