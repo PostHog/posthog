@@ -52,8 +52,9 @@ REPLAY_CAPTURE_ENDPOINT = os.getenv("REPLAY_CAPTURE_ENDPOINT", "/s/")
 CAPTURE_INTERNAL_URL = os.getenv("CAPTURE_INTERNAL_URL", "http://localhost:8010")
 CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://localhost:8010")
 # The AI lane is a different capture deployment (capture-ai), not just a different path:
-# `/i/v1/ai/events` is mounted only on CaptureMode::Ai, and capture-analytics refuses
-# AI-lane event names. In the clusters this is capture-ai.capture-ai.svc.cluster.local.
+# `/i/v1/ai/events` is mounted only on CaptureMode::Ai. capture-analytics accepts `$ai_*`
+# events only temporarily and routes them to the AI topic, so send them here.
+# In the clusters this is capture-ai.capture-ai.svc.cluster.local.
 CAPTURE_AI_INTERNAL_URL = os.getenv("CAPTURE_AI_INTERNAL_URL", "http://localhost:8010")
 
 # Internal OTLP/HTTP endpoint for first-party log emission into Logs (the `capture-logs` service,

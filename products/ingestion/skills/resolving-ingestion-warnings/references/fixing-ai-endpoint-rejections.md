@@ -65,4 +65,4 @@ A batch sent to `/i/v1/ai/events` contained an event whose name does not start w
 
 This is always a routing mistake on the sending side: a proxy rule, a host override, or an SDK configured to send all events through its AI capture method. Send ordinary analytics events through the standard capture endpoint. Nothing about the event itself needs to change.
 
-The reverse case (an `$ai_*` event sent to the standard endpoint) does not warn. Capture routes AI-lane names to the LLM analytics pipeline.
+The reverse case (an `$ai_*` event sent to the standard endpoint) does not warn. Capture routes AI-lane names to the LLM analytics pipeline. On capture v1 this routing is temporary and will be removed, so a v1 sender should send `$ai_*` events to `/i/v1/ai/events` (in an SDK, its AI capture method).
