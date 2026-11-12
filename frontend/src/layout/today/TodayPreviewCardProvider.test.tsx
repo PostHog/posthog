@@ -38,8 +38,16 @@ describe('TodayPreviewCardProvider', () => {
 
     const hover = async (rowText: string): Promise<void> => {
         const trigger = screen.getByText(rowText).parentElement as HTMLElement
+        fireEvent.pointerEnter(trigger)
         fireEvent.mouseEnter(trigger)
         fireEvent.mouseMove(trigger)
+        await act(async () => {
+            jest.advanceTimersByTime(1000)
+        })
+    }
+
+    const rest = async (rowText: string): Promise<void> => {
+        fireEvent.mouseMove(screen.getByText(rowText).parentElement as HTMLElement)
         await act(async () => {
             jest.advanceTimersByTime(1000)
         })
@@ -63,7 +71,7 @@ describe('TodayPreviewCardProvider', () => {
 
     const cardShown = (label: string): boolean => screen.queryByText(`${label} description`) !== null
 
-    it('closes the card on a click and keeps it shut until the pointer leaves the row', async () => {
+    it('closes the card on a click and keeps it shut until the pointer leaves the row and comes back', async () => {
         renderRows()
 
         await hover('Broadcasts row')
@@ -72,7 +80,7 @@ describe('TodayPreviewCardProvider', () => {
         await click('Broadcasts row')
         expect(cardShown('Broadcasts')).toBe(false)
 
-        await hover('Broadcasts row')
+        await rest('Broadcasts row')
         expect(cardShown('Broadcasts')).toBe(false)
 
         await leave('Broadcasts row')
@@ -94,10 +102,19 @@ describe('TodayPreviewCardProvider', () => {
         expect(cardShown('Broadcasts')).toBe(true)
     })
 
+    it('opens on the first hover of a row clicked from a search list, which the pointer never visited', async () => {
+        renderRows()
+
+        await click('Broadcasts row')
+        await hover('Broadcasts row')
+        expect(cardShown('Broadcasts')).toBe(true)
+    })
+
     it('refuses the pending open of a row clicked before its card appeared, but still opens other rows', async () => {
         renderRows()
 
         const trigger = screen.getByText('Broadcasts row').parentElement as HTMLElement
+        fireEvent.pointerEnter(trigger)
         fireEvent.mouseEnter(trigger)
         fireEvent.mouseMove(trigger)
         await click('Broadcasts row')

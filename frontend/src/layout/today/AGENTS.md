@@ -9,7 +9,7 @@
 These rules apply to every sidebar list the rail opens, for example Products, Spaces, People and Analytics.
 
 - **A row shows its hover card only through `TodayPreviewTrigger`, under a `TodayPreviewCardProvider`.** Do not give a row a second hover card of its own. A tooltip on a control inside the row, such as the star button, is fine. The trigger carries the shared behavior below, and a row that skips it loses that behavior.
-- **A click on a row closes its hover card, and the card stays shut until the pointer or focus leaves that row.** A card left open after a click covers the page the click opened. `TodayPreviewTrigger` does this with `dismissFor` and `rearm` on the card context. Do not remove it, and do not stop a click on a row from reaching the trigger's capture handler.
+- **A click on a row closes its hover card, and the card stays shut for that row until the pointer comes back to it or focus leaves it.** A card left open after a click covers the page the click opened. `TodayPreviewTrigger` does this with `dismissFor` and `rearm` on the card context. Do not remove it, and do not stop a click on a row from reaching the trigger's capture handler.
 - **An open row menu keeps the card shut.** Report the menu with `useTodayPreviewMenuReport` from its `onOpenChange`.
 
 ## Recents sections
