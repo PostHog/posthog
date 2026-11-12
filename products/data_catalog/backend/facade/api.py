@@ -52,9 +52,24 @@ from ..logic.pending_review import (
     pending_review_counts,
 )
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
+from ..logic.usage_snapshots import (
+    is_usage_enabled,
+    latest_usage_snapshot,
+    metric_usage,
+    usage_reader,
+    usage_snapshot_history,
+)
 from ..logic.validation import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from ..models import METRIC_NAME_MAX_LENGTH
-from .contracts import HogQLMetricDefinition, MetricListFilters, MetricRead, MetricSummary
+from .contracts import (
+    HogQLMetricDefinition,
+    MetricListFilters,
+    MetricRead,
+    MetricSummary,
+    MetricUsage,
+    UsageSnapshotDetail,
+    UsageSnapshotSummary,
+)
 from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
@@ -74,6 +89,9 @@ __all__ = [
     "MetricListFilters",
     "MetricSummary",
     "MetricRead",
+    "MetricUsage",
+    "UsageSnapshotDetail",
+    "UsageSnapshotSummary",
     "metric_reads_for_ids",
     "PendingGroup",
     "PendingKind",
@@ -96,9 +114,12 @@ __all__ = [
     "deprecate",
     "get_hogql_metric_definition",
     "get_metric_summary",
+    "is_usage_enabled",
+    "latest_usage_snapshot",
     "live_metric_ids",
     "live_metric_summaries",
     "metric_names_for_ids",
+    "metric_usage",
     "metrics_for_team",
     "metrics_visible_to_user",
     "propose_certification",
@@ -111,6 +132,8 @@ __all__ = [
     "soft_delete_metric",
     "update_metric",
     "upsert_metric",
+    "usage_reader",
+    "usage_snapshot_history",
     "validate_metric_definition",
 ]
 

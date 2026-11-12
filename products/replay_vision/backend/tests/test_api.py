@@ -37,7 +37,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import hide_experiment_from_access_filter
 from products.replay_vision.backend.api.scanners import HighlightFeedQuerySerializer, ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -260,8 +260,6 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", {"enabled": True}, format="json")
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
-        listed = self.client.get(self.scanners_url).json()["results"]
-        self.assertEqual([row["unrunnable_reason"] for row in listed], ["no_ai_consent"])
 
     @parameterized.expand(
         [
@@ -289,10 +287,6 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         if not creator_left:
             self.organization.members.add(creator)
         scanner = self._create_scanner(enabled=False, created_by=creator)
-        listed = self.client.get(self.scanners_url).json()["results"]
-        self.assertEqual(
-            [row["unrunnable_reason"] for row in listed], ["creator_lost_access" if creator_left else None]
-        )
 
         with patch(
             "products.replay_vision.backend.api.scanners.recording_viewer_access",
@@ -1795,6 +1789,59 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         report.assert_called_once()
         self.assertEqual(report.call_args.args[1], event)
+
+    @parameterized.expand(
+        [
+            ("turning_off_records_manual", True, None, False, False, 200, False, "manual"),
+            ("turning_on_clears_the_reason", False, "creator_lost_access", False, True, 200, True, None),
+            # The form PATCHes `enabled: false` back on every save; that must not hide why the sweep turned it off.
+            (
+                "saving_an_off_scanner_keeps_its_reason",
+                False,
+                "free_credits_used",
+                True,
+                False,
+                200,
+                False,
+                "free_credits_used",
+            ),
+            (
+                "free_only_cannot_turn_on_without_free_credits",
+                False,
+                "free_credits_used",
+                True,
+                True,
+                400,
+                False,
+                "free_credits_used",
+            ),
+        ]
+    )
+    def test_disabled_reason_follows_the_enabled_toggle(
+        self,
+        _name: str,
+        before: bool,
+        reason_before: str | None,
+        free_only: bool,
+        after: bool,
+        status: int,
+        enabled_after: bool,
+        reason_after: str | None,
+    ) -> None:
+        scanner = self._create_scanner(enabled=before, free_only=free_only)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(disabled_reason=reason_before)
+
+        # One free credit is left, less than one observation costs, so the sweep would stop it straight away.
+        with patch("products.replay_vision.backend.quota.FREE_TIER_MONTHLY_CREDITS", 1):
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": after}, format="json")
+
+        self.assertEqual(resp.status_code, status, resp.json())
+        if status == 400:
+            self.assertEqual(resp.json()["code"], "scanner_free_credits_used")
+        scanner.refresh_from_db()
+        self.assertEqual((scanner.enabled, scanner.disabled_reason), (enabled_after, reason_after))
+        if status == 200:
+            self.assertEqual(resp.json()["disabled_reason"], reason_after)
 
     @parameterized.expand(
         [
@@ -4110,10 +4157,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
             ObservationMatch(observation_id=str(visible.id), distance=0.2, matched_content=""),
         ]
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             resp = self.client.get(f"{self.search_url}?q=anything")
 
         self.assertEqual(resp.status_code, 200, resp.json())
@@ -4130,10 +4174,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
         )
         mock_embed.return_value = MagicMock(embedding=[0.1])
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             scoped = self.client.get(f"{self.search_url}?q=anything&scanner_id={denied.id}")
             cross = self.client.get(f"{self.search_url}?q=anything")
 
@@ -5462,10 +5503,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         self._succeeded_observation(scanner, "open-sess-2", 4, self._monitor_result("no"))
 
         # The restricted rows are the newest, so the access gate has to run before the filler's limit.
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             resp = self.client.get(self.feed_url)
         self.assertEqual(
             sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-sess", "open-sess-2"]
@@ -5484,10 +5522,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         restricted.save()
 
         # The restricted picks outscore the open ones, so a page of two holds them unless the picks drop them first.
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             resp = self.client.get(self.feed_url, {"limit": 2})
         self.assertEqual(
             sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-8", "open-9"]
@@ -5505,10 +5540,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         first = self.client.get(self.feed_url, {"limit": 1}).json()
         self.assertEqual(len(first["results"]), 1)
         # The second page reads the same build as the first, so access has to be checked again on the page itself.
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             second = self.client.get(self.feed_url, {"limit": 5, "offset": 1, "as_of": first["as_of"]}).json()
         self.assertEqual(second["results"], [])
 

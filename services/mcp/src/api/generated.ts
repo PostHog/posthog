@@ -10133,6 +10133,7 @@ export namespace Schemas {
       Stripe: 'stripe',
       Intercom: 'intercom',
       Email: 'email',
+      EmailSandbox: 'email_sandbox',
       Twilio: 'twilio',
       Linear: 'linear',
       Github: 'github',
@@ -13529,6 +13530,48 @@ export namespace Schemas {
     }
 
     /**
+     * * `serves` - Serves
+     * * `slice` - Slice
+     * * `different` - Different
+     */
+    export type JudgeRelationEnum = typeof JudgeRelationEnum[keyof typeof JudgeRelationEnum];
+
+
+    export const JudgeRelationEnum = {
+      Serves: 'serves',
+      Slice: 'slice',
+      Different: 'different',
+    } as const;
+
+    export interface AdjustedRun {
+      /** ID of the catalog metric the agent query re-derived. */
+      metric_id: string;
+      /** True when the agent read this metric in the catalog before it wrote the query. */
+      read_metric_first: boolean;
+      /** serves: the query computes the metric. slice: it computes the metric with an extra filter. Never different: the scan drops the queries the judge marks different.
+       *
+       * * `serves` - Serves
+       * * `slice` - Slice
+       * * `different` - Different */
+      relation: JudgeRelationEnum;
+      /** What the agent said it was trying to answer. */
+      intent: string;
+      /** The SQL the agent ran. */
+      sql: string;
+      /** Why the judge matched the query to the metric. */
+      reasoning: string;
+      /** When the agent ran the query. */
+      occurred_at: string;
+      /**
+         * Agent session of the query, when known.
+         * @nullable
+         */
+      session_id: string | null;
+      /** True when a scout (scheduled agent) ran the query. */
+      is_scout: boolean;
+    }
+
+    /**
      * * `yes` - Yes
      * * `no` - No
      * * `inconclusive` - Inconclusive
@@ -14978,6 +15021,7 @@ export namespace Schemas {
       AnalyticsAll: 'analytics_all',
       AnalyticsMine: 'analytics_mine',
       Collections: 'collections',
+      Dashboards: 'dashboards',
       Alerts: 'alerts',
       Subscriptions: 'subscriptions',
       ProductAnalytics: 'product_analytics',
@@ -17952,6 +17996,20 @@ export namespace Schemas {
       readonly completed_at: string | null;
       readonly created_at: string;
     }
+
+    /**
+     * * `invalid_definition` - Invalid definition
+     * * `too_expensive` - Too expensive
+     * * `unavailable` - Unavailable
+     */
+    export type AutoresearchValidationErrorCodeEnum = typeof AutoresearchValidationErrorCodeEnum[keyof typeof AutoresearchValidationErrorCodeEnum];
+
+
+    export const AutoresearchValidationErrorCodeEnum = {
+      InvalidDefinition: 'invalid_definition',
+      TooExpensive: 'too_expensive',
+      Unavailable: 'unavailable',
+    } as const;
 
     /**
      * Discovered detail fields and their value distributions.
@@ -22519,6 +22577,48 @@ export namespace Schemas {
       skipped: number;
       /** The first few entry-level problems, so the caller can fix their list. */
       errors: string[];
+    }
+
+    /**
+     * * `bounce` - Bounce
+     * * `complaint` - Complaint
+     * * `manual` - Manual
+     */
+    export type BulkSuppressionReasonEnum = typeof BulkSuppressionReasonEnum[keyof typeof BulkSuppressionReasonEnum];
+
+
+    export const BulkSuppressionReasonEnum = {
+      Bounce: 'bounce',
+      Complaint: 'complaint',
+      Manual: 'manual',
+    } as const;
+
+    export interface BulkSuppressionEntry {
+      /**
+         * The email address to suppress. Matched case-insensitively.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Why the address is suppressed. `bounce` blocks every email, transactional included, because the address can't receive mail. `complaint` (the recipient reported spam) and `manual` block marketing email only. Defaults to `manual`.
+       *
+       * * `bounce` - Bounce
+       * * `complaint` - Complaint
+       * * `manual` - Manual */
+      reason?: BulkSuppressionReasonEnum;
+    }
+
+    export interface BulkAddSuppressionsRequest {
+      /** Addresses to suppress, at most 1000 per request. */
+      suppressions: BulkSuppressionEntry[];
+    }
+
+    export interface BulkAddSuppressionsResult {
+      /** Number of distinct addresses received, after lowercasing. */
+      total: number;
+      /** Number of addresses added to the suppression list. */
+      created: number;
+      /** Number of addresses that already had an entry. Their entry is left unchanged, even when someone removed it from the list. */
+      already_present: number;
     }
 
     /**
@@ -38195,7 +38295,7 @@ export namespace Schemas {
          * @maximum 100000000
          */
       monthly_credit_budget?: number;
-      /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
+      /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and stops when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
       free_only?: boolean;
       /**
          * A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.
@@ -39760,6 +39860,18 @@ export namespace Schemas {
          */
       reason: string | null;
     }
+
+    /**
+     * * `sandbox` - sandbox
+     * * `own` - own
+     */
+    export type EmailStepSenderEnum = typeof EmailStepSenderEnum[keyof typeof EmailStepSenderEnum];
+
+
+    export const EmailStepSenderEnum = {
+      Sandbox: 'sandbox',
+      Own: 'own',
+    } as const;
 
     /**
      * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
@@ -46172,6 +46284,19 @@ export namespace Schemas {
      * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
      * * `changed_at` - When a change of the feature flag was saved
      * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+     * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+     * * `before` - What a change of the feature flag changed, as it was before the change, in words
+     * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+     * * `event` - The name of an event that the check looked up
+     * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+     * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+     * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+     * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+     * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+     * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+     * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
      */
     export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
@@ -46220,6 +46345,19 @@ export namespace Schemas {
       TrafficSinceAt: 'traffic_since_at',
       ChangedAt: 'changed_at',
       BeforeExposure: 'before_exposure',
+      ChangedSetting: 'changed_setting',
+      Before: 'before',
+      After: 'after',
+      FlagServiceCallPercentage: 'flag_service_call_percentage',
+      Event: 'event',
+      EventReceived: 'event_received',
+      InvalidMetricCount: 'invalid_metric_count',
+      UncheckedMetricCount: 'unchecked_metric_count',
+      FlagSplit: 'flag_split',
+      BaselineVariant: 'baseline_variant',
+      OtherRunningExperimentCount: 'other_running_experiment_count',
+      AssignedOutsideCount: 'assigned_outside_count',
+      OtherDraftExperimentCount: 'other_draft_experiment_count',
     } as const;
 
     /**
@@ -46289,7 +46427,20 @@ export namespace Schemas {
        * * `forced_percentage` - forced_count as a share of variant_matched_count
        * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
        * * `changed_at` - When a change of the feature flag was saved
-       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
+       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+       * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+       * * `before` - What a change of the feature flag changed, as it was before the change, in words
+       * * `after` - What a change of the feature flag changed, as it was after the change, in words
+       * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+       * * `event` - The name of an event that the check looked up
+       * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+       * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+       * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+       * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+       * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+       * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+       * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
       value: ExperimentHealthValueKeyEnum;
       /** The value that the key must reach. Below it, the check reports no finding. */
       threshold: number;
@@ -46340,7 +46491,20 @@ export namespace Schemas {
        * * `forced_percentage` - forced_count as a share of variant_matched_count
        * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
        * * `changed_at` - When a change of the feature flag was saved
-       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
+       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+       * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+       * * `before` - What a change of the feature flag changed, as it was before the change, in words
+       * * `after` - What a change of the feature flag changed, as it was after the change, in words
+       * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+       * * `event` - The name of an event that the check looked up
+       * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+       * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+       * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+       * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+       * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+       * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+       * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
       value: ExperimentHealthValueKeyEnum;
       /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
@@ -46930,6 +47094,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentExposureQuery {
+      /** The instant the window is evaluated at, when it ends before `end_date`. Unset means now. */
+      as_of?: string | null;
       end_date?: string | null;
       experiment_id?: number | null;
       experiment_name: string;
@@ -50410,7 +50576,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -50425,7 +50590,6 @@ export namespace Schemas {
 
 
     export const SettableSyncFrequencyEnum = {
-      Never: 'never',
       '5min': '5min',
       '15min': '15min',
       '30min': '30min',
@@ -50529,9 +50693,8 @@ export namespace Schemas {
          * @nullable
          */
       incremental_field_lookback_seconds?: number | null;
-      /** How often to sync. The fastest sync frequency is 5 minutes.
+      /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
        *
-       * * `never` - never
        * * `5min` - 5min
        * * `15min` - 15min
        * * `30min` - 30min
@@ -50687,7 +50850,7 @@ export namespace Schemas {
          */
       incremental_field_type?: string | null;
       /**
-         * Human-readable sync frequency value.
+         * How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
          * @nullable
          */
       sync_frequency?: string | null;
@@ -50949,6 +51112,11 @@ export namespace Schemas {
 
     export type ExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
+    export interface SourceUpdatePayload {
+      /** Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds. */
+      credential_id: string;
+    }
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -51037,6 +51205,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning: string | null;
+      /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+      payload?: SourceUpdatePayload;
     }
 
     export interface ExternalDataSourceSyncState {
@@ -54221,6 +54391,37 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface GithubCodeScanningScannerFindingSignalExtra {
+      number: string | null;
+      state: string | null;
+      rule_id: string | null;
+      rule_severity: string | null;
+      security_severity_level: string | null;
+      tool_name: string | null;
+      location_path: string | null;
+      location_start_line: string | null;
+      html_url: string | null;
+      created_at: string | null;
+      repository: string | null;
+    }
+
+    export interface GithubDependabotScannerFindingSignalExtra {
+      number: string | null;
+      state: string | null;
+      severity: string | null;
+      ghsa_id: string | null;
+      cve_id: string | null;
+      package_ecosystem: string | null;
+      package_name: string | null;
+      vulnerable_version_range: string | null;
+      first_patched_version: string | null;
+      manifest_path: string | null;
+      dependency_scope: string | null;
+      html_url: string | null;
+      created_at: string | null;
+      repository: string | null;
+    }
+
     export interface GithubIssueDependencyRef {
       repository: string;
       number: number;
@@ -54237,6 +54438,16 @@ export namespace Schemas {
       author_login?: string | null;
       author_association?: string | null;
       depends_on_issues?: GithubIssueDependencyRef[];
+    }
+
+    export interface GithubSecretScanningScannerFindingSignalExtra {
+      number: string | null;
+      state: string | null;
+      secret_type: string | null;
+      validity: string | null;
+      html_url: string | null;
+      created_at: string | null;
+      repository: string | null;
     }
 
     export interface GitlabIssueSignalExtra {
@@ -57977,13 +58188,13 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationCpa {
-      /** CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for context. Null when the account has no non-brand conversions. */
+      /** CPA benchmark the rule compares the subject with. Only rules that judge a CPA carry `cpa`: review, Search scale, budget, spend without conversions and content gap. */
       benchmark: number | null;
       /** Where the benchmark comes from. Null when there is no benchmark. */
       benchmarkSource: MarketingAnalyticsRecommendationCpaBenchmarkSource | null;
       /** Lowest non-brand CPA of a non-brand Search campaign in the same ad account. */
       bestCampaign: number | null;
-      /** Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no conversions or is not bought yet. */
+      /** Cost per conversion of the subject. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a target CPA. Null when it has no conversions. */
       value: number | null;
       /** Highest non-brand CPA of a non-brand Search campaign in the same ad account. */
       worstCampaign: number | null;
@@ -61543,6 +61754,9 @@ export namespace Schemas {
      * * `azure_application_insights` - Azure Application Insights
      * * `appsignal` - AppSignal
      * * `cursor` - Cursor
+     * * `github_dependabot` - GitHub Dependabot
+     * * `github_code_scanning` - GitHub code scanning
+     * * `github_secret_scanning` - GitHub secret scanning
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -61661,6 +61875,9 @@ export namespace Schemas {
       AzureApplicationInsights: 'azure_application_insights',
       Appsignal: 'appsignal',
       Cursor: 'cursor',
+      GithubDependabot: 'github_dependabot',
+      GithubCodeScanning: 'github_code_scanning',
+      GithubSecretScanning: 'github_secret_scanning',
     } as const;
 
     /**
@@ -61828,7 +62045,10 @@ export namespace Schemas {
        * * `google_play_console` - Google Play Console
        * * `azure_application_insights` - Azure Application Insights
        * * `appsignal` - AppSignal
-       * * `cursor` - Cursor */
+       * * `cursor` - Cursor
+       * * `github_dependabot` - GitHub Dependabot
+       * * `github_code_scanning` - GitHub code scanning
+       * * `github_secret_scanning` - GitHub secret scanning */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -70169,6 +70389,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Direct runs of the metric in the window, keyed by the surface that ran it: web, api, mcp, slack, posthog_ai, or posthog_code. Scout runs are not included.
+     */
+    export type MetricRunCountsDirectRuns = {[key: string]: number};
+
+    export interface MetricRunCounts {
+      /** ID of the catalog metric. */
+      metric_id: string;
+      /** Direct runs of the metric in the window, keyed by the surface that ran it: web, api, mcp, slack, posthog_ai, or posthog_code. Scout runs are not included. */
+      direct_runs: MetricRunCountsDirectRuns;
+      /** Distinct people who ran the metric directly, without scouts. */
+      direct_people: number;
+      /** Direct runs by scouts (scheduled agents), kept apart because one scout can run a metric many times a day. */
+      scout_runs: number;
+    }
+
+    /**
      * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.
      */
     export type MetricThresholdReplacementConfigQuery = { [key: string]: unknown } | null;
@@ -70241,6 +70477,26 @@ export namespace Schemas {
       Ratio: 'ratio',
       Retention: 'retention',
     } as const;
+
+    export interface MetricUsage {
+      /** ID of the catalog metric. */
+      metric_id: string;
+      /** The usage scan these numbers come from. */
+      snapshot_id: string;
+      /** Start of the scanned window. */
+      window_start: string;
+      /** End of the scanned window. */
+      window_end: string;
+      /**
+         * When the scan finished.
+         * @nullable
+         */
+      computed_at: string | null;
+      /** Run counts. Null when the metric had no runs. */
+      runs: MetricRunCounts | null;
+      /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
+      adjusted_runs: AdjustedRun[];
+    }
 
     /**
      * * `custom` - custom
@@ -77040,12 +77296,22 @@ export namespace Schemas {
       Google: 'google',
     } as const;
 
-    export type UnrunnableReasonEnum = typeof UnrunnableReasonEnum[keyof typeof UnrunnableReasonEnum];
+    /**
+     * * `manual` - Turned off by a person
+     * * `free_credits_used` - Free credits used
+     * * `no_ai_consent` - No AI consent
+     * * `creator_lost_access` - Creator lost access
+     * * `experiment_deleted` - Experiment deleted
+     */
+    export type ScannerDisabledReasonEnum = typeof ScannerDisabledReasonEnum[keyof typeof ScannerDisabledReasonEnum];
 
 
-    export const UnrunnableReasonEnum = {
+    export const ScannerDisabledReasonEnum = {
+      Manual: 'manual',
+      FreeCreditsUsed: 'free_credits_used',
       NoAiConsent: 'no_ai_consent',
       CreatorLostAccess: 'creator_lost_access',
+      ExperimentDeleted: 'experiment_deleted',
     } as const;
 
     /**
@@ -77122,7 +77388,7 @@ export namespace Schemas {
          * @nullable
          */
       credit_limit?: number | null;
-      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`. */
       free_only?: boolean;
       /** LLM provider. v1 is Google-only.
        *
@@ -77185,8 +77451,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly filter_error: string | null;
-      /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
-      readonly unrunnable_reason: UnrunnableReasonEnum | null;
+      /** Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. `free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. `experiment_deleted`: its experiment was deleted.
+       *
+       * * `manual` - Turned off by a person
+       * * `free_credits_used` - Free credits used
+       * * `no_ai_consent` - No AI consent
+       * * `creator_lost_access` - Creator lost access
+       * * `experiment_deleted` - Experiment deleted */
+      readonly disabled_reason: ScannerDisabledReasonEnum | null;
       readonly created_at: string;
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
@@ -78297,6 +78569,35 @@ export namespace Schemas {
       results: SignalReportCheck[];
     }
 
+    /**
+     * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+     * @nullable
+     */
+    export type PaginatedSignalReportListListPersonalRankingStatus = {
+      /** real: the model personalized 2 or more reports, so the ranking can reorder the list. one_report: it personalized a single report. not_personalized: the build finished without personalizing. empty: the build had no reports to rank. fallback: the build kept the default order, see fallback_reason. none: no ranking is stored. */
+      state: 'real' | 'one_report' | 'not_personalized' | 'empty' | 'fallback' | 'none';
+      /**
+         * Reports in the stored ranking. Null when state is none.
+         * @nullable
+         */
+      size: number | null;
+      /**
+         * Minutes since the ranking was built. Null when state is none.
+         * @nullable
+         */
+      age_minutes: number | null;
+      /**
+         * Minutes since a build or the scheduled check last confirmed the ranking's inputs. Null when state is none.
+         * @nullable
+         */
+      checked_age_minutes: number | null;
+      /**
+         * Why the build kept the default order, when state is fallback. Else null.
+         * @nullable
+         */
+      fallback_reason: string | null;
+    } | null | null;
+
     export interface ReviewerControlResponse {
       /** State token for a selection, replacement, or list confirmation. */
       state: ReviewerState;
@@ -79153,6 +79454,11 @@ export namespace Schemas {
          * @nullable
          */
       ranking_id?: string | null;
+      /**
+         * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+         * @nullable
+         */
+      personal_ranking_status?: PaginatedSignalReportListListPersonalRankingStatus;
       /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. Only a search with a full page can cap the count. */
       count_is_capped?: boolean;
       /**
@@ -87104,9 +87410,8 @@ export namespace Schemas {
          * @nullable
          */
       incremental_field_lookback_seconds?: number | null;
-      /** How often to sync. The fastest sync frequency is 5 minutes.
+      /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
        *
-       * * `never` - never
        * * `5min` - 5min
        * * `15min` - 15min
        * * `30min` - 30min
@@ -87307,6 +87612,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning?: string | null;
+      /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+      payload?: SourceUpdatePayload;
     }
 
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
@@ -87689,8 +87996,15 @@ export namespace Schemas {
       base_updated_at?: string;
       /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
       operations?: DesignOperation[];
-      /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. The design is edited via operations, and html is always re-rendered from it. */
+      /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. A sandbox step (type email_sandbox) takes only subject, preheader, text and to. The design is edited via operations, and html is always re-rendered from it. */
       email_patch?: unknown;
+      /** Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to verified members of the organization and needs no verified domain; it is set up for the project on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in email_patch.from.integrationId. The step keeps its id, recipient, content and category.
+       *
+       * * `sandbox` - sandbox
+       * * `own` - own */
+      sender?: EmailStepSenderEnum;
+      /** With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it. */
+      drop_own_sender_settings?: boolean;
     }
 
     export interface PatchedHogFlowGraphUpdate {
@@ -91261,7 +91575,7 @@ export namespace Schemas {
          * @nullable
          */
       credit_limit?: number | null;
-      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`. */
       free_only?: boolean;
       /** LLM provider. v1 is Google-only.
        *
@@ -91324,8 +91638,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly filter_error?: string | null;
-      /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
-      readonly unrunnable_reason?: UnrunnableReasonEnum | null;
+      /** Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. `free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. `experiment_deleted`: its experiment was deleted.
+       *
+       * * `manual` - Turned off by a person
+       * * `free_credits_used` - Free credits used
+       * * `no_ai_consent` - No AI consent
+       * * `creator_lost_access` - Creator lost access
+       * * `experiment_deleted` - Experiment deleted */
+      readonly disabled_reason?: ScannerDisabledReasonEnum | null;
       readonly created_at?: string;
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;
@@ -104851,6 +105171,9 @@ export namespace Schemas {
      * * `azure_application_insights` - azure_application_insights
      * * `appsignal` - appsignal
      * * `cursor` - cursor
+     * * `github_dependabot` - github_dependabot
+     * * `github_code_scanning` - github_code_scanning
+     * * `github_secret_scanning` - github_secret_scanning
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -104969,6 +105292,9 @@ export namespace Schemas {
       AzureApplicationInsights: 'azure_application_insights',
       Appsignal: 'appsignal',
       Cursor: 'cursor',
+      GithubDependabot: 'github_dependabot',
+      GithubCodeScanning: 'github_code_scanning',
+      GithubSecretScanning: 'github_secret_scanning',
     } as const;
 
     /**
@@ -105299,7 +105625,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -105429,7 +105755,10 @@ export namespace Schemas {
        * * `google_play_console` - google_play_console
        * * `azure_application_insights` - azure_application_insights
        * * `appsignal` - appsignal
-       * * `cursor` - cursor */
+       * * `cursor` - cursor
+       * * `github_dependabot` - github_dependabot
+       * * `github_code_scanning` - github_code_scanning
+       * * `github_secret_scanning` - github_secret_scanning */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -111848,6 +112177,20 @@ export namespace Schemas {
       FirstWorkflow: 'first-workflow',
     } as const;
 
+    /**
+     * * `covered` - Covered
+     * * `slice` - Slice
+     * * `uncovered` - Uncovered
+     */
+    export type ShapeOutcomeEnum = typeof ShapeOutcomeEnum[keyof typeof ShapeOutcomeEnum];
+
+
+    export const ShapeOutcomeEnum = {
+      Covered: 'covered',
+      Slice: 'slice',
+      Uncovered: 'uncovered',
+    } as const;
+
     export interface SharePassword {
       readonly id: number;
       readonly created_at: string;
@@ -114027,7 +114370,7 @@ export namespace Schemas {
     }
 
     export interface SourceCredential {
-      /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
+      /** Stored credential id. Pass it as {'credential_id': <id>} in the payload of the setup endpoint to create a source, or of a source update to reconnect an existing source. */
       credential_id: string;
       /** The source type the stored credentials are for. */
       source_type: string;
@@ -119418,6 +119761,30 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    export interface TopicCoverage {
+      /** Sessions that ran a catalog metric directly. */
+      canonical: number;
+      /** Sessions that read a catalog metric, then changed it. */
+      adapted: number;
+      /** Sessions that re-derived a catalog metric without consulting it. */
+      silent: number;
+      /** Sessions that ran SQL that matches no catalog metric. */
+      raw_sql_only: number;
+      /** Sessions that ran no query. */
+      no_sql: number;
+    }
+
+    export interface TopicCluster {
+      /** Short name of the topic, written by a model from sample intents. */
+      title: string;
+      /** Agent sessions in the topic. Scout sessions are not clustered. */
+      session_count: number;
+      /** How the topic's sessions got their numbers. */
+      coverage: TopicCoverage;
+      /** A few intents from the topic's sessions. */
+      sample_intents: string[];
+    }
+
     /**
      * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
      */
@@ -120541,6 +120908,40 @@ export namespace Schemas {
       passkeys_enabled_for_2fa: boolean;
     }
 
+    export interface UncoveredGroup {
+      /** Stable ID of the measure the queries compute. */
+      fingerprint_digest: string;
+      /** Readable description of the measure. */
+      measure: string;
+      /** covered: a catalog metric computes it. slice: a catalog metric computes it without the extra filters. uncovered: no catalog metric computes it.
+       *
+       * * `covered` - Covered
+       * * `slice` - Slice
+       * * `uncovered` - Uncovered */
+      outcome: ShapeOutcomeEnum;
+      /**
+         * The matching catalog metric, for covered and slice.
+         * @nullable
+         */
+      matched_metric_id: string | null;
+      /** Distinct people who ran the measure, without scouts. */
+      distinct_people: number;
+      /** Query runs of the measure, without scouts. */
+      runs: number;
+      /** One query that computes the measure. */
+      sample_sql: string;
+      /**
+         * Proposed metric name, when one was drafted.
+         * @nullable
+         */
+      draft_name: string | null;
+      /**
+         * Proposed metric description, when one was drafted.
+         * @nullable
+         */
+      draft_description: string | null;
+    }
+
     export interface UnquarantineQuery {
       /**
          * Snapshot identifier to unquarantine
@@ -120781,6 +121182,97 @@ export namespace Schemas {
          * @nullable
          */
       error?: UpsertWizardSessionRequestError;
+    }
+
+    /**
+     * * `computing` - Computing
+     * * `done` - Done
+     * * `error` - Error
+     */
+    export type UsageSnapshotStatusEnum = typeof UsageSnapshotStatusEnum[keyof typeof UsageSnapshotStatusEnum];
+
+
+    export const UsageSnapshotStatusEnum = {
+      Computing: 'computing',
+      Done: 'done',
+      Error: 'error',
+    } as const;
+
+    export interface UsageSnapshotPayload {
+      /**
+         * Run counts per metric. Null until the scan counts runs.
+         * @nullable
+         */
+      metric_runs: MetricRunCounts[] | null;
+      /**
+         * Agent queries that re-derived a metric. Null until judged.
+         * @nullable
+         */
+      adjusted_runs: AdjustedRun[] | null;
+      /**
+         * Agent session topics. Null until clustered.
+         * @nullable
+         */
+      topics: TopicCluster[] | null;
+      /**
+         * Recurring query shapes and their catalog outcome. Null until grouped.
+         * @nullable
+         */
+      uncovered: UncoveredGroup[] | null;
+    }
+
+    export interface UsageSnapshot {
+      /** ID of the usage scan. */
+      id: string;
+      /** computing while the scan runs, then done or error.
+       *
+       * * `computing` - Computing
+       * * `done` - Done
+       * * `error` - Error */
+      status: UsageSnapshotStatusEnum;
+      /** Why the scan failed, when status is error. */
+      error_message: string;
+      /** Start of the scanned window. */
+      window_start: string;
+      /** End of the scanned window. */
+      window_end: string;
+      /** Model that judged adjusted runs in this scan. */
+      judge_model: string;
+      /**
+         * When the scan finished.
+         * @nullable
+         */
+      computed_at: string | null;
+      /** When the scan started. */
+      created_at: string;
+      /** The scan result, one key per section. */
+      payload: UsageSnapshotPayload;
+    }
+
+    export interface UsageSnapshotSummary {
+      /** ID of the usage scan. */
+      id: string;
+      /** computing while the scan runs, then done or error.
+       *
+       * * `computing` - Computing
+       * * `done` - Done
+       * * `error` - Error */
+      status: UsageSnapshotStatusEnum;
+      /** Why the scan failed, when status is error. */
+      error_message: string;
+      /** Start of the scanned window. */
+      window_start: string;
+      /** End of the scanned window. */
+      window_end: string;
+      /** Model that judged adjusted runs in this scan. */
+      judge_model: string;
+      /**
+         * When the scan finished.
+         * @nullable
+         */
+      computed_at: string | null;
+      /** When the scan started. */
+      created_at: string;
     }
 
     /**
@@ -121206,6 +121698,12 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+      /** Why validation did not run, or null when it did. 'invalid_definition': a query error in the definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this project's data, so a retry fails the same way; narrow the population, for example to people who performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth a retry.
+       *
+       * * `invalid_definition` - Invalid definition
+       * * `too_expensive` - Too expensive
+       * * `unavailable` - Unavailable */
+      error_code: AutoresearchValidationErrorCodeEnum | null;
     }
 
     /**
@@ -125108,7 +125606,7 @@ export namespace Schemas {
       service?: string;
       /** Number of log entries in the bucket. */
       count: number;
-      /** Sum of uncompressed bytes for the bucket. */
+      /** Sum of uncompressed bytes for the bucket. Present only when sparklineRankBy is "bytes". */
       bytes_uncompressed?: number;
     }
 

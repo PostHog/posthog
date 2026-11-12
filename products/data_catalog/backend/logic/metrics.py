@@ -715,20 +715,27 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
 
 
 def metrics_visible_to_user(
-    team: Team, user: User, user_access_control: UserAccessControl, filters: MetricListFilters | None = None
+    team: Team,
+    user: User,
+    user_access_control: UserAccessControl,
+    filters: MetricListFilters | None = None,
+    *,
+    denied_tables: set[str] | None = None,
 ) -> QuerySet[Metric]:
     """Live metrics whose definitions do not disclose a warehouse table the caller cannot read.
 
     With ``filters``, only the metrics the list shows. The plain list and the ranked search both pass them here.
+    Building the denied-table set loads the team's whole HogQL catalog, so a caller that already has it passes it in.
     """
     metrics = metrics_for_team(team)
     if filters is not None and filters.status:
         metrics = metrics.filter(status=filters.status)
     if filters is not None and filters.definition_kind:
         metrics = metrics.filter(definition__kind=filters.definition_kind)
-    if not metrics.exists():
-        return metrics.none()
-    denied_tables = _denied_tables(team, user, user_access_control)
+    if denied_tables is None:
+        if not metrics.exists():
+            return metrics.none()
+        denied_tables = _denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics
     visible_metric_ids = [
