@@ -39027,6 +39027,9 @@
                 "currency": {
                     "type": ["string", "null"]
                 },
+                "identity": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationIdentity"
+                },
                 "impact": {
                     "description": "Monthly money impact in the account currency. Null when the rule has no money impact.",
                     "type": ["number", "null"]
@@ -39036,6 +39039,10 @@
                 },
                 "impactType": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationImpactType"
+                },
+                "key": {
+                    "description": "Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is.",
+                    "type": "string"
                 },
                 "level": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationLevel"
@@ -39058,7 +39065,17 @@
                     "type": "string"
                 }
             },
-            "required": ["rule", "level", "subject", "action", "reason", "impactDirection", "impactType"],
+            "required": [
+                "rule",
+                "level",
+                "subject",
+                "identity",
+                "key",
+                "action",
+                "reason",
+                "impactDirection",
+                "impactType"
+            ],
             "type": "object"
         },
         "MarketingAnalyticsRecommendationCpa": {
@@ -39098,6 +39115,37 @@
         "MarketingAnalyticsRecommendationCpaBenchmarkSource": {
             "description": "The benchmark a recommendation compares a CPA with, in this order of preference:\n- `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.\n- `campaign`: the campaign's own non-brand CPA, when it has enough conversions to be stable. Only search terms use   it, since a campaign is never compared with itself.\n- `account`: the non-brand CPA of the ad account. Brand searches convert cheaply, so they stay out of it.",
             "enum": ["target_cpa", "campaign", "account"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationIdentity": {
+            "additionalProperties": false,
+            "description": "What a dismissal or an applied mark keys on. A client sends this object as is as the `identity` of a resolution in the recommendation resolutions API.",
+            "properties": {
+                "campaign_id": {
+                    "description": "The Google Ads campaign id. Empty when the recommendation is not about one campaign.",
+                    "type": "string"
+                },
+                "customer_id": {
+                    "description": "The Google Ads account id. Empty when the recommendation is not tied to one account.",
+                    "type": "string"
+                },
+                "rule": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationRule"
+                },
+                "source_type": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationIdentitySourceType",
+                    "description": "The ad platform the ids belong to."
+                },
+                "subject": {
+                    "description": "The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject.",
+                    "type": "string"
+                }
+            },
+            "required": ["rule", "source_type", "customer_id", "campaign_id", "subject"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationIdentitySourceType": {
+            "enum": ["google_ads"],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationImpactDirection": {
