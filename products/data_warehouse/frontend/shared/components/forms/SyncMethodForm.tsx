@@ -47,7 +47,7 @@ export const secondsToLookbackParts = (
 // that never changes on update, which is the opposite pick.
 const incrementalFieldOptions = (
     fields: IncrementalField[],
-    recommended?: IncrementalField
+    markRecommended: boolean
 ): { value: string; label: JSX.Element }[] =>
     fields.map((field) => ({
         value: field.field,
@@ -57,7 +57,7 @@ const incrementalFieldOptions = (
                 <LemonTag className="ml-2" type="success">
                     {field.type}
                 </LemonTag>
-                {field === recommended && (
+                {markRecommended && field.recommended && (
                     <LemonTag className="ml-1" type="highlight">
                         Recommended
                     </LemonTag>
@@ -70,6 +70,12 @@ const incrementalFieldOptions = (
 // changes, defaults to the next candidate instead.
 const getDefaultAppendField = (schema: ExternalDataSourceSyncSchema, defaultField: string | null): string | null =>
     schema.incremental_field ?? schema.incremental_fields.find((field) => !field.picked_by_model)?.field ?? defaultField
+
+// The backend puts its note for a model pick first, so the form shows the same words.
+const getModelPickNote = (fields: IncrementalField[], selectedField: string | null): string | null => {
+    const selected = fields.find((field) => field.field === selectedField)
+    return selected?.picked_by_model ? (selected.notes?.[0] ?? null) : null
+}
 
 const getIncrementalSyncSupported = (
     schema: ExternalDataSourceSyncSchema
@@ -275,6 +281,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled, keyResolvable)
     )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(defaultField)
+    const modelPickNote = getModelPickNote(schema.incremental_fields, incrementalFieldValue)
     const [appendFieldValue, setAppendFieldValue] = useState(defaultAppendField)
     // Prefill detected PKs only when the selector is editable. A locked schema already has a key
     // the backend refuses to swap, so prefilling from detected would silently turn unrelated edits
@@ -496,16 +503,10 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                     setIncrementalFieldValue(newValue)
                                     setRadioValue('incremental')
                                 }}
-                                options={incrementalFieldOptions(
-                                    schema.incremental_fields,
-                                    schema.incremental_fields.find((n) => n.recommended)
-                                )}
+                                options={incrementalFieldOptions(schema.incremental_fields, true)}
                             />
-                            {schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
-                                ?.picked_by_model && (
-                                <p className="text-secondary text-xs mt-1 mb-0">
-                                    Picked by AI from the table and column names.
-                                </p>
+                            {radioValue === 'incremental' && modelPickNote && (
+                                <p className="text-secondary text-xs mt-1 mb-0">{modelPickNote}</p>
                             )}
                             {radioValue === 'incremental' &&
                                 incrementalFieldValue &&
@@ -605,7 +606,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                           setAppendFieldValue(newValue)
                                           setRadioValue('append')
                                       }}
-                                      options={incrementalFieldOptions(schema.incremental_fields)}
+                                      options={incrementalFieldOptions(schema.incremental_fields, false)}
                                   />
                                   {radioValue === 'append' &&
                                       appendFieldValue &&
