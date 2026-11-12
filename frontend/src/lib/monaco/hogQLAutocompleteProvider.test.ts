@@ -43,32 +43,31 @@ describe('hogQLAutocompleteProvider', () => {
         )
     }
 
-    it('exposes the complete function signature in suggestion details without changing insertion', async () => {
+    it('exposes the complete function name when the API provides no detail', async () => {
         jest.mocked(performQuery).mockResolvedValueOnce({
             suggestions: [
                 {
-                    label: 'quantileExactWeighted',
-                    detail: '(level)(value, weight)',
+                    label: 'cutToFirstSignificantSubdomainWithWWW',
+                    detail: null,
                     kind: 'Function',
-                    insertText: 'quantileExactWeighted()',
-                    documentation: 'Calculate an exact weighted quantile.',
+                    insertText: 'cutToFirstSignificantSubdomainWithWWW()',
                 },
             ],
             incomplete_list: false,
         })
         const result = await completeAt(
-            'SELECT quant',
+            'SELECT cutTo',
             { lineNumber: 1, column: 13 },
             {
-                word: 'quant',
+                word: 'cutTo',
                 startColumn: 8,
                 endColumn: 13,
             }
         )
         expect(result?.suggestions[0]).toEqual(
             expect.objectContaining({
-                detail: 'quantileExactWeighted(level)(value, weight)',
-                insertText: 'quantileExactWeighted()',
+                detail: 'cutToFirstSignificantSubdomainWithWWW',
+                insertText: 'cutToFirstSignificantSubdomainWithWWW()',
             })
         )
     })
