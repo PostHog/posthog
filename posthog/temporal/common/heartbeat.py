@@ -1,4 +1,5 @@
 import abc
+import math
 import time
 import socket
 import typing
@@ -21,6 +22,11 @@ def first_heartbeat_delay(heartbeat_timeout_seconds: float, interval: float) -> 
     if settings.TEMPORAL_HEARTBEAT_SKIP_SHORT_RUNS:
         return heartbeat_timeout_seconds / 4
     return interval
+
+
+def ticks_before_first_heartbeat(initial_delay: float, interval: float) -> int:
+    """Number of whole intervals that fit before the first heartbeat is due."""
+    return math.ceil(initial_delay / interval - 1e-9)
 
 
 class Heartbeater:
@@ -135,8 +141,14 @@ class LivenessHeartbeater(Heartbeater):
 
     async def _heartbeat_forever(self, delay: float, initial_delay: float):
         """Heartbeat forever every delay seconds, after waiting initial_delay seconds."""
-        await asyncio.sleep(initial_delay)
+        # Liveness is local and free, so it keeps its interval while the billed heartbeat waits.
+        ticks_before_send = ticks_before_first_heartbeat(initial_delay, delay) - 1
         while True:
+            await asyncio.sleep(delay)
+            if ticks_before_send > 0:
+                ticks_before_send -= 1
+                self.tracker.record_heartbeat()
+                continue
             try:
                 extra_payload = {"host": socket.gethostname(), "ts": time.time()}
                 activity.heartbeat(*self.details, extra_payload)
@@ -144,7 +156,6 @@ class LivenessHeartbeater(Heartbeater):
                 self.logger.debug("Heartbeat")
             except Exception:
                 self.logger.exception("Heartbeat failed")
-            await asyncio.sleep(delay)
 
 
 class EmptyHeartbeatError(Exception):

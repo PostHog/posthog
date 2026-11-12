@@ -12,7 +12,7 @@ from structlog import get_logger
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
-from posthog.temporal.common.heartbeat import first_heartbeat_delay
+from posthog.temporal.common.heartbeat import first_heartbeat_delay, ticks_before_first_heartbeat
 from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 
 LOGGER = get_logger(__name__)
@@ -65,16 +65,21 @@ class HeartbeaterSync:
     ):
         tracker = get_liveness_tracker()
         send_heartbeat = _loop_heartbeat.get() or activity.heartbeat
-        delay = initial_delay
-        while not stop_event.wait(delay):
-            try:
-                extra_payload = {"host": socket.gethostname(), "ts": time.time()}
-                send_heartbeat(*details, extra_payload)
+        # Liveness is local and free, so it keeps its interval while the billed heartbeat waits.
+        ticks_before_send = ticks_before_first_heartbeat(initial_delay, interval)
+        while not stop_event.is_set():
+            if ticks_before_send > 0:
+                ticks_before_send -= 1
                 tracker.record_heartbeat()
-                self.log_debug("Heartbeat")
-            except Exception as e:
-                self.logger.warning("Heartbeat failed", error=str(e), exc_info=e)
-            delay = interval
+            else:
+                try:
+                    extra_payload = {"host": socket.gethostname(), "ts": time.time()}
+                    send_heartbeat(*details, extra_payload)
+                    tracker.record_heartbeat()
+                    self.log_debug("Heartbeat")
+                except Exception as e:
+                    self.logger.warning("Heartbeat failed", error=str(e), exc_info=e)
+            stop_event.wait(interval)
 
     def __enter__(self):
         heartbeat_timeout = activity.info().heartbeat_timeout
