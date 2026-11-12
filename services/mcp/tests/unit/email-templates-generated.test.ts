@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { z } from 'zod'
 
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
+import type { Context } from '@/tools/types'
 
 describe('Generated email template tools', () => {
     const toolSchema = (name: string): z.ZodType => GENERATED_TOOL_MAP[name]!().schema
@@ -61,5 +62,23 @@ describe('Generated email template tools', () => {
         const input = createWithEmail({ design: editorDesign })
 
         expect(toolSchema('workflows-create-email-template').parse(input)).toMatchObject(input)
+    })
+
+    it.each([
+        [true, 'omitted', {}],
+        [false, 'false', { basic: false }],
+    ])('workflows-list-email-templates sends basic=%s when the input has it %s', async (sent, _case, input) => {
+        const request = vi.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+        const context = {
+            api: { request, getProjectBaseUrl: () => 'https://example.com/project/42' },
+            stateManager: { getProjectId: async () => '42' },
+        } as unknown as Context
+        const tool = GENERATED_TOOL_MAP['workflows-list-email-templates']!()
+
+        await tool.handler(context, tool.schema.parse(input))
+
+        expect(request).toHaveBeenCalledWith(
+            expect.objectContaining({ query: expect.objectContaining({ basic: sent }) })
+        )
     })
 })
