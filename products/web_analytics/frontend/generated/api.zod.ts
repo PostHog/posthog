@@ -309,6 +309,35 @@ export const AeoPromptsSuggestBody = /* @__PURE__ */ zod.object({
         .describe('How many prompts to suggest, at most 50.'),
 })
 
+/**
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, has PostHog suggest 20 keywords and saves them, then queues a first citation check run with the default engines. A step the project already covers is skipped: an own brand exists, 10 or more active prompts, 10 or more keywords, or any check already recorded. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * @summary Set up AI visibility
+ */
+export const aeoSetupCreateBodyDomainMax = 200
+
+export const aeoSetupCreateBodyBrandMax = 200
+
+export const aeoSetupCreateBodyDescriptionMax = 1000
+
+export const AeoSetupCreateBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(aeoSetupCreateBodyDomainMax)
+        .describe(
+            "The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords."
+        ),
+    brand: zod
+        .string()
+        .max(aeoSetupCreateBodyBrandMax)
+        .optional()
+        .describe('The brand name. Inferred from the site when empty.'),
+    description: zod
+        .string()
+        .max(aeoSetupCreateBodyDescriptionMax)
+        .optional()
+        .describe('What the product does and who it is for. Inferred from the site when empty.'),
+})
+
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000
 
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistMax = 100

@@ -1102,6 +1102,145 @@ export namespace Schemas {
       is_current: boolean;
     }
 
+    /**
+     * * `own_brand` - Own Brand
+     * * `app_urls` - App Urls
+     * * `recording_domains` - Recording Domains
+     * * `pageviews` - Pageviews
+     */
+    export type WebsiteSourceEnum = typeof WebsiteSourceEnum[keyof typeof WebsiteSourceEnum];
+
+
+    export const WebsiteSourceEnum = {
+      OwnBrand: 'own_brand',
+      AppUrls: 'app_urls',
+      RecordingDomains: 'recording_domains',
+      Pageviews: 'pageviews',
+    } as const;
+
+    export interface AEOWebsiteCandidate {
+      /** A registrable domain the project may be about, for example example.com. */
+      domain: string;
+      /** Where PostHog found it: own_brand (an own brand in the catalog), app_urls (the project's authorized URLs), recording_domains (the domains allowed to record sessions) or pageviews (hosts with pageviews in the last 7 days).
+       *
+       * * `own_brand` - Own Brand
+       * * `app_urls` - App Urls
+       * * `recording_domains` - Recording Domains
+       * * `pageviews` - Pageviews */
+      source: WebsiteSourceEnum;
+      /**
+         * Pageviews on the domain in the last 7 days. Null unless source is pageviews.
+         * @nullable
+         */
+      pageviews?: number | null;
+    }
+
+    export interface AEOSetupContext {
+      /** Up to 5 domains the project may be about, the most likely first. */
+      websites: AEOWebsiteCandidate[];
+      /** Domains already set as the project's own brands. */
+      own_domains: string[];
+      /** Active, unarchived prompts the project tracks. */
+      active_prompts: number;
+      /** Keywords in the project's keyword list. */
+      keywords: number;
+      /** Whether any citation check has been recorded for the project. */
+      has_checks: boolean;
+      /** Whether the organization approved AI data processing. Setup needs it. */
+      ai_data_processing_approved: boolean;
+      /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
+      first_run_available: boolean;
+    }
+
+    /**
+     * * `brand` - Brand
+     * * `prompts` - Prompts
+     * * `keywords` - Keywords
+     * * `first_run` - First Run
+     */
+    export type SetupStepEnum = typeof SetupStepEnum[keyof typeof SetupStepEnum];
+
+
+    export const SetupStepEnum = {
+      Brand: 'brand',
+      Prompts: 'prompts',
+      Keywords: 'keywords',
+      FirstRun: 'first_run',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `done` - Done
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type SetupStepStatusEnum = typeof SetupStepStatusEnum[keyof typeof SetupStepStatusEnum];
+
+
+    export const SetupStepStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Done: 'done',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface AEOSetupStep {
+      /** brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued).
+       *
+       * * `brand` - Brand
+       * * `prompts` - Prompts
+       * * `keywords` - Keywords
+       * * `first_run` - First Run */
+      step: SetupStepEnum;
+      /** pending, running, done, skipped (the project already had it, or the first run is not available) or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `done` - Done
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: SetupStepStatusEnum;
+      /** How many brands, prompts or keywords the step added. */
+      added?: number;
+      /** Why a step was skipped (already_set, already_run, not_available), or why the keywords step failed. */
+      detail?: string;
+    }
+
+    export interface AEOSetupJob {
+      /** The setup steps in the order they run. */
+      steps: AEOSetupStep[];
+      /** Job id. Poll GET aeo_setup/<id>/ with it. */
+      id: string;
+      /** pending while PostHog works, then completed or failed. A failed keywords step does not fail the job.
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: AEOSuggestionJobStatusEnum;
+      /** Why the job failed. Empty unless status is failed. */
+      error?: string;
+    }
+
+    export interface AEOSetupRequest {
+      /**
+         * The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords.
+         * @maxLength 200
+         */
+      domain: string;
+      /**
+         * The brand name. Inferred from the site when empty.
+         * @maxLength 200
+         */
+      brand?: string;
+      /**
+         * What the product does and who it is for. Inferred from the site when empty.
+         * @maxLength 1000
+         */
+      description?: string;
+    }
+
     export interface AEOVisibilityDashboard {
       /** Id of the new dashboard. Subscribe to it with the subscriptions API to get it weekly. */
       id: number;

@@ -40,6 +40,7 @@ from posthog.models.user import User
 from posthog.redis import get_client
 
 from products.aeo.backend import (
+    auto_setup,
     catalog,
     dashboard,
     engine_settings,
@@ -111,6 +112,10 @@ from products.aeo.backend.facade.contracts import (
     PromptUpdate,
     PromptUpdateError,
     PromptVersion,
+    SetupContext,
+    SetupJob,
+    SetupRequest,
+    SetupRequestError,
     VisibilityDashboard,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
@@ -118,6 +123,7 @@ from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
 from products.aeo.backend.tasks.tasks import (
     recompute_aeo_own_citations_task,
+    set_up_aeo_task,
     suggest_aeo_keywords_task,
     suggest_aeo_prompts_task,
 )
@@ -1224,3 +1230,34 @@ def _to_prompt(
         latest_checks=latest_checks,
         branded=branded,
     )
+
+
+def get_setup_context(team_id: int) -> SetupContext:
+    """The websites the project may be about and what it already has, for the setup screen."""
+    return auto_setup.read_context(Team.objects.select_related("organization").get(id=team_id))
+
+
+def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
+    """Queue setup and return the pending job. Poll get_setup for the steps.
+    Raises SetupRequestError when the domain is not one a brand can use."""
+    raw = request.domain.strip()
+    domain = catalog.registrable_domain(raw if "//" in raw else f"//{raw}")
+    if domain is None or not _is_dns_name(domain):
+        raise SetupRequestError(f"'{request.domain}' is not a valid domain. Use a domain such as example.com.")
+    job = auto_setup.create_job(team_id)
+    try:
+        # A task still queued when readers would see the job as failed is dropped by the broker instead of run.
+        set_up_aeo_task.apply_async(
+            args=(team_id, job.id, {"domain": domain, "brand": request.brand, "description": request.description}),
+            expires=auto_setup.SETUP_JOB_STALE_SECONDS,
+        )
+    except Exception:
+        # Without a queued task nothing would ever finish the pending job.
+        auto_setup.fail_job(team_id, job.id, "Setup could not start. Try again in a minute.")
+        raise
+    return job
+
+
+def get_setup(team_id: int, job_id: str) -> SetupJob:
+    """Raises SetupJobNotFoundError when the job is unknown or expired."""
+    return auto_setup.load_job(team_id, job_id)

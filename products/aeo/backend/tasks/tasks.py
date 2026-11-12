@@ -29,12 +29,13 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.aeo.backend import keyword_suggestions, suggestions
+from products.aeo.backend import auto_setup, keyword_suggestions, suggestions
 from products.aeo.backend.catalog import recompute_own_citations, sync_brands_from_run
 from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
     KeywordSuggestionRequest,
     PromptSuggestionRequest,
+    SetupRequest,
 )
 from products.aeo.backend.runner import run_citation_checks
 
@@ -66,7 +67,7 @@ RECOMPUTE_LOCK_SECONDS = RECOMPUTE_TIME_LIMIT_SECONDS + 60
 RECOMPUTE_RETRY_SECONDS = 60
 
 
-def _citation_tracking_enabled(team: Team) -> bool:
+def citation_tracking_enabled(team: Team) -> bool:
     """The double gate: a team runs only when it is in the env allowlist AND has
     the flag on. Both default off, so this is fail-closed. Shared by the dispatcher
     and the per-team task so a task queued directly cannot skip the gate."""
@@ -93,7 +94,7 @@ def run_aeo_citation_checks_task() -> None:
         except (Team.DoesNotExist, ValueError):
             logger.warning("aeo_citation_task_unknown_team", team_id=raw_team_id)
             continue
-        if not _citation_tracking_enabled(team):
+        if not citation_tracking_enabled(team):
             logger.info("aeo_citation_task_flag_disabled", team_id=team.id)
             continue
         run_aeo_citation_checks_for_team_task.delay(team.id)
@@ -114,7 +115,7 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
         return
     # Re-check the gate here too, so this task fails closed even if it is queued
     # outside the dispatcher (which already checks before fan-out).
-    if not _citation_tracking_enabled(team):
+    if not citation_tracking_enabled(team):
         logger.info("aeo_citation_task_flag_disabled", team_id=team_id)
         return
     # thread_local=False: the renewal thread must see the token the task thread acquired.
@@ -219,6 +220,32 @@ def suggest_aeo_keywords_task(team_id: int, job_id: str, request: dict) -> None:
         # Without this the client would poll a pending job until it expires.
         keyword_suggestions.fail_job(team_id, job_id, keyword_suggestions.FAILED_ERROR)
         logger.exception("aeo_keyword_suggestions_task_failed", team_id=team_id)
+        raise
+
+
+# Setup runs the prompt and keyword model calls back to back.
+SETUP_SOFT_TIME_LIMIT_SECONDS = 2 * SUGGESTION_SOFT_TIME_LIMIT_SECONDS + 60
+SETUP_TIME_LIMIT_SECONDS = SETUP_SOFT_TIME_LIMIT_SECONDS + 60
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=SETUP_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=SETUP_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit  # Team is the tenant; brands, prompts, keywords and checks are read via for_team
+def set_up_aeo_task(team_id: int, job_id: str, request: dict) -> None:
+    try:
+        auto_setup.run_job(
+            team_id,
+            job_id,
+            SetupRequest(domain=request["domain"], brand=request["brand"], description=request["description"]),
+        )
+    except Exception:
+        # Without this the client would poll a pending job until it expires.
+        auto_setup.fail_job(team_id, job_id, auto_setup.FAILED_ERROR)
+        logger.exception("aeo_setup_task_failed", team_id=team_id)
         raise
 
 
