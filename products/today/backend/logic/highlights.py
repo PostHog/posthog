@@ -271,24 +271,25 @@ def _pulse_content(
             replace(slot, status=PulseSlotStatus.ERROR) if slot.status == PulseSlotStatus.PENDING else slot
             for slot in selected
         ]
-    selected = _popular_within_row(selected)
+    selected = _popular_within_row(selected, set(pin_order))
     kept = {slot.key for slot in selected}
     pulse = [m for m in content.pulse if m.reason != HighlightMetricReason.POPULAR or m.key in kept]
     return replace(content, pulse=pulse, pulse_slots=selected)
 
 
-def _popular_within_row(slots: list[contracts.PulseSlot]) -> list[contracts.PulseSlot]:
-    room = ROW_TILES - sum(
-        slot.reason != HighlightMetricReason.POPULAR and slot.status != PulseSlotStatus.ERROR for slot in slots
-    )
-    kept: list[contracts.PulseSlot] = []
-    for slot in slots:
-        if slot.reason == HighlightMetricReason.POPULAR:
-            if room <= 0:
-                continue
-            room -= 1
-        kept.append(slot)
-    return kept
+def _popular_within_row(slots: list[contracts.PulseSlot], pinned: set[str]) -> list[contracts.PulseSlot]:
+    popular = [slot for slot in slots if slot.reason == HighlightMetricReason.POPULAR]
+    others = [slot for slot in slots if slot.reason != HighlightMetricReason.POPULAR]
+    live = sum(slot.status != PulseSlotStatus.ERROR for slot in others)
+    shown = {slot.key for slot in popular[: max(0, ROW_TILES - live)]}
+    released = [slot.key for slot in others if slot.status == PulseSlotStatus.ERROR and slot.key not in pinned]
+    overflow = min(len(shown), len(others) + len(shown) - ROW_TILES)
+    dropped = set(released[::-1][: max(0, overflow)])
+    return [
+        slot
+        for slot in slots
+        if slot.key not in dropped and (slot.reason != HighlightMetricReason.POPULAR or slot.key in shown)
+    ]
 
 
 def publish_pulse(inputs: HighlightSourceInputs, found: HighlightFindings, slots: list[contracts.PulseSlot]) -> None:

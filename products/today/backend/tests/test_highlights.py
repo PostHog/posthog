@@ -697,9 +697,24 @@ class TestProgressiveHighlights(BaseTest):
 
     @parameterized.expand(
         [
-            ("three key metrics and an experiment fill the row", 3, PulseSlotStatus.READY, []),
-            ("two key metrics leave one place", 2, PulseSlotStatus.READY, ["insight:pop0"]),
-            ("a failed key metric gives its place back", 3, PulseSlotStatus.ERROR, ["insight:pop0"]),
+            (
+                "three key metrics and an experiment fill the row",
+                3,
+                PulseSlotStatus.READY,
+                ["experiment:1", "key:0", "key:1", "key:2"],
+            ),
+            (
+                "two key metrics leave one place",
+                2,
+                PulseSlotStatus.READY,
+                ["experiment:1", "insight:pop0", "key:0", "key:1"],
+            ),
+            (
+                "a failed key metric gives its place to a popular number",
+                3,
+                PulseSlotStatus.ERROR,
+                ["experiment:1", "insight:pop0", "key:0", "key:1"],
+            ),
         ]
     )
     def test_popular_numbers_only_take_places_other_sources_leave(
@@ -731,10 +746,10 @@ class TestProgressiveHighlights(BaseTest):
 
         self.assertEqual(
             (
-                [slot.key for slot in content.pulse_slots or [] if slot.reason == HighlightMetricReason.POPULAR],
+                [slot.key for slot in content.pulse_slots or []],
                 [m.key for m in content.pulse if m.reason == HighlightMetricReason.POPULAR],
             ),
-            (expected, expected),
+            (expected, [key for key in expected if key.startswith("insight:pop")]),
         )
 
     @parameterized.expand([5, 6])
