@@ -70,7 +70,7 @@ describe('provider edge SES feedback', () => {
     const sendTracked = async ({
         destination = { ToAddresses: [BOUNCED] },
         configurationSet = 'scenario-tracking',
-    }: { destination?: object; configurationSet?: string } = {}): Promise<number> =>
+    }: { destination?: object; configurationSet?: string | null } = {}): Promise<number> =>
         (
             await control('POST', '/v2/email/outbound-emails', {
                 FromEmailAddress: 'flows@www.example.com',
@@ -93,7 +93,7 @@ describe('provider edge SES feedback', () => {
                     },
                 },
                 EmailTags: [{ Name: 'ph_team', Value: '7' }],
-                ConfigurationSetName: configurationSet,
+                ConfigurationSetName: configurationSet ?? undefined,
             })
         ).status
 
@@ -142,10 +142,11 @@ describe('provider edge SES feedback', () => {
         await waitForExpect(() => expect(received).toHaveLength(1), 5000, 10)
         const handled = await handleInCdpApiProcess(received[0].body)
 
-        expect({ contentType: received[0].contentType, code: handled.code }).toEqual({
-            contentType: expect.stringMatching(/^text\/plain/),
-            code: 0,
-        })
+        expect({
+            contentType: received[0].contentType,
+            code: handled.code,
+            handlerError: handled.stdout.startsWith('error: ') ? handled.stdout : undefined,
+        }).toEqual({ contentType: expect.stringMatching(/^text\/plain/), code: 0, handlerError: undefined })
         expect(parseJSON(handled.stdout)).toEqual([expect.objectContaining({ teamId: '7', emailAddresses: [BOUNCED] })])
     }, 60_000)
 
@@ -162,17 +163,25 @@ describe('provider edge SES feedback', () => {
         expect(record.bounce.bouncedRecipients.map(({ emailAddress }) => emailAddress)).toEqual([BOUNCED, cc, bcc])
     })
 
-    it('posts no feedback for a send whose configuration set publishes no events, and records why', async () => {
+    it('posts a bounce for a send on the configuration set without open and click tracking', async () => {
         await bounceEverySend()
 
         expect(await sendTracked({ configurationSet: 'scenario-untracked' })).toBe(200)
+
+        await waitForExpect(() => expect(received).toHaveLength(1), 5000, 10)
+    })
+
+    it('posts no feedback for a send that names no configuration set, and records why', async () => {
+        await bounceEverySend()
+
+        expect(await sendTracked({ configurationSet: null })).toBe(200)
 
         await waitForExpect(
             async () =>
                 expect((await truth()).filter(({ kind }) => kind === 'ses.feedback')).toEqual([
                     expect.objectContaining({
                         status: 0,
-                        detail: { error: 'The configuration set scenario-untracked publishes no events.' },
+                        detail: { error: 'The send names no configuration set, so SES publishes no events for it.' },
                     }),
                 ]),
             5000,
@@ -181,11 +190,17 @@ describe('provider edge SES feedback', () => {
         expect(received).toEqual([])
     })
 
-    it('counts a bounced send against the throttle rate, because it goes out', async () => {
+    it.each([
+        ['added before', 'throttle first'],
+        ['added after', 'bounce first'],
+    ])('counts a bounced send against a throttle %s it, because it goes out', async (_story, order) => {
         const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
+        const throttle = { name: 'ses.throttle', params: { rate: 1 } }
+        const bounce = { name: 'ses.reject', params: { type: 'bounce' }, dose: { share: 1 } }
         try {
-            await control('POST', '/_faults', { name: 'ses.throttle', params: { rate: 1 } })
-            await control('POST', '/_faults', { name: 'ses.reject', params: { type: 'bounce' }, dose: { count: 1 } })
+            for (const fault of order === 'throttle first' ? [throttle, bounce] : [bounce, throttle]) {
+                await control('POST', '/_faults', fault)
+            }
 
             expect([await sendTracked(), await sendTracked()]).toEqual([200, 429])
         } finally {

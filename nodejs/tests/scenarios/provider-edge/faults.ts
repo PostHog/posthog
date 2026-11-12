@@ -168,7 +168,8 @@ export class FaultList {
         const now = Date.now()
         this.faults = this.faults.filter((fault) => fault.until > now)
         const matching = this.faults.filter((fault) => matches(fault.rule, request))
-        const answering = matching.find((fault) => {
+        const throttles = matching.filter((fault) => 'perSecond' in fault.rule.dose)
+        const answering = [...throttles, ...matching.filter((fault) => !throttles.includes(fault))].find((fault) => {
             fault.matched += 1
             return doseTakes(fault, now)
         })
@@ -177,7 +178,7 @@ export class FaultList {
         }
         if (answering === undefined || answering.rule.answer.kind === 'bounce') {
             countSentAgainst(
-                matching.filter((fault) => fault !== answering && 'perSecond' in fault.rule.dose),
+                throttles.filter((fault) => fault !== answering),
                 now
             )
         }

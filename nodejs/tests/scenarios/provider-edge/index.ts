@@ -128,13 +128,13 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         fault: string,
         unitId: string | undefined
     ): Promise<void> => {
-        if (message.tracked === false) {
+        if (message.configurationSet === undefined) {
             truth.append({
                 kind: 'ses.feedback',
                 status: 0,
                 fault,
                 unitId,
-                detail: { error: `The configuration set ${message.configurationSet} publishes no events.` },
+                detail: { error: 'The send names no configuration set, so SES publishes no events for it.' },
             })
             return
         }
