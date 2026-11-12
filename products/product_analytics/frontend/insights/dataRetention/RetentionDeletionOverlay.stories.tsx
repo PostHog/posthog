@@ -98,3 +98,13 @@ function BarChart(): JSX.Element {
 export const Line: Story = { render: () => <LineChart /> }
 
 export const Bar: Story = { render: () => <BarChart /> }
+
+export const NarrowBand: Story = {
+    render: () => <LineChart />,
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/events_retention/': { ...RETENTION, next_deletion_before: '2025-09-03' } },
+        }),
+    ],
+    parameters: { testOptions: { waitForSelector: '[data-attr="retention-deletion-marker"]' } },
+}
