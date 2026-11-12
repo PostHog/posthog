@@ -542,7 +542,7 @@ def _email_content(
         )
     email["from"] = {
         "integrationId": sender.id,
-        "email": address,
+        "email": literal_liquid(address),
         "name": literal_liquid(display_name) or str(sender.config.get("name") or ""),
     }
     if not sender.config.get("verified"):
