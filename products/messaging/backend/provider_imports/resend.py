@@ -472,7 +472,15 @@ def _save_templates(context: ImportContext, templates: list[dict[str, Any]]) -> 
         name = str(template.get("name") or key)[:400]
         if key in taken:
             counts["already_present"] += 1
-            items.append(ImportItem(label=name, status="skipped", notes=(f"A template with the key {key} exists.",)))
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="skipped",
+                    notes=(
+                        f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
+                    ),
+                )
+            )
             continue
         taken.add(key)
         converted = convert_template(template)
