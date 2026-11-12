@@ -267,7 +267,9 @@ export type MinimalAppMetric = {
         | 'email_bounce_prevented'
         | 'message_frequency_capped'
         | 'message_frequency_cap_held'
+        | 'message_frequency_cap_hold_ended'
         | 'email_suppressed'
+        | 'email_opted_out'
         | 'email_missing_recipient'
         | 'email_suspended'
         | 'email_paused'
@@ -451,6 +453,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
+    scheduledAt?: string
     renderedWorkflowVersion?: number
     // Set when the inputs come from the stored function config, so the job queue can drop them and the
     // executor can build them again. The job queue sets `inputsOmitted` when it drops them.
@@ -600,6 +603,8 @@ export type HogFlowInvocationContext = {
         // messages. The step re-checks the cap on each wake and skips the send once this ISO time passes.
         frequencyCapHoldDeadlineAt?: string
         sandboxEmail?: SandboxEmailOutcome
+        sandboxEmailRetries?: number
+        sandboxEmailUncertainSends?: number
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
@@ -614,6 +619,8 @@ export type HogFlowInvocationContext = {
     conversionCounted?: boolean
     variables?: Record<string, any>
     send?: QueuedSend
+    scheduledAt?: string
+    statusAt?: string
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on
