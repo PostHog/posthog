@@ -1161,7 +1161,9 @@ export class CdpApi {
                 }
             )
             if (quotaLimited) {
-                await this.invocationResultsService.monitoringService.flush()
+                void this.invocationResultsService.monitoringService.flush().catch((error) => {
+                    logger.error('Error flushing hogflow quota metrics', { error })
+                })
                 return res.status(429).json({ error: HOG_FLOW_QUOTA_LIMITED_MESSAGE })
             }
 
