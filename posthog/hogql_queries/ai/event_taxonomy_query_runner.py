@@ -225,7 +225,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
         else:
             # ClickHouse evaluates the properties document for every row that passes WHERE, before it sorts and
             # applies LIMIT. The native events table builds that document from separate columns, which is expensive
-            # for each row. The lower bound on the timestamp makes WHERE pass only the sampled rows.
+            # for each row. The lower bound on the timestamp excludes the events that are older than the sample.
             query = parse_select(
                 """
                         SELECT
