@@ -1,18 +1,21 @@
 """The platform's occurrence registry: where appearance alerts read which identities are new, or back.
 
 A source pushes facts into it with `record`: an identity is new, or reappeared, at a time. A source
-with no detection of its own registers a feed instead, and a registrar records what the feed saw. The
-registry records every fact whatever any alert filters on, so what "new" means does not depend on
-which alerts exist. A check reads facts by when the registry recorded them, so a fact pushed late is
-still read by the next check.
+with no detection of its own registers a feed instead, and the registrar, a scheduled workflow of its
+own, records what the feed saw. The registry records every fact whatever any alert filters on, so
+what "new" means does not depend on which alerts exist. A check reads facts by when the registry
+recorded them, so a fact pushed late, or registered late, is still read by the next check.
 """
 
+import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final
 
 from django.db import connection, transaction
 from django.utils import timezone
+
+import structlog
 
 from products.alerts_platform.backend.facade.contracts import (
     Occurrence,
@@ -31,10 +34,11 @@ from products.alerts_platform.backend.models import (
 )
 
 # One read of a feed records at most this many identities. A window with more is read again from
-# where this one stopped, so a burst takes several checks rather than one oversized transaction.
+# where this one stopped, so a burst takes several reads rather than one oversized transaction.
 MAX_IDENTITIES_PER_READ: Final = 5000
-# A registry far behind, such as one seeding from the feed's lookback, catches up one slice per
-# read, so each read scans its own slice rather than everything since the cursor.
+# A registry far behind, such as one seeding from the feed's lookback, catches up one span per
+# read, so each read scans its own span rather than everything since the cursor. A read the feed
+# cannot finish halves the span its cursor keeps, and a finished one doubles it back.
 MAX_READ_SPAN: Final = timedelta(days=1)
 MIN_READ_SPAN: Final = timedelta(minutes=5)
 MIN_STEP: Final = timedelta(microseconds=1)
@@ -45,6 +49,8 @@ RECORD_ALLOWANCE: Final = timedelta(seconds=10)
 # Bounds on one pushed fact's write, well below a caller's own deadline, so a stalled write ends.
 WRITE_LOCK_TIMEOUT_MS: Final = 5_000
 WRITE_STATEMENT_TIMEOUT_MS: Final = 10_000
+
+logger = structlog.get_logger(__name__)
 
 _feeds: dict[SourceKind, OccurrenceFeed] = {}
 
@@ -77,9 +83,8 @@ class RegistryStore:
         self.feed = feed
 
     def ready_until(self, *, team_id: int, now: datetime) -> datetime:
-        """How far the registry is complete. A feed's new sightings are recorded first, so the answer covers them."""
-        if self.feed is not None:
-            self.register(team_id=team_id, now=now)
+        """How far a check may read. A feed's sightings are read by when the registrar recorded them,
+        so a check never waits on the feed itself."""
         return now - RECORD_ALLOWANCE
 
     def appeared(self, *, team_id: int, since: datetime, until: datetime, limit: int) -> OccurrenceWindow:
@@ -92,54 +97,93 @@ class RegistryStore:
             occurrences=tuple(_occurrence(row) for row in rows[:limit]), truncated=len(rows) > limit
         )
 
+    def catch_up(self, *, team_id: int, now: datetime, budget: timedelta) -> datetime:
+        """Registers span after span until the registry reaches what the feed has finished, or `budget`
+        runs out, and returns where it stopped. A registry that is far behind continues on the next run.
+
+        A read that fails raises only when it is the run's first, so a run that made progress ends
+        with that progress kept, and the next run reads the shortened span.
+        """
+        assert self.feed is not None
+        ready = self.feed.ready_until(team_id, now)
+        deadline = time.monotonic() + budget.total_seconds()
+        reached: datetime | None = None
+        while True:
+            try:
+                reached = self.register(team_id=team_id, now=now)
+            except Exception:
+                if reached is None:
+                    raise
+                logger.warning(
+                    "Registering occurrences stopped at a failed read", source=self.source.value, team_id=team_id
+                )
+                return reached
+            if reached >= ready or time.monotonic() >= deadline:
+                return reached
+
     def register(self, *, team_id: int, now: datetime) -> datetime:
-        """Records what the feed saw since the last read, and returns where that read stopped.
+        """Records what the feed saw in the next span after the cursor, and returns where the registry stands.
 
         The feed's read runs outside the transaction, so no row lock waits on ClickHouse. The write
         then records only if the cursor has not moved, so two concurrent reads record one window once.
+        A read that fails halves the cursor's span before it raises, so the next read asks for less.
         """
         assert self.feed is not None
         cursors = PlatformOccurrenceCursor.objects.for_team(team_id)
         cursor, _ = cursors.get_or_create(team_id=team_id, source_kind=self.source.value)
         ready = self.feed.ready_until(team_id, now)
         since = cursor.registered_until or ready - self.feed.seed_lookback
-        until = min(ready, since + MAX_READ_SPAN)
+        span = cursor.read_span or MAX_READ_SPAN
+        until = min(ready, since + span)
         if until <= since:
             return since
-        seen, until = self._read(team_id, since, until)
+        try:
+            seen = list(self.feed.seen(team_id, since, until, MAX_IDENTITIES_PER_READ + 1))
+        except Exception:
+            if span > MIN_READ_SPAN:
+                cursors.filter(id=cursor.id, read_span=cursor.read_span).update(read_span=max(span / 2, MIN_READ_SPAN))
+            raise
+        seen, until = _within_read_limit(seen, since, until)
         with transaction.atomic():
             locked = cursors.select_for_update().get(id=cursor.id)
             if locked.registered_until != cursor.registered_until:
                 return locked.registered_until or since
             _record_sightings(self.source, team_id, seen)
             locked.registered_until = until
-            locked.save(update_fields=["registered_until"])
+            # None is the full span, so a cursor that never failed keeps nothing.
+            locked.read_span = span * 2 if span * 2 < MAX_READ_SPAN else None
+            locked.save(update_fields=["registered_until", "read_span"])
         return until
 
-    def _read(self, team_id: int, since: datetime, until: datetime) -> tuple[list[SeenIdentity], datetime]:
-        """What the feed saw from `since`, and where that read stops.
 
-        A read the feed cannot finish, such as one over its scan budget, is retried on half the span,
-        so a large window still makes progress rather than failing on every check.
-        """
-        assert self.feed is not None
-        while True:
-            try:
-                seen = list(self.feed.seen(team_id, since, until, MAX_IDENTITIES_PER_READ + 1))
-                break
-            except Exception:
-                if until - since <= MIN_READ_SPAN:
-                    raise
-                until = since + (until - since) / 2
-        if len(seen) <= MAX_IDENTITIES_PER_READ:
-            return seen, until
-        seen.sort(key=lambda identity: identity.seen_at)
-        cut = seen[MAX_IDENTITIES_PER_READ].seen_at
-        if cut > since:
-            return [identity for identity in seen if identity.seen_at < cut], cut
-        # One instant holds more first sightings than a read. Record those the read returned and move
-        # just past that instant, so later sightings are read again rather than skipped.
-        return [identity for identity in seen if identity.seen_at == since], since + MIN_STEP
+def _within_read_limit(
+    seen: list[SeenIdentity], since: datetime, until: datetime
+) -> tuple[list[SeenIdentity], datetime]:
+    """The sightings one read records, and where that read stops, so a read never records more than its limit."""
+    if len(seen) <= MAX_IDENTITIES_PER_READ:
+        return seen, until
+    seen.sort(key=lambda identity: identity.seen_at)
+    cut = seen[MAX_IDENTITIES_PER_READ].seen_at
+    if cut > since:
+        return [identity for identity in seen if identity.seen_at < cut], cut
+    # One instant holds more first sightings than a read. Record those the read returned and move
+    # just past that instant, so later sightings are read again rather than skipped.
+    return [identity for identity in seen if identity.seen_at == since], since + MIN_STEP
+
+
+def registrar_targets() -> list[tuple[SourceKind, int]]:
+    """Each source with a feed, with each project that has an enabled appearance alert on it."""
+    if not _feeds:
+        return []
+    # The registrar serves every project, so it opts out of team scoping rather than running once per team.
+    rows = (
+        PlatformAlertConfiguration.objects.unscoped()
+        .filter(alert_kind=PlatformAlertKind.APPEARANCE, enabled=True, source_kind__in=[s.value for s in _feeds])
+        .values_list("source_kind", "team_id")
+        .distinct()
+        .order_by("source_kind", "team_id")
+    )
+    return [(SourceKind(source_kind), team_id) for source_kind, team_id in rows]
 
 
 def _occurrence(row: PlatformOccurrence) -> Occurrence:

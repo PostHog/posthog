@@ -107,6 +107,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("registered_until", models.DateTimeField(blank=True, null=True)),
+                ("read_span", models.DurationField(blank=True, null=True)),
                 (
                     "team",
                     models.ForeignKey(

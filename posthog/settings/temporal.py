@@ -421,6 +421,8 @@ ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = _set_isolated_temporal_task_qu
 )
 ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = _set_isolated_temporal_task_queue("alerts-platform-evaluation-task-queue")
 ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = _set_isolated_temporal_task_queue("alerts-platform-delivery-task-queue")
+# The registrar reads source feeds from ClickHouse on a worker of its own, so a slow read never takes an evaluation slot.
+ALERTS_PLATFORM_REGISTRAR_TASK_QUEUE = _set_isolated_temporal_task_queue("alerts-platform-registrar-task-queue")
 # The platform's insight queries allowed to run in ClickHouse at once, across every team. A pool of
 # its own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
 ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(

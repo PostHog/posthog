@@ -34,9 +34,11 @@ class TestAppearanceAlerts(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.sightings: list[SeenIdentity] = []
+        # The longest span the feed can read, as a ClickHouse scan budget limits a busy project's reads.
+        self.max_read_span: timedelta | None = None
         feed = OccurrenceFeed(
             ready_until=lambda team_id, now: now - timedelta(minutes=5),
-            seen=lambda team_id, since, until, limit: [s for s in self.sightings if since <= s.seen_at < until][:limit],
+            seen=self._feed_seen,
             seed_lookback=timedelta(days=1),
         )
         patcher = patch.dict(occurrences._feeds, {SOURCE: feed})
@@ -56,6 +58,16 @@ class TestAppearanceAlerts(BaseTest):
         )
         PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(created_at=T0)
 
+    def _feed_seen(self, team_id: int, since: datetime, until: datetime, limit: int) -> list[SeenIdentity]:
+        if self.max_read_span is not None and until - since > self.max_read_span:
+            raise TimeoutError("Over the scan budget")
+        return [s for s in self.sightings if since <= s.seen_at < until][:limit]
+
+    def _register(self, now: datetime) -> None:
+        # The registrar runs on its own schedule, and stamps what it records with the clock.
+        with time_machine.travel(now, tick=False):
+            occurrences.store_for(SOURCE).catch_up(team_id=self.team.id, now=now, budget=timedelta(seconds=60))
+
     def _tick(self, now: datetime):
         # The registry stamps what it records with the clock, so the clock is the check's own time.
         with time_machine.travel(now, tick=False):
@@ -68,8 +80,8 @@ class TestAppearanceAlerts(BaseTest):
         return outcome, evaluation.deliveries
 
     def _record_then_tick(self, now: datetime):
-        # A fact the registrar records during a check is read by the next one, a minute later.
-        self._tick(now)
+        # A fact the registrar records is read by the next check, a minute later.
+        self._register(now)
         return self._tick(now + timedelta(minutes=1))
 
     def test_announces_each_identity_once_and_again_when_it_comes_back_after_a_resolve(self) -> None:
@@ -108,12 +120,33 @@ class TestAppearanceAlerts(BaseTest):
         # A reappearance threads under the message that announced the identity.
         assert group.firing_episode is not None and group.firing_episode.started_at == T0 + timedelta(minutes=10)
 
+    def test_a_feed_read_too_large_to_finish_shortens_the_registrar_s_next_read_until_it_catches_up(self) -> None:
+        self.sightings = [_seen("fresh", T0 + timedelta(minutes=10))]
+        self.max_read_span = timedelta(hours=7)
+        now = T0 + timedelta(minutes=20)
+
+        failed_runs = 0
+        for _ in range(5):
+            try:
+                self._register(now)
+            except TimeoutError:
+                failed_runs += 1
+
+        # The seed's one-day read fails, then twelve hours fails. From then on each run records six
+        # hours before a longer read fails, and keeps what it recorded.
+        assert failed_runs == 2
+        # The check reads only the registry, so a failing feed never fails it.
+        outcome, deliveries = self._tick(now + timedelta(minutes=1))
+        assert [group.grouping_key for group in outcome.groups] == ["fresh"]
+        assert len(deliveries) == 1
+
     def test_a_late_check_in_quiet_hours_keeps_its_window_for_the_first_check_after_them(self) -> None:
         self.sightings = [_seen("fresh", T0 + timedelta(minutes=10))]
         PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(
             schedule_restriction={"blocked_windows": [{"start": "12:15", "end": "12:25"}]}
         )
 
+        self._register(T0 + timedelta(minutes=20))
         held, _ = self._tick(T0 + timedelta(minutes=20))
         announced, deliveries = self._tick(T0 + timedelta(minutes=30))
 
