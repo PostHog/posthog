@@ -572,6 +572,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
 }
 
 const COMMIT_INTERVAL: Duration = Duration::from_millis(500);
+const REVOKE_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct Harness {
     pub workers: Vec<FakeWorker>,
@@ -590,7 +591,7 @@ struct Harness {
     budget: Option<RequestBudget>,
     partition_budget: BudgetLimits,
     in_flight_limit: ChargeLimit,
-    revoke_drain_timeout: Option<Duration>,
+    revoke_drain_timeout: Duration,
     rebalance_mode: RebalanceMode,
 }
 
@@ -713,7 +714,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
-            None,
+            REVOKE_DRAIN_TIMEOUT,
             RebalanceMode::Eager,
         )
         .await
@@ -721,13 +722,13 @@ impl Harness {
 
     /// One worker; every request carries a 500 ms soft budget.
     async fn start_budgeted(topic: &str, partitions: i32) -> Self {
-        Self::start_budgeted_draining_revokes(topic, partitions, None).await
+        Self::start_budgeted_draining_revokes(topic, partitions, REVOKE_DRAIN_TIMEOUT).await
     }
 
     async fn start_budgeted_draining_revokes(
         topic: &str,
         partitions: i32,
-        revoke_drain_timeout: Option<Duration>,
+        revoke_drain_timeout: Duration,
     ) -> Self {
         Self::start_inner(
             topic,
@@ -778,7 +779,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
-            None,
+            REVOKE_DRAIN_TIMEOUT,
             RebalanceMode::Eager,
         )
         .await
@@ -806,7 +807,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
-            None,
+            REVOKE_DRAIN_TIMEOUT,
             RebalanceMode::Eager,
         )
         .await
@@ -832,7 +833,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
-            Some(revoke_drain_timeout),
+            revoke_drain_timeout,
             rebalance_mode,
         )
         .await
@@ -852,7 +853,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
-            None,
+            REVOKE_DRAIN_TIMEOUT,
             RebalanceMode::Eager,
         )
         .await
@@ -878,7 +879,7 @@ impl Harness {
             commit_interval,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
-            None,
+            REVOKE_DRAIN_TIMEOUT,
             RebalanceMode::Eager,
         )
         .await
@@ -923,34 +924,7 @@ impl Harness {
             COMMIT_INTERVAL,
             partition_budget,
             in_flight_limit,
-            None,
-            RebalanceMode::Eager,
-        )
-        .await
-    }
-
-    async fn start_with_partition_budget_committing_every(
-        pack_targets: PackTargets,
-        topic: &str,
-        partitions: i32,
-        worker_count: usize,
-        partition_budget: BudgetLimits,
-        commit_interval: Duration,
-    ) -> Self {
-        Self::start_inner(
-            topic,
-            partitions,
-            worker_count,
-            Duration::from_secs(60),
-            fast_registry_config(),
-            0,
-            ComponentOptions::new(),
-            pack_targets,
-            None,
-            commit_interval,
-            partition_budget,
-            ChargeLimit::unset(),
-            None,
+            REVOKE_DRAIN_TIMEOUT,
             RebalanceMode::Eager,
         )
         .await
@@ -970,7 +944,7 @@ impl Harness {
         commit_interval: Duration,
         partition_budget: BudgetLimits,
         in_flight_limit: ChargeLimit,
-        revoke_drain_timeout: Option<Duration>,
+        revoke_drain_timeout: Duration,
         rebalance_mode: RebalanceMode,
     ) -> Self {
         create_topic(topic, partitions).await;
@@ -1671,7 +1645,7 @@ async fn a_partial_ack_after_a_revoke_resends_nothing() {
 async fn a_partial_ack_during_a_drain_commits_only_what_was_processed() {
     let topic = format!("e2e-partial-drain-{}", Uuid::new_v4());
     let harness =
-        Harness::start_budgeted_draining_revokes(&topic, 1, Some(Duration::from_secs(20))).await;
+        Harness::start_budgeted_draining_revokes(&topic, 1, Duration::from_secs(20)).await;
     // The partition holds a, b, a, b, and the b messages come back unfinished.
     *harness.workers[0].leave_unfinished.lock().unwrap() = Some(("visitor-b".to_string(), 1));
     let records = alternating_visitors(0, "tok:203.0.113.7", 0);
@@ -3134,15 +3108,9 @@ async fn a_partition_paused_at_its_budget_fetches_again_after_a_rebalance_return
     let topic = format!("e2e-partition-budget-rebalance-{}", Uuid::new_v4());
     let budget = BudgetLimits::new(NonZeroU64::new(5), NonZeroU64::new(UNBOUNDED_BYTES), 0.5)
         .expect("a valid budget");
-    let harness = Harness::start_with_partition_budget_committing_every(
-        common::PRODUCTION_PACK_TARGETS,
-        &topic,
-        1,
-        1,
-        budget,
-        Duration::from_secs(20),
-    )
-    .await;
+    let harness =
+        Harness::start_with_partition_budget(common::PRODUCTION_PACK_TARGETS, &topic, 1, 1, budget)
+            .await;
     let p0 = TopicPartition::new(&topic, 0);
     let producer = make_producer();
 
@@ -3153,21 +3121,24 @@ async fn a_partition_paused_at_its_budget_fetches_again_after_a_rebalance_return
         || harness.committed_offset(0) == Some(1),
     )
     .await;
+    // A drain commits what settled and resumes its partition, so only
+    // unfinished work keeps the partition at its budget through the revoke.
+    let blocked = harness.workers[0].block().await;
     for seq in 1..6usize {
         produce(&producer, &topic, 0, "tok", "user-a", seq).await;
     }
     wait_until(
         Duration::from_secs(10),
-        "the interval to hold the budget's worth of settled offsets",
-        || harness.workers[0].count() == 6 && harness.ledger.held(&p0).offsets == 0,
+        "the blocked worker to hold the budget's worth of offsets",
+        || harness.ledger.held(&p0).offsets == 5,
     )
     .await;
 
     let generation_before = harness.ledger.generation(&p0);
     let second = harness.join_second_consumer().await;
     wait_until(
-        Duration::from_secs(15),
-        "the rebalance to revoke the partition",
+        Duration::from_secs(30),
+        "the drain to time out and release the partition",
         || harness.ledger.generation(&p0) > generation_before,
     )
     .await;
@@ -3176,6 +3147,7 @@ async fn a_partition_paused_at_its_budget_fetches_again_after_a_rebalance_return
         Some(1),
         "the partition must still be at its budget when it is revoked"
     );
+    drop(blocked);
     second.stop().await;
 
     for seq in 6..10usize {
@@ -4138,7 +4110,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             ledger: Arc::new(TopicOffsetLedger::new()),
             partition_budget: BudgetLimits::unset(),
             in_flight_limit: ChargeLimit::unset(),
-            revoke_drain_timeout: None,
+            revoke_drain_timeout: REVOKE_DRAIN_TIMEOUT,
         },
         handle,
     );
