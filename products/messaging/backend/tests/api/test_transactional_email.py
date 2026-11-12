@@ -2581,6 +2581,35 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert cdp.categories() == [{"id": str(category_id), "type": "marketing"}]
 
+    def test_a_send_cannot_restore_into_the_last_slot_another_send_is_restoring_into(self, cdp_post, _flag, _capture):
+        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
+        promos, _newsletter = (
+            MessageCategory.objects.create(
+                team=self.team, key=key, name=key.title(), category_type="marketing", deleted=True
+            )
+            for key in ("promos", "newsletter")
+        )
+        restored = threading.Event()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            other_send = pool.submit(
+                self._commit_once_the_send_waits,
+                self._send_pid(),
+                lambda: MessageCategory.objects.filter(id=promos.id).update(deleted=False),
+                restored,
+                under_the_send_lock=True,
+            )
+            assert restored.wait(timeout=30)
+            with patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1):
+                response = self._send_newsletter()
+            other_send.result(timeout=30)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "too_many_categories"
+        assert cdp.received == []
+        assert set(MessageCategory.objects.filter(team=self.team, deleted=False).values_list("key", flat=True)) == {
+            "promos"
+        }
+
     def test_a_key_the_app_creates_while_the_send_inserts_it_is_the_one_used(self, cdp_post, _flag, _capture):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
         inserted = threading.Event()
