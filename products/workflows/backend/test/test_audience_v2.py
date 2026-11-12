@@ -15,7 +15,10 @@ from products.workflows.backend.services.audience_v2 import (
     get_dedupe_audience_count_v2,
     get_person_audience_count_v2,
 )
-from products.workflows.backend.services.batch_audience import get_batch_audience_person_ids
+from products.workflows.backend.services.batch_audience import (
+    get_batch_audience_person_ids,
+    get_batch_audience_person_ids_snapshot,
+)
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -201,20 +204,35 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
         assert (result.affected, result.total) == (2, 4)
         assert sorted(sent_to) == not_contacted_ids
 
-    @parameterized.expand([("preview", "preview"), ("dedupe_preview", "dedupe_preview"), ("send", "send")])
-    def test_excluding_a_dynamic_cohort_before_its_first_calculation_is_refused(self, _name, path):
+    @parameterized.expand(
+        [
+            ("preview", "preview", "cohort"),
+            ("dedupe_preview", "dedupe_preview", "cohort"),
+            ("send", "send", "cohort"),
+            ("snapshot_send", "snapshot_send", "cohort"),
+            # The query compiler resolves these declared types to the same cohort, so they must not slip past.
+            ("send_declared_static", "send", "static-cohort"),
+            ("send_declared_precalculated", "send", "precalculated-cohort"),
+        ]
+    )
+    def test_excluding_a_dynamic_cohort_before_its_first_calculation_is_refused(self, _name, path, declared_type):
         _, filters = self._audience_excluding_contacted("dynamic_uncalculated")
+        excluded = filters["properties"][-1]
+        excluded["type"] = declared_type
         run = {
             "preview": lambda: get_person_audience_count_v2(self.team, filters),
             "dedupe_preview": lambda: get_dedupe_audience_count_v2(self.team, filters, "email"),
             "send": lambda: get_batch_audience_person_ids(self.team, filters),
+            "snapshot_send": lambda: get_batch_audience_person_ids_snapshot(
+                self.team, filters, dedupe_key=None, limit=100, settings=bounded_memory_settings()
+            ),
         }[path]
 
         with pytest.raises(ValidationError) as refusal:
             run()
 
         assert isinstance(refusal.value.detail, dict)
-        assert str(refusal.value.detail["filters"]).startswith('Can\'t exclude "Already contacted"')
+        assert str(refusal.value.detail["filters"]).startswith(f"Can't exclude cohort {excluded['value']} ")
 
     def test_dedupe_count_matches_deduped_audience_size(self):
         # Duplicate emails (case/whitespace variants) collapse to one send group; persons

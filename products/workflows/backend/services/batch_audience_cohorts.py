@@ -66,13 +66,17 @@ def reject_excluded_cohort_without_members(project_id: int, prop_group: Property
     """
     for prop in prop_group.flat:
         excluded = prop.negation or prop.operator == PropertyOperator.NOT_IN.value
-        if prop.type != "cohort" or not excluded or not isinstance(prop.value, str | int):
+        if (
+            prop.type not in ("cohort", "static-cohort", "precalculated-cohort")
+            or not excluded
+            or not isinstance(prop.value, str | int)
+        ):
             continue
         cohort = Cohort.objects.filter(pk=prop.value, team__project_id=project_id, deleted=False).first()
         if cohort is not None and not cohort.is_static and cohort.last_calculation is None:
             raise exceptions.ValidationError(
                 {
-                    "filters": f"Can't exclude \"{cohort.name}\" until it has calculated who's in it. "
+                    "filters": f"Can't exclude cohort {cohort.pk} until it has calculated who's in it. "
                     "Try again when its calculation finishes."
                 }
             )
