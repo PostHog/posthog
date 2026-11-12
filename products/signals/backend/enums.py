@@ -207,6 +207,8 @@ class SignalSourceProduct(StrEnum):
     HELPSCOUT = "helpscout"
     DECAGON = "decagon"
     VITALLY = "vitally"
+    INTERCOM_TICKETS = "intercom_tickets"
+    PYLON = "pylon"
     # Tier-2 feedback and surveys
     USERSNAP = "usersnap"
     TYPEFORM = "typeform"
@@ -228,19 +230,6 @@ class SignalSourceProduct(StrEnum):
     GITHUB_DEPENDABOT = "github_dependabot"
     GITHUB_CODE_SCANNING = "github_code_scanning"
     GITHUB_SECRET_SCANNING = "github_secret_scanning"
-    # Feedback, NPS and review tools
-    BEAMER = "beamer"
-    BEAMER_NPS = "beamer_nps"
-    CHAMELEON = "chameleon"
-    ETSY = "etsy"
-    FEATUREBASE_SURVEYS = "featurebase_surveys"
-    G2 = "g2"
-    GUMROAD = "gumroad"
-    TRUSTPILOT_PRODUCT_REVIEWS = "trustpilot_product_reviews"
-    USERVOICE_NPS = "uservoice_nps"
-    VITALLY_NPS = "vitally_nps"
-    WOOCOMMERCE = "woocommerce"
-    YOTPO = "yotpo"
 
 
 class SignalSourceType(StrEnum):
@@ -381,6 +370,8 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HELPSCOUT: "Help Scout",
     SignalSourceProduct.DECAGON: "Decagon",
     SignalSourceProduct.VITALLY: "Vitally",
+    SignalSourceProduct.INTERCOM_TICKETS: "Intercom tickets",
+    SignalSourceProduct.PYLON: "Pylon",
     SignalSourceProduct.USERSNAP: "Usersnap",
     SignalSourceProduct.TYPEFORM: "Typeform",
     SignalSourceProduct.QUALTRICS: "Qualtrics",
@@ -398,18 +389,6 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.GITHUB_DEPENDABOT: "GitHub Dependabot",
     SignalSourceProduct.GITHUB_CODE_SCANNING: "GitHub code scanning",
     SignalSourceProduct.GITHUB_SECRET_SCANNING: "GitHub secret scanning",
-    SignalSourceProduct.BEAMER: "Beamer",
-    SignalSourceProduct.BEAMER_NPS: "Beamer NPS",
-    SignalSourceProduct.CHAMELEON: "Chameleon",
-    SignalSourceProduct.ETSY: "Etsy",
-    SignalSourceProduct.FEATUREBASE_SURVEYS: "Featurebase surveys",
-    SignalSourceProduct.G2: "G2",
-    SignalSourceProduct.GUMROAD: "Gumroad",
-    SignalSourceProduct.TRUSTPILOT_PRODUCT_REVIEWS: "Trustpilot product reviews",
-    SignalSourceProduct.USERVOICE_NPS: "UserVoice NPS",
-    SignalSourceProduct.VITALLY_NPS: "Vitally NPS",
-    SignalSourceProduct.WOOCOMMERCE: "WooCommerce",
-    SignalSourceProduct.YOTPO: "Yotpo",
 }
 
 

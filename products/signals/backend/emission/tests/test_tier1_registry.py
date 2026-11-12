@@ -92,6 +92,8 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.HELPSCOUT, "conversations", "helpscout", "ticket"),
     (ExternalDataSourceType.DECAGON, "conversations", "decagon", "ticket"),
     (ExternalDataSourceType.VITALLY, "Conversations", "vitally", "ticket"),
+    (ExternalDataSourceType.INTERCOM, "tickets", "intercom_tickets", "ticket"),
+    (ExternalDataSourceType.PYLON, "issues", "pylon", "ticket"),
     # Tier-2 security tools
     (ExternalDataSourceType.LACEWORK, "alerts", "lacework", "scanner_finding"),
     (ExternalDataSourceType.ORCASECURITY, "alerts", "orca_security", "scanner_finding"),
@@ -116,19 +118,6 @@ TIER1_SOURCES = [
     # Business and product reviews
     (ExternalDataSourceType.TRUSTPILOT, "service_reviews", "trustpilot", "review"),
     (ExternalDataSourceType.OKENDO, "reviews", "okendo", "review"),
-    # Feedback, NPS and review tools
-    (ExternalDataSourceType.BEAMER, "feature_requests", "beamer", "feedback"),
-    (ExternalDataSourceType.BEAMER, "nps", "beamer_nps", "feedback"),
-    (ExternalDataSourceType.CHAMELEON, "responses", "chameleon", "feedback"),
-    (ExternalDataSourceType.FEATUREBASE, "survey_responses", "featurebase_surveys", "feedback"),
-    (ExternalDataSourceType.USERVOICE, "nps_ratings", "uservoice_nps", "feedback"),
-    (ExternalDataSourceType.VITALLY, "NPS_Responses", "vitally_nps", "feedback"),
-    (ExternalDataSourceType.ETSY, "reviews", "etsy", "review"),
-    (ExternalDataSourceType.G2, "reviews", "g2", "review"),
-    (ExternalDataSourceType.GUMROAD, "product_reviews", "gumroad", "review"),
-    (ExternalDataSourceType.TRUSTPILOT, "product_reviews", "trustpilot_product_reviews", "review"),
-    (ExternalDataSourceType.WOOCOMMERCE, "product_reviews", "woocommerce", "review"),
-    (ExternalDataSourceType.YOTPO, "reviews", "yotpo", "review"),
     # Cloud security
     (ExternalDataSourceType.AWSSECURITYHUB, "findings", "aws_security_hub", "scanner_finding"),
     (ExternalDataSourceType.AWSGUARDDUTY, "findings", "aws_guardduty", "scanner_finding"),
@@ -150,7 +139,7 @@ IDS = [product for _, _, product, _ in TIER1_SOURCES]
 
 _LONG_TEXT = "The export button crashes whenever a board has more than fifty cards"
 
-# Survey and review tools that keep their text in a JSON column need real JSON in a full record.
+# Survey tools keep their answers in a JSON column, so a full record needs real answer JSON.
 _SURVEY_ANSWERS = {
     "usersnap": ("ordered_inputs", json.dumps([{"label": "Comment", "text_value": _LONG_TEXT}])),
     "typeform": ("answers", json.dumps([{"type": "text", "text": _LONG_TEXT, "field": {"type": "long_text"}}])),
@@ -159,9 +148,6 @@ _SURVEY_ANSWERS = {
     "formbricks": ("data", json.dumps({"q1": "yes", "q2": _LONG_TEXT})),
     "survicate": ("answers", json.dumps([{"type": "text", "answer": _LONG_TEXT}])),
     "surveysparrow": ("answers", json.dumps([{"question_type": "TextInput", "answer": _LONG_TEXT}])),
-    "featurebase_surveys": ("responses", json.dumps([{"type": "text", "value": _LONG_TEXT}])),
-    "g2": ("answers", json.dumps({"hate": {"text": "What do you dislike?", "value": _LONG_TEXT}})),
-    "beamer": ("translations", json.dumps([{"title": _LONG_TEXT, "content": "", "language": "EN"}])),
 }
 
 

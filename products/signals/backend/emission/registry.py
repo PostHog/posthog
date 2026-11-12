@@ -171,15 +171,12 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.aws_security_hub_findings import AWS_SECURITY_HUB_CONFIG
     from products.signals.backend.emission.azure_application_insights_exceptions import AZURE_EXCEPTIONS_CONFIG
     from products.signals.backend.emission.azure_devops_work_item_revisions import AZURE_DEVOPS_CONFIG
-    from products.signals.backend.emission.beamer_feature_requests import BEAMER_CONFIG
-    from products.signals.backend.emission.beamer_nps import BEAMER_NPS_CONFIG
     from products.signals.backend.emission.bettermode_posts import BETTERMODE_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
     from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
     from products.signals.backend.emission.bugherd_tasks import BUGHERD_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
-    from products.signals.backend.emission.chameleon_responses import CHAMELEON_CONFIG
     from products.signals.backend.emission.checkly_error_groups import CHECKLY_CONFIG
     from products.signals.backend.emission.clickup_tasks import CLICKUP_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
@@ -195,16 +192,13 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
     from products.signals.backend.emission.dynamics365_cases import DYNAMICS365_CONFIG
     from products.signals.backend.emission.dynatrace_problems import DYNATRACE_CONFIG
-    from products.signals.backend.emission.etsy_reviews import ETSY_CONFIG
     from products.signals.backend.emission.featurebase_posts import FEATUREBASE_CONFIG
-    from products.signals.backend.emission.featurebase_survey_responses import FEATUREBASE_SURVEY_CONFIG
     from products.signals.backend.emission.firehydrant_incidents import FIREHYDRANT_CONFIG
     from products.signals.backend.emission.formbricks_responses import FORMBRICKS_CONFIG
     from products.signals.backend.emission.freshdesk_tickets import FRESHDESK_CONFIG
     from products.signals.backend.emission.freshservice_tickets import FRESHSERVICE_CONFIG
     from products.signals.backend.emission.frill_ideas import FRILL_CONFIG
     from products.signals.backend.emission.front_conversations import FRONT_CONFIG
-    from products.signals.backend.emission.g2_reviews import G2_CONFIG
     from products.signals.backend.emission.gainsight_px_survey_responses import GAINSIGHT_PX_CONFIG
     from products.signals.backend.emission.gitea_issues import GITEA_CONFIG
     from products.signals.backend.emission.github_code_scanning_alerts import GITHUB_CODE_SCANNING_ALERTS_CONFIG
@@ -218,13 +212,13 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.google_search_console_opportunities import GOOGLE_SEARCH_CONSOLE_CONFIG
     from products.signals.backend.emission.gorgias_tickets import GORGIAS_CONFIG
     from products.signals.backend.emission.grafana_irm_incidents import GRAFANA_IRM_CONFIG
-    from products.signals.backend.emission.gumroad_product_reviews import GUMROAD_CONFIG
     from products.signals.backend.emission.helpscout_conversations import HELPSCOUT_CONFIG
     from products.signals.backend.emission.honeybadger_faults import HONEYBADGER_CONFIG
     from products.signals.backend.emission.hubspot_tickets import HUBSPOT_CONFIG
     from products.signals.backend.emission.incident_io_incidents import INCIDENT_IO_CONFIG
     from products.signals.backend.emission.instatus_incidents import INSTATUS_CONFIG
     from products.signals.backend.emission.intercom_conversations import INTERCOM_CONFIG
+    from products.signals.backend.emission.intercom_tickets import INTERCOM_TICKETS_CONFIG
     from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
@@ -245,6 +239,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.plain_threads import PLAIN_CONFIG
     from products.signals.backend.emission.plane_work_items import PLANE_CONFIG
     from products.signals.backend.emission.productboard_notes import PRODUCTBOARD_CONFIG
+    from products.signals.backend.emission.pylon_issues import PYLON_CONFIG
     from products.signals.backend.emission.qualtrics_survey_responses import QUALTRICS_CONFIG
 
     # Tier-2 security scanners
@@ -272,18 +267,13 @@ def _register_all_emitters() -> None:
     )
     from products.signals.backend.emission.trello_cards import TRELLO_CONFIG
     from products.signals.backend.emission.trigger_dev_errors import TRIGGER_DEV_CONFIG
-    from products.signals.backend.emission.trustpilot_product_reviews import TRUSTPILOT_PRODUCT_REVIEWS_CONFIG
     from products.signals.backend.emission.trustpilot_service_reviews import TRUSTPILOT_CONFIG
     from products.signals.backend.emission.typeform_responses import TYPEFORM_CONFIG
     from products.signals.backend.emission.usersnap_feedbacks import USERSNAP_CONFIG
-    from products.signals.backend.emission.uservoice_nps_ratings import USERVOICE_NPS_CONFIG
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
     from products.signals.backend.emission.vitally_conversations import VITALLY_CONFIG
-    from products.signals.backend.emission.vitally_nps_responses import VITALLY_NPS_CONFIG
-    from products.signals.backend.emission.woocommerce_product_reviews import WOOCOMMERCE_CONFIG
     from products.signals.backend.emission.wrike_tasks import WRIKE_CONFIG
     from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
-    from products.signals.backend.emission.yotpo_reviews import YOTPO_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
     from products.signals.backend.emission.zoho_crm_cases import ZOHO_CRM_CONFIG
 
@@ -353,6 +343,8 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.HELPSCOUT, "conversations", HELPSCOUT_CONFIG)
     register_signal_source(ExternalDataSourceType.DECAGON, "conversations", DECAGON_CONFIG)
     register_signal_source(ExternalDataSourceType.VITALLY, "Conversations", VITALLY_CONFIG)
+    register_signal_source(ExternalDataSourceType.INTERCOM, "tickets", INTERCOM_TICKETS_CONFIG)
+    register_signal_source(ExternalDataSourceType.PYLON, "issues", PYLON_CONFIG)
     # Search analytics (record kind: search_opportunity)
     register_signal_source(
         ExternalDataSourceType.GOOGLESEARCHCONSOLE, "search_analytics_by_query_page", GOOGLE_SEARCH_CONSOLE_CONFIG
@@ -411,19 +403,6 @@ def _register_all_emitters() -> None:
     # Business and product reviews (record kind: review)
     register_signal_source(ExternalDataSourceType.TRUSTPILOT, "service_reviews", TRUSTPILOT_CONFIG)
     register_signal_source(ExternalDataSourceType.OKENDO, "reviews", OKENDO_CONFIG)
-    # Feedback, NPS and review tools (record kinds: feedback, review)
-    register_signal_source(ExternalDataSourceType.BEAMER, "feature_requests", BEAMER_CONFIG)
-    register_signal_source(ExternalDataSourceType.BEAMER, "nps", BEAMER_NPS_CONFIG)
-    register_signal_source(ExternalDataSourceType.CHAMELEON, "responses", CHAMELEON_CONFIG)
-    register_signal_source(ExternalDataSourceType.FEATUREBASE, "survey_responses", FEATUREBASE_SURVEY_CONFIG)
-    register_signal_source(ExternalDataSourceType.USERVOICE, "nps_ratings", USERVOICE_NPS_CONFIG)
-    register_signal_source(ExternalDataSourceType.VITALLY, "NPS_Responses", VITALLY_NPS_CONFIG)
-    register_signal_source(ExternalDataSourceType.ETSY, "reviews", ETSY_CONFIG)
-    register_signal_source(ExternalDataSourceType.G2, "reviews", G2_CONFIG)
-    register_signal_source(ExternalDataSourceType.GUMROAD, "product_reviews", GUMROAD_CONFIG)
-    register_signal_source(ExternalDataSourceType.TRUSTPILOT, "product_reviews", TRUSTPILOT_PRODUCT_REVIEWS_CONFIG)
-    register_signal_source(ExternalDataSourceType.WOOCOMMERCE, "product_reviews", WOOCOMMERCE_CONFIG)
-    register_signal_source(ExternalDataSourceType.YOTPO, "reviews", YOTPO_CONFIG)
     # Cloud security (record kind: scanner_finding)
     register_signal_source(ExternalDataSourceType.AWSSECURITYHUB, "findings", AWS_SECURITY_HUB_CONFIG)
     register_signal_source(ExternalDataSourceType.AWSGUARDDUTY, "findings", AWS_GUARDDUTY_CONFIG)
