@@ -23,9 +23,9 @@ import type {
     Series,
     TooltipContext,
 } from '../../core/types'
-import { computeSeriesViolins, computeViolinRect, summarizeViolin } from './computeViolinLayout'
+import { computeSeriesViolins, summarizeViolin } from './computeViolinLayout'
 import { drawViolinHighlight, drawViolins } from './draw-violins'
-import type { ViolinPlotDatum, ViolinPlotSeries } from './types'
+import type { ViolinPlotDatum, ViolinPlotSeries, ViolinRect } from './types'
 import { ViolinPlotTooltip } from './ViolinPlotTooltip'
 
 /** Stash slot — survives a render via `ChartScales._private` so drawStatic/drawHover can read the
@@ -33,7 +33,7 @@ import { ViolinPlotTooltip } from './ViolinPlotTooltip'
 interface ViolinPlotPrivate {
     __violinPlot: {
         scales: BarScaleSet
-        datumsByKey: Map<string, (ViolinPlotDatum | null)[]>
+        violinsByKey: Map<string, (ViolinRect | null)[]>
         grouped: boolean
     }
 }
@@ -44,6 +44,10 @@ export interface ViolinPlotAdaptedMeta<Meta = unknown> {
     datums: (ViolinPlotDatum | null)[]
     user?: Meta
 }
+
+/** Tooltip context handed to consumer-supplied `tooltip` callbacks. Same shape as
+ *  `TooltipContext` with the `ViolinPlotAdaptedMeta` `Meta` parameter baked in. */
+export type ViolinPlotTooltipContext<Meta = unknown> = TooltipContext<ViolinPlotAdaptedMeta<Meta>>
 
 /** Chart-level config. The violins stand upright: the value axis is always vertical, so
  *  `axisOrientation` is not accepted. */
@@ -59,10 +63,22 @@ export interface ViolinPlotProps<Meta = unknown> {
     /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
     theme?: ChartTheme
     config?: ViolinPlotConfig
+    /** Optional custom tooltip. Receives the adapter `TooltipContext`; consumers can read
+     *  the original datum back out via `entry.series.meta?.datums?.[ctx.dataIndex]`. */
+    tooltip?: (ctx: ViolinPlotTooltipContext<Meta>) => React.ReactNode
     className?: string
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+}
+
+/** Places each laid-out violin at its x position so the hover path can look one up by index. */
+function violinsByDataIndex(violins: ViolinRect[], length: number): (ViolinRect | null)[] {
+    const out: (ViolinRect | null)[] = Array.from({ length }, () => null)
+    for (const violin of violins) {
+        out[violin.dataIndex] = violin
+    }
+    return out
 }
 
 export function ViolinPlot<Meta = unknown>({ onError, ...rest }: ViolinPlotProps<Meta>): React.ReactElement {
@@ -78,6 +94,7 @@ function ViolinPlotInner<Meta = unknown>({
     labels,
     theme: themeProp,
     config: rawConfig,
+    tooltip,
     className,
     dataAttr,
     children,
@@ -96,12 +113,12 @@ function ViolinPlotInner<Meta = unknown>({
                 color: s.color,
                 data: Array.from({ length: labels.length }, (_, i) => {
                     const datum = s.data[i]
-                    return (datum ? summarizeViolin(datum)?.median : undefined) ?? Number.NaN
+                    return (datum ? summarizeViolin(datum, logScale)?.median : undefined) ?? Number.NaN
                 }),
                 meta: { datums: s.data, user: s.meta },
                 visibility: s.visibility,
             })),
-        [series, labels.length]
+        [series, labels.length, logScale]
     )
 
     const { visibleSeries, legendProps } = useChartLegend(adaptedSeries, theme, config?.legend)
@@ -120,7 +137,7 @@ function ViolinPlotInner<Meta = unknown>({
             const mins: number[] = []
             const maxs: number[] = []
             for (const datum of s.meta?.datums ?? []) {
-                const summary = datum ? summarizeViolin(datum) : null
+                const summary = datum ? summarizeViolin(datum, logScale) : null
                 if (summary) {
                     mins.push(summary.min)
                     maxs.push(summary.max)
@@ -132,7 +149,7 @@ function ViolinPlotInner<Meta = unknown>({
             }
         }
         return out
-    }, [visibleSeries])
+    }, [visibleSeries, logScale])
 
     const datumsByKey = useMemo(() => new Map(series.map((s) => [s.key, s.data])), [series])
 
@@ -146,8 +163,30 @@ function ViolinPlotInner<Meta = unknown>({
             })
 
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
+            const violinsByKey = new Map<string, (ViolinRect | null)[]>()
+            for (const s of coloredSeries) {
+                const datums = datumsByKey.get(s.key)
+                if (s.visibility?.excluded || !datums) {
+                    continue
+                }
+                violinsByKey.set(
+                    s.key,
+                    violinsByDataIndex(
+                        computeSeriesViolins({
+                            seriesKey: s.key,
+                            data: datums,
+                            labels: scaleLabels,
+                            scales: d3Scales,
+                            grouped,
+                            logScale,
+                            showPoints,
+                        }),
+                        scaleLabels.length
+                    )
+                )
+            }
             const priv: ViolinPlotPrivate = {
-                __violinPlot: { scales: d3Scales, datumsByKey, grouped },
+                __violinPlot: { scales: d3Scales, violinsByKey, grouped },
             }
 
             return {
@@ -170,7 +209,7 @@ function ViolinPlotInner<Meta = unknown>({
                 _private: priv,
             }
         },
-        [grouped, yScaleType, valueRangeSeries, datumsByKey]
+        [grouped, yScaleType, valueRangeSeries, datumsByKey, logScale, showPoints]
     )
 
     const drawStatic = useCallback(
@@ -204,19 +243,10 @@ function ViolinPlotInner<Meta = unknown>({
                 if (s.visibility?.excluded) {
                     continue
                 }
-                const datums = priv.datumsByKey.get(s.key)
-                if (!datums) {
+                const violins = priv.violinsByKey.get(s.key)?.filter((violin): violin is ViolinRect => violin != null)
+                if (!violins) {
                     continue
                 }
-                const violins = computeSeriesViolins({
-                    seriesKey: s.key,
-                    data: datums,
-                    labels: drawLabels,
-                    scales: priv.scales,
-                    grouped: priv.grouped,
-                    logScale,
-                    showPoints,
-                })
                 drawViolins(ctx, violins, {
                     color: s.color,
                     fillColor: dimColor(s.color, 0.35),
@@ -235,7 +265,7 @@ function ViolinPlotInner<Meta = unknown>({
                 })
             }
         },
-        [showGrid, xAxisLine, yAxisLine, logScale, showPoints]
+        [showGrid, xAxisLine, yAxisLine]
     )
 
     const drawHover = useCallback(
@@ -262,20 +292,10 @@ function ViolinPlotInner<Meta = unknown>({
             })
             let drewAny = false
             for (const s of coloredSeries) {
-                const datum = priv.datumsByKey.get(s.key)?.[hoverIndex]
-                if (s.visibility?.excluded || !hits.has(s.key) || !datum) {
+                const violin = priv.violinsByKey.get(s.key)?.[hoverIndex]
+                if (s.visibility?.excluded || !hits.has(s.key)) {
                     continue
                 }
-                const violin = computeViolinRect({
-                    seriesKey: s.key,
-                    label: hoveredLabel,
-                    dataIndex: hoverIndex,
-                    datum,
-                    scales: priv.scales,
-                    grouped: priv.grouped,
-                    logScale,
-                    showPoints: false,
-                })
                 if (violin) {
                     drawViolinHighlight(ctx, violin, dimColor(s.color, 0.25))
                     drewAny = true
@@ -283,11 +303,17 @@ function ViolinPlotInner<Meta = unknown>({
             }
             return drewAny
         },
-        [series, logScale]
+        [series]
     )
 
     const renderTooltip = (ctx: TooltipContext<ViolinPlotAdaptedMeta<Meta>>): React.ReactNode => (
-        <ViolinPlotTooltip<Meta> ctx={ctx} grouped={grouped} valueFormatter={config?.tooltip?.valueFormatter} />
+        <ViolinPlotTooltip<Meta>
+            ctx={ctx}
+            userTooltip={tooltip}
+            logScale={logScale}
+            grouped={grouped}
+            valueFormatter={config?.tooltip?.valueFormatter}
+        />
     )
 
     return (

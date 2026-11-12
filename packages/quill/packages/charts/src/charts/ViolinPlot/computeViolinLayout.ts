@@ -70,9 +70,11 @@ function prepare(datum: ViolinPlotDatum, logScale: boolean): PreparedViolin | nu
     return prepared
 }
 
-/** Summary statistics of a violin's finite observations, or `null` when it has none. */
-export function summarizeViolin(datum: ViolinPlotDatum): ViolinSummary | null {
-    return prepare(datum, false)?.summary ?? null
+/** Summary statistics of a violin's finite observations, or `null` when it has none. On a log
+ *  axis (`logScale`) values that are not positive are left out, exactly as the chart leaves them
+ *  out when drawing, so the numbers match the median tick and mean marker on screen. */
+export function summarizeViolin(datum: ViolinPlotDatum, logScale = false): ViolinSummary | null {
+    return prepare(datum, logScale)?.summary ?? null
 }
 
 function thinEvenly<T>(values: readonly T[], limit: number): T[] {

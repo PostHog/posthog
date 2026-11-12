@@ -114,7 +114,9 @@ The outline extends two bandwidths past the extreme values and stops at the edge
 With `yScaleType: 'log'` the density is estimated on log10 of the values and values that are not positive are left out.
 The estimate uses at most 1,000 values per violin and draws at most 500 markers, thinned evenly, so a large group stays cheap.
 Supports `config.legend` for grouped series. The value axis is always vertical.
-The default tooltip lists the count and the statistics; `config.tooltip.valueFormatter` formats the statistics but not the count.
+The default tooltip lists the count and the statistics; `config.tooltip.valueFormatter` formats the statistics but not the count. On a log axis the count and statistics cover the positive values only, matching what is drawn.
+The tooltip receives a `ViolinPlotTooltipContext`; `ViolinPlotTooltip` is the default.
+The layout of every violin is computed once per scale set, so hovering only looks one up. Do not change a datum's `values` in place; pass a new datum.
 Use `BoxPlot` instead when you only have pre-aggregated percentiles.
 
 ## Heatmap

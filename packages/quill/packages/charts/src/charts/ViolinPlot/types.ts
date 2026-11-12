@@ -1,5 +1,8 @@
 /** The raw observations behind one violin. The chart derives the shape, the median and the mean
- *  from them, so a consumer passes the values, not a summary. */
+ *  from them, so a consumer passes the values, not a summary.
+ *
+ *  The sorted values are cached against the datum object, so do not change `values` in place:
+ *  pass a new datum (or a new array in a new datum) when the observations change. */
 export interface ViolinPlotDatum {
     /** Every observation in this group. Non-finite values are ignored. */
     values: number[]

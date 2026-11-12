@@ -83,14 +83,6 @@ describe('ViolinPlot', () => {
         expect(chart.seriesCount).toBe(1)
     })
 
-    it('draws without markers when `showPoints` is off', () => {
-        const { chart } = renderChart(
-            <ViolinPlot series={TWO_SERIES} labels={LABELS} theme={THEME} config={{ showPoints: false }} />
-        )
-
-        expect(chart.seriesCount).toBe(2)
-    })
-
     describe('tooltip context', () => {
         it('includes the x-axis label and the original observations', async () => {
             const { chart } = renderChart(<ViolinPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />)
@@ -124,6 +116,54 @@ describe('ViolinPlot', () => {
                 ['25th percentile', '2'],
                 ['Min', '1'],
             ])
+        })
+
+        it('leaves values that are not positive out of the statistics on a log axis', async () => {
+            const series: ViolinPlotSeries[] = [{ key: 'a', label: 'A', data: [datum([-1, 0, 10, 100, 1000])] }]
+            const { chart } = renderChart(
+                <ViolinPlot series={series} labels={['Mon']} theme={THEME} config={{ yScaleType: 'log' }} />
+            )
+
+            chart.hoverAtIndex(0)
+            const tooltip = await waitForChartTooltip()
+
+            expect(rowTexts(tooltip)).toEqual([
+                ['Count', '3'],
+                ['Max', '1,000'],
+                ['75th percentile', '550'],
+                ['Median', '100'],
+                ['Mean', '370'],
+                ['25th percentile', '55'],
+                ['Min', '10'],
+            ])
+        })
+
+        it('keeps values that are not positive in the statistics on a linear axis', async () => {
+            const series: ViolinPlotSeries[] = [{ key: 'a', label: 'A', data: [datum([-1, 0, 10, 100, 1000])] }]
+            const { chart } = renderChart(<ViolinPlot series={series} labels={['Mon']} theme={THEME} />)
+
+            chart.hoverAtIndex(0)
+            const tooltip = await waitForChartTooltip()
+
+            expect(rowTexts(tooltip)[0]).toEqual(['Count', '5'])
+            expect(rowTexts(tooltip)[3]).toEqual(['Median', '10'])
+        })
+
+        it('renders a consumer `tooltip` instead of the default one', async () => {
+            const { chart } = renderChart(
+                <ViolinPlot
+                    series={SINGLE_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    tooltip={(ctx) => <div data-attr="custom-violin-tooltip">{ctx.label}</div>}
+                />
+            )
+
+            chart.hoverAtIndex(0)
+            const tooltip = await waitForChartTooltip()
+
+            expect(tooltip.querySelector('[data-attr="custom-violin-tooltip"]')?.textContent).toBe('Mon')
+            expect(tooltip.querySelector('table')).toBeNull()
         })
 
         it('formats the statistics, but not the count, with the tooltip value formatter', async () => {

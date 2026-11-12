@@ -26,6 +26,12 @@ function tooltipRows(summary: ViolinSummary): TooltipRow[] {
 
 export interface ViolinPlotTooltipProps<Meta = unknown> {
     ctx: TooltipContext<ViolinPlotAdaptedMeta<Meta>>
+    /** Optional consumer override — receives the original TooltipContext so the consumer can render
+     *  their own template while still reading the `ViolinPlotDatum` from the adapter meta. */
+    userTooltip?: (ctx: TooltipContext<ViolinPlotAdaptedMeta<Meta>>) => React.ReactNode
+    /** The value axis is logarithmic: values that are not positive are left out of the statistics,
+     *  as they are left out of the drawing. */
+    logScale?: boolean
     /** Whether multiple series are being shown — drives whether each violin's series label is
      *  printed in the header above its stats. */
     grouped: boolean
@@ -39,16 +45,22 @@ function defaultFormatValue(value: number): string {
 
 export function ViolinPlotTooltip<Meta = unknown>({
     ctx,
+    userTooltip,
+    logScale = false,
     grouped,
     valueFormatter = defaultFormatValue,
 }: ViolinPlotTooltipProps<Meta>): React.ReactElement | null {
+    if (userTooltip) {
+        return <>{userTooltip(ctx)}</>
+    }
+
     const entries: { summary: ViolinSummary; seriesEntry: TooltipContext['seriesData'][number] }[] = []
     for (const seriesEntry of ctx.seriesData) {
         if (seriesEntry.series.visibility?.tooltip === false) {
             continue
         }
         const datum = seriesEntry.series.meta?.datums?.[ctx.dataIndex]
-        const summary = datum ? summarizeViolin(datum) : null
+        const summary = datum ? summarizeViolin(datum, logScale) : null
         if (summary) {
             entries.push({ summary, seriesEntry })
         }

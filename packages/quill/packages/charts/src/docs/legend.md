@@ -64,7 +64,7 @@ A header click sorts by that column: values start highest first and names A to Z
 `table.defaultSort: { by, descending? }` sets the sort on mount, in the same direction a header click starts with unless `descending` says otherwise.
 `table.valueFormatter(value, item)` formats a cell; the time-series charts default it to the tick format of the series' own axis.
 A percent chart, and a secondary axis without a format, keep the plain number format, because legend values are raw.
-`BoxPlot` and `ScatterChart` take no `table`.
+`BoxPlot`, `ViolinPlot` and `ScatterChart` take no `table`.
 The summaries are computed only while the legend is shown.
 A left or right table legend gets more width than a list legend, up to 60% of the chart or 480px.
 On a chart narrower than 480px it moves below the plot (above for `left`), so the plot and the series names keep their room.
