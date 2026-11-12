@@ -88,7 +88,7 @@ class DocsPullRequest:
     is_opened_by_knowledge_writer: bool
 
 
-@dataclass
+@dataclass(frozen=False)
 class DocsPullRequestScan:
     github: GitHubReader
     is_final_attempt: bool
