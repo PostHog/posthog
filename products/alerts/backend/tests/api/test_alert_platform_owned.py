@@ -952,11 +952,14 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
     def test_a_new_alert_follows_its_team_and_starts_on_the_platform_in_a_team_without_alerts(
         self, _name: str, team_owner: str | None, expected_owner: str
     ) -> None:
+        team_cutover_at = self.now - timedelta(days=4)
         insight = create_insight_alert(self.team).insight
         if team_owner is None:
             AlertConfiguration.objects.filter(team_id=self.team.id).delete()
         else:
-            AlertConfiguration.objects.filter(team_id=self.team.id).update(owner=team_owner)
+            AlertConfiguration.objects.filter(team_id=self.team.id).update(
+                owner=team_owner, owner_changed_at=team_cutover_at
+            )
 
         response = self.client.post(
             f"{self.url}",
@@ -975,6 +978,9 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         created = AlertConfiguration.objects.get(id=response.json()["id"])
         assert created.owner == expected_owner
+        if team_owner == "platform":
+            # The insight stack shadows the new alert only for what is left of the team's week.
+            assert created.owner_changed_at == team_cutover_at
 
     def _forget_the_insight_row(self) -> None:
         with team_scope(self.team.id):

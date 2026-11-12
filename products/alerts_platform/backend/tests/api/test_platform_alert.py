@@ -296,18 +296,21 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert set(first_ids).isdisjoint(second_ids)
         assert set(first_ids) | set(second_ids) == created
 
-    def test_the_legacy_id_filter_finds_the_copy_of_one_source_alert(self) -> None:
+    @parameterized.expand([("legacy_configuration_id", "Copied"), ("source_kind", "Metrics alert")])
+    def test_a_list_filter_returns_only_the_matching_alert(self, filter_name: str, wanted_name: str) -> None:
         self._set_flag(True)
         legacy_configuration_id = uuid4()
-        wanted = self._create_configuration(self.team, "Copied", legacy_configuration_id=legacy_configuration_id)
+        self._create_configuration(self.team, "Copied", legacy_configuration_id=legacy_configuration_id)
         self._create_configuration(self.team, "Another copy", legacy_configuration_id=uuid4())
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/platform_alerts/?legacy_configuration_id={legacy_configuration_id}"
+        self._create_configuration(
+            self.team, "Metrics alert", source_kind=PlatformAlertConfiguration.SourceKind.METRICS
         )
+        value = {"legacy_configuration_id": legacy_configuration_id, "source_kind": "metrics"}[filter_name]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/?{filter_name}={value}")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert [(row["id"], response.json()["count"]) for row in response.json()["results"]] == [(str(wanted.id), 1)]
+        assert [(row["name"], response.json()["count"]) for row in response.json()["results"]] == [(wanted_name, 1)]
 
     def test_a_page_costs_the_same_queries_however_many_rows_it_holds(self) -> None:
         # A filter added to the prefetched relation would bypass the cache and cost a query per
