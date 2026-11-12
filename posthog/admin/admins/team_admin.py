@@ -1,17 +1,13 @@
 import json
-from datetime import datetime
 
 from django.conf import settings
-from django.contrib import admin, messages
+from django.contrib import admin
 from django.forms import ModelForm, ValidationError
-from django.http import HttpResponse
-from django.shortcuts import redirect, render
-from django.urls import path, reverse
+from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 
 from posthog.admin.console.moved import MovedToConsole
-from posthog.admin.console.recording_deletion_tools import recording_deletions_url
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import TeamEventsRetentionConfigInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
@@ -26,7 +22,6 @@ from posthog.models.events_retention_config import (
 from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
-from posthog.temporal.session_replay.delete_recordings.staff import RecordingDeletions, describe_query
 
 from products.workflows.backend.facade.api import (
     get_email_sending_state,
@@ -544,67 +539,3 @@ class TeamAdmin(admin.ModelAdmin):
                 "until the entry expires, default 24h)</em>"
             )
         return format_html("<pre>{}</pre>", json.dumps(blob, indent=2, default=str))
-
-    def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path(
-                "<path:object_id>/delete-recordings/certificate/<str:workflow_id>/",
-                self.admin_site.admin_view(self.deletion_certificate_view),
-                name="posthog_team_deletion_certificate",
-            ),
-            path(
-                "<path:object_id>/delete-recordings/certificate/<str:workflow_id>/download/",
-                self.admin_site.admin_view(self.download_deletion_certificate_view),
-                name="posthog_team_download_deletion_certificate",
-            ),
-        ]
-        return custom_urls + urls
-
-    def deletion_certificate_view(self, request, object_id, workflow_id):
-        """Display a deletion certificate as a printable HTML page."""
-        team = Team.objects.select_related("organization").get(pk=object_id)
-
-        certificate, error = RecordingDeletions.certificate(team.id, workflow_id)
-        if error:
-            messages.error(request, "Failed to fetch certificate. Check server logs for details.")
-            return redirect(recording_deletions_url(team))
-
-        # workflow_id is "delete-recordings-{team_id}-{uuid}" — extract just the UUID
-        reference = workflow_id.rsplit("-", 5)[-5:]
-        reference_id = "-".join(reference) if len(reference) == 5 else workflow_id
-
-        # Temporal returns timestamps as ISO strings — parse them for Django's date filter
-        if isinstance(certificate, dict):
-            for key in ("started_at", "completed_at"):
-                if isinstance(certificate.get(key), str):
-                    certificate[key] = datetime.fromisoformat(certificate[key])
-        if isinstance(certificate, dict) and certificate.get("query"):
-            certificate["query_display"] = describe_query(certificate["query"])
-
-        context = {
-            **self.admin_site.each_context(request),
-            "team": team,
-            "certificate": certificate,
-            "reference_id": reference_id,
-            "title": f"Deletion Certificate - {reference_id}",
-            "recording_deletions_url": recording_deletions_url(team),
-        }
-        return render(request, "admin/posthog/team/deletion_certificate.html", context)
-
-    def download_deletion_certificate_view(self, request, object_id, workflow_id):
-        """Download a deletion certificate as JSON."""
-        team = Team.objects.get(pk=object_id)
-
-        certificate, error = RecordingDeletions.certificate(team.id, workflow_id)
-        if error:
-            messages.error(request, "Failed to fetch certificate. Check server logs for details.")
-            return redirect(recording_deletions_url(team))
-
-        response = HttpResponse(
-            json.dumps(certificate, indent=2, default=str),
-            content_type="application/json",
-        )
-        filename = f"deletion-certificate-{workflow_id}.json"
-        response["Content-Disposition"] = f'attachment; filename="{filename}"'
-        return response

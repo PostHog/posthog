@@ -3,6 +3,7 @@ import json
 import time
 import uuid
 from dataclasses import replace
+from datetime import datetime
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -11,6 +12,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.template.loader import render_to_string
 from django.urls import reverse
 
 import structlog
@@ -39,6 +41,8 @@ logger = structlog.get_logger(__name__)
 RECORDINGS_QUERY_DEFAULT_DATE_FROM = RecordingsQuery.model_fields["date_from"].default
 REPLAY = Owner(name="Replay", crest="replay")
 TOOL_KEY = "recording-deletions"
+CERTIFICATE_JSON = "certificate"
+CERTIFICATE_HTML = "certificate-html"
 TOOL_URL = f"/admin/console/tools/{TOOL_KEY}/"
 PANEL_KEY = "recordings"
 REFRESH_SECONDS_WHILE_RUNNING = 5
@@ -411,14 +415,45 @@ def _seconds_since(started_at: str) -> float | None:
         return None
 
 
+def _download_url(download_key: str) -> str:
+    return reverse("admin_console_tool_download", kwargs={"tool_key": TOOL_KEY, "download_key": download_key})
+
+
+def _certificate_html(team: Team, workflow_id: str, certificate: dict[str, Any]) -> str:
+    # The workflow ID is "delete-recordings-{team_id}-{uuid}", and the customer only needs the UUID as a reference.
+    reference = workflow_id.rsplit("-", 5)[-5:]
+    reference_id = "-".join(reference) if len(reference) == 5 else workflow_id
+    # Temporal returns the timestamps as ISO strings, and the template's date filter needs datetimes.
+    certificate = {
+        **certificate,
+        **{
+            key: datetime.fromisoformat(certificate[key])
+            for key in ("started_at", "completed_at")
+            if isinstance(certificate.get(key), str)
+        },
+    }
+    if certificate.get("query"):
+        certificate["query_display"] = describe_query(certificate["query"])
+    return render_to_string(
+        "admin_console/downloads/recording_deletion_certificate.html",
+        {"team": team, "certificate": certificate, "reference_id": reference_id},
+    )
+
+
 def _run_row(team: Team, run: DeletionRun) -> Row:
     temporal_url = _temporal_url(run.workflow_id, run.run_id)
     completed = run.status == "COMPLETED"
-    certificate_url = reverse("admin:posthog_team_deletion_certificate", args=[team.pk, run.workflow_id])
-    download_url = reverse("admin_console_tool_download", kwargs={"tool_key": TOOL_KEY, "download_key": "certificate"})
     query = urlencode({"team": team.pk, "certificate": run.workflow_id})
-    certificate = Cell(text="View", href=certificate_url) if completed else Cell(text="-", muted=True)
-    download = Cell(text="JSON", href=f"{download_url}?{query}") if completed else Cell(text="-", muted=True)
+    certificate = (
+        Cell(text="HTML", href=f"{_download_url(CERTIFICATE_HTML)}?{query}")
+        if completed
+        else Cell(text="-", muted=True)
+    )
+    download = (
+        Cell(text="JSON", href=f"{_download_url(CERTIFICATE_JSON)}?{query}")
+        if completed
+        else Cell(text="-", muted=True)
+    )
     return Row(
         cells=(
             Cell(text=run.workflow_id, href=temporal_url, mono=True),
@@ -507,11 +542,17 @@ class RecordingDeletionsTool(ConsoleTool):
     def download(self, request: HttpRequest, key: str) -> Download | None:
         team = self._team(request)
         workflow_id = request.GET.get("certificate", "")
-        if key != "certificate" or team is None or not workflow_id:
+        if key not in (CERTIFICATE_JSON, CERTIFICATE_HTML) or team is None or not workflow_id:
             return None
         certificate, _error = RecordingDeletions.certificate(team.pk, workflow_id)
         if certificate is None:
             return None
+        if key == CERTIFICATE_HTML:
+            return Download(
+                filename=f"deletion-certificate-{workflow_id}.html",
+                content_type="text/html",
+                content=_certificate_html(team, workflow_id, certificate),
+            )
         return Download(
             filename=f"deletion-certificate-{workflow_id}.json",
             content_type="application/json",
@@ -527,4 +568,14 @@ console.register_moved_page(
     old_path="admin/posthog/team/<int:pk>/delete-recordings/workflows/",
     title="Recording deletion runs",
     url="/admin/console/tools/recording-deletions/?team={pk}",
+)
+console.register_moved_page(
+    old_path="admin/posthog/team/<int:pk>/delete-recordings/certificate/<str:workflow_id>/",
+    title="Deletion certificate",
+    url="/admin/console/tools/recording-deletions/download/certificate-html/?team={pk}&certificate={workflow_id}",
+)
+console.register_moved_page(
+    old_path="admin/posthog/team/<int:pk>/delete-recordings/certificate/<str:workflow_id>/download/",
+    title="Deletion certificate download",
+    url="/admin/console/tools/recording-deletions/download/certificate/?team={pk}&certificate={workflow_id}",
 )
