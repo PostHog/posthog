@@ -84,7 +84,10 @@ def drifted_settings(expectation: LegacyCopyExpectation, copy: Mapping[str, Any]
         return [NO_PLATFORM_FORM]
     try:
         expected = stored_settings_of(expectation.upsert)
-    except ValueError:
+        # As the JSON column stores it, so a tuple in the upsert compares equal to the list written.
+        for column in _JSON_COLUMNS:
+            expected[column] = json.loads(json.dumps(expected[column]))
+    except (ValueError, TypeError):
         return [NO_PLATFORM_FORM]
     expected.update(expectation.extra_columns, team_id=expectation.team_id, owner=PlatformAlertOwner.PLATFORM.value)
     stored = {column: copy[column] for column in expected}
@@ -92,9 +95,6 @@ def drifted_settings(expectation: LegacyCopyExpectation, copy: Mapping[str, Any]
         # A snooze that has ended mutes nothing, whichever side still holds it.
         if side["snooze_until"] is not None and side["snooze_until"] <= now:
             side["snooze_until"] = None
-    # As the JSON column stores it, so a tuple in the upsert compares equal to the list written.
-    for column in _JSON_COLUMNS:
-        expected[column] = json.loads(json.dumps(expected[column]))
     drifted = [column for column in expected if column != _SOURCE_CONFIG and expected[column] != stored[column]]
     expected_leaves = _leaves(expected[_SOURCE_CONFIG], _SOURCE_CONFIG, _SOURCE_CONFIG_DEPTH)
     stored_leaves = _leaves(stored[_SOURCE_CONFIG], _SOURCE_CONFIG, _SOURCE_CONFIG_DEPTH)

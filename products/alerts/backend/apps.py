@@ -45,8 +45,8 @@ class AlertsConfig(AppConfig):
             register_source_slack_renderer,
             register_subscriber_access,
         )
-        from products.alerts_platform.backend.facade.legacy_config_drift import (
-            register_legacy_drift_source,  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.legacy_config_drift import (  # noqa: PLC0415
+            register_legacy_drift_source,
         )
         from products.alerts_platform.backend.facade.source_access import register_source_alert_viewer  # noqa: PLC0415
         from products.alerts_platform.backend.facade.source_configs import register_source_config  # noqa: PLC0415

@@ -23,8 +23,8 @@ class LogsConfig(AppConfig):
             register_source_alert_creator,
             register_source_describer,
         )
-        from products.alerts_platform.backend.facade.legacy_config_drift import (
-            register_legacy_drift_source,  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.legacy_config_drift import (  # noqa: PLC0415
+            register_legacy_drift_source,
         )
         from products.alerts_platform.backend.facade.source_access import register_source_alert_viewer  # noqa: PLC0415
         from products.alerts_platform.backend.facade.source_configs import register_source_config  # noqa: PLC0415
