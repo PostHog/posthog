@@ -256,7 +256,7 @@ def owned_copies(
     *, team_id: int, source_kind: SourceKind, legacy_configuration_ids: Collection[UUID]
 ) -> dict[UUID, PlatformAlertConfigurationView]:
     """The copies the platform owns of these source rows, keyed by source row id, for a source that
-    shows such an alert's settings from its copy."""
+    shows such an alert's settings from its copy. Each view carries no instances."""
     return platform_reads.owned_copies(
         team_id=team_id, source_kind=source_kind.value, legacy_configuration_ids=legacy_configuration_ids
     )

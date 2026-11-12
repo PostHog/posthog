@@ -188,12 +188,19 @@ def owned_copy_ids(*, team_id: int, source_kind: str, created_by_uuid: UUID | No
 def owned_copies(
     *, team_id: int, source_kind: str, legacy_configuration_ids: Collection[UUID]
 ) -> dict[UUID, PlatformAlertConfigurationView]:
-    """The copies the platform owns of these source rows, keyed by source row id. A copy its source
-    still owns is left out, because the source's row then holds its settings."""
+    """The copies the platform owns of these source rows, keyed by source row id, with their settings
+    and no instances. A copy its source still owns is left out, because the source's row then holds
+    its settings."""
     if not legacy_configuration_ids:
         return {}
-    rows = _readable(team_id, [source_kind]).filter(
-        owner=PlatformAlertOwner.PLATFORM, legacy_configuration_id__in=list(legacy_configuration_ids)
+    rows = (
+        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+        .filter(
+            source_kind=source_kind,
+            owner=PlatformAlertOwner.PLATFORM,
+            legacy_configuration_id__in=list(legacy_configuration_ids),
+        )
+        .prefetch_related(Prefetch("alerts", queryset=PlatformAlert.objects.none()))
     )
     return {cast(UUID, row.legacy_configuration_id): _configuration_view(row) for row in rows}
 

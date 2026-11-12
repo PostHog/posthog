@@ -308,7 +308,6 @@ def _platform_control_of(
 
 # Set by the list serializer, whose alerts reach the child serializer already shown from their copies.
 _COPIES_SHOWN_CONTEXT_KEY: Final = "platform_copies_shown"
-# What the viewset annotates on a logs row.
 _ROW_ANNOTATIONS: Final = ("_state_timeline_events", "_latest_error_message", "_pre_window_toggle_kind")
 
 
@@ -332,7 +331,6 @@ def _platform_alert(
     alert.owner_changed_at = row.owner_changed_at
     # The newest check when the platform made none in the timeline window.
     alert.last_checked_at = row.last_checked_at
-    # `has_no_logs_row` reads this.
     alert._state.adding = False
     for annotation in _ROW_ANNOTATIONS:
         if hasattr(row, annotation):
@@ -658,11 +656,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if snooze_events:
             snoozed = snooze_events[0].kind == LogsAlertEvent.Kind.UNSNOOZE
         else:
-            snoozed = (
-                obj.state == LogsAlertConfiguration.State.SNOOZED
-                and snooze_until is not None
-                and snooze_until > window_start
-            )
+            # No snooze change in the window, so a snooze that ends after its start began before it.
+            snoozed = snooze_until is not None and snooze_until > window_start
 
         def shown() -> str:
             if snoozed:
@@ -1722,8 +1717,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         logs_owned = ~Q(owner=PlatformAlertOwner.PLATFORM)
         if created_by is not None:
             logs_owned &= Q(created_by__uuid=created_by)
-        # The platform holds the creator of an alert it owns, so it picks which of those are listed. The
-        # logs row still gives the sort key, because the copy was created at the team's cutover.
+        # The copy holds the creator; the row gives the sort key, because the copy was made at the cutover.
         platform_owned = Q(
             owner=PlatformAlertOwner.PLATFORM, id__in=owned_copy_alert_ids(self.team_id, created_by_uuid=created_by)
         )

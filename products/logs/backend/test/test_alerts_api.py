@@ -229,9 +229,8 @@ class TestLogsAlertAPI(APIBaseTest):
         assert [(row["state"], row["next_check_at"]) for row in rows] == [
             ("firing", platform_due_at.isoformat().replace("+00:00", "Z"))
         ] * len(rows)
-        # One for the settings, one for the runtime, one for the history's ids and one for the
-        # control-plane changes' ids, whatever the page size. A list also reads which alerts the
-        # platform owns and the alerts with no logs row.
+        # Settings, runtime, history ids and control-change ids, whatever the page size. A list also
+        # reads which alerts the platform owns and the alerts with no logs row.
         platform_reads = [q for q in queries.captured_queries if "alerts_platformalertconfiguration" in q["sql"]]
         assert len(platform_reads) == (6 if action == "list" else 4)
 
@@ -3793,6 +3792,18 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
             (iso(minutes_ago), state) for minutes_ago, state in expected
         ]
         assert row["state_timeline"][0]["state"] == "not_firing"
+
+    def test_timeline_keeps_a_snooze_that_began_before_the_window_and_expired_inside_it(self) -> None:
+        expired_at = self.now - timedelta(minutes=30)
+        with team_scope(self.team.id):
+            platform_testing.set_snooze_until(platform_testing.copy_of(self.alert.id).id, expired_at)
+
+        [row] = self._rows("retrieve")
+
+        assert [(i["start"], i["state"]) for i in row["state_timeline"]][1:] == [
+            (expired_at.isoformat().replace("+00:00", "Z"), "not_firing")
+        ]
+        assert row["state_timeline"][0]["state"] == "snoozed"
 
     def test_timeline_shows_a_reset_of_a_platform_broken_alert(self) -> None:
         with team_scope(self.team.id):
