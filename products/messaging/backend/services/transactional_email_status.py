@@ -83,7 +83,8 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
 # A send waits at most 30 days after it was queued, so an email that still waits was queued within that time.
 _LONGEST_WAIT = timedelta(days=30)
 # Only scheduled rows carry `scheduled_at`, and a reschedule writes a new one. The latest row of a message says
-# whether it still waits: a cancel or a send outranks every scheduled row.
+# whether it still waits: a cancel or a send outranks every scheduled row. An email on the page has its latest
+# scheduled row due after now and after the cursor, so the candidates need only those rows.
 _SCHEDULED_EMAILS_QUERY = f"""
 SELECT toString(message_id) AS id, argMax(recipient, version), argMax(scheduled_at, version) AS due, any(created_at)
 FROM {EMAIL_STATUS_EVENTS_TABLE}
@@ -92,12 +93,16 @@ WHERE team_id = %(team_id)s
   AND (created_at, message_id) IN (
       SELECT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE}
       WHERE team_id = %(team_id)s AND created_at >= %(start)s AND status = 'scheduled'
+        AND scheduled_at > toDateTime64(%(now)s, 6, 'UTC') {{candidate_after}}
   )
 GROUP BY message_id
 HAVING argMax(status, version) = 'scheduled' AND due > toDateTime64(%(now)s, 6, 'UTC') {{after}}
 ORDER BY due, id
 LIMIT %(limit)s
 """
+
+
+_AFTER_AT = "toDateTime64(%(after_at)s, 6, 'UTC')"
 
 
 def _microseconds(value: datetime) -> str:
@@ -122,7 +127,10 @@ def list_scheduled_emails(team_id: int, *, after: tuple[datetime, str] | None, l
         list,
         sync_execute(
             _SCHEDULED_EMAILS_QUERY.format(
-                after="AND (due, id) > (toDateTime64(%(after_at)s, 6, 'UTC'), %(after_id)s)" if after else ""
+                after=f"AND (due, id) > ({_AFTER_AT}, %(after_id)s)" if after else "",
+                candidate_after=f"AND (scheduled_at, toString(message_id)) > ({_AFTER_AT}, %(after_id)s)"
+                if after
+                else "",
             ),
             params,
             workload=Workload.OFFLINE,
