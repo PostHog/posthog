@@ -385,6 +385,18 @@ export const ExternalDataSourcesPartialUpdateBody = () => zod
                 'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
+        payload: zod
+            .object({
+                credential_id: zod
+                    .string()
+                    .describe(
+                        "Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -984,7 +996,8 @@ export const ExternalDataSourcesCheckCdcPrerequisitesCreateBody = () => zod.obje
  * The link opens a minimal connect page rendering the source's full connection form — OAuth options
  * included — with no table selection and no source creation. The user authenticates in their browser,
  * secrets never pass through the agent, and the agent finishes setup afterwards by passing the stored
- * credential id to data-warehouse-source-setup.
+ * credential id to data-warehouse-source-setup. To reconnect an existing source, the agent passes the
+ * id in the payload of a source update instead.
  */
 export const ExternalDataSourcesConnectLinkRetrieveParams = () => zod.object({
     project_id: zod
