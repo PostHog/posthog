@@ -727,7 +727,7 @@ def metrics_visible_to_user(
     if filters is not None and filters.definition_kind:
         metrics = metrics.filter(definition__kind=filters.definition_kind)
     if not metrics.exists():
-        return metrics
+        return metrics.none()
     denied_tables = _denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics
