@@ -42,6 +42,7 @@ const entry = (
 describe('analyticsFeedLogic', () => {
     let requests: string[]
     let searches: (string | null)[]
+    let tagFilters: (string | null)[]
     let dashboardReads: number
     let firstDashboardRead: Promise<void>
 
@@ -49,6 +50,7 @@ describe('analyticsFeedLogic', () => {
         resetAnalyticsFeedSnapshot()
         requests = []
         searches = []
+        tagFilters = []
         dashboardReads = 0
         firstDashboardRead = Promise.resolve()
         useMocks({
@@ -64,6 +66,7 @@ describe('analyticsFeedLogic', () => {
                     const offset = params.get('offset') ?? '0'
                     requests.push(`${type}:${offset}:${params.get('order_by')}`)
                     searches.push(params.get('search'))
+                    tagFilters.push(params.get('tags'))
                     if (type === 'canvas') {
                         return { results: [entry('canvas', 'c7', 'Growth/C', at(7), GRACE)], users: USERS, next: null }
                     }
@@ -212,6 +215,18 @@ describe('analyticsFeedLogic', () => {
 
         expect(feed(logic, byAda)).toEqual(['dashboard:10', 'notebook:n9', 'insight:i5', 'dashboard:3', 'notebook:n1'])
         expect(new Set(searches)).toEqual(new Set([search]))
+    })
+
+    it('asks the server for rows with any picked tag, and keeps every row it returns', async () => {
+        const logic = analyticsFeedLogic()
+        logic.mount()
+        const tagged: AnalyticsFeedQuery = { ...ALL, tags: ['finance', 'growth'] }
+
+        await expectLogic(logic, () => logic.actions.ensureFeed(tagged, 100)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.ensureFeed(tagged, 100)).toFinishAllListeners()
+
+        expect(feed(logic, tagged)).toEqual(['dashboard:10', 'dashboard:8', 'insight:i5', 'dashboard:3'])
+        expect(new Set(tagFilters)).toEqual(new Set(['["finance","growth"]']))
     })
 
     it('keeps the loaded list after a remount, so a revisit shows rows at once', async () => {

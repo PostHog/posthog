@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, timedelta
 from typing import Any, TypedDict, cast
@@ -124,6 +125,48 @@ class TestFileSystemAPI(APIBaseTest):
         }
         self.assertEqual(by_ref[("dashboard", str(dashboard.id))], ["finance", "weekly"])
         self.assertEqual(by_ref[("insight", "tagged")], ["growth"])
+
+    @parameterized.expand(
+        [
+            ("one_tag", ["finance"], {"dashboard:revenue"}),
+            ("any_of_several_tags", ["finance", "growth"], {"dashboard:revenue", "insight:signups"}),
+            ("unknown_tag", ["missing"], set()),
+            ("newest_first", ["finance", "growth"], {"dashboard:revenue", "insight:signups"}, "-created_at"),
+            ("last_viewed", ["finance", "growth"], {"dashboard:revenue", "insight:signups"}, "-last_viewed_at"),
+        ]
+    )
+    def test_list_filters_by_any_tag(
+        self, _name: str, tags: list[str], expected: set[str], order_by: str | None = None
+    ) -> None:
+        revenue = Dashboard.objects.create(team=self.team, name="Revenue")
+        untagged = Dashboard.objects.create(team=self.team, name="Untagged")
+        signups = Insight.objects.create(team=self.team, short_id="signups", name="Signups")
+        churn = Insight.objects.create(team=self.team, short_id="churn", name="Churn")
+        for tag_name, obj in (("finance", revenue), ("growth", signups), ("ops", churn)):
+            tag, _ = Tag.objects.get_or_create(name=tag_name, team=self.team)
+            TaggedItem.objects.create(
+                tag=tag, team=self.team, content_type=ContentType.objects.get_for_model(type(obj)), object_id=obj.id
+            )
+        names = {
+            ("dashboard", str(revenue.id)): "dashboard:revenue",
+            ("dashboard", str(untagged.id)): "dashboard:untagged",
+            ("insight", "signups"): "insight:signups",
+            ("insight", "churn"): "insight:churn",
+        }
+
+        found: set[str] = set()
+        for type_params in ({"type": "dashboard"}, {"type__startswith": "insight"}):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/file_system/",
+                {**type_params, "tags": json.dumps(tags), **({"order_by": order_by} if order_by else {})},
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            found |= {names[(item["type"].split("/")[0], item["ref"])] for item in response.json()["results"]}
+        self.assertEqual(found, expected)
+
+    def test_list_rejects_malformed_tags(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"tags": "finance"})
+        self.assertEqual(response.status_code, 400, response.content)
 
     @parameterized.expand([(False,), (True,)])
     def test_list_content_types_without_object_contents(self, include_content_type: bool) -> None:
