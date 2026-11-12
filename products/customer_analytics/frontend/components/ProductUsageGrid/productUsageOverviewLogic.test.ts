@@ -39,6 +39,22 @@ describe('book overview and row summaries', () => {
         initKeaTests()
         retrieve.mockReset()
     })
+    it('waits for settled filters before rebuilding the overview query', async () => {
+        const grid = productUsageGridLogic()
+        grid.mount()
+        const overview = productUsageOverviewLogic()
+        overview.mount()
+        await expectLogic(overview).toFinishAllListeners()
+        overview.actions.loadTilesSuccess(tiles)
+        const initialQuery = overview.values.query
+        grid.actions.setControls({ search: 'A' })
+        grid.actions.setControls({ search: 'Acorn' })
+        expect(overview.values.query).toBe(initialQuery)
+        await expectLogic(grid).toFinishAllListeners()
+        expect(overview.values.query?.filters).toContainEqual({ kind: 'search', query: 'Acorn' })
+        overview.unmount()
+        grid.unmount()
+    })
     it('reuses configured metric semantics and scopes aggregates with the book filters', () => {
         expect(
             buildProductUsageOverviewQuery(

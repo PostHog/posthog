@@ -52,9 +52,10 @@ export function parseProductUsageControls(raw: unknown, defaults: ProductUsageCo
             date_from: date(range.date_from, defaults.dateRange.date_from),
             date_to: date(range.date_to, defaults.dateRange.date_to),
         },
-        interval: ['day', 'week', 'month'].includes(String(value.interval))
-            ? (value.interval as BookActivityInterval)
-            : defaults.interval,
+        interval:
+            typeof value.interval === 'string' && ['day', 'week', 'month'].includes(value.interval)
+                ? (value.interval as BookActivityInterval)
+                : defaults.interval,
         zoom:
             value.zoom === 'count' || value.zoom === 'products' || value.zoom === 'users' ? value.zoom : defaults.zoom,
         grouping: value.grouping === 'usecase' ? 'usecase' : 'role',

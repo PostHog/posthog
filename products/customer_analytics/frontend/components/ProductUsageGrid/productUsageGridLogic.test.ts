@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 
 import { BOOK_ACTIVITY_MATRIX_MOCK } from '../../__mocks__/bookActivityMatrixMock'
 import { parseProductUsageControls } from './productUsageControlValues'
+import { DEFAULT_CONTROLS } from './productUsageControlValues'
 import { productUsageGridLogic } from './productUsageGridLogic'
 
 jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))
@@ -47,6 +48,40 @@ describe('productUsageGridLogic', () => {
         router.actions.push(urls.customerAnalyticsProductActivity())
         query.mockReset()
         jest.spyOn(posthog, 'capture').mockClear()
+    })
+    it.each([{ interval: ['week'] }, { interval: { toString: null } }, { interval: null }, { interval: 12 }])(
+        'defaults invalid interval $interval without coercion',
+        ({ interval }) => {
+            expect(parseProductUsageControls({ interval }, DEFAULT_CONTROLS).interval).toBe('week')
+        }
+    )
+    it('keeps assignment status and selected users consistent', async () => {
+        const logic = productUsageGridLogic()
+        logic.mount()
+        logic.actions.setControls({ assignmentStatus: 'unassigned' })
+        logic.actions.setControls({ assignedTo: [5] })
+        expect(logic.values.controls.assignmentStatus).toBe('assigned')
+        expect(logic.values.controls.assignedTo).toEqual([5])
+        logic.actions.setControls({ assignmentStatus: 'all' })
+        expect(logic.values.controls.assignedTo).toEqual([])
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+    })
+    it('reloads changed filters despite subsequent presentation changes', async () => {
+        const logic = productUsageGridLogic()
+        logic.mount()
+        logic.actions.setSource({ kind: 'hogql', query: sql, mapping: { row: 'row', column: 'column' } })
+        query.mockResolvedValueOnce(accounts).mockResolvedValueOnce({ columns: ['row', 'column'], results: [] })
+        await expectLogic(logic, () => {
+            logic.actions.setControls({ search: 'Acorn' })
+            logic.actions.setControls({ selected: ['custom'], zoom: 'count' })
+        })
+            .toDispatchActions(['finishLoad'])
+            .toFinishAllListeners()
+        expect(logic.values.result?.accounts).toEqual(accounts)
+        expect(logic.values.accountFilters.search).toBe('Acorn')
+        expect(query.mock.calls[0][0].filters).toContainEqual({ kind: 'search', query: 'Acorn' })
+        logic.unmount()
     })
     it('supports zoom and clear shortcuts without stealing editor or browser keys', async () => {
         const logic = productUsageGridLogic()
@@ -408,6 +443,20 @@ describe('productUsageGridLogic', () => {
         const fullCalls = query.mock.calls.filter(([request]) => request.allPeople)
         expect(fullCalls).toHaveLength(3)
         expect(fullCalls.map(([request]) => request.accountIds)).toEqual([['0'], ['1'], ['2']])
+        const preview = query.mock.calls.find(
+            ([request]) => request.kind === NodeKind.BookActivityPeopleQuery && !request.allPeople
+        )
+        expect(preview?.[0].accountIds).toEqual(['0', '1', '2', '3', '4'])
+        logic.actions.setUserPage(2)
+        expect(fullCalls.every(([, options]) => options.signal.aborted)).toBe(true)
+        expect(
+            query.mock.calls.filter(([request]) => request.allPeople).map(([request]) => request.accountIds)
+        ).toEqual([['0'], ['1'], ['2'], ['5']])
+        expect(
+            query.mock.calls
+                .filter(([request]) => request.kind === NodeKind.BookActivityPeopleQuery && !request.allPeople)
+                .at(-1)?.[0].accountIds
+        ).toEqual(['5'])
         logic.actions.clearSource()
         expect(fullCalls.every(([, options]) => options.signal.aborted)).toBe(true)
         for (const resolve of resolves) {

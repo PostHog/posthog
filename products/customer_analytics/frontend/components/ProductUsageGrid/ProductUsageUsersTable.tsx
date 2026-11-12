@@ -7,7 +7,7 @@ import { CountCell } from 'lib/components/DotMatrix/CountCell'
 import { dayjs } from 'lib/dayjs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 
-import type { BookActivityMatrixResult } from '~/queries/schema/schema-general'
+import type { BookActivityMatrixResult, BookActivityPersonFirstUse } from '~/queries/schema/schema-general'
 
 import type { AccountViewApi } from '../../generated/api.schemas'
 import { getProductUsageCountScale } from '../ProductActivity/productUsagePresentation'
@@ -23,6 +23,8 @@ import {
 } from './productUsageData'
 import { productUsageGridLogic } from './productUsageGridLogic'
 import { ProductUsageNamesCell } from './ProductUsageNamesCell'
+
+const EMPTY_FIRST_USE = new Map<string, BookActivityPersonFirstUse>()
 
 export function ProductUsageUsersTable({
     matrix,
@@ -132,7 +134,7 @@ export function ProductUsageUsersTable({
                                 <ProductUsageNamesCell
                                     people={peopleByCell.get(cellKey) ?? []}
                                     total={totals.get(cellKey) ?? 0}
-                                    firstUse={firstsByProduct.get(key) ?? []}
+                                    firstUse={firstsByProduct.get(key) ?? EMPTY_FIRST_USE}
                                     columnKey={column.key}
                                     interval={result?.interval ?? controls.interval}
                                     expanded={!!expanded[key]}

@@ -1,8 +1,7 @@
-import { useMemo } from 'react'
-
 import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 
 import type {
     BookActivityInterval,
@@ -24,24 +23,21 @@ export function ProductUsageNamesCell({
 }: {
     people: BookActivityPerson[]
     total: number
-    firstUse: BookActivityPersonFirstUse[]
+    firstUse: ReadonlyMap<string, BookActivityPersonFirstUse>
     columnKey: string
     interval: BookActivityInterval
     expanded: boolean
     loading?: boolean
     onToggle: () => void
 }): JSX.Element {
-    const firstsByPerson = useMemo(
-        () => new Map(firstUse.map((first) => [JSON.stringify([first.row, first.series, first.personId]), first])),
-        [firstUse]
-    )
+    const pagination = usePagination(people, { pageSize: 50, useUrl: false })
     if (loading && !people.length) {
         return <Spinner />
     }
     return (
         <div className="flex flex-col items-start gap-1 min-w-24 max-w-40">
-            {people.map((person) => {
-                const first = firstsByPerson.get(JSON.stringify([person.row, person.series, person.personId]))
+            {pagination.dataSourcePage.map((person) => {
+                const first = firstUse.get(person.personId)
                 const date = first && dayjs(first.date)
                 const isNew =
                     !!date &&
@@ -66,6 +62,11 @@ export function ProductUsageNamesCell({
                 )
             })}
             {!people.length && !loading && <span className="text-tertiary">·</span>}
+            {expanded && people.length > 50 && (
+                <div className="max-w-full [&_.PaginationControl]:flex-wrap">
+                    <PaginationControl {...pagination} nouns={['person', 'people']} />
+                </div>
+            )}
             {(expanded || total > people.length) && (
                 <LemonButton
                     size="xsmall"

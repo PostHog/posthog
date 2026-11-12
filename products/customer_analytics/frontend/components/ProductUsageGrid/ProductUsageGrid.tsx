@@ -24,6 +24,10 @@ export function ProductUsageGrid(): JSX.Element | null {
     const { views } = useValues(accountViewsLogic({ projectId: currentTeamId! }))
     const { setControls, zoomToCell } = useActions(productUsageGridLogic)
     const [hoveredSeries, setHoveredSeries] = useState<string | null>(null)
+    const matrixProps = useMemo(
+        () => (result?.matrix ? getBookActivityMatrixProps(result.matrix, controls.selected) : null),
+        [result?.matrix, controls.selected]
+    )
     const counts = useMemo(
         () => (result?.matrix ? indexProductUsageCounts(result.matrix, controls.selected) : new Map<string, number>()),
         [result?.matrix, controls.selected]
@@ -85,6 +89,7 @@ export function ProductUsageGrid(): JSX.Element | null {
                     props && (
                         <DotMatrix
                             {...props}
+                            countOf={props.countOf ?? 'value'}
                             mode={controls.zoom === 'count' ? 'count' : 'dots'}
                             selectedSeries={controls.selected}
                             onSelectedSeriesChange={(selected) => setControls({ selected })}
@@ -104,7 +109,7 @@ export function ProductUsageGrid(): JSX.Element | null {
         )
     }
     const matrix = result.matrix
-    const props = getBookActivityMatrixProps(matrix, controls.selected)
+    const props = matrixProps!
     return (
         <div ref={container} className="border rounded p-3 flex flex-col gap-3" data-attr="product-activity-grid">
             <ProductUsageLegend

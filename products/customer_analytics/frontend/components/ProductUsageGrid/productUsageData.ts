@@ -101,12 +101,12 @@ export function indexProductUsagePeople(people: BookActivityPerson[]): Map<strin
 
 export function indexProductUsageFirsts(
     firsts: BookActivityPersonFirstUse[]
-): Map<string, BookActivityPersonFirstUse[]> {
-    const indexed = new Map<string, BookActivityPersonFirstUse[]>()
+): Map<string, Map<string, BookActivityPersonFirstUse>> {
+    const indexed = new Map<string, Map<string, BookActivityPersonFirstUse>>()
     for (const first of firsts) {
         const key = JSON.stringify([first.row, first.series])
-        const product = indexed.get(key) ?? []
-        product.push(first)
+        const product = indexed.get(key) ?? new Map<string, BookActivityPersonFirstUse>()
+        product.set(first.personId, first)
         indexed.set(key, product)
     }
     return indexed
