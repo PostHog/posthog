@@ -1,6 +1,8 @@
 """Saves a translated Resend automation as a draft workflow."""
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from posthog.models import Team, User
@@ -17,6 +19,30 @@ from products.workflows.backend.services.resend_import.translator import (
     TranslationContext,
     translate_automation,
 )
+
+_page_access: ContextVar[dict[tuple[int, int], UserAccessControl] | None] = ContextVar(
+    "resend_import_page_access", default=None
+)
+
+
+@contextmanager
+def reuse_import_access() -> Iterator[None]:
+    """Load each user's access rules once for every automation imported inside the block."""
+    token = _page_access.set({})
+    try:
+        yield
+    finally:
+        _page_access.reset(token)
+
+
+def _access(team: Team, user: User) -> UserAccessControl:
+    cache = _page_access.get()
+    if cache is None:
+        return UserAccessControl(user=user, team=team)
+    key = (team.id, user.id)
+    if key not in cache:
+        cache[key] = UserAccessControl(user=user, team=team)
+    return cache[key]
 
 
 def import_resend_automation(
@@ -43,7 +69,7 @@ def import_resend_automation(
     source_id = str(automation.get("id"))
     # A rerun leaves the earlier draft alone, so it must not create cohorts that draft doesn't use.
     if user is not None and previous_import(team, source_id, WorkflowImportSource.RESEND).record_id is None:
-        access = UserAccessControl(user=user, team=team)
+        access = _access(team, user)
         step_types = {step.get("type") for step in automation.get("steps") or [] if isinstance(step, dict)}
         referenced_segments = _segment_ids(automation)
         context = TranslationContext(

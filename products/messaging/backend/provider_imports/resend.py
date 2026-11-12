@@ -64,7 +64,7 @@ from products.messaging.backend.services.resend_client import (
     ResendRateLimited,
 )
 from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail
-from products.workflows.backend.facade.workflow_imports import import_resend_automation
+from products.workflows.backend.facade.workflow_imports import import_resend_automation, reuse_import_access
 from products.workflows.backend.facade.writes import defer_hog_flow_reloads
 
 # The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit or retry.
@@ -661,7 +661,7 @@ def _save_automations(
     }
     items: list[ImportItem] = []
     counts: Counter[str] = Counter()
-    with defer_hog_flow_reloads():
+    with defer_hog_flow_reloads(), reuse_import_access():
         for automation in automations:
             result = import_resend_automation(
                 context.team_id,

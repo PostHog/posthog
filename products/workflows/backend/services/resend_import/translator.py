@@ -307,7 +307,8 @@ class _Builder:
                 "template_id": OPT_OUT_OF_MESSAGES_TEMPLATE_ID,
                 "inputs": {
                     "category_id": {"value": "$all"},
-                    "identifier": {"value": "{{ person.properties.email }}", "templating": "liquid"},
+                    # Liquid inputs come out HTML-escaped, which would turn `a&b@` into `a&amp;b@` and opt out the wrong address.
+                    "identifier": {"value": "{person.properties.email}", "templating": "hog"},
                 },
             },
         }
@@ -699,7 +700,7 @@ _LIQUID_STRING = re.compile(r"(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*')")
 
 def _fill_variable(text: str, name: str, replacement: str) -> str:
     """Replaces references to `variables.NAME` inside Liquid tags, leaving body copy and quoted strings alone."""
-    reference = re.compile(rf"\bvariables\.{re.escape(name)}\b")
+    reference = re.compile(rf"\bvariables\.{re.escape(name)}(?![\w-])")
 
     def fill_tag(tag: re.Match[str]) -> str:
         # Odd parts are string literals. A callable keeps a backslash in the replacement from reading as an escape.
