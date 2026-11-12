@@ -358,7 +358,7 @@ Deepsource,api_token account_login vcs_provider,,,,,deepsource
 Demodesk,api_key,,,,,demodesk
 DenoDeploy,access_token,,,,,deno-deploy
 Depot,api_token,,,repository,,depot
-Deputy,,,,,,deputy
+Deputy,install_url access_token,,,,,deputy
 Descope,project_id management_key,,,,,descope
 Develocity,instance_url access_key,,,,,develocity
 DevinAI,api_key org_id,,,,,devin-ai
@@ -1361,7 +1361,7 @@ Windmill,host workspace api_token,,,,,windmill
 WindsorAi,,,,,,windsor-ai
 Wise,api_token,,,,,wise
 WisprFlow,,,,,,wispr-flow
-Wistia,,,,,,wistia
+Wistia,api_token,,,,,wistia
 Wix,api_key site_id,,,,,wix
 Wiz,,,,,,wiz
 Wompi,,,,,,wompi
