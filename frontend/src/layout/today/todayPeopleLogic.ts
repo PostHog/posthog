@@ -168,8 +168,8 @@ export interface todayPeopleLogicValues {
         search: string
         hash: string
     } // router
-    currentTeam: TeamPublicType | TeamType | null // teamLogic
     shortcutData: FileSystemEntry[] // sidebarPinsLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentRecent: TodayPeopleRecent | null // todayPeopleRecentsLogic
     recentRows: TodayPeopleRecent[] // todayPeopleRecentsLogic
     recents: TodayPeopleRecent[] // todayPeopleRecentsLogic
@@ -226,7 +226,7 @@ export interface todayPeopleLogicMeta {
         groupTabs: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             groupsAccessStatus: GroupsAccessStatus,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => GroupTab[]
         rows: (
             featureFlags: FeatureFlagsSet,
