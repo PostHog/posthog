@@ -369,7 +369,6 @@ export const IncrementalFieldTypeEnumApi = {
 } as const
 
 /**
- * * `never` - never
  * * `5min` - 5min
  * * `15min` - 15min
  * * `30min` - 30min
@@ -384,7 +383,6 @@ export type SettableSyncFrequencyEnumApi =
     (typeof SettableSyncFrequencyEnumApi)[keyof typeof SettableSyncFrequencyEnumApi]
 
 export const SettableSyncFrequencyEnumApi = {
-    Never: 'never',
     '5min': '5min',
     '15min': '15min',
     '30min': '30min',
@@ -565,9 +563,8 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync. The fastest sync frequency is 5 minutes.
+    /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      *
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -810,9 +807,8 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync. The fastest sync frequency is 5 minutes.
+    /** How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      *
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -994,6 +990,11 @@ export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     include_invoiceless_charges?: boolean
 }
 
+export interface SourceUpdatePayloadApi {
+    /** Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds. */
+    credential_id: string
+}
+
 export type ExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
 
 /**
@@ -1084,6 +1085,8 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly connection_warning: string | null
+    /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+    payload?: SourceUpdatePayloadApi
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -1318,6 +1321,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly connection_warning?: string | null
+    /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+    payload?: SourceUpdatePayloadApi
 }
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
@@ -1353,7 +1358,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      */
     incremental_field_type?: string | null
     /**
-     * Human-readable sync frequency value.
+     * How often to sync. One of 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day; the fastest is 5 minutes. Common spellings are mapped to these: hourly = 1hour, daily = 24hour, weekly = 7day, monthly = 30day, and durations such as 60min, 1h, 24h, 1day or 1week. To stop a table syncing, set should_sync to false instead.
      * @nullable
      */
     sync_frequency?: string | null
@@ -2050,7 +2055,7 @@ export interface SourceCredentialCreateApi {
 }
 
 export interface SourceCredentialApi {
-    /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
+    /** Stored credential id. Pass it as {'credential_id': <id>} in the payload of the setup endpoint to create a source, or of a source update to reconnect an existing source. */
     credential_id: string
     /** The source type the stored credentials are for. */
     source_type: string

@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/warehouse_sources/api'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
-import { normalizeParamAliases } from '@/tools/cast-helpers'
+import { castSyncFrequency, normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -235,9 +235,13 @@ const ExternalDataSchemasPartialUpdateSchema = () => {
     const ExternalDataSchemasPartialUpdateParams = orvalSchemas.ExternalDataSchemasPartialUpdateParams()
     return z.preprocess(
         normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasPartialUpdateParams.omit({ project_id: true }).extend(
-            ExternalDataSchemasPartialUpdateBody.shape
-        )
+        ExternalDataSchemasPartialUpdateParams.omit({ project_id: true })
+            .extend(ExternalDataSchemasPartialUpdateBody.shape)
+            .extend({
+                sync_frequency: z
+                    .preprocess(castSyncFrequency, ExternalDataSchemasPartialUpdateBody.shape['sync_frequency'])
+                    .optional(),
+            })
     )
 }
 
@@ -742,6 +746,9 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
         }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
         }
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'PATCH',

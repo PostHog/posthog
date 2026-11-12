@@ -40,7 +40,9 @@ which item to diagnose and can skip Step 1's discovery search.
 | `external-data-schemas-resync`                         | Full resync — wipes synced data and restarts. Destructive                  |
 | `external-data-schemas-delete-data`                    | Delete the synced table but keep the schema entry                          |
 | `external-data-schemas-partial-update`                 | Change sync_type / incremental_field / cdc_table_mode                      |
-| `external-data-sources-partial-update`                 | Update a source's credentials (`job_inputs`) after rotation                |
+| `data-warehouse-source-connect-link`                   | Secure browser link where the user re-enters a source's credentials        |
+| `data-warehouse-stored-credentials-list`               | Find the `credential_id` the user stored on the connect page               |
+| `external-data-sources-partial-update`                 | Reconnect a source with `{"payload": {"credential_id": ...}}`              |
 | `external-data-sources-reload`                         | Retrigger syncs for every enabled schema on a source                       |
 | `external-data-sources-refresh-schemas`                | Re-fetch the source's table list to pick up new tables                     |
 | `external-data-sources-check-cdc-prerequisites-create` | Verify Postgres CDC setup for a source                                     |
@@ -91,18 +93,18 @@ almost certainly stuck, even though the status isn't `Failed`.
 
 Map the `latest_error` string to a root cause. Common patterns:
 
-| Error substring                                                                      | Root cause                                                 | Fix                                                                                   |
-| ------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `authentication failed`, `401`, `403`, `invalid credentials`                         | Credentials expired or rotated                             | User rotates creds, then `external-data-sources-partial-update` with new `job_inputs` |
-| `Could not establish session to SSH gateway`, `Could not connect to your SSH tunnel` | SSH tunnel misconfigured or remote host down               | User checks SSH host/key/bastion                                                      |
-| `Primary key required for incremental syncs`                                         | Table has no PK and sync_type is `incremental`/`cdc`       | Either add PK in source, or switch schema to `full_refresh`                           |
-| `primary keys for this table are not unique`                                         | Declared PK columns aren't actually unique                 | Pick different PK columns via `partial-update`                                        |
-| `Integration matching query does not exist`                                          | Source's saved integration was deleted                     | Recreate the source                                                                   |
-| `column "X" does not exist`, `does not have a column named`                          | Schema drift — incremental field or tracked column removed | Use `incremental-fields-create` to re-detect, then `partial-update`                   |
-| `relation "..." does not exist`                                                      | Source table was dropped/renamed                           | Remove schema or rename source-side                                                   |
-| `SSL`, `connection refused`, `timeout`, `unreachable`                                | Network / firewall / host reachability                     | User side — check host/port/allowlist                                                 |
-| `replication slot`, `publication`, `wal_level`                                       | CDC prerequisites broken                                   | Run `check-cdc-prerequisites-create`; may need slot recreate                          |
-| `Schema exceeds row limit`, `billing`                                                | Billing limit                                              | Upgrade plan or disable the schema                                                    |
+| Error substring                                                                      | Root cause                                                 | Fix                                                                 |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------- |
+| `authentication failed`, `401`, `403`, `invalid credentials`                         | Credentials expired or rotated                             | Reconnect the source with a connect link (see B)                    |
+| `Could not establish session to SSH gateway`, `Could not connect to your SSH tunnel` | SSH tunnel misconfigured or remote host down               | User checks SSH host/key/bastion                                    |
+| `Primary key required for incremental syncs`                                         | Table has no PK and sync_type is `incremental`/`cdc`       | Either add PK in source, or switch schema to `full_refresh`         |
+| `primary keys for this table are not unique`                                         | Declared PK columns aren't actually unique                 | Pick different PK columns via `partial-update`                      |
+| `Integration matching query does not exist`                                          | Source's saved integration was deleted                     | Reconnect the source with a connect link (see B)                    |
+| `column "X" does not exist`, `does not have a column named`                          | Schema drift — incremental field or tracked column removed | Use `incremental-fields-create` to re-detect, then `partial-update` |
+| `relation "..." does not exist`                                                      | Source table was dropped/renamed                           | Remove schema or rename source-side                                 |
+| `SSL`, `connection refused`, `timeout`, `unreachable`                                | Network / firewall / host reachability                     | User side — check host/port/allowlist                               |
+| `replication slot`, `publication`, `wal_level`                                       | CDC prerequisites broken                                   | Run `check-cdc-prerequisites-create`; may need slot recreate        |
+| `Schema exceeds row limit`, `billing`                                                | Billing limit                                              | Upgrade plan or disable the schema                                  |
 
 If `latest_error` is null but the schema is `Failed`, retrieve the schema directly — the error may only be populated
 on the detail view.
@@ -119,9 +121,21 @@ The recovery action depends on root cause, not just status. Match the user's sit
 
 **B. Credentials expired or rotated**
 
-- Every schema under the source is failing with an auth error.
-- Action: user rotates creds → `external-data-sources-partial-update` with the new `job_inputs` → the reload happens
-  automatically when the source status flips back to running, or trigger manually with `external-data-sources-reload`.
+- Every schema under the source is failing with an auth error, or the OAuth token expired.
+- Never ask the user to paste a password, API key, or token into the chat. Reconnect the source this way:
+  1. Call `data-warehouse-source-connect-link` with the source's `source_type` and share the `connect_url`.
+     The user enters new credentials or authorizes OAuth again in their browser. The page does not change the source.
+  2. When the user confirms they are done, call `data-warehouse-stored-credentials-list` with the same `source_type`
+     and take the newest `credential_id`.
+  3. Call `external-data-sources-partial-update` with the source id and `{"payload": {"credential_id": "<id>"}}`.
+     Do not send `job_inputs` in the same call. PostHog replaces the source's connection details with the stored
+     ones and checks the connection before it saves. An SSH tunnel the user did not enter on the page is turned off.
+     A failed update keeps the stored credential. When the connection check fails, get a new link so the user can
+     enter correct details.
+- The stored credential is single-use and expires after 24 hours. Only the user who filled the page can use it, so that
+  user must be the one this session authenticates as.
+- Then the reload happens automatically when the source status flips back to running, or trigger it manually with
+  `external-data-sources-reload`.
 
 **C. Schema drift — column renamed, dropped, or type changed**
 
@@ -225,15 +239,18 @@ Agent:
 
    To fix:
    1. Grab a fresh restricted API key from the Stripe dashboard.
-   2. I'll update the source with the new key.
-   3. Syncs will resume automatically — no data loss.
+   2. Enter it on this secure page: <connect_url>. Don't paste it here.
+   3. I'll reconnect the source, and syncs will resume — no data loss.
 
-   Paste the new key here when ready."
+   Tell me when you're done."
 
-User: "sk_live_..."
+(The agent got <connect_url> from data-warehouse-source-connect-link({source_type: "Stripe"}).)
+
+User: "Done"
 
 Agent:
-- external-data-sources-partial-update({id}, {job_inputs: {stripe_secret_key: "sk_live_..."}})
+- data-warehouse-stored-credentials-list({source_type: "Stripe"}) → newest credential_id
+- external-data-sources-partial-update({id}, {payload: {credential_id: "<credential_id>"}})
 - external-data-sources-reload({id}) to trigger retry
 - Report: "Updated and re-triggered. Check back in a few minutes — latest_error should clear."
 ```
