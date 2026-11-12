@@ -1,6 +1,6 @@
 // Postgres
 import { DateTime } from 'luxon'
-import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, types as pgTypes } from 'pg'
+import { Client, DatabaseError, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, types as pgTypes } from 'pg'
 
 import { MISSING_DATABASE_URL_MESSAGE } from '~/common/config/database-url'
 import { withSpan } from '~/common/tracing/tracing-utils'
@@ -65,6 +65,8 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'server login has been failing', // PgBouncer cannot authenticate with upstream PG
     'pooler is shutting down', // PgBouncer terminating client connections during a restart
     'Cannot use a pool after calling end on the pool', // Shutdown ended the pool while work was still in flight
+    'timeout exceeded when trying to connect', // pg-pool waited connectionTimeoutMillis for a free client
+    'Connection terminated due to connection timeout', // pg-pool could not open a new connection within connectionTimeoutMillis
     // A hot standby cancels a read when WAL replay conflicts with it.
     // Some servers capitalize the first word of the message, so the entry holds only the words that every variant shares.
     // Servers report the conflict as SQLSTATE 40001 or 57014.
@@ -72,9 +74,26 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'conflict with recovery',
 ]
 
-export function isTransientPgError(err: unknown): boolean {
+// A SQLSTATE covers every message variant of its code, also from servers with a localized lc_messages.
+// 57014 (query_canceled) stays out because a statement timeout can repeat on each retry of the same slow query.
+const POSTGRES_UNAVAILABLE_SQLSTATES = new Set([
+    '53300', // too_many_connections
+    '57P01', // admin_shutdown
+    '57P02', // crash_shutdown
+    '57P03', // cannot_connect_now: the server is starting up, shutting down, or in recovery
+])
+
+function findTransientPgErrorType(err: unknown): string | undefined {
+    const code = (err as DatabaseError | undefined)?.code
+    if (code && POSTGRES_UNAVAILABLE_SQLSTATES.has(code)) {
+        return code
+    }
     const message = (err as Error | undefined)?.message
-    return !!message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((m) => message.includes(m))
+    return message ? POSTGRES_UNAVAILABLE_ERROR_MESSAGES.find((m) => message.includes(m)) : undefined
+}
+
+export function isTransientPgError(err: unknown): boolean {
+    return findTransientPgErrorType(err) !== undefined
 }
 
 // Below the realtime cohort member page deadline, so a stalled connection fails before the page does.
@@ -240,7 +259,14 @@ export class PostgresRouter {
         return withSpan('postgres', 'query.postgres_transaction', { tag: wrappedTag }, async () => {
             const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
             const acquireStart = performance.now()
-            const client = await this.pools.get(usage)!.connect()
+            let client: PoolClient
+            try {
+                client = await this.pools.get(usage)!.connect()
+            } catch (error) {
+                clearTimeout(timeout)
+                handlePostgresError(error, usage)
+                throw error
+            }
             postgresPoolAcquireDurationHistogram.observe({ pool: poolLabel }, (performance.now() - acquireStart) / 1000)
 
             // pg removes the pool's error listener from a checked-out client, so a lost
@@ -367,11 +393,11 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
 
 /** Throws retriable DependencyUnavailableError for transient PG/PgBouncer errors, does nothing otherwise. */
 export function handlePostgresError(error: Error, databaseUse: PostgresUse): void {
-    const matchedMessage = POSTGRES_UNAVAILABLE_ERROR_MESSAGES.find((msg) => error.message?.includes(msg))
-    if (!matchedMessage) {
+    const errorType = findTransientPgErrorType(error)
+    if (!errorType) {
         return
     }
 
-    postgresErrorCounter.inc({ error_type: matchedMessage, database_use: PostgresUse[databaseUse] })
+    postgresErrorCounter.inc({ error_type: errorType, database_use: PostgresUse[databaseUse] })
     throw new DependencyUnavailableError(error.message, 'Postgres', error)
 }

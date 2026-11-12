@@ -276,20 +276,35 @@ describe('checkSandboxRecipient', () => {
         })
 
         it('keeps recipient reads on a shared pool working while a stalled cap store holds its checks, and caps again once they finish', async () => {
-            const shared = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 10 })
+            const shared = new PostgresRouter({
+                ...defaultConfig,
+                DATABASE_READONLY_URL: '',
+                POSTGRES_CONNECTION_POOL_SIZE: MAX_RUNNING_FREQUENCY_CAP_CHECKS + 2,
+            })
+            let gaveUp: NodeJS.Timeout | undefined
             try {
                 reads = sandboxRecipientReads(shared, suppressionConfig, 200)
                 const stalled = Array.from({ length: MAX_RUNNING_FREQUENCY_CAP_CHECKS + 4 }, () =>
                     check({ frequencyCap: realFrequencyCap(shared) })
                 )
                 expect(await Promise.all(stalled)).toEqual(stalled.map(() => ({ ok: true })))
-                expect(await check({ address: `uncached-${teamId}@example.com` })).toEqual({ ok: true })
+                expect(
+                    await Promise.race([
+                        new RecipientsManagerService(shared)
+                            .get({ teamId, identifier: `uncached-${teamId}@example.com` })
+                            .then(() => 'answered'),
+                        new Promise((resolve) => {
+                            gaveUp = setTimeout(() => resolve('still waiting for a connection'), 3_000)
+                        }),
+                    ])
+                ).toBe('answered')
 
                 await lockHolder.query('COMMIT')
                 await waitForExpect(async () => {
                     expect(await check()).toEqual({ ok: false, reason: 'frequency_capped' })
                 }, 3_000)
             } finally {
+                clearTimeout(gaveUp)
                 await shared.end()
             }
         })

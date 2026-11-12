@@ -114,7 +114,13 @@ const sortKeys = (value: unknown): unknown => {
 export type IdempotencyReservation =
     | { status: 'reserved' }
     // The key already queued a run for the same request.
-    | { status: 'replayed'; invocationId: string; senderKind?: SenderKind; replayFields?: ReplayFields }
+    | {
+          status: 'replayed'
+          invocationId: string
+          senderKind?: SenderKind
+          scheduledAt?: string
+          replayFields?: ReplayFields
+      }
     // The first request with the key has not finished queueing yet.
     | { status: 'in_flight' }
     // The key was used for a different request.
@@ -135,6 +141,7 @@ type StoredKey = {
     invocationId: string
     queued: boolean
     senderKind?: SenderKind
+    scheduledAt?: string
     replayFields?: ReplayFields
 }
 
@@ -231,6 +238,7 @@ export class IdempotencyKeys {
         return {
             status: 'replayed',
             invocationId: stored.invocationId,
+            scheduledAt: stored.scheduledAt,
             ...(stored.senderKind ? { senderKind: stored.senderKind } : {}),
             ...(stored.replayFields ? { replayFields: stored.replayFields } : {}),
         }
@@ -242,8 +250,11 @@ export class IdempotencyKeys {
         fingerprint: Fingerprint,
         invocationId: string,
         replayFields?: ReplayFields,
+        scheduledAt?: string,
+        latestDueAt?: Date,
         senderKind?: SenderKind
     ): Promise<void> {
+        const dueAt = latestDueAt?.getTime() ?? (scheduledAt ? Date.parse(scheduledAt) : 0)
         const completion: PendingCompletion = {
             redisKey: this.redisKey(teamId, key),
             value: {
@@ -252,8 +263,9 @@ export class IdempotencyKeys {
                 queued: true,
                 ...(senderKind ? { senderKind } : {}),
                 ...(replayFields && { replayFields }),
+                ...(scheduledAt && { scheduledAt }),
             },
-            expiresAt: Date.now() + QUEUED_TTL_SECONDS * 1000,
+            expiresAt: Math.max(Date.now(), dueAt) + QUEUED_TTL_SECONDS * 1000,
         }
         for (let attempt = 1; attempt <= MARK_QUEUED_INLINE_ATTEMPTS; attempt++) {
             try {

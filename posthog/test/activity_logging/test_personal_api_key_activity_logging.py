@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.personal_api_key_utils import calculate_scope_change_logs
 from posthog.models.organization import Organization
@@ -187,29 +189,27 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
             assert log.detail is not None
             self.assertEqual(log.detail["context"]["team_name"], "Unknown Project")
 
-    def test_personal_api_key_scoped_teams_logging(self):
+    @parameterized.expand([("teams_only", False), ("teams_and_this_org", True)])
+    def test_personal_api_key_scoped_teams_logging(self, _name, also_scope_to_this_org):
         second_org = Organization.objects.create(name="Second Organization")
         self.user.join(organization=second_org)
         second_team = Team.objects.create(organization=second_org, name="Second Team")
 
         api_key = self.create_personal_api_key(
-            label="Scoped to Teams API Key", scoped_teams=[self.team.id, second_team.id]
+            label="Scoped to Teams API Key",
+            scoped_teams=[self.team.id, second_team.id],
+            scoped_organizations=[str(self.organization.id)] if also_scope_to_this_org else [],
         )
         api_key_id = api_key["id"]
 
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
-        self.assertEqual(len(logs), 2)
 
-        org_ids = {str(log.organization_id) for log in logs}
-        expected_org_ids = {str(self.organization.id), str(second_org.id)}
-        self.assertEqual(org_ids, expected_org_ids)
-
-        team_ids = {log.team_id for log in logs}
-        expected_team_ids = {self.team.id, second_team.id}
-        self.assertEqual(team_ids, expected_team_ids)
+        expected_locations = {(str(self.organization.id), self.team.id)}
+        if not also_scope_to_this_org:
+            expected_locations.add((str(second_org.id), second_team.id))
+        self.assertEqual({(str(log.organization_id), log.team_id) for log in logs}, expected_locations)
 
         for log in logs:
-            self.assertIsNotNone(log.team_id)
             assert log.detail is not None
             if log.team_id == self.team.id:
                 self.assertEqual(log.detail["context"]["team_name"], self.team.name)

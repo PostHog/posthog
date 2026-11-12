@@ -58,6 +58,7 @@ import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
+import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
 import { QueuedSend } from './transactional-email'
 
 // Mock before importing fetch
@@ -239,7 +240,7 @@ describe('Hogflow Executor', () => {
             new EmailSuppressionService(suppressionDb ?? hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
             null,
-            { report: jest.fn() },
+            { report: jest.fn(), reportEmailSent: jest.fn() },
             undefined,
             null,
             teamEmailRateLimiter,
@@ -294,7 +295,8 @@ describe('Hogflow Executor', () => {
                         backoffMaxMs: 30000,
                     },
                     undefined as any,
-                    undefined as any
+                    undefined as any,
+                    { reportPushSent: () => Promise.resolve() }
                 ),
             }
         )
@@ -3563,15 +3565,43 @@ describe('Hogflow Executor', () => {
             verified?: boolean
             suspended?: boolean
             outcome: string
+            alsoFailsStep?: boolean
         }>([
-            { label: 'the sender id is not a number', senderId: 'not-a-number', outcome: 'failed' },
-            { label: 'the sender no longer exists', senderId: 999_999_999, outcome: 'email_failed' },
-            { label: 'the sender domain is not verified', verified: false, outcome: 'email_failed' },
+            {
+                label: 'the sender id is not a number',
+                senderId: 'not-a-number',
+                outcome: 'failed',
+                alsoFailsStep: true,
+            },
+            {
+                label: 'the sender no longer exists',
+                senderId: 999_999_999,
+                outcome: 'email_failed',
+                alsoFailsStep: true,
+            },
+            {
+                label: 'the sender domain is not verified',
+                verified: false,
+                outcome: 'email_failed',
+                alsoFailsStep: true,
+            },
             { label: 'email sending is suspended for the team', suspended: true, outcome: 'email_suspended' },
-            { label: 'the recipient has no email address', toEmail: '', outcome: 'email_missing_recipient' },
+            {
+                label: 'the recipient has no email address',
+                toEmail: '',
+                outcome: 'email_missing_recipient',
+                alsoFailsStep: false,
+            },
         ])(
             'does not bill an email step when $label',
-            async ({ senderId, toEmail = 'recipient@example.com', verified = true, suspended = false, outcome }) => {
+            async ({
+                senderId,
+                toEmail = 'recipient@example.com',
+                verified = true,
+                suspended = false,
+                outcome,
+                alsoFailsStep,
+            }) => {
                 await insertIntegration(hub.postgres, team.id, {
                     id: integrationId,
                     kind: 'email',
@@ -3589,7 +3619,8 @@ describe('Hogflow Executor', () => {
                 await insertHogFunctionTemplate(hub.postgres, {
                     id: 'template-email',
                     name: 'Test Email Template',
-                    code: `sendEmail(inputs.email)`,
+                    code: `let res := sendEmail(inputs.email)
+                    if (not res.success) { throw Error(res.error) }`,
                     inputs_schema: [
                         {
                             type: 'native_email',
@@ -3636,6 +3667,10 @@ describe('Hogflow Executor', () => {
                 const emailStepMetrics = metrics.filter((m) => m.instance_id === 'email').map((m) => m.metric_name)
                 expect(emailStepMetrics).toContain(outcome)
                 expect(emailStepMetrics).not.toContain('billable_invocation')
+                if (alsoFailsStep !== undefined) {
+                    // The broadcast audience breakdown counts unsent people by step failures alone.
+                    expect(emailStepMetrics.includes('failed')).toBe(alsoFailsStep)
+                }
             }
         )
     })
@@ -3702,7 +3737,7 @@ describe('Hogflow Executor', () => {
                 },
             }) as const
 
-        const emailFlow = (email: Record<string, any>): HogFlow =>
+        const emailFlow = (email: Record<string, any>, stepConfig: Record<string, any> = {}): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withExitCondition('exit_only_at_end')
@@ -3720,6 +3755,7 @@ describe('Hogflow Executor', () => {
                             config: {
                                 template_id: 'template-email-routing-test',
                                 inputs: { email: { value: email } },
+                                ...stepConfig,
                             },
                         },
                         exit: {
@@ -3966,6 +4002,45 @@ if (not res.success) { throw Error(res.error) }`,
             expect(mockPushProviderFetch).toHaveBeenCalledTimes(4)
         })
 
+        describe('a scheduled transactional send', () => {
+            let ses: SesV2Fake
+
+            beforeEach(async () => {
+                ses = await SesV2Fake.start()
+                await insertEmailSetup('ses')
+            })
+
+            afterEach(async () => {
+                await ses.close()
+            })
+
+            it('measures its queue wait from its scheduled time, not from when it was created', async () => {
+                const { executor: runner } = createExecutor(createEmailService({ ses }))
+                const invocation = createExampleHogFlowInvocation(emailFlow(storedStep()), {
+                    event: { ...createHogExecutionGlobals().event, event: TRANSACTIONAL_EMAIL_EVENT },
+                })
+                invocation.queueCreatedAt = DateTime.utc().minus({ hours: 1 })
+                invocation.state.scheduledAt = DateTime.utc().minus({ seconds: 30 }).toISO()!
+                const waits = (metricName: string): Promise<number> =>
+                    metricValue('cdp_email_queue_to_send_ms', { source: 'transactional_api' }, metricName)
+                const [countBefore, sumBefore] = [
+                    await waits('cdp_email_queue_to_send_ms_count'),
+                    await waits('cdp_email_queue_to_send_ms_sum'),
+                ]
+
+                let result = await runner.execute(invocation)
+                while (!result.finished) {
+                    result = await runner.execute(result.invocation)
+                }
+
+                expect(ses.delivered.map((email) => email.subject)).toEqual(['Test Email'])
+                expect((await waits('cdp_email_queue_to_send_ms_count')) - countBefore).toEqual(1)
+                const waitMs = (await waits('cdp_email_queue_to_send_ms_sum')) - sumBefore
+                expect(waitMs).toBeGreaterThanOrEqual(30_000)
+                expect(waitMs).toBeLessThan(30 * 60_000)
+            })
+        })
+
         describe('the email after one the email queue delayed', () => {
             let ses: SesV2Fake
 
@@ -4139,21 +4214,32 @@ if (not res.success) { throw Error(res.error) }`,
             {
                 name: 'a template send as the step renders it',
                 step: storedStep,
+                stepConfig: { template_uuid: 'template-1' },
                 send: (): QueuedSend | undefined => undefined,
-                expected: () => ({ type: 'email', ...storedStep() }),
+                expected: () => ({ type: 'email', ...storedStep(), template: { template_uuid: 'template-1' } }),
+            },
+            {
+                name: 'a step whose email input names a template, with the template the step was saved from',
+                step: () => ({ ...storedStep(), template: { template_uuid: 'another-template' } }),
+                stepConfig: { template_uuid: 'template-1' },
+                send: (): QueuedSend | undefined => undefined,
+                expected: () => ({ type: 'email', ...storedStep(), template: { template_uuid: 'template-1' } }),
             },
             {
                 name: 'a code send for a local template as the step renders it',
                 step: storedStep,
+                stepConfig: {},
                 send: (): QueuedSend => ({ tracking: { captureEngagement: false } }),
-                expected: () => ({ type: 'email', ...storedStep() }),
+                expected: () => ({ type: 'email', ...storedStep(), template: {} }),
             },
             {
                 name: "a code send with the caller's content, sender, reply-to and copies over the step",
                 step: codeKeyStep,
+                stepConfig: { template_key: 'reset_password' },
                 send: codeSend,
                 expected: () => ({
                     type: 'email',
+                    template: { template_key: 'reset_password' },
                     to: { email: 'recipient@example.com', name: 'Recipient' },
                     from: { integrationId, email: 'security@posthog.com', name: 'Security' },
                     cc: 'manager@example.com, team@example.com',
@@ -4168,18 +4254,20 @@ if (not res.success) { throw Error(res.error) }`,
             {
                 name: 'a code send with the metadata of its files, which the email worker loads by job id',
                 step: storedStep,
+                stepConfig: {},
                 send: (): QueuedSend => ({ tracking: { captureEngagement: false }, attachments: [attachmentFile] }),
-                expected: () => ({ type: 'email', ...storedStep(), attachments: [attachmentFile] }),
+                expected: () => ({ type: 'email', ...storedStep(), attachments: [attachmentFile], template: {} }),
             },
             {
                 name: 'a step whose own email input lists files without them, because only an accepted send has files',
                 step: () => ({ ...storedStep(), attachments: [attachmentFile] }),
+                stepConfig: {},
                 send: (): QueuedSend | undefined => undefined,
-                expected: () => ({ type: 'email', ...storedStep() }),
+                expected: () => ({ type: 'email', ...storedStep(), template: {} }),
             },
-        ])('hands the email queue $name', async ({ step, send, expected }) => {
+        ])('hands the email queue $name', async ({ step, stepConfig, send, expected }) => {
             await insertEmailSetup('ses')
-            const invocation = flowInvocation(emailFlow(step()))
+            const invocation = flowInvocation(emailFlow(step(), stepConfig))
             invocation.state.variables = { name: 'Ada' }
             invocation.state.send = send()
 

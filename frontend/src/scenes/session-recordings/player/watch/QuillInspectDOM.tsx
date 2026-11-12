@@ -5,13 +5,14 @@ import { Button } from '@posthog/quill'
 
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-export function QuillInspectDOM(): JSX.Element {
+export function QuillInspectDOM({ filled = false }: { filled?: boolean }): JSX.Element {
     const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { openExplorer } = useActions(sessionRecordingPlayerLogic)
 
     return (
         <Button
-            size="sm"
+            size={filled ? 'default' : 'sm'}
+            variant={filled ? 'secondary' : 'default'}
             onClick={openExplorer}
             tooltip="Inspect the DOM as it was at this moment in the session. Analyze the structure and elements captured during the recording."
             disabledReason={
