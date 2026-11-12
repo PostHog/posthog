@@ -816,17 +816,16 @@ def _refresh_sandbox_github(
     if actor_user is None:
         return None
 
+    run_id = str(task_run.id)
+    task = task_run.task
+    # A provider change must clear even read-only GitHub credentials from the old checkout.
+    if task.repository_integration_id is not None:
+        return _clear_github_from_gitlab_sandbox(run_id, actor_user, state)
+
     # Read-only runs use a team installation grant, not the message actor's identity.
     # The periodic credential refresh rotates that grant without widening its permissions.
     if (state or {}).get("github_read_access") is True or (state or {}).get("github_token_scope"):
         return None
-
-    run_id = str(task_run.id)
-    task = task_run.task
-    # A GitLab run never receives a GitHub token. It still clears one, because the task can move
-    # from GitHub to GitLab while the sandbox runs, and the previous actor's token must not stay.
-    if task.repository_integration_id is not None:
-        return _clear_github_from_gitlab_sandbox(run_id, actor_user, state)
     # A run that started before its actor connected GitHub is bot-authored, and the agent may
     # have been the one that asked them to connect. Promote it so the turn that follows the
     # connection is the one that gets their identity.

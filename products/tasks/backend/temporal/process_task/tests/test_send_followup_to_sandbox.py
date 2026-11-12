@@ -477,8 +477,18 @@ class TestSandboxGithubIdentityGate:
         [(True, None), (False, SandboxRebindFailure.LOGOUT_UNCONFIRMED)],
         ids=["cleared", "clear_unconfirmed"],
     )
+    @pytest.mark.parametrize("state", [None, {"github_read_access": True}, {"github_token_scope": "push"}])
     def test_gitlab_task_clears_github_credentials_left_from_github(
-        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade, cleared, expected
+        self,
+        mock_authorship,
+        mock_resolve,
+        mock_get_token,
+        mock_apply,
+        mock_clear,
+        mock_upgrade,
+        cleared,
+        expected,
+        state,
     ):
         # A task that moved from GitHub to GitLab while its sandbox ran can still hold the previous
         # actor's GitHub token, so the GitLab turn clears it and fails closed when it can't.
@@ -488,7 +498,7 @@ class TestSandboxGithubIdentityGate:
         task_run.task.repository_integration_id = 5
 
         with patch(f"{_GH_MODULE}.clear_github_env_from_gitlab_sandbox", return_value=cleared) as clear_env:
-            assert _refresh_sandbox_github(task_run, MagicMock(id=42), None) == expected
+            assert _refresh_sandbox_github(task_run, MagicMock(id=42), state) == expected
 
         clear_env.assert_called_once()
         mock_upgrade.assert_not_called()

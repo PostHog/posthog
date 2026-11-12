@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -89,15 +91,58 @@ class TestSetGitRemoteToken:
 
 
 class TestClearGithubEnvFromGitlabSandbox:
-    def test_blanks_the_github_file_and_leaves_remotes_alone(self):
+    def test_clears_github_remotes_and_preserves_gitlab(self, tmp_path):
+        github = tmp_path / "old" / "repo"
+        gitlab = tmp_path / "new" / "repo"
+        for repo in (github, gitlab):
+            repo.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(github),
+                "remote",
+                "add",
+                "origin",
+                "https://x-access-token:fake@github.com/old/repo.git",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(gitlab), "remote", "add", "origin", "https://oauth2:fake@gitlab.com/new/repo.git"],
+            check=True,
+        )
         sandbox = MagicMock()
         sandbox.write_file.return_value = _ok()
-        sandbox.execute.return_value = _ok()
 
-        assert clear_github_env_from_gitlab_sandbox(sandbox) is True
+        def execute(command, **kwargs):
+            if command.startswith("chmod "):
+                return _ok()
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            return ExecutionResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.returncode)
 
+        sandbox.execute.side_effect = execute
+        with patch(
+            "products.tasks.backend.temporal.process_task.sandbox_credentials.SANDBOX_REPOSITORIES_ROOT", str(tmp_path)
+        ):
+            assert clear_github_env_from_gitlab_sandbox(sandbox) is True
+        assert (
+            subprocess.check_output(["git", "-C", str(github), "remote", "get-url", "origin"], text=True).strip()
+            == "https://github.com/old/repo.git"
+        )
+        assert (
+            subprocess.check_output(["git", "-C", str(gitlab), "remote", "get-url", "origin"], text=True).strip()
+            == "https://oauth2:fake@gitlab.com/new/repo.git"
+        )
         assert sandbox.write_file.call_args.args[1] == b""
-        assert not any("git remote" in call.args[0] for call in sandbox.execute.call_args_list)
+
+    def test_failed_remote_cleanup_fails_closed(self):
+        sandbox = MagicMock()
+        sandbox.write_file.return_value = _ok()
+        sandbox.execute.side_effect = [ExecutionResult(stdout="", stderr="failed", exit_code=1), _ok()]
+        assert clear_github_env_from_gitlab_sandbox(sandbox) is False
+        assert sandbox.write_file.call_args.args[1] == b""
 
 
 class TestReplaceSandboxCredentials:
@@ -683,11 +728,60 @@ class TestLiveSandboxRegistry:
             state={"sandbox_id": "sb-scoped", "pr_authorship_mode": "user", "github_token_scope": "push"},
         )
 
+        gitlab = _task("group/project")
+        gitlab.repository_integration_id = 123
+        gitlab.save()
+        TaskRun.objects.create(
+            task=gitlab,
+            team=team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_id": "sb-gitlab", "pr_authorship_mode": "user"},
+        )
         result = _live_sandboxes_for_user_integration(integration.id)
 
         assert {(r.run_id, r.sandbox_id, r.repository) for r in result} == {
             (str(live_run.id), "sb-live", "org/live"),
         }
+
+    def test_propagation_rechecks_provider_after_selection(self):
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+        from posthog.models.user_integration import UserIntegration
+
+        from products.tasks.backend.models import Task, TaskRun
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import (
+            _live_sandboxes_for_user_integration,
+            _propagate_user_token,
+        )
+
+        org = Organization.objects.create(name="o")
+        team = Team.objects.create(organization=org, name="t")
+        owner = User.objects.create(email="transition@example.com")
+        integration = UserIntegration.objects.create(
+            user=owner, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="i", config={}, sensitive_config={}
+        )
+        task = Task.objects.create(
+            team=team, created_by=owner, repository="org/repo", github_user_integration=integration
+        )
+        TaskRun.objects.create(
+            task=task,
+            team=team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_id": "sb-transition", "pr_authorship_mode": "user"},
+        )
+        selected = _live_sandboxes_for_user_integration(integration.id)
+        assert len(selected) == 1
+        Task.objects.filter(id=task.id).update(repository_integration_id=123)
+        sandbox = MagicMock()
+        sandbox.is_running.return_value = True
+        with (
+            patch(f"{MODULE}._live_sandboxes_for_user_integration", return_value=selected),
+            patch("products.tasks.backend.logic.services.sandbox.get_sandbox_class_for_sandbox_id") as sandbox_class,
+            patch(f"{MODULE}._apply_token_locked") as apply,
+        ):
+            sandbox_class.return_value.get_by_id.return_value = sandbox
+            assert _propagate_user_token(integration.id, "fake-token") == 0
+        apply.assert_not_called()
 
     @pytest.mark.parametrize("marker,included", [("none", True), ("owner", True), ("other", False)])
     def test_actor_transition_gates_owner_token_propagation(self, marker, included):

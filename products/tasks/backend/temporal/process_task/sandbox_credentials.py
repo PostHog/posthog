@@ -2,6 +2,7 @@
 
 import shlex
 import logging
+import textwrap
 import contextlib
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -161,12 +162,42 @@ def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repositories: 
 
 
 def clear_github_env_from_gitlab_sandbox(sandbox: "SandboxBase") -> bool:
-    """Blank the GitHub credential file of a GitLab run's sandbox, leaving its GitLab remotes alone.
+    """Clear GitHub credentials while retaining any GitLab remote configuration."""
+    script = textwrap.dedent("""\
+        import os
+        import re
+        import subprocess
+        import sys
 
-    A task can move from GitHub to GitLab while its sandbox runs, and the file can still hold the
-    previous actor's GitHub token. Returns ``True`` only when the file was cleared.
-    """
-    return _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, b"")
+        def fail(error):
+            raise error
+
+        for directory, dirs, files in os.walk(sys.argv[1], onerror=fail):
+            if ".git" not in dirs and ".git" not in files:
+                continue
+            if ".git" in dirs:
+                dirs.remove(".git")
+            command = ["git", "-C", directory, "config", "--local", "--no-includes"]
+            result = subprocess.run(command + ["--null", "--get-regexp", r"^remote\\..*\\.(url|pushurl)$"], capture_output=True)
+            if result.returncode == 1:
+                continue
+            result.check_returncode()
+            values = {}
+            for entry in result.stdout.split(b"\\0"):
+                if entry:
+                    key, value = entry.split(b"\\n", 1)
+                    values.setdefault(key, []).append(value)
+            for key, urls in values.items():
+                cleaned = [re.sub(rb"(?i)^(https?://)[^/@]+@(?=github\\.com(?::[0-9]+)?/)", rb"\\1", url) for url in urls]
+                if cleaned != urls:
+                    subprocess.run(command + ["--unset-all", os.fsdecode(key)], check=True, capture_output=True)
+                    for url in cleaned:
+                        subprocess.run(command + ["--add", os.fsdecode(key), os.fsdecode(url)], check=True, capture_output=True)
+    """)
+    command = f"python3 -c {shlex.quote(script)} {shlex.quote(SANDBOX_REPOSITORIES_ROOT)}"
+    result = sandbox.execute(command, timeout_seconds=CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS)
+    env_cleared = _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, b"")
+    return result.exit_code == 0 and env_cleared
 
 
 def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
@@ -288,6 +319,7 @@ class LiveSandbox(NamedTuple):
     sandbox_id: str
     repository: str | None
     owner_id: int | None
+    task_id: str
 
 
 def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveSandbox]:
@@ -295,6 +327,7 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveS
     runs = TaskRun.objects.filter(
         status=TaskRun.Status.IN_PROGRESS,
         task__github_user_integration_id=user_integration_id,
+        task__repository_integration_id__isnull=True,
     ).select_related("task", "task__team")
     for run in runs:
         sandbox_id = (run.state or {}).get("sandbox_id")
@@ -315,7 +348,7 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveS
         # a different actor, or re-applying it would resurrect the owner's identity for that actor.
         if _actor_rebound_away_from(sandbox_id, run.task.created_by_id) is not None:
             continue
-        rows.append(LiveSandbox(str(run.id), sandbox_id, run.task.repository, run.task.created_by_id))
+        rows.append(LiveSandbox(str(run.id), sandbox_id, run.task.repository, run.task.created_by_id, str(run.task_id)))
     return rows
 
 
@@ -328,10 +361,19 @@ def _propagate_user_token(user_integration_id: int, token: str) -> int:
             sandbox = get_sandbox_class_for_sandbox_id(live.sandbox_id).get_by_id(live.sandbox_id)
             # Re-check the actor binding under the per-sandbox lock: the filter above is not atomic
             # with this write, so a transition could have rebound the sandbox in between.
-            if sandbox.is_running() and _apply_token_locked(
-                sandbox, [live.repository] if live.repository else [], token, live.run_id, live.owner_id
-            ):
-                applied += 1
+            if sandbox.is_running():
+                # Task updates take this same row lock, so the provider cannot change between
+                # the final check and writing the token into the sandbox.
+                with transaction.atomic():
+                    task = Task.objects.select_for_update().filter(id=live.task_id).first()
+                    if (
+                        task is not None
+                        and task.repository_integration_id is None
+                        and _apply_token_locked(
+                            sandbox, [live.repository] if live.repository else [], token, live.run_id, live.owner_id
+                        )
+                    ):
+                        applied += 1
         except Exception:
             logger.warning(
                 "Failed to propagate refreshed GitHub user token to sibling sandbox",
