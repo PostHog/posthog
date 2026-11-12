@@ -70,16 +70,39 @@ export function findGroup(library: ApiToolLibrary, query: string): ToolGroup {
     return group
 }
 
+export const STALE_TOOLS_HINT =
+    'The tool definitions may be out of date. Update hog to the latest version, or run `hog api refresh`.'
+
 export function findTool(library: ApiToolLibrary, name: string): ApiToolSummary {
     const tool = library.tools().find((candidate) => candidate.name === name)
-    if (!tool) {
+    if (tool) {
+        return tool
+    }
+
+    const dropped = library.catalog().dropped.find((candidate) => candidate.name === name && !candidate.builtIn)
+    if (dropped) {
         throw new HogError(
-            'unknown_tool',
-            `There is no tool named "${name}".`,
-            'Run `hog api search <words>` to find tools by name and description.'
+            'tool_unavailable',
+            `This hog can't run ${name} from the downloaded tool catalog. Reason: ${dropped.reason}.`,
+            'Update hog to the latest version to use it.'
         )
     }
-    return tool
+    throw new HogError(
+        'unknown_tool',
+        `There is no tool named "${name}".`,
+        'Run `hog api search <words>` to find tools by name and description. If the tool is new, update hog to the latest version, or run `hog api refresh`.'
+    )
+}
+
+// PostHog refusing a field, or a missing endpoint, can mean the tool's definition is older than the
+// API, so those failures also say how to get newer definitions.
+export function withStaleToolsHint(error: ApiToolError, hogError: HogError): HogError {
+    const stale =
+        (error.code === 'validation_error' && error.status === 400) ||
+        (error.code === 'api_error' && error.status === 404)
+    return stale
+        ? hogError.withHint(hogError.hint ? `${hogError.hint} ${STALE_TOOLS_HINT}` : STALE_TOOLS_HINT)
+        : hogError
 }
 
 export function toolKind(tool: ApiToolSummary): ToolKind {

@@ -2,7 +2,12 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
 
-import type { ApiToolLibrary, SkillsLibrary, SkillsLibraryOptions } from '@posthog/mcp/src/cli/library-types'
+import type {
+    ApiToolLibrary,
+    ApiToolLibraryOptions,
+    SkillsLibrary,
+    SkillsLibraryOptions,
+} from '@posthog/mcp/src/cli/library-types'
 
 import type { WorkloadProvider } from '@/ci/providers/registry'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
@@ -34,8 +39,9 @@ export interface FakeRuntimeOptions {
         authorization: string | null
     ) => { status: number; body: unknown; headers?: Record<string, string> }
     telemetryToken?: string
-    // The MCP tool catalog `hog api` loads. Without it, loading the catalog fails the test.
-    apiTools?: ApiToolLibrary
+    // The MCP tool catalog `hog api` loads, or a function that builds it from the catalog hog downloaded.
+    // Without it, loading the catalog fails the test.
+    apiTools?: ApiToolLibrary | ((options: ApiToolLibraryOptions) => ApiToolLibrary)
     // Builds the skills library `hog skills read` loads. Without it, loading the skills fails the test.
     skills?: (options: SkillsLibraryOptions) => SkillsLibrary
     // Items already in the keychain, by name.
@@ -254,11 +260,11 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         skipTlsVerification: () => {
             tls.verify = false
         },
-        loadApiTools: async () => {
+        loadApiTools: async (libraryOptions = {}) => {
             if (!options.apiTools) {
                 throw new Error('This test loads the API tools without passing apiTools')
             }
-            return options.apiTools
+            return typeof options.apiTools === 'function' ? options.apiTools(libraryOptions) : options.apiTools
         },
         loadSkills: async (skillsOptions) => {
             if (!options.skills) {

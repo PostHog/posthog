@@ -1,8 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { ApiConnection, ApiToolLibrary, ApiToolResult, ApiToolSummary } from '@posthog/mcp/src/cli/library-types'
+import type {
+    ApiCatalogDroppedTool,
+    ApiConnection,
+    ApiToolLibrary,
+    ApiToolLibraryOptions,
+    ApiToolResult,
+    ApiToolSummary,
+} from '@posthog/mcp/src/cli/library-types'
 
-import { runHog, TEST_CREDENTIALS } from '@/testing'
+import { CATALOG_URL } from '@/posthog/api-catalog'
+import { runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 const tool = (
     name: string,
@@ -200,6 +208,47 @@ describe('hog api', () => {
     })
 
     test.each([
+        ['PostHog refuses a field', { code: 'validation_error', message: 'Unknown field: rollout', status: 400 }, true],
+        ['the endpoint is missing', { code: 'api_error', message: 'Not found', status: 404 }, true],
+        ['PostHog fails for another reason', { code: 'api_error', message: 'Server error', status: 500 }, false],
+    ] as const)(
+        'a failed call when %s says whether the tool definitions may be out of date',
+        async (_name, error, stale) => {
+            const library = fakeLibrary(['*'], { callResult: { ok: false, error } })
+            const result = await runHog(['api', 'call', 'flag-list', '{}'], {
+                env: TEST_CREDENTIALS,
+                apiTools: library,
+            })
+
+            expect(result.exitCode).toBe(1)
+            const hint = result.error().hint ?? ''
+            expect(hint.includes('Update hog to the latest version, or run `hog api refresh`')).toBe(stale)
+        }
+    )
+
+    test.each([
+        ['a tool it has never heard of', [], 'unknown_tool', 'If the tool is new, update hog to the latest version'],
+        [
+            'a new tool from the catalog this hog cannot run',
+            [{ name: 'flag-forecast', reason: 'needs hook:flags/forecastHooks', builtIn: false }],
+            'tool_unavailable',
+            'Update hog to the latest version to use it.',
+        ],
+    ])('a call to %s says how to get it', async (_name, dropped, code, hint) => {
+        const library = {
+            ...fakeLibrary(['*']),
+            catalog: () => ({ source: 'downloaded' as const, build: 'abc', tools: 3, dropped, rejected: null }),
+        }
+        const result = await runHog(['api', 'call', 'flag-forecast', '{}'], {
+            env: TEST_CREDENTIALS,
+            apiTools: library,
+        })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.error()).toMatchObject({ code, hint: expect.stringContaining(hint) })
+    })
+
+    test.each([
         ['an unlimited key reaches the project', [], 200, undefined, true],
         ["a key limited to the project's organization reaches it", ['org-a'], 200, 'org-a', true],
         [
@@ -296,5 +345,231 @@ describe('hog api', () => {
         expect(result.error()).toMatchObject(expected)
         expect(String(result.error().command ?? '')).not.toContain('$(')
         expect(library.calls).toHaveLength(calls)
+    })
+})
+
+const CACHE = '/home/test/.config/hog/api-catalog.json'
+const NOW = Date.UTC(2026, 0, 1)
+const HOUR = 60 * 60 * 1000
+
+function catalog(names: string[], extra: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+        schemaVersion: 1,
+        minHogVersion: '0.0.0',
+        build: 'abc123',
+        tools: names.map((name) => ({ name })),
+        ...extra,
+    }
+}
+
+function cached(names: string[], ageMs: number, extra: Record<string, unknown> = {}): Record<string, string> {
+    return { [CACHE]: JSON.stringify({ fetchedAt: NOW - ageMs, etag: '"v1"', catalog: catalog(names, extra) }) }
+}
+
+function catalogLibrary(dropped: ApiCatalogDroppedTool[] = []): {
+    build: (options: ApiToolLibraryOptions) => ApiToolLibrary
+    received: () => unknown
+} {
+    let received: unknown
+    return {
+        received: () => received,
+        build: (options) => {
+            received = options.catalog
+            const tools = (options.catalog as { tools?: unknown[]; build?: string } | undefined)?.tools
+            return {
+                ...fakeLibrary([]),
+                catalog: () =>
+                    tools
+                        ? {
+                              source: 'downloaded',
+                              build: (options.catalog as { build: string }).build,
+                              tools: tools.length - dropped.length,
+                              dropped,
+                              rejected: null,
+                          }
+                        : { source: 'bundled', build: null, tools: 0, dropped: [], rejected: null },
+            }
+        },
+    }
+}
+
+const catalogRequests = (result: HogRun): number => result.requests.filter((r) => r.url === CATALOG_URL).length
+
+describe('hog api tool catalog', () => {
+    test('downloads the catalog once a day and runs the tools it describes', async () => {
+        const library = catalogLibrary()
+        const first = await runHog(['api', 'groups'], {
+            env: { CLAUDECODE: '1' },
+            apiTools: library.build,
+            respond: (url) =>
+                url === CATALOG_URL ? { status: 200, body: catalog(['flag-list']) } : { status: 500, body: {} },
+        })
+
+        expect(first.exitCode).toBe(0)
+        expect(catalogRequests(first)).toBe(1)
+        expect(library.received()).toMatchObject({ build: 'abc123', tools: [{ name: 'flag-list' }] })
+
+        const again = await runHog(['api', 'groups'], {
+            env: { CLAUDECODE: '1' },
+            apiTools: library.build,
+            files: first.files,
+        })
+
+        expect(catalogRequests(again)).toBe(0)
+        expect(library.received()).toMatchObject({ build: 'abc123' })
+    })
+
+    test('downloads again once the saved catalog is a day old', async () => {
+        const library = catalogLibrary()
+        const result = await runHog(['api', 'groups'], {
+            env: { CLAUDECODE: '1' },
+            apiTools: library.build,
+            files: cached(['flag-list'], 25 * HOUR),
+            respond: (url) =>
+                url === CATALOG_URL
+                    ? { status: 200, body: catalog(['flag-list', 'flag-new'], { build: 'def456' }) }
+                    : { status: 500, body: {} },
+        })
+
+        expect(catalogRequests(result)).toBe(1)
+        expect(library.received()).toMatchObject({ build: 'def456' })
+    })
+
+    test.each([
+        ['keeps the saved catalog when the download fails', cached(['flag-list'], 25 * HOUR), { build: 'abc123' }],
+        ['runs the built-in tools when there is no saved catalog either', {}, undefined],
+    ])('%s', async (_name, files, expected) => {
+        const library = catalogLibrary()
+        const result = await runHog(['api', 'groups'], {
+            env: { CLAUDECODE: '1' },
+            apiTools: library.build,
+            files,
+            respond: () => ({ status: 503, body: {} }),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(library.received()).toEqual(expected === undefined ? undefined : expect.objectContaining(expected))
+    })
+
+    test.each([
+        [
+            'a catalog that needs a newer hog',
+            { HOG_DEBUG: '1' },
+            catalog(['flag-list'], { minHogVersion: '99.0.0' }),
+            1,
+        ],
+        ['HOG_API_CATALOG=bundled', { HOG_API_CATALOG: 'bundled' }, catalog(['flag-list']), 0],
+        ['a self-hosted host', { HOG_HOST: 'https://ph.example.com' }, catalog(['flag-list']), 0],
+    ])('runs the built-in tools for %s', async (_name, env, served, downloads) => {
+        const library = catalogLibrary()
+        const result = await runHog(['api', 'groups'], {
+            env: { CLAUDECODE: '1', ...env },
+            apiTools: library.build,
+            respond: (url) => (url === CATALOG_URL ? { status: 200, body: served } : { status: 500, body: {} }),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(catalogRequests(result)).toBe(downloads)
+        expect(library.received()).toBeUndefined()
+    })
+
+    test('--debug names the source and each tool hog kept built in', async () => {
+        const library = catalogLibrary([{ name: 'flag-new', reason: 'unknown field response.redact', builtIn: true }])
+        const result = await runHog(['api', 'groups', '--debug'], {
+            env: { CLAUDECODE: '1' },
+            apiTools: library.build,
+            files: cached(['flag-list', 'flag-new'], HOUR),
+        })
+
+        expect(result.stderr).toContain('[debug] api catalog: 1 tools from the saved catalog')
+        expect(result.stderr).toContain(
+            '[debug] api catalog: kept the built-in flag-new, because unknown field response.redact'
+        )
+    })
+
+    test('a catalog that needs a newer hog is ignored whole, and --debug says why', async () => {
+        const library = catalogLibrary()
+        const result = await runHog(['api', 'groups', '--debug'], {
+            env: { CLAUDECODE: '1' },
+            apiTools: library.build,
+            files: cached(['flag-list'], HOUR, { minHogVersion: '99.0.0' }),
+        })
+
+        expect(library.received()).toBeUndefined()
+        expect(result.stderr).toContain('the catalog needs hog 99.0.0 or later')
+    })
+
+    describe('refresh', () => {
+        test('downloads now and reports what changed and what hog kept built in', async () => {
+            const library = catalogLibrary([
+                {
+                    name: 'flag-renamed',
+                    reason: "needs hook:flags/newHooks, which this hog doesn't have",
+                    builtIn: false,
+                },
+            ])
+            const result = await runHog(['api', 'refresh'], {
+                env: { CLAUDECODE: '1' },
+                apiTools: library.build,
+                files: cached(['flag-list', 'flag-old'], HOUR),
+                respond: (url) =>
+                    url === CATALOG_URL
+                        ? { status: 200, body: catalog(['flag-list', 'flag-new', 'flag-renamed'], { build: 'def456' }) }
+                        : { status: 500, body: {} },
+            })
+
+            expect(result.exitCode).toBe(0)
+            expect(catalogRequests(result)).toBe(1)
+            expect(result.json()).toEqual({
+                status: 'updated',
+                tools: 2,
+                build: 'def456',
+                fetchedAt: '2026-01-01T00:00:00.000Z',
+                added: ['flag-new'],
+                removed: ['flag-old'],
+                dropped: [
+                    {
+                        name: 'flag-renamed',
+                        reason: "needs hook:flags/newHooks, which this hog doesn't have",
+                        builtIn: false,
+                    },
+                ],
+            })
+        })
+
+        test('says the catalog is up to date when nothing changed', async () => {
+            const result = await runHog(['api', 'refresh'], {
+                stdoutIsTTY: true,
+                apiTools: catalogLibrary().build,
+                files: cached(['flag-list'], HOUR),
+                respond: (url) =>
+                    url === CATALOG_URL ? { status: 200, body: catalog(['flag-list']) } : { status: 500, body: {} },
+            })
+
+            expect(result.exitCode).toBe(0)
+            expect(result.stdout).toContain('The API tool catalog is up to date')
+        })
+
+        test.each([
+            ['offline', {}, () => ({ status: 503, body: {} }), 'catalog_unreachable'],
+            [
+                'pinned to the built-in tools',
+                { HOG_API_CATALOG: 'bundled' },
+                () => ({ status: 200, body: catalog(['x']) }),
+                'catalog_not_used',
+            ],
+        ])('fails when %s, and keeps the catalog hog has', async (_name, env, respond, code) => {
+            const files = cached(['flag-list'], HOUR)
+            const result = await runHog(['api', 'refresh'], {
+                env: { CLAUDECODE: '1', ...env },
+                apiTools: catalogLibrary().build,
+                files,
+                respond,
+            })
+
+            expect(result.exitCode).toBe(1)
+            expect(result.error().code).toBe(code)
+            expect(result.files[CACHE]).toBe(files[CACHE])
+        })
     })
 })
