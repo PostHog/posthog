@@ -1,3 +1,4 @@
+import { AddressInfo, Socket, createServer } from 'net'
 import { Client, Pool } from 'pg'
 import { Histogram, register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
@@ -1782,7 +1783,7 @@ describe('Cyclotron V2', () => {
             })
 
             it('gives up on a connection that stops answering, drops it, and answers the next lookup', async () => {
-                const pool: Pool = bounded['pool']
+                const pool: Pool = bounded['lookupPool']
                 const connect = pool.connect.bind(pool)
                 // Stands in for a network stall: the server never sees BEGIN, so statement_timeout can't end it.
                 jest.spyOn(pool, 'connect').mockImplementationOnce(async () => {
@@ -1801,28 +1802,39 @@ describe('Cyclotron V2', () => {
                 expect(await bounded.findIdempotencyKey(uuidv7())).toBeNull()
             })
 
-            it('gives up while every pool connection is busy, and answers once one comes back', async () => {
-                const id = uuidv7()
-                const blocker = await assertPool.connect()
-                await blocker.query('BEGIN')
-                await blocker.query(
-                    `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
-                     VALUES ($1, 1, 'a', NOW() + interval '1 day')`,
-                    [id]
-                )
-                const claim = bounded.createJobsIdempotently([
-                    { job: { id, teamId: 1, queueName: QUEUE }, fingerprint: 'a' },
-                ])
-                await waitForExpect(async () => expect(await backendsWaitingOnLocks()).toBe(1), 2000, 10)
+            it('gives up on a database that accepts the connection and never answers, and closes it', async () => {
+                const open = new Set<Socket>()
+                const silent = createServer((socket) => {
+                    open.add(socket)
+                    // Reads and drops the startup message, so the socket sees the client hang up.
+                    socket.resume()
+                    socket.on('close', () => open.delete(socket))
+                })
+                await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+                const { port } = silent.address() as AddressInfo
+                const stalled = createManager({
+                    pool: { dbUrl: `postgres://posthog:posthog@127.0.0.1:${port}/cyclotron`, maxConnections: 1 },
+                    idempotencyKeyLookupTimeoutMs: 200,
+                })
                 try {
-                    await expect(bounded.findIdempotencyKey(id)).rejects.toThrow()
+                    await expect(stalled.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                    await waitForExpect(() => expect(open.size).toBe(0), 2000, 10)
                 } finally {
-                    await blocker.query('ROLLBACK')
-                    blocker.release()
+                    open.forEach((socket) => socket.destroy())
+                    silent.close()
+                    await stalled.disconnect()
+                }
+            })
+
+            it('gives up while every lookup connection is busy, and answers once one comes back', async () => {
+                const held = await bounded['lookupPool'].connect()
+                try {
+                    await expect(bounded.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                } finally {
+                    held.release()
                 }
 
-                expect(await claim).toEqual(['created'])
-                expect(await bounded.findIdempotencyKey(id)).toEqual({ fingerprint: 'a' })
+                expect(await bounded.findIdempotencyKey(uuidv7())).toBeNull()
             })
         })
     })

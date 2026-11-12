@@ -293,6 +293,7 @@ function beforeDeadline<T>(operation: Promise<T>, deadline: number, onLate: (val
 
 export class CyclotronV2Manager {
     private pool: Pool
+    private lookupPool: Pool
     private readonly depthLimit: number
     private readonly depthCheckIntervalMs: number
     private readonly idempotencyKeyLookupTimeoutMs: number
@@ -317,6 +318,14 @@ export class CyclotronV2Manager {
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
         this.idempotencyKeyLookupTimeoutMs = config.idempotencyKeyLookupTimeoutMs ?? IDEMPOTENCY_KEY_LOOKUP_TIMEOUT_MS
+        // Its own pool, because a connect timeout is the only way to close a handshake that never answers, and on the
+        // main pool it would also cut how long inserts wait for a free client.
+        this.lookupPool = createCyclotronPool('manager_lookup', {
+            connectionString: config.pool.dbUrl,
+            max: config.pool.maxConnections ?? 10,
+            idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
+            connectionTimeoutMillis: this.idempotencyKeyLookupTimeoutMs,
+        })
         this.reschedule = {
             floorSeconds: config.rescheduleFloorSeconds ?? 600,
             wakeRatePerSecond: config.rescheduleWakeRatePerSecond ?? 200,
@@ -625,7 +634,7 @@ export class CyclotronV2Manager {
     /** The key's claim under the rule that keeps it from being reclaimed: unexpired, or its job still exists. */
     async findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null> {
         const deadline = Date.now() + this.idempotencyKeyLookupTimeoutMs
-        const client = await beforeDeadline(this.pool.connect(), deadline, (late) => late.release())
+        const client = await beforeDeadline(this.lookupPool.connect(), deadline, (late) => late.release())
         let finished = false
         try {
             const claim = await beforeDeadline(this.readIdempotencyKey(client, id, deadline), deadline)
@@ -1132,7 +1141,7 @@ export class CyclotronV2Manager {
     }
 
     async disconnect(): Promise<void> {
-        await this.pool.end()
+        await Promise.all([this.pool.end(), this.lookupPool.end()])
     }
 
     private async insertGuard(db: Pool | PoolClient = this.pool): Promise<void> {
