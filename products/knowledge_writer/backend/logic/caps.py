@@ -3,6 +3,8 @@ from datetime import timedelta
 from django.db import connection
 from django.utils import timezone
 
+import structlog
+
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
@@ -10,6 +12,8 @@ from products.tasks.backend.facade import api as tasks_facade
 
 from ..settings import WriterSettings
 from .records import JOIN_STATE_KEY, PUBLICATION_CLAIM_STATE_KEY, SECTION_STATE_KEY, is_publication_claim_live
+
+logger = structlog.get_logger(__name__)
 
 DAILY_RUN_CAP = 60
 OPEN_PULL_REQUEST_CAP = 10
@@ -86,6 +90,7 @@ def claim_section(writer: WriterSettings, section: str) -> None:
 
 
 def alert_cap_reached(cap: str, *, team_id: int, dedupe_id: str) -> None:
+    logger.warning("knowledge_writer_cap_reached", cap=cap, team_id=team_id, dedupe_id=dedupe_id)
     capture_exception(
         WriterCapReached(f"knowledge writer {cap} cap reached"),
         additional_properties={"team_id": team_id, "dedupe_id": dedupe_id, "cap": cap},

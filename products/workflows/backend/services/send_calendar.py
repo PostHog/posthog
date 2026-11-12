@@ -2,7 +2,7 @@
 only the fields a calendar card shows and the runs inside the shown range."""
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Final, cast
 from uuid import UUID
@@ -41,17 +41,23 @@ def list_send_calendar_flows(
     start: datetime,
     end: datetime,
     user_access_control: "UserAccessControl | None",
+    workflow_ids: "Iterable[UUID] | None" = None,
 ) -> list[SendCalendarFlow]:
     """The workflows with an open schedule or a run in [start, end) that the reader may see. Pass None for
     `user_access_control` to skip the access filter, as a service credential does."""
     open_schedules = HogFlowSchedule.objects.filter(team_id=team_id).exclude(status=HogFlowScheduleStatus.COMPLETED)
     runs_in_range = HogFlowBatchJob.objects.filter(team_id=team_id, created_at__gte=start, created_at__lt=end)
+    if workflow_ids is not None:
+        workflow_ids = list(workflow_ids)
+        open_schedules = open_schedules.filter(hog_flow_id__in=workflow_ids)
+        runs_in_range = runs_in_range.filter(hog_flow_id__in=workflow_ids)
     queryset = (
         HogFlow.objects.filter(
             team_id=team_id, status=HogFlow.State.ACTIVE, trigger__type__in=list(SCHEDULED_TRIGGER_TYPES)
         )
         .exclude(origin_product=HogFlow.OriginProduct.TRANSACTIONAL_EMAILS)
         .filter(Q(id__in=open_schedules.values("hog_flow_id")) | Q(id__in=runs_in_range.values("hog_flow_id")))
+        .filter(Q() if workflow_ids is None else Q(id__in=workflow_ids))
         # The card reads a few keys of the first email step and the trigger. Postgres extracts them, so the
         # full step configuration, which holds the email body, never leaves the database.
         .alias(

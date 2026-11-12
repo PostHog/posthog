@@ -112,6 +112,7 @@ export function speedDependentStyleRules(speed: number): string[] {
 }
 
 export { AudioMuteReplayerPlugin } from './audio-mute-plugin'
+export { BLOCKED_ELEMENT_STYLE_RULE } from './blocked-element'
 export { WindowTitlePlugin } from './window-title-plugin'
 
 export function createHLSPlayerPlugin(): ReplayPlugin & { destroy: () => void } {

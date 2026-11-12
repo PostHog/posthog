@@ -30,6 +30,7 @@ from .facade.enums import (
     RoutingOwnerReason,
     RoutingScope,
 )
+from .logic.review_trigger import is_silent_output
 
 
 # Lives on a separate product database (see products/db_routing.yaml), so it
@@ -71,6 +72,8 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     # Team slug -> label name. A fork PR adds the label instead of requesting that team, so an
     # outside author cannot ping it.
     routing_fork_labels = models.JSONField(default=dict, db_default={})
+    # Off by default: a clean external review starts a review outside review_mode, which widens when stamphog runs.
+    review_on_clean_external_review = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -283,6 +286,7 @@ class ReviewRun(ProductTeamModel):
     # What we posted back to the SCM once the verdict was decided — recorded so a
     # re-review can find and update its own artifacts, and for audit. Populated by
     # the post_verdict activity (and the gate-block path) from the API responses.
+    # Whether the verdict reached the PR, which a silent non-approval never does (`verdict_withheld`).
     verdict_posted_at = models.DateTimeField(null=True)
     posted_review_id = models.BigIntegerField(null=True)
     # Set when this run's GitHub APPROVE review was dismissed because the head moved. GitHub never
@@ -292,6 +296,29 @@ class ReviewRun(ProductTeamModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True)
+
+    @property
+    def is_silent(self) -> bool:
+        """Whether the run posts only an approval, from the provenance stamped when it was queued."""
+        return is_silent_output(self.output)
+
+    def may_publish(self, verdict: str | None = None) -> bool:
+        """Whether this run may write ``verdict`` to the PR. Without a verdict: whether it may write
+        anything other than an approval, such as the 👀 cue, a refusal or a failure notice.
+
+        Every path that writes to the PR asks this, so a silent run's single exception, the
+        approval, is decided in one place.
+        """
+        return not self.is_silent or verdict == ReviewVerdict.APPROVED
+
+    @property
+    def verdict_withheld(self) -> bool:
+        """A silent run that decided a verdict and kept it off the PR."""
+        return (
+            self.is_silent
+            and self.status in (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED)
+            and self.verdict_posted_at is None
+        )
 
     def __str__(self) -> str:
         return f"{self.pull_request.repo_config.repository}#{self.pull_request.pr_number} ({self.status})"

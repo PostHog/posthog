@@ -300,7 +300,7 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
         assert deleted
         source_delete.assert_not_called()
         assert calls == [str(configuration_id), "destinations removed"]
-        self.remove_destinations.assert_called_once_with(team_id=self.team.id, configuration_id=configuration_id)
+        self.remove_destinations.assert_called_once_with(team_id=self.team.id, alert_id=configuration_id)
         with team_scope(self.team.id):
             assert not PlatformAlertConfiguration.objects.filter(id=configuration_id).exists()
 

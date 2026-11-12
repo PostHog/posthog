@@ -118,6 +118,76 @@ class TestFanout:
         assert result.requests[1].param("course_id") == "22"
         assert len(result.requests) == 2
 
+    @parameterized.expand(
+        [
+            (
+                "chapters_per_course",
+                "chapters",
+                [{"id": 11}, {"id": 22}],
+                [[{"id": 1, "name": "Intro"}], [{"id": 2, "name": "Basics"}]],
+                ["/api/public/v1/courses", "/api/public/v1/courses/11/chapters", "/api/public/v1/courses/22/chapters"],
+                [{"id": 1, "name": "Intro", "course_id": 11}, {"id": 2, "name": "Basics", "course_id": 22}],
+            ),
+            (
+                # One contents request per entry in each course's chapter_ids; a course with an empty
+                # or null chapter_ids list makes no request at all.
+                "contents_per_chapter_id",
+                "contents",
+                [{"id": 11, "chapter_ids": [5, 6]}, {"id": 22, "chapter_ids": []}, {"id": 33, "chapter_ids": None}],
+                [[{"id": 50, "chapter_id": 5}], [{"id": 60, "chapter_id": 6}, {"id": 61, "chapter_id": 6}]],
+                ["/api/public/v1/courses", "/api/public/v1/chapters/5/contents", "/api/public/v1/chapters/6/contents"],
+                [
+                    {"id": 50, "chapter_id": 5, "course_id": 11},
+                    {"id": 60, "chapter_id": 6, "course_id": 11},
+                    {"id": 61, "chapter_id": 6, "course_id": 11},
+                ],
+            ),
+            (
+                "products_per_collection",
+                "collection_products",
+                [{"id": 7}],
+                [[{"id": 100, "name": "Course A"}, {"id": 101, "name": "Bundle B"}]],
+                ["/api/public/v1/collections", "/api/public/v1/collections/7/products"],
+                [
+                    {"id": 100, "name": "Course A", "collection_id": 7},
+                    {"id": 101, "name": "Bundle B", "collection_id": 7},
+                ],
+            ),
+        ]
+    )
+    def test_fanout_requests_each_parent_and_tags_rows_with_parent_id(
+        self,
+        _name: str,
+        endpoint: str,
+        parents: list[dict[str, Any]],
+        child_pages: list[list[dict[str, Any]]],
+        expected_paths: list[str],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        responses = [_response(parents), *[_response(page) for page in child_pages]]
+        result = _driver().run(endpoint, responses)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.rows == expected_rows
+
+    def test_contents_resume_skips_completed_chapters(self) -> None:
+        responses = [
+            _response([{"id": 11, "chapter_ids": [5, 6]}]),
+            _response([{"id": 60, "chapter_id": 6}]),
+        ]
+        result = _driver().run(
+            "contents",
+            responses,
+            resume_state=ThinkificCoursesResumeConfig(
+                completed=["/chapters/5/contents"], current=None, child_state=None
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/public/v1/courses", "/api/public/v1/chapters/6/contents"]
+        assert result.rows == [{"id": 60, "chapter_id": 6, "course_id": 11}]
+
 
 class TestErrorHandling:
     @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
@@ -155,17 +225,22 @@ class TestSourceResponse:
         assert resp.partition_keys == ["created_at"]
         assert resp.partition_format == "month"
 
-    def test_fanout_children_use_composite_primary_keys(self) -> None:
+    @parameterized.expand(
+        [
+            ("course_reviews", ["course_id", "id"]),
+            ("coupons", ["promotion_id", "id"]),
+            ("chapters", ["course_id", "id"]),
+            ("contents", ["chapter_id", "id"]),
+            ("collection_products", ["collection_id", "id"]),
+        ]
+    )
+    def test_fanout_children_use_composite_primary_keys(self, endpoint: str, expected: list[str]) -> None:
         # Child ids aren't documented as globally unique, so the parent id must stay in the key —
         # dropping it seeds duplicate rows and every later merge multi-matches them.
-        reviews = _driver().run("course_reviews", [_response([])])
-        coupons = _driver().run("coupons", [_response([])])
-        assert reviews.raised is None
-        assert coupons.raised is None
-        assert reviews.response is not None
-        assert coupons.response is not None
-        assert reviews.response.primary_keys == ["course_id", "id"]
-        assert coupons.response.primary_keys == ["promotion_id", "id"]
+        result = _driver().run(endpoint, [_response([])])
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.primary_keys == expected
 
 
 class TestValidateCredentials:
