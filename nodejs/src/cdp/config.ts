@@ -112,6 +112,16 @@ export type CdpConfig = ClickhouseConfig & {
     // Check the cdp_valkey_mirror_operations_total mismatch/failed counts for a feature before
     // flipping it: hog-watcher reads a missing key as healthy with a full token bucket.
     CDP_VALKEY_READ_FEATURES: string
+    // Counts crashed attempts of each Kafka cyclotron batch in CDP Valkey.
+    //   "off"     - no counting.
+    //   "shadow"  - a batch that crashed the worker MAX_ATTEMPTS times is logged and counted, then processed.
+    CDP_BATCH_QUARANTINE_MODE: string
+    // A batch that crashed the worker this many times is poisoned.
+    CDP_BATCH_QUARANTINE_MAX_ATTEMPTS: number
+    // Must outlive a crash loop with restart backoff, so a key that no success clears still goes away.
+    CDP_BATCH_QUARANTINE_KEY_TTL_SECONDS: number
+    // Every batch waits for the count, so a slow Valkey must not stall the consumer.
+    CDP_BATCH_QUARANTINE_VALKEY_TIMEOUT_MS: number
 
     SES_RATE_LIMITER_VALKEY_HOST: string
     SES_RATE_LIMITER_VALKEY_PORT: number
@@ -399,6 +409,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_READER_PORT: 6379,
         CDP_VALKEY_TLS: false,
         CDP_VALKEY_READ_FEATURES: '',
+        CDP_BATCH_QUARANTINE_MODE: 'off',
+        CDP_BATCH_QUARANTINE_MAX_ATTEMPTS: 3,
+        CDP_BATCH_QUARANTINE_KEY_TTL_SECONDS: 60 * 60,
+        CDP_BATCH_QUARANTINE_VALKEY_TIMEOUT_MS: 500,
 
         // Dev points at the compose stack's Valkey (same instance as CDP_VALKEY) so the SES gate,
         // per-workflow email rate limits, and the MX-validation cache are exercisable locally.

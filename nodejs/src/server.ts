@@ -62,6 +62,7 @@ import { createSandboxEmailRuntime } from './cdp/services/messaging/sandbox/sand
 import { sandboxEmailTestRouter } from './cdp/services/messaging/sandbox/sandbox-email-test-route'
 import { sandboxTestSendBucket } from './cdp/services/messaging/sandbox/sandbox-ses-bucket'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
+import { createCrashGuardSettings } from './cdp/services/poison-batch/crash-guard'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from './cdp/utils/jwt-utils'
@@ -183,6 +184,7 @@ export class PluginServer implements NodeServer {
         }
 
         // Create shared job queue backends — each consumer gets the one(s) it needs
+        const crashGuardSettings = capabilities.cdpCyclotronWorker ? createCrashGuardSettings(this.config) : null
         const kafkaQueue = new CyclotronJobQueueKafka(
             this.config.KAFKA_CLIENT_RACK,
             this.config,
@@ -277,7 +279,7 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorker) {
             serviceLoaders.push(async () => {
-                const worker = new CdpCyclotronWorker(this.config, cdpDeps!, kafkaQueue)
+                const worker = new CdpCyclotronWorker(this.config, { ...cdpDeps!, crashGuardSettings }, kafkaQueue)
                 await worker.start()
                 return worker.service
             })
