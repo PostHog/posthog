@@ -26,13 +26,13 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
+import { replaceHrefAnchors } from './helpers/href-anchors'
 import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
-import { SES_LINK_INDEX_TAG, SesWebhookHandler, SnsEnvelope } from './helpers/ses'
+import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
+import { SnsEnvelope } from './helpers/sns-envelope'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
-const LINK_REGEX =
-    /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
 
 // Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
 const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
@@ -51,7 +51,12 @@ const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+)
 export type EmailTrackingMode = 'redirect' | 'ses'
 
 const addAttributeToOpeningTag = (openingTag: string, attribute: string): string => {
-    return openingTag.replace(/\s*\/?>$/, ` ${attribute}>`)
+    if (!openingTag.endsWith('>')) {
+        return openingTag
+    }
+    const attributes = openingTag.slice(0, -1)
+    const withoutSelfClose = attributes.endsWith('/') ? attributes.slice(0, -1) : attributes
+    return `${withoutSelfClose.trimEnd()} ${attribute}>`
 }
 
 const withSesLinkIndexTag = (openingTag: string, linkIndex: number): string => {
@@ -202,6 +207,8 @@ const isJavascriptHref = (href: string): boolean => {
     return url.slice(start, start + 'javascript:'.length).toLowerCase() === 'javascript:'
 }
 
+export const openPixelTag = (pixelUrl: string): string => `<img src="${pixelUrl}" style="display: none;" />`
+
 export const addTrackingToEmail = (
     html: string,
     invocation: CyclotronJobInvocationHogFunction,
@@ -220,7 +227,7 @@ export const addTrackingToEmail = (
     const trackingInvocation = { ...invocation, distinctId, workflowVersion: invocation.state.renderedWorkflowVersion }
     const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
-    // Incremented for every anchor LINK_REGEX matches, including ones that turn out to be opted
+    // Incremented for every anchor with an href, including ones that turn out to be opted
     // out or unsafe, so the index stays tied to document position instead of shifting with how
     // many anchors happened to be trackable. The same template therefore yields the same indices
     // on every send, which is what makes counts comparable across recipients.
@@ -229,10 +236,10 @@ export const addTrackingToEmail = (
     // a click-tracking redirect. Opens and deliveries are still tracked.
     const sensitive = invocation.hogFunction?.metadata?.sensitive === true
 
-    html = html.replace(LINK_REGEX, (m, d, s, u) => {
+    html = replaceHrefAnchors(html, ({ html: m, href: rawHref }) => {
         const linkIndex = anchorIndex++
-        const href = decodeHtmlEntitiesInHref(d || s || u || '')
-        // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
+        const href = decodeHtmlEntitiesInHref(rawHref)
+        // The anchor scan skips literal `javascript:` hrefs, but an attacker could entity-encode
         // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
         if (isJavascriptHref(href)) {
             return m
@@ -266,7 +273,7 @@ export const addTrackingToEmail = (
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
     })
 
-    html = html.replace('</body>', `<img src="${trackingUrl}" style="display: none;" /></body>`)
+    html = html.replace('</body>', `${openPixelTag(trackingUrl)}</body>`)
 
     return html
 }
@@ -341,9 +348,9 @@ export class EmailTrackingService {
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
-        private emailStatusService: EmailStatusService | null = null,
-        private engagementRedis: RedisV2 | null = null,
-        private sesWebhooksOutputs: IngestionOutputs<SesWebhooksOutput> | null = null
+        private emailStatusService: EmailStatusService | null,
+        private engagementRedis: RedisV2 | null,
+        private sesWebhooksOutputs: IngestionOutputs<SesWebhooksOutput>
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
@@ -491,7 +498,7 @@ export class EmailTrackingService {
         }
 
         if (!deferFlush) {
-            await this.hogFunctionMonitoringService.flush()
+            await Promise.all([this.hogFunctionMonitoringService.flush(), this.capturedEventsService.flush()])
         }
 
         trackingEventsCounter.inc({ event_type: metricName, source })
@@ -544,7 +551,6 @@ export class EmailTrackingService {
                 ...properties,
             },
         })
-        await this.capturedEventsService.flush()
     }
 
     public async trackLogs(
@@ -608,7 +614,15 @@ export class EmailTrackingService {
         }
 
         this.hogFunctionMonitoringService.queueLogs(logEntries, 'hog_flow')
-        await this.hogFunctionMonitoringService.flush()
+    }
+
+    // One Kafka round trip for everything SES recording queued.
+    public async flush(): Promise<void> {
+        await Promise.all([
+            this.hogFunctionMonitoringService.flush(),
+            this.capturedEventsService.flush(),
+            this.emailStatusService?.flush(),
+        ])
     }
 
     public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: unknown }> {
@@ -622,21 +636,12 @@ export class EmailTrackingService {
             countSesWebhookError(error)
             throw error
         }
-        if (this.sesWebhooksOutputs) {
-            return await this.queueSesNotification(body, this.sesWebhooksOutputs)
-        }
-        const recording = await this.recordSesNotification({ body, verifySignature: true })
-        switch (recording.outcome) {
-            case 'recorded':
-                return { status: 200, message: recording.body }
-            case 'rejected':
-                return { status: recording.status, message: recording.body }
-        }
+        return await this.queueSesNotification(body)
     }
 
     // The signature was verified on the request that queued this envelope.
     public async recordQueuedSesNotification(envelope: SnsEnvelope): Promise<SesRecordingOutcome> {
-        const recording = await this.recordSesNotification({ body: envelope, verifySignature: false })
+        const recording = await this.recordSesNotification(envelope)
         if (recording.outcome === 'recorded') {
             sesQueuedNotificationsCounter.inc({ stage: 'recorded' })
         } else {
@@ -649,10 +654,7 @@ export class EmailTrackingService {
         return recording
     }
 
-    private async queueSesNotification(
-        body: unknown,
-        outputs: IngestionOutputs<SesWebhooksOutput>
-    ): Promise<{ status: number; message?: unknown }> {
+    private async queueSesNotification(body: unknown): Promise<{ status: number; message?: unknown }> {
         let verified: Awaited<ReturnType<SesWebhookHandler['verifyDelivery']>>
         try {
             verified = await this.sesWebhookHandler.verifyDelivery(body)
@@ -664,7 +666,7 @@ export class EmailTrackingService {
             return { status: verified.status, message: verified.body }
         }
         try {
-            await outputs.produce(SES_WEBHOOKS_OUTPUT, {
+            await this.sesWebhooksOutputs.produce(SES_WEBHOOKS_OUTPUT, {
                 key: Buffer.from(verified.envelope.MessageId),
                 value: Buffer.from(JSON.stringify(verified.envelope)),
             })
@@ -677,10 +679,8 @@ export class EmailTrackingService {
         return { status: 200, message: 'queued' }
     }
 
-    private async recordSesNotification(opts: {
-        body: unknown
-        verifySignature: boolean
-    }): Promise<SesRecordingOutcome> {
+    // Queues the Kafka writes; the caller flushes.
+    private async recordSesNotification(envelope: SnsEnvelope): Promise<SesRecordingOutcome> {
         try {
             const {
                 status,
@@ -692,14 +692,11 @@ export class EmailTrackingService {
                 complainedRecipients,
                 deliveredRecipients,
                 emailStatusUpdates,
-            } = await this.sesWebhookHandler.handleWebhook(opts)
+            } = await this.sesWebhookHandler.handleWebhook({ body: envelope, verifySignature: false })
             if (status !== 200) {
                 return { outcome: 'rejected', status, body }
             }
 
-            // A single SNS notification can yield several metrics (a Click emits its rollup plus a
-            // per-link row, a Bounce its rollup plus a per-type row). Flushing inside each call would
-            // make those serial Kafka round-trips, so defer and flush once for the batch.
             for (const metric of metrics || []) {
                 await this.trackMetric({
                     functionId: metric.functionId,
@@ -716,9 +713,6 @@ export class EmailTrackingService {
                     workflowVersion: metric.workflowVersion,
                     verifiedTeamId: metric.teamId,
                 })
-            }
-            if (metrics?.length) {
-                await this.hogFunctionMonitoringService.flush()
             }
 
             // Wrapped so a failure here doesn't skip the suppression writes below.
@@ -737,7 +731,7 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
             }
 
-            // Best-effort like the writes around it: queue and flush never throw.
+            // Best-effort like the writes around it: queue never throws.
             if (this.emailStatusService && emailStatusUpdates?.length) {
                 for (const update of emailStatusUpdates) {
                     const teamId = parseInt(update.teamId, 10)
@@ -752,7 +746,6 @@ export class EmailTrackingService {
                         statusAt: new Date(update.timestamp),
                     })
                 }
-                await this.emailStatusService.flush()
             }
 
             // Feed bounces, complaints and successful deliveries into the suppression list. Wrapped
@@ -769,13 +762,14 @@ export class EmailTrackingService {
                         })
                     }
                 }
-                for (const { teamId, emailAddresses, diagnostic } of transientBounceRecipients || []) {
+                for (const { teamId, emailAddresses, diagnostic, bounceTimestamp } of transientBounceRecipients || []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
                         await this.emailSuppressionService.recordTransientBounces(
                             parsedTeamId,
                             emailAddresses,
-                            diagnostic
+                            diagnostic,
+                            bounceTimestamp
                         )
                     }
                 }

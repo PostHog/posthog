@@ -60,7 +60,7 @@ describe('notebook dependency graph run state', () => {
             },
         })
         initKeaTests()
-        jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
         jest.spyOn(api.notebooks, 'update').mockImplementation(async (_shortId: string, data: Record<string, any>) => ({
             ...notebookFixture,
             ...data,

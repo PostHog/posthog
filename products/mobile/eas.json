@@ -8,8 +8,7 @@
             "node": "24.13.0",
             "pnpm": "10.29.3",
             "ios": {
-                "image": "macos-tahoe-26.6-xcode-27.1",
-                "scheme": "PostHogApp"
+                "image": "macos-tahoe-26.6-xcode-27.1"
             }
         },
         "development": {

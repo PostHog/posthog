@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -60,6 +60,39 @@ const buildCredentialsPayload = async (
         }
     }
     return payload
+}
+
+// pinned: the connect page event names and properties below feed the agent connect funnel, so renaming breaks it.
+const CONNECT_PAGE_VIEWED = 'warehouse source connect page viewed'
+const CONNECT_SUBMITTED = 'warehouse source connect submitted'
+const CONNECT_SAVED = 'warehouse source connection saved'
+const CONNECT_FAILED = 'warehouse source connect failed'
+
+export type ConnectFailureClass = 'invalid_form' | 'file_unreadable' | 'rejected' | 'server_error' | 'network_error'
+
+const LINK_SOURCE_PATTERN = /^[a-z_]{1,32}$/
+
+/** Kinds and flags only: these events never carry what the user typed. */
+function connectEventProperties(
+    searchParams: Record<string, any>,
+    sourceType: string | null | undefined,
+    fromMigration: boolean
+): Record<string, string | boolean | null> {
+    // The connect_link endpoint sets utm_source to the surface that made the link, such as `wizard`.
+    const linkSource = searchParams.utm_source
+    return {
+        source_type: sourceType ?? null,
+        link_source: typeof linkSource === 'string' && LINK_SOURCE_PATTERN.test(linkSource) ? linkSource : null,
+        from_migration: fromMigration,
+    }
+}
+
+function storeFailureProperties(error: any): { error_class: ConnectFailureClass; status_code: number | null } {
+    const status = typeof error?.status === 'number' ? error.status : null
+    if (status === null) {
+        return { error_class: 'network_error', status_code: null }
+    }
+    return { error_class: status >= 500 ? 'server_error' : 'rejected', status_code: status }
 }
 
 const isPlainObject = (value: unknown): value is Record<string, any> =>
@@ -384,6 +417,12 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                 if (values.migrationPrefill && !values.prefillConfirmed) {
                     return
                 }
+                const eventProperties = connectEventProperties(
+                    router.values.searchParams,
+                    values.sourceConfig.name,
+                    values.migrationParams !== null
+                )
+                posthog.capture(CONNECT_SUBMITTED, eventProperties)
                 let payload: Record<string, any>
                 try {
                     payload = await buildCredentialsPayload(
@@ -393,6 +432,11 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                     )
                 } catch (e: any) {
                     posthog.captureException(e)
+                    posthog.capture(CONNECT_FAILED, {
+                        ...eventProperties,
+                        error_class: 'file_unreadable' satisfies ConnectFailureClass,
+                        status_code: null,
+                    })
                     const fieldName = e instanceof FileUploadParseError ? e.fieldName : null
                     lemonToast.error(
                         fieldName
@@ -416,14 +460,27 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                     if (e?.status >= 500) {
                         posthog.captureException(e)
                     }
+                    posthog.capture(CONNECT_FAILED, { ...eventProperties, ...storeFailureProperties(e) })
                     lemonToast.error(resolveConnectErrorMessage(e))
                     return
                 }
+                posthog.capture(CONNECT_SAVED, eventProperties)
                 actions.setStoredCredential(credential)
             },
         },
     })),
     listeners(({ actions, values }) => ({
+        submitCredentialsFormFailure: () => {
+            posthog.capture(CONNECT_FAILED, {
+                ...connectEventProperties(
+                    router.values.searchParams,
+                    values.sourceConfig?.name ?? values.kind,
+                    values.migrationParams !== null
+                ),
+                error_class: 'invalid_form' satisfies ConnectFailureClass,
+                status_code: null,
+            })
+        },
         loadMigrationPrefill: async ({ migrationId, itemId }, breakpoint) => {
             // Coming back to the same link must not overwrite what the user typed.
             if (values.loadedMigrationItemId === itemId) {
@@ -469,15 +526,24 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         [urls.dataWarehouseSourceConnect()]: (_, searchParams) => {
-            actions.setKind(searchParams.kind ?? null)
+            const kind = searchParams.kind ?? null
+            // A hash change (the side panel opening) runs this again, and must not count as a second visit.
+            const kindChanged = kind !== values.kind
+            actions.setKind(kind)
             const { migration_id: migrationId, migration_item_id: itemId } = searchParams
             // Both go into a request path, so anything but an id is ignored.
-            if (
+            const fromMigration =
                 typeof migrationId === 'string' &&
                 typeof itemId === 'string' &&
                 isUUIDLike(migrationId) &&
                 isUUIDLike(itemId)
-            ) {
+            if (kindChanged) {
+                posthog.capture(
+                    CONNECT_PAGE_VIEWED,
+                    connectEventProperties(searchParams, values.sourceConfig?.name ?? kind, fromMigration)
+                )
+            }
+            if (fromMigration) {
                 actions.loadMigrationPrefill(migrationId, itemId)
             } else if (values.migrationParams) {
                 // Leaving a migration link: its details and saved credential must not stay on the plain form.

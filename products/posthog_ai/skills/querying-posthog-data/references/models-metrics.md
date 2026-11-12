@@ -4,7 +4,7 @@ The `posthog.metrics` table holds OpenTelemetry metric data points from instrume
 
 **Namespacing:** Reference this table as `posthog.metrics`, not bare `metrics` — it's registered under the `posthog.` namespace in the HogQL database (see `posthog/hogql/database/database.py`). The same applies to `posthog.metric_attributes`. Bare names fail with "Unknown table" at HogQL compile time. (Asymmetric with `logs`, which is registered at root level.)
 
-For time series (rates, increases, quantiles, formulas), prefer the typed `posthog:query-metrics` MCP tool. Use HogQL for exemplar lookups, cross-signal joins, and aggregations the typed tool doesn't expose. The schema mirrors `logs` and `posthog.trace_spans` deliberately so cross-signal joins are cheap, and `trace_id` / `span_id` are first-class columns on every metric row (the OpenTelemetry exemplar pattern).
+For time series (rates, increases, quantiles, formulas), prefer the typed `posthog:query-metrics` MCP tool. Use HogQL for exemplar lookups and aggregations the typed tool doesn't expose. `trace_id` / `span_id` are first-class columns on every metric row (the OpenTelemetry exemplar pattern). `posthog.metrics` lives on a separate cluster from `logs` and `posthog.trace_spans`, so a query cannot join or union it with them: read the exemplar `trace_id` here, then query spans and logs separately with that value.
 
 > **Exemplars are sparse.** Ingestion (`rust/capture-logs/src/metric_record.rs`) keeps the first exemplar with a valid trace ID on each data point. Only points whose SDK attached an exemplar carry a `trace_id` / `span_id`; most rows have `''`. When no point in the window has one, anchor cross-signal work on `posthog.trace_spans` instead.
 
@@ -56,7 +56,7 @@ with `count() AS event_count`, `sum(value) AS total_value`, `min(value) AS min_v
 
 - **Unit is metric-dependent.** Always check `unit` — `http.server.duration` may be reported in `ms`, `s`, or `ns` depending on the SDK. Don't assume.
 - **`trace_id` is empty string on points without an exemplar**, which is most rows (see the note above). Filter `trace_id != ''` to keep only exemplar points.
-- **`trace_id` is base64-encoded** when set, matching `logs` and `posthog.trace_spans`. Joins to those tables are direct equality on `trace_id`. Use `hex(tryBase64Decode(trace_id))` to display in hex.
+- **`trace_id` is base64-encoded** when set, matching `logs` and `posthog.trace_spans`, so the value matches theirs by direct equality when you pass it to a separate query. Use `hex(tryBase64Decode(trace_id))` to display in hex.
 - **Histograms store `histogram_bounds` and `histogram_counts` per row** — you need to expand them for quantile estimation. For a quick p95-ish summary, `value / count` gives the mean per-point.
 - **Choose the right temporality.** `delta` metrics measure activity in the interval; `cumulative` metrics are running totals. Summing `value` over time only makes sense for `delta`.
 - User HogQL queries on `posthog.metrics` are capped at 50 GB read per query.
@@ -134,4 +134,4 @@ WHERE service_name = 'checkout'
   AND trace_id != ''
 ```
 
-Pair this with `posthog:apm-trace-get` (or a SQL join on `trace_spans`) to inspect the trace that drove the spike.
+Pair this with `posthog:apm-trace-get` (or a separate SQL query on `posthog.trace_spans` with that `trace_id`) to inspect the trace that drove the spike.

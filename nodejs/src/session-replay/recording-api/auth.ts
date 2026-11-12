@@ -1,9 +1,9 @@
 import { NextFunction, Request, Response } from 'ultimate-express'
 
-import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt } from '~/cdp/utils/jwt-utils'
+import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt, parseJwtKeys } from '~/cdp/utils/jwt-utils'
 import { logger } from '~/common/utils/logger'
 
-import { RecordingApiRole } from './types'
+import { DEV_RECORDING_API_BLOCKS_JWT_SECRET, DEV_RECORDING_API_JWT_SECRET, RecordingApiRole } from './types'
 
 /**
  * Authorization for recording-api routes.
@@ -69,12 +69,27 @@ function verifyBearer(
     }
 }
 
+// The dev keys are public in this repo, so anyone could sign with them. A deployed pod refuses them outright. The local and
+// E2E containers run the production image with the dev keys, so they are not deployed.
+function refuseDevKey(secret: string, devKey: string, name: string): void {
+    if (parseJwtKeys(secret || '').includes(devKey)) {
+        throw new Error(`recording-api refuses the public dev ${name} on a deployed environment`)
+    }
+}
+
 /**
  * Fail closed in production: recording routes must have a JWT secret, because without one the
  * middleware below lets every request through. Uses the same key parsing as the verifier so a
  * malformed-but-truthy value (e.g. ',') counts as "no JWT configured".
  */
-export function assertRecordingApiAuthConfigured(opts: { isProd: boolean; jwtSecret: string }): void {
+export function assertRecordingApiAuthConfigured(opts: {
+    isProd: boolean
+    deployed?: boolean
+    jwtSecret: string
+}): void {
+    if (opts.deployed) {
+        refuseDevKey(opts.jwtSecret, DEV_RECORDING_API_JWT_SECRET, 'RECORDING_API_JWT_SECRET')
+    }
     if (hasJwtKeys(opts.jwtSecret || '')) {
         return
     }
@@ -95,11 +110,15 @@ export function assertRecordingApiAuthConfigured(opts: { isProd: boolean; jwtSec
 export function assertRecordingApiRoleAuthConfigured(opts: {
     role: RecordingApiRole
     isProd: boolean
+    deployed?: boolean
     blocksJwtSecret: string
     jwtSecret: string
 }): void {
     if (opts.role !== 'internal' && opts.isProd && !hasJwtKeys(opts.blocksJwtSecret || '')) {
         throw new Error('recording-api serving browser blocks needs RECORDING_API_BLOCKS_JWT_SECRET in production')
+    }
+    if (opts.role !== 'internal' && opts.deployed) {
+        refuseDevKey(opts.blocksJwtSecret, DEV_RECORDING_API_BLOCKS_JWT_SECRET, 'RECORDING_API_BLOCKS_JWT_SECRET')
     }
     if (opts.role !== 'public') {
         assertRecordingApiAuthConfigured(opts)

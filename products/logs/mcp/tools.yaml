@@ -48,6 +48,7 @@ tools:
                 - schedule_restriction
                 - snooze_until
                 - grouping
+                - labels
                 - platform_owned
                 - next_check_at
                 - last_notified_at
@@ -174,6 +175,7 @@ tools:
                 - window_minutes
                 - schedule_restriction
                 - grouping
+                - labels
                 - platform_owned
                 - created_at
                 - updated_at
@@ -218,6 +220,7 @@ tools:
                 - schedule_restriction
                 - snooze_until
                 - grouping
+                - labels
                 - platform_owned
                 - next_check_at
                 - last_notified_at
@@ -256,6 +259,7 @@ tools:
                 - schedule_restriction
                 - snooze_until
                 - grouping
+                - labels
                 - platform_owned
                 - next_check_at
                 - last_notified_at
@@ -428,7 +432,7 @@ tools:
             idempotent: true
         title: Group logs by attributes
         description_file: ./prompts/logs-group-by.md
-        feature_flag: logs-agent-tools
+        hooks: logs/groupByRedactionHooks
         response:
             exclude:
                 - groups.*.value

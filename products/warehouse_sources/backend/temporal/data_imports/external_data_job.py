@@ -73,6 +73,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     DUPLICATE_PRIMARY_KEYS_ERROR,
     MISSING_PRIMARY_KEYS_ERROR,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_warehouse_bucket_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_TRANSIENT_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
@@ -672,9 +678,14 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         # (SQLSTATE 25006 after a failover, our pooler's "server login has been failing"), so
         # matching it here would disable a sync whose source never failed, and hand the customer a
         # message telling them to go fix a database that is working.
-        platform_failure = _is_app_db_failure(internal_error_normalized)
-        if platform_failure:
+        # The same applies to an error from our own warehouse bucket: its 403 body says "not
+        # authorized", which source maps read as a customer access denial.
+        if _is_app_db_failure(internal_error_normalized):
+            platform_failure = True
             inputs.latest_error = POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
+        elif is_warehouse_bucket_error(internal_error_normalized):
+            platform_failure = True
+            inputs.latest_error = OBJECT_STORE_TRANSIENT_MESSAGE
 
         has_non_retryable_error = not platform_failure and error_message_matches(
             internal_error_normalized, non_retryable_errors.keys()

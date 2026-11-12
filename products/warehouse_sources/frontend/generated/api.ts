@@ -42,6 +42,7 @@ import type {
     ExternalDataSourceCreateResponseApi,
     ExternalDataSourceExistsApi,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourceSyncStateApi,
     ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesJobsListParams,
     ExternalDataSourcesListParams,
@@ -1609,6 +1610,25 @@ export const externalDataSourcesStoredCredentialsList = async (
     options?: RequestInit
 ): Promise<SourceCredentialApi[]> => {
     return apiMutator<SourceCredentialApi[]>(getExternalDataSourcesStoredCredentialsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataSourcesSyncStateRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/sync_state/`
+}
+
+/**
+ * Return a fingerprint of the sync state the sources list shows.
+ *
+ * A client that polls the list can compare fingerprints and refetch the list only when it changed.
+ */
+export const externalDataSourcesSyncStateRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExternalDataSourceSyncStateApi> => {
+    return apiMutator<ExternalDataSourceSyncStateApi>(getExternalDataSourcesSyncStateRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

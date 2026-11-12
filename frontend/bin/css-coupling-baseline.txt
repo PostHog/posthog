@@ -39,7 +39,6 @@ frontend/src/scenes/project-homepage/today/TodayReportPage.tsx -> .TodayReport
 frontend/src/scenes/session-recordings/player/controller/PlayerController.tsx -> .SkipToNextButton
 frontend/src/scenes/session-recordings/player/controller/PlayerControllerTime.tsx -> .PlayerControlSeekIcon
 frontend/src/scenes/session-recordings/player/controller/PlayerSeekbarTicks.tsx -> .PlayerSeekbarTicks
-frontend/src/scenes/session-recordings/playlist/SessionRecordingPreviewCompact.tsx -> .SessionRecordingPreview
 frontend/src/scenes/session-recordings/playlist/SessionRecordingPreviewFeed.tsx -> .SessionRecordingPreview
 frontend/src/scenes/surveys/SurveyDragHandle.tsx -> .SurveyQuestionDragHandle
 products/business_intelligence/frontend/BIPivotTable.tsx -> .DataVisualizationTable

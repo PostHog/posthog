@@ -36,9 +36,9 @@ EVENTS_WITH_FLAG_CALLS_TABLE = "events_with_flag_calls"
 EVENTS_WITH_FLAG_CALLS_CHAIN: list[str] = ["posthog", EVENTS_WITH_FLAG_CALLS_TABLE]
 
 # Ingestion writes a flag call to flag_evaluations only when `$feature_flag` is a non-empty JSON string. The raw JSON
-# text of a string value starts with a quote, and a number, boolean or object does not. On the native JSON events
-# table the printer converts a typed key before this test reads it, so mode 1 queries there keep reading events. The
-# test reads only the raw JSON text, because a materialized `$feature_flag` column reads an empty string as missing.
+# text of a string value starts with a quote, and a number, boolean or object does not. A query on the native JSON
+# events table reads every flag call from flag_evaluations, so this test never reads that table. The test reads only
+# the raw JSON text, because a materialized `$feature_flag` column reads an empty string as missing.
 _HAS_FLAG_KEY = (
     "startsWith(JSONExtractRaw(events.properties, '$feature_flag'), '\"') "
     "AND JSONExtractRaw(events.properties, '$feature_flag') != '\"\"'"
@@ -160,6 +160,8 @@ class EventsWithFlagCallsTable(LazyTable):
         )
 
         assert context.database is not None
+        # An inline cohort renames its own scans during type resolution, so only this method sees every union scan.
+        context.flag_calls_read.add("union")
         # Lazy table resolution drops the scan's SAMPLE, so each branch applies the ratio itself.
         sample = union_scan_sample(node, self)
 
@@ -192,7 +194,7 @@ class EventsWithFlagCallsTable(LazyTable):
             )
 
         columns = FlagEvaluationsColumns(self, context.database.get_table(["posthog", "flag_evaluations"]))
-        only_in_flag_evaluations = context.database.flag_calls_only_in_flag_evaluations
+        only_in_flag_evaluations = context.flag_calls_only_in_flag_evaluations()
         cutoff = ast.Constant(value=flag_evaluations_coverage_start(datetime.now(UTC)))
         # Property type resolution ran before lazy tables, so the metadata holds the type of each property this query
         # reads, `$feature_flag` among them.
@@ -297,9 +299,7 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
         return serialized
     # Events reads a missing key and an empty object as NULL. An integer key names a key, not a position.
     raw = ast.Call(name="JSONExtractRaw", args=[ast.Field(chain=read.chain[:-1]), ast.Constant(value=key)])
-    # Events reads a JSON null as NULL from a JSON subcolumn. A restriction makes events read the key from the
-    # `temporary_properties` text instead, and that text keeps the JSON null as `null`.
-    return null_if_sentinels(raw, ("", "{}") if overlaps_restriction else ("", "{}", "null"))
+    return null_if_sentinels(raw, ("", "{}", "null"))
 
 
 def union_table_of(table_type: ast.Type | None) -> "EventsWithFlagCallsTable | None":

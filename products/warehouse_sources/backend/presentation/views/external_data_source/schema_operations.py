@@ -444,10 +444,6 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             endpoint_permissions = {schema.name: None for schema in schemas}
 
-        # Cache the CDC flag once: in non-DEBUG environments this calls posthoganalytics.feature_enabled,
-        # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
-        # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
-        cdc_enabled = base.is_cdc_enabled_for_team(self.team)
         # xmin is gated at the source-type level by the source's capability flag so it never
         # leaks to another SQL source.
         xmin_capable = source.supports_xmin
@@ -459,7 +455,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
-                "cdc_available": schema.supports_cdc if cdc_enabled else None,
+                "cdc_available": schema.supports_cdc,
                 "xmin_available": schema.supports_xmin if xmin_capable else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0

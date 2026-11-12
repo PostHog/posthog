@@ -1,4 +1,3 @@
-import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -72,23 +71,23 @@ class TestTokenBucketLimiter:
         assert limiter.consume("user1") is True
         assert limiter.consume("user2") is True
 
-    def test_tokens_replenish_over_time(self) -> None:
+    def test_tokens_replenish_over_time(self, clock: MagicMock) -> None:
         limiter = TokenBucketLimiter(rate=10.0, capacity=1.0)
 
         assert limiter.consume("user1") is True
         assert limiter.consume("user1") is False
 
-        time.sleep(0.15)
+        clock.return_value += 0.15
 
         assert limiter.consume("user1") is True
 
-    def test_partial_replenishment(self) -> None:
+    def test_partial_replenishment(self, clock: MagicMock) -> None:
         limiter = TokenBucketLimiter(rate=10.0, capacity=2.0)
 
         assert limiter.consume("user1", tokens=2.0) is True
         assert limiter.consume("user1") is False
 
-        time.sleep(0.1)
+        clock.return_value += 0.1
 
         assert limiter.consume("user1") is True
         assert limiter.consume("user1") is False

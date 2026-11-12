@@ -58,6 +58,7 @@ from products.signals.backend.filter_catalog import (
     SignalFilterCatalogVersion as SignalFilterCatalogVersion,
     SignalFilterSourceDefinition as SignalFilterSourceDefinition,
 )
+from products.signals.backend.filter_state import SignalSourceFilterState as SignalSourceFilterState
 from products.signals.backend.rated_usage_models import SignalRatedUsage as SignalRatedUsage
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
@@ -583,6 +584,12 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+            # Partial: the stuck-research sweep reads IN_PROGRESS reports across all teams by run start.
+            models.Index(
+                fields=["last_run_at"],
+                condition=models.Q(status="in_progress"),
+                name="signals_report_in_progress",
             ),
             # Partial: the per-user daily create cap counts one member's reports from the start of the day.
             models.Index(
@@ -3752,6 +3759,39 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "scout_run"], name="signal_scout_emission_run_idx"),
+        ]
+
+
+class SignalScoutPendingTrigger(TeamScopedRootMixin, UUIDModel):
+    """A workflow "Run scout" fire that arrived while its scout was busy, waiting for a run.
+
+    Written when the workflow cooldown or the in-flight gate turns a fire away, and deleted when a
+    run takes it: the coordinator attaches it to a due scheduled run, or dispatches one
+    workflow-triggered run carrying every pending fire of the lane. See
+    `scout_harness/workflow_trigger_queue.py`. Rows exist only while a fire waits, so the table
+    stays small and the coordinator can read all of it each tick.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale: the coordinator drains with no team scope set.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # No single-column index: the lane index below leads with team_id.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    skill_name = models.CharField(max_length=200)
+    # The note the step rendered from its triggering event. Blank means the event fired with no note.
+    note = models.TextField(blank=True, default="")
+    # The HogFlow whose step fired. Not a foreign key: workflows belong to another product.
+    workflow_id = models.CharField(max_length=64, null=True, blank=True)
+    received_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Signal scout pending trigger"
+        verbose_name_plural = "Signal scout pending triggers"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "skill_name", "received_at"], name="signal_scout_pending_lane_idx"),
         ]
 
 

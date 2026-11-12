@@ -118,7 +118,6 @@ def _named_tool_where(
     filter_test_accounts: bool | None = None,
     *,
     tool_name: str | None = None,
-    search: str | None = None,
 ) -> ast.Expr:
     """Apply tool-name filters before aggregation so non-matching events skip the percentile and distinct aggregates."""
     exprs: list[ast.Expr] = [
@@ -139,17 +138,19 @@ def _named_tool_where(
                 },
             )
         )
-    if search:
-        exprs.append(
-            parse_expr(
-                "positionCaseInsensitive({effective_tool}, {search}) > 0",
-                placeholders={
-                    "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
-                    "search": ast.Constant(value=search),
-                },
-            )
-        )
     return ast.And(exprs=exprs)
+
+
+def _tool_search(search: str) -> list[ast.Expr]:
+    """Optional case-insensitive substring match on the effective tool name, the search term bound as a constant."""
+    if not search:
+        return []
+    return [
+        parse_expr(
+            "positionCaseInsensitive({effective_tool}, {search}) > 0",
+            placeholders={"effective_tool": parse_expr(EFFECTIVE_TOOL_SQL), "search": ast.Constant(value=search)},
+        )
+    ]
 
 
 class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQueryResponse]):
@@ -214,38 +215,63 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 count() OVER () AS total_count,
                 previous_errors,
                 if(previous_calls = 0 OR isNaN(previous_p95), NULL, previous_p95) AS previous_p95_duration_ms,
-                previous_sessions
+                previous_sessions,
+                total_sessions,
+                previous_total_sessions
             FROM (
                 SELECT
                     tool,
-                    countIf(is_current) AS total_calls,
-                    countIf(NOT is_current) AS previous_calls,
-                    countIf(is_current AND is_error) AS errors,
-                    countIf(NOT is_current AND is_error) AS previous_errors,
-                    round(quantileIf(0.5)(duration_ms, is_current)) AS p50_duration_ms,
-                    round(quantileIf(0.95)(duration_ms, is_current)) AS p95_duration_ms,
-                    round(quantileIf(0.95)(duration_ms, NOT is_current)) AS previous_p95,
-                    round(quantileIf(0.99)(duration_ms, is_current)) AS p99_duration_ms,
-                    uniqIf(distinct_id, is_current) AS users,
-                    uniqIf(session_id, is_current) AS sessions,
-                    uniqIf(session_id, NOT is_current) AS previous_sessions,
-                    minIf(timestamp, is_current) AS first_seen,
-                    maxIf(timestamp, is_current) AS last_seen
+                    total_calls,
+                    previous_calls,
+                    errors,
+                    previous_errors,
+                    p50_duration_ms,
+                    p95_duration_ms,
+                    previous_p95,
+                    p99_duration_ms,
+                    users,
+                    sessions,
+                    previous_sessions,
+                    first_seen,
+                    last_seen,
+                    uniqMerge(all_sessions_state) OVER () AS total_sessions,
+                    uniqMerge(all_previous_sessions_state) OVER () AS previous_total_sessions
                 FROM (
                     SELECT
-                        {_EFFECTIVE_TOOL} AS tool,
-                        timestamp >= {current_from} AS is_current,
-                        toBool(properties.$mcp_is_error) AS is_error,
-                        toFloat(properties.$mcp_duration_ms) AS duration_ms,
-                        nullIf({conversation_id}, '') AS session_id,
-                        distinct_id,
-                        timestamp
-                    FROM events
-                    WHERE {where}
+                        tool,
+                        countIf(in_current) AS total_calls,
+                        countIf(in_previous) AS previous_calls,
+                        countIf(in_current AND is_error) AS errors,
+                        countIf(in_previous AND is_error) AS previous_errors,
+                        round(quantileIf(0.5)(duration_ms, in_current)) AS p50_duration_ms,
+                        round(quantileIf(0.95)(duration_ms, in_current)) AS p95_duration_ms,
+                        round(quantileIf(0.95)(duration_ms, in_previous)) AS previous_p95,
+                        round(quantileIf(0.99)(duration_ms, in_current)) AS p99_duration_ms,
+                        uniqIf(distinct_id, in_current) AS users,
+                        uniqIf(session_id, in_current) AS sessions,
+                        uniqIf(session_id, in_previous) AS previous_sessions,
+                        minIf(timestamp, in_current) AS first_seen,
+                        maxIf(timestamp, in_current) AS last_seen,
+                        uniqState(if(is_current, session_id, NULL)) AS all_sessions_state,
+                        uniqState(if(is_current, NULL, session_id)) AS all_previous_sessions_state
+                    FROM (
+                        SELECT
+                            {_EFFECTIVE_TOOL} AS tool,
+                            timestamp >= {current_from} AS is_current,
+                            is_current AND {matches_table_filters} AS in_current,
+                            NOT is_current AND {matches_table_filters} AS in_previous,
+                            toBool(properties.$mcp_is_error) AS is_error,
+                            toFloat(properties.$mcp_duration_ms) AS duration_ms,
+                            nullIf({conversation_id}, '') AS session_id,
+                            distinct_id,
+                            timestamp
+                        FROM events
+                        WHERE {where}
+                    )
+                    GROUP BY tool
                 )
-                GROUP BY tool
-                HAVING countIf(is_current) > 0
             )
+            WHERE total_calls > 0
             ORDER BY total_calls DESC, tool ASC
             LIMIT {limit}
             OFFSET {offset}
@@ -256,14 +282,19 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                 "_min_k": ast.Constant(value=_TREND_SCORE_MIN_K),
                 "_volume_fraction": ast.Constant(value=_TREND_SCORE_VOLUME_FRACTION),
+                # The session totals ignore category and search so that narrowing the table does not turn a
+                # tool's share into 100%. Category and search only gate the per-tool aggregates, and the totals
+                # window runs before `total_calls > 0` drops the tools that they exclude.
+                "matches_table_filters": ast.And(
+                    exprs=[ast.Constant(value=True), *_category_in(self.query.categories), *_tool_search(search)]
+                ),
                 # Scans only the two windows, so every row outside the current one is a previous call.
                 "where": _named_tool_where(
                     self._both_windows(),
-                    self.query.categories,
+                    None,
                     self.team,
                     self.query.properties,
                     self.query.filterTestAccounts,
-                    search=search,
                 ),
                 "limit": ast.Constant(value=limit),
                 "offset": ast.Constant(value=offset),
@@ -286,7 +317,6 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
         )
 
     def _total_sessions_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        # Ignores category and search so that narrowing the table does not turn a tool's share into 100%.
         return parse_select(
             """
             SELECT uniqIf(session_id, is_current), uniqIf(session_id, NOT is_current)
@@ -326,7 +356,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 limit_context=self.limit_context,
             )
             rows = response.results or []
-            total_count = int(rows[0][13] or 0) if rows else 0
+            totals_row = rows[0] if rows else None
             if not rows and (self.query.offset or 0) > 0:
                 first_row_response = execute_hogql_query(
                     query=self.to_query(limit_override=1, offset_override=0),
@@ -338,17 +368,27 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                     limit_context=self.limit_context,
                 )
                 first_row = first_row_response.results or []
-                total_count = int(first_row[0][13] or 0) if first_row else 0
-            total_sessions_response = execute_hogql_query(
-                query=self._total_sessions_query(),
-                team=self.team,
-                user=self.user,
-                query_type="mcp_tool_quality_total_sessions_query",
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-            )
-        total_sessions_row = (total_sessions_response.results or [[0, 0]])[0]
+                totals_row = first_row[0] if first_row else None
+            if totals_row:
+                total_count, total_sessions, previous_total_sessions = (
+                    int(totals_row[13] or 0),
+                    int(totals_row[17] or 0),
+                    int(totals_row[18] or 0),
+                )
+            else:
+                total_sessions_response = execute_hogql_query(
+                    query=self._total_sessions_query(),
+                    team=self.team,
+                    user=self.user,
+                    query_type="mcp_tool_quality_total_sessions_query",
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                )
+                total_sessions_row = (total_sessions_response.results or [[0, 0]])[0]
+                total_count = 0
+                total_sessions = int(total_sessions_row[0] or 0)
+                previous_total_sessions = int(total_sessions_row[1] or 0)
         results = [
             MCPToolQualityRowItem(
                 tool=str(row[0] or ""),
@@ -373,8 +413,8 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
         return MCPToolQualityRowsQueryResponse(
             results=results,
             totalCount=total_count,
-            totalSessions=int(total_sessions_row[0] or 0),
-            previousTotalSessions=int(total_sessions_row[1] or 0),
+            totalSessions=total_sessions,
+            previousTotalSessions=previous_total_sessions,
             timings=response.timings,
             hogql=response.hogql,
             modifiers=self.modifiers,

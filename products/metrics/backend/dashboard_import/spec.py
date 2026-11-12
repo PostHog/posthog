@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from products.metrics.backend.dashboard_import.colors import THRESHOLD_COLORS, map_color
 
 GRID_COLUMNS = 12
 # Far taller than any real panel. It keeps a malformed height from making a huge tile.
@@ -50,6 +52,12 @@ class Threshold(_Model):
         description="Color token: success, warning, danger, blue, purple, or data-color-1 to data-color-15."
     )
     value: float = Field(description="Lower bound of the band. The lowest band also colors every lower value.")
+
+    @field_validator("color")
+    @classmethod
+    def _theme_token(cls, color: str) -> str:
+        # An agent can write a Grafana name such as "orange" from a screenshot, and the panels have no variable for it.
+        return color if color in THRESHOLD_COLORS else map_color(color)
 
 
 class DisplaySpec(_Model):
