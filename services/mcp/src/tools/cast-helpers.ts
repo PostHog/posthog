@@ -105,6 +105,13 @@ export const normalizeParamAliases = (aliasMap: Record<string, readonly string[]
  */
 const ALIAS_MAPS = new WeakMap<(input: unknown) => unknown, Record<string, readonly string[]>>()
 
+export function registerAliasPreprocess(
+    preprocess: (input: unknown) => unknown,
+    aliasMap: Record<string, readonly string[]>
+): void {
+    ALIAS_MAPS.set(preprocess, aliasMap)
+}
+
 /** Deeper than any tool stacks `z.preprocess` today; bounds the walk over a malformed pipe chain. */
 const MAX_PREPROCESS_DEPTH = 8
 

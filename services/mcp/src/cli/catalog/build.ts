@@ -31,7 +31,8 @@ export function buildCliCatalog(build: string | null): BuiltCatalog {
         tools.push({
             ...plan,
             definition: getToolDefinition(name),
-            inputSchema: z.toJSONSchema(factory().schema, { io: 'input' }) as Record<string, unknown>,
+            // The spread drops the non-enumerable `~standard` handle, which keeps the zod schema alive.
+            inputSchema: { ...z.toJSONSchema(factory().schema, { io: 'input' }) } as Record<string, unknown>,
         })
     }
     return { schemaVersion: CATALOG_SCHEMA_VERSION, minHogVersion: CATALOG_MIN_HOG_VERSION, build, tools }

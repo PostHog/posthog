@@ -82,7 +82,6 @@ const toolDefinitionsSchema = z.record(z.string(), ToolDefinitionSchema)
 let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
 let _mergedToolDefinitions: ToolDefinitions | undefined = undefined
-let _catalogToolDefinitions: ToolDefinitions = {}
 
 const NOTEBOOK_BUILDER_TOOL_NAMES = ['notebooks-create', 'notebooks-create-markdown', 'notebooks-add-cell'] as const
 
@@ -118,10 +117,7 @@ export function getToolDefinitions(): ToolDefinitions {
         if (!_toolDefinitions) {
             _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
         }
-        _mergedToolDefinitions = {
-            ...addNotebookWidgetCatalog({ ..._toolDefinitions, ...getGeneratedToolDefinitions() }),
-            ..._catalogToolDefinitions,
-        }
+        _mergedToolDefinitions = addNotebookWidgetCatalog({ ..._toolDefinitions, ...getGeneratedToolDefinitions() })
     }
     return _mergedToolDefinitions
 }
@@ -148,12 +144,6 @@ export function getAdvertisedOAuthScopes(): readonly string[] {
         _advertisedOAuthScopes = OAUTH_SCOPES_SUPPORTED.filter((scope) => !scope.includes(':') || required.has(scope))
     }
     return _advertisedOAuthScopes
-}
-
-export function setCatalogToolDefinitions(definitions: ToolDefinitions): void {
-    _catalogToolDefinitions = definitions
-    _mergedToolDefinitions = undefined
-    _advertisedOAuthScopes = undefined
 }
 
 export function getToolDefinition(toolName: string): ToolDefinition {
@@ -196,6 +186,7 @@ export function getToolDescription(toolName: string): string | undefined {
 }
 
 export interface ToolFilterOptions {
+    definitions?: ToolDefinitions | undefined
     features?: string[] | undefined
     tools?: string[] | undefined
     excludeTools?: string[] | undefined
@@ -300,7 +291,9 @@ export function toolPassesEntitlementGate(
 function filterToolEntries(options: ToolFilterOptions | undefined, applyFlagGate: boolean): [string, ToolDefinition][] {
     const { features, tools, readOnly, aiConsentGiven, featureFlags, scopedTeams, availableFeatures, isCloud } =
         options || {}
-    const toolDefinitions = getToolDefinitions()
+    const toolDefinitions = options?.definitions
+        ? { ...getToolDefinitions(), ...options.definitions }
+        : getToolDefinitions()
 
     let entries = Object.entries(toolDefinitions)
 

@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { buildCliCatalog } from '@/cli/catalog/build'
 import { loadCatalog } from '@/cli/catalog/load'
 import { createApiToolLibrary } from '@/cli/library'
-import { setCatalogToolDefinitions } from '@/tools/toolDefinitions'
 
 const TOOL = 'annotations-list'
 
@@ -15,10 +14,6 @@ function catalogWith(change: (entry: Record<string, any>) => void, name = TOOL):
 }
 
 describe('CLI catalog loading', () => {
-    afterEach(() => {
-        setCatalogToolDefinitions({})
-    })
-
     it.each([
         ['an unknown field', (entry: any) => (entry.retries = 3), 'unknown field retries'],
         [
@@ -73,8 +68,12 @@ describe('CLI catalog loading', () => {
         const downloaded = createApiToolLibrary({ catalog: changed })
         expect(downloaded.tools().find((tool) => tool.name === TOOL)?.summary).toBe('Downloaded summary')
         expect(downloaded.catalog()).toMatchObject({ source: 'downloaded', build: 'test-build', dropped: [] })
+        expect(
+            createApiToolLibrary()
+                .tools()
+                .find((tool) => tool.name === TOOL)?.summary
+        ).toBe(compiledSummary)
 
-        setCatalogToolDefinitions({})
         const broken = catalogWith((entry) => {
             entry.definition.summary = 'Downloaded summary'
             entry.response.redact = ['email']
@@ -84,6 +83,24 @@ describe('CLI catalog loading', () => {
         expect(fallback.catalog().dropped).toEqual([
             { name: TOOL, reason: 'unknown field response.redact', builtIn: true },
         ])
+    })
+
+    it('runs the compiled-in tool when a kept entry has an input schema this build cannot read', () => {
+        const compiled = createApiToolLibrary()
+            .tools()
+            .find((tool) => tool.name === TOOL)!
+        const catalog = catalogWith((entry) => {
+            entry.definition.summary = 'Downloaded summary'
+            entry.inputSchema = { type: 'object', properties: { limit: { type: 'not-a-type' } } }
+        })
+
+        const library = createApiToolLibrary({ catalog })
+
+        expect(library.tools().find((tool) => tool.name === TOOL)).toEqual(compiled)
+        expect(library.catalog()).toMatchObject({
+            source: 'downloaded',
+            dropped: [{ name: TOOL, reason: "its input schema can't be read by this hog", builtIn: true }],
+        })
     })
 
     it('adds a tool the compiled-in catalog does not have', () => {
