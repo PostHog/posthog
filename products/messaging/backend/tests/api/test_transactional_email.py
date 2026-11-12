@@ -1044,21 +1044,26 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("code_send_link", "code", (400, "unsubscribe_link_required")),
-            ("code_send_copies", "code", (400, "copies_not_allowed")),
-            ("template_send_link", "template", (400, "unsubscribe_link_required")),
-            ("template_send_copies", "template", (400, "copies_not_allowed")),
-            ("template_send_opted_out", "template", (422, "recipient_opted_out")),
+            ("code_send_link", "code", {}, (400, "unsubscribe_link_required")),
+            ("code_send_copies", "code", {}, (400, "copies_not_allowed")),
+            ("code_send_with_files_link", "code", {"attachments": TWO_FILES}, (400, "unsubscribe_link_required")),
+            ("code_send_with_files_copies", "code", {"attachments": TWO_FILES}, (400, "copies_not_allowed")),
+            ("code_send_with_files_opted_out", "code", {"attachments": TWO_FILES}, (422, "recipient_opted_out")),
+            ("template_send_link", "template", {}, (400, "unsubscribe_link_required")),
+            ("template_send_copies", "template", {}, (400, "copies_not_allowed")),
+            ("template_send_opted_out", "template", {}, (422, "recipient_opted_out")),
         ]
     )
-    def test_the_email_pipelines_refusal_reaches_the_caller(self, cdp_post, _flag, capture, _name, form, refusal):
+    def test_the_email_pipelines_refusal_reaches_the_caller(
+        self, cdp_post, _flag, capture, _name, form, fields, refusal
+    ):
         self.cdp = self.enterContext(FakeCdpApi(refusal=refusal).serving(cdp_post))
         client = self._psak_client(["transactional_email:write"])
 
         if form == "code":
             response = client.post(
                 self.send_email_url,
-                self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML),
+                self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML, **fields),
                 format="json",
             )
         else:
