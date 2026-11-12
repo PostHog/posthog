@@ -46194,6 +46194,19 @@ export namespace Schemas {
      * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
      * * `changed_at` - When a change of the feature flag was saved
      * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+     * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+     * * `before` - What a change of the feature flag changed, as it was before the change, in words
+     * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+     * * `event` - The name of an event that the check looked up
+     * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+     * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+     * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+     * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+     * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+     * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+     * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
      */
     export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
@@ -46242,6 +46255,19 @@ export namespace Schemas {
       TrafficSinceAt: 'traffic_since_at',
       ChangedAt: 'changed_at',
       BeforeExposure: 'before_exposure',
+      ChangedSetting: 'changed_setting',
+      Before: 'before',
+      After: 'after',
+      FlagServiceCallPercentage: 'flag_service_call_percentage',
+      Event: 'event',
+      EventReceived: 'event_received',
+      InvalidMetricCount: 'invalid_metric_count',
+      UncheckedMetricCount: 'unchecked_metric_count',
+      FlagSplit: 'flag_split',
+      BaselineVariant: 'baseline_variant',
+      OtherRunningExperimentCount: 'other_running_experiment_count',
+      AssignedOutsideCount: 'assigned_outside_count',
+      OtherDraftExperimentCount: 'other_draft_experiment_count',
     } as const;
 
     /**
@@ -46311,7 +46337,20 @@ export namespace Schemas {
        * * `forced_percentage` - forced_count as a share of variant_matched_count
        * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
        * * `changed_at` - When a change of the feature flag was saved
-       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
+       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+       * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+       * * `before` - What a change of the feature flag changed, as it was before the change, in words
+       * * `after` - What a change of the feature flag changed, as it was after the change, in words
+       * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+       * * `event` - The name of an event that the check looked up
+       * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+       * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+       * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+       * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+       * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+       * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+       * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
       value: ExperimentHealthValueKeyEnum;
       /** The value that the key must reach. Below it, the check reports no finding. */
       threshold: number;
@@ -46362,7 +46401,20 @@ export namespace Schemas {
        * * `forced_percentage` - forced_count as a share of variant_matched_count
        * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
        * * `changed_at` - When a change of the feature flag was saved
-       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
+       * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+       * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+       * * `before` - What a change of the feature flag changed, as it was before the change, in words
+       * * `after` - What a change of the feature flag changed, as it was after the change, in words
+       * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+       * * `event` - The name of an event that the check looked up
+       * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+       * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+       * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+       * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+       * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+       * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+       * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
+       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
       value: ExperimentHealthValueKeyEnum;
       /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
@@ -50973,6 +51025,11 @@ export namespace Schemas {
 
     export type ExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
+    export interface SourceUpdatePayload {
+      /** Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. An SSH tunnel or connection host that the user did not enter on the page is not kept. The stored credential is deleted when the update succeeds. */
+      credential_id: string;
+    }
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -51061,6 +51118,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning: string | null;
+      /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+      payload?: SourceUpdatePayload;
     }
 
     export interface ExternalDataSourceSyncState {
@@ -87503,6 +87562,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning?: string | null;
+      /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'} without job_inputs. */
+      payload?: SourceUpdatePayload;
     }
 
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
@@ -114231,7 +114292,7 @@ export namespace Schemas {
     }
 
     export interface SourceCredential {
-      /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
+      /** Stored credential id. Pass it as {'credential_id': <id>} in the payload of the setup endpoint to create a source, or of a source update to reconnect an existing source. */
       credential_id: string;
       /** The source type the stored credentials are for. */
       source_type: string;
@@ -125318,7 +125379,7 @@ export namespace Schemas {
       service?: string;
       /** Number of log entries in the bucket. */
       count: number;
-      /** Sum of uncompressed bytes for the bucket. */
+      /** Sum of uncompressed bytes for the bucket. Present only when sparklineRankBy is "bytes". */
       bytes_uncompressed?: number;
     }
 
