@@ -1319,8 +1319,8 @@ export const MetricsTableWidgetConfigApiOrderDirection = {
 
 export interface MetricsTableWidgetConfigApi {
     dateRange?: WidgetDateRangeApi | null
-    /** Label that makes one row per value, e.g. `http.route`. Null until the user sets it. */
-    groupBy?: string | null
+    /** Labels that make one row per combination of their values, e.g. `["http.route", "http.request.method"]`. A single label can also be a string. Null until the user sets it. */
+    groupBy?: string | string[] | null
     /**
      * One metric per column. Each row shows the column's average over the date range and a sparkline.
      * @maxItems 6
@@ -5795,6 +5795,7 @@ export const IntegrationKindApi = {
     Stripe: 'stripe',
     Intercom: 'intercom',
     Email: 'email',
+    EmailSandbox: 'email_sandbox',
     Twilio: 'twilio',
     Linear: 'linear',
     Github: 'github',

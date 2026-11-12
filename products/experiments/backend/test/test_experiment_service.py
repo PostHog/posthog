@@ -71,7 +71,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import patch_calculation_key_version, patch_exposure_event_flag
 from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -732,11 +732,12 @@ class TestExperimentService(APIBaseTest):
         assert "baseline variant cannot be excluded" in str(ctx.exception)
 
     def test_existing_flag_in_another_config_format_raises(self):
+        # A config version 2 flag is linked by one of its rules, so this is a format that nothing reads.
         FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
             key="other-format",
-            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+            filters={"version": 3, "rules": []},
         )
 
         with self.assertRaises(ValidationError) as ctx:
@@ -835,13 +836,6 @@ class TestExperimentService(APIBaseTest):
                 {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": []}},
                 {"type": "primary"},
                 "Legacy shared metrics can't be added to an experiment: Unlinkable Metric",
-            ),
-            (
-                "quantile_with_breakdown_override",
-                False,
-                {**_QUANTILE_METRIC, "uuid": "quantile-uuid"},
-                {"type": "primary", "breakdowns": [{"property": "$browser"}]},
-                "Invalid saved metric at index 0: breakdowns are not supported for percentile metrics",
             ),
         ]
     )
@@ -1147,6 +1141,10 @@ class TestExperimentService(APIBaseTest):
             ),
             ("valid_quantile", _QUANTILE_METRIC),
             (
+                "valid_quantile_with_breakdown",
+                {**_QUANTILE_METRIC, "breakdownFilter": {"breakdowns": [{"property": "$browser"}]}},
+            ),
+            (
                 "valid_quantile_numerical_event_property",
                 {
                     **_QUANTILE_METRIC,
@@ -1229,16 +1227,6 @@ class TestExperimentService(APIBaseTest):
                     }
                 ],
                 "percentile metrics need a numeric event property",
-            ),
-            (
-                "quantile_with_breakdown",
-                [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdowns": [{"property": "$browser"}]}}],
-                "breakdowns are not supported for percentile metrics",
-            ),
-            (
-                "quantile_with_single_field_breakdown",
-                [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdown": "$browser"}}],
-                "breakdowns are not supported for percentile metrics",
             ),
             (
                 "quantile_with_data_warehouse_source",
@@ -2503,13 +2491,16 @@ class TestExperimentService(APIBaseTest):
         [
             ("name", {"name": "Renamed experiment"}, "name"),
             ("description", {"description": "A brand new hypothesis"}, "description"),
+            # Under key version 2 the credible interval feeds the key, so the update restamps every inline metric.
+            ("confidence", {"stats_config": {"method": "bayesian", "bayesian": {"ci_level": 0.9}}}, "stats_config"),
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_update_changed_fields_scalar_edit(self, _name, update_data, expected_field, mock_report_user_action):
-        experiment = self._create_draft_experiment()
-        service = self._service()
-        service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
+        with patch_calculation_key_version(2):
+            experiment = self._create_draft_experiment()
+            service = self._service()
+            service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
 
         changed = self._changed_fields(mock_report_user_action)
         assert expected_field in changed
@@ -2517,6 +2508,14 @@ class TestExperimentService(APIBaseTest):
         # update pipeline internally re-touches existing inline metrics.
         assert "metrics" not in changed
         assert "saved_metrics" not in changed
+        log = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        logged_fields = [change["field"] for change in log.detail["changes"]]
+        assert expected_field in logged_fields
+        assert "metrics" not in logged_fields
+        assert "metrics_secondary" not in logged_fields
 
     @parameterized.expand(
         [
@@ -2564,6 +2563,12 @@ class TestExperimentService(APIBaseTest):
         changed = self._changed_fields(mock_report_user_action)
         assert expected_field in changed
         assert "saved_metrics" not in changed
+        log = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        logged_fields = [change["field"] for change in log.detail["changes"]]
+        assert expected_field in logged_fields
 
     @parameterized.expand(
         [
@@ -4155,7 +4160,7 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now() - timedelta(days=90)}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0, False, [], [], [], True)],
+                [("update_start_date", 0, False, ["stale_experiment"], [], ["stale_experiment::info:"], True)],
             ),
             (
                 "update_imports_concluded_draft",
@@ -6186,6 +6191,22 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
+
+    def test_filter_experiments_queryset_by_feature_flag_ids(self) -> None:
+        service = self._service()
+        for name in ("First", "Second", "Unlisted"):
+            service.create_experiment(name=name, feature_flag_key=f"flag-ids-{name.lower()}")
+        flag_ids = Experiment.objects.filter(team=self.team, name__in=["First", "Second"]).values_list(
+            "feature_flag_id", flat=True
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"feature_flag_ids": ",".join(str(flag_id) for flag_id in flag_ids)},
+        )
+
+        assert sorted(queryset.values_list("name", flat=True)) == ["First", "Second"]
 
     def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
         with self.assertRaises(ValidationError) as ctx:

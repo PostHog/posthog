@@ -11,6 +11,10 @@ import { WidgetDateRange } from './widgetDateRange.zod'
 
 export const metricsTableWidgetConfigGroupByOneMax = 200
 
+export const metricsTableWidgetConfigGroupByTwoItemMax = 200
+
+export const metricsTableWidgetConfigGroupByTwoMax = 3
+
 export const metricsTableWidgetConfigColumnsMax = 6
 
 export const metricsTableWidgetConfigOrderByColumnDefault = 0
@@ -23,9 +27,18 @@ export const metricsTableWidgetConfigLimitMax = 100
 export const MetricsTableWidgetConfig = /* @__PURE__ */ zod.object({
     dateRange: zod.union([WidgetDateRange, zod.null()]).optional(),
     groupBy: zod
-        .union([zod.string().min(1).max(metricsTableWidgetConfigGroupByOneMax), zod.null()])
+        .union([
+            zod.string().min(1).max(metricsTableWidgetConfigGroupByOneMax),
+            zod
+                .array(zod.string().min(1).max(metricsTableWidgetConfigGroupByTwoItemMax))
+                .min(1)
+                .max(metricsTableWidgetConfigGroupByTwoMax),
+            zod.null(),
+        ])
         .optional()
-        .describe('Label that makes one row per value, e.g. `http.route`. Null until the user sets it.'),
+        .describe(
+            'Labels that make one row per combination of their values, e.g. `[\"http.route\", \"http.request.method\"]`. A single label can also be a string. Null until the user sets it.'
+        ),
     columns: zod
         .array(MetricsTableColumn)
         .max(metricsTableWidgetConfigColumnsMax)

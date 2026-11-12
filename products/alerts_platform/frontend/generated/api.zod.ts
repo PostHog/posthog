@@ -135,6 +135,10 @@ export const PlatformAlertRoutesPartialUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe('Whether this route sends. Defaults to true.'),
 })
 
+/**
+ * Create an alert on the platform. The request body depends on source_kind, which picks the source product and the shape of source_config. The alert notifies nobody until a destination is added.
+ * @summary Create an alert
+ */
 export const platformAlertsCreateBodyOneNameDefault = `Untitled alert`
 export const platformAlertsCreateBodyOneNameMax = 255
 
@@ -983,12 +987,19 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
         .describe('The settings of a new alert. Every one but source_config has a default, which is stored.'),
 ])
 
+/**
+ * Replace every setting of an alert the platform owns. source_kind must match the stored value.
+ * @summary Replace an alert's settings
+ */
 export const platformAlertsUpdateBodyOneNameMax = 255
 
 export const platformAlertsUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
 export const platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault = 0
 export const platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin = 0
 
+export const platformAlertsUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault = false
+export const platformAlertsUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault = false
+export const platformAlertsUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault = `notify`
 export const platformAlertsUpdateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyOneGroupingOneMaxInstancesMax = 100
 
@@ -1160,6 +1171,24 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                         .default(platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault)
                         .describe(
                             "How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API."
+                        ),
+                    investigation_agent_enabled: zod
+                        .boolean()
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault)
+                        .describe(
+                            "Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API."
+                        ),
+                    investigation_gates_notifications: zod
+                        .boolean()
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault)
+                        .describe(
+                            "Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API."
+                        ),
+                    investigation_inconclusive_action: zod
+                        .enum(['notify', 'suppress'])
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault)
+                        .describe(
+                            "What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API."
                         ),
                 })
                 .describe('Settings for a insight alert. The bound the alert is evaluated against is under condition.'),
@@ -1943,12 +1972,19 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
         .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
 ])
 
+/**
+ * Change some settings of an alert the platform owns. Settings left out keep their stored value. A source_kind that is sent must match the stored value.
+ * @summary Change an alert
+ */
 export const platformAlertsPartialUpdateBodyOneNameMax = 255
 
 export const platformAlertsPartialUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
 export const platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault = 0
 export const platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin = 0
 
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault = false
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault = false
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault = `notify`
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesMax = 100
 
@@ -2124,6 +2160,28 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                         .default(platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault)
                         .describe(
                             "How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API."
+                        ),
+                    investigation_agent_enabled: zod
+                        .boolean()
+                        .default(platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault)
+                        .describe(
+                            "Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API."
+                        ),
+                    investigation_gates_notifications: zod
+                        .boolean()
+                        .default(
+                            platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault
+                        )
+                        .describe(
+                            "Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API."
+                        ),
+                    investigation_inconclusive_action: zod
+                        .enum(['notify', 'suppress'])
+                        .default(
+                            platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault
+                        )
+                        .describe(
+                            "What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API."
                         ),
                 })
                 .optional()
@@ -3027,6 +3085,18 @@ export const PlatformAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.ob
         .min(1)
         .max(platformAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
         .describe('IDs of the destinations to delete, as the list endpoint returns them.'),
+})
+
+/**
+ * @summary Snooze a whole alert
+ */
+export const PlatformAlertsSnoozeCreateBody = /* @__PURE__ */ zod.object({
+    snooze_until: zod.iso
+        .datetime({ offset: true })
+        .nullable()
+        .describe(
+            "Time until which every group's notifications are muted. Must be in the future and at most 30 days away. Null clears the snooze. The alert keeps being checked."
+        ),
 })
 
 /**

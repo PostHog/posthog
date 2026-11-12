@@ -35,7 +35,6 @@ from products.data_warehouse.backend.facade.api import (
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
     is_any_external_data_schema_paused,
-    is_cdc_enabled_for_team,
     pause_external_data_schedule,
     reconcile_webhook_events,
     sync_cdc_extraction_schedule,
@@ -54,6 +53,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     LegacyHistoryTableError,
     UndecryptedConfigError,
 )
+from products.warehouse_sources.backend.facade.incremental_field_model import apply_stored_suggestion
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     INCREMENTAL_HISTORY_KEY,
@@ -133,13 +133,13 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
-    SettableSyncFrequency,
     WarehouseColumnSensitivity,
 )
 from products.warehouse_sources.backend.presentation.history_tracking import (
     report_history_change,
     report_history_table_deleted,
 )
+from products.warehouse_sources.backend.presentation.sync_frequency_field import SyncFrequencyField
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SchemaDestinationsSerializer,
@@ -621,7 +621,8 @@ def _apply_primary_key_columns(
 ) -> None:
     """Apply primary_key_columns from request data to the sync_type_config payload.
 
-    Raises ValidationError if an established PK changed after data has been synced, or if no PK is set.
+    Raises ValidationError if an established PK changed after data has been synced, or if a switch to
+    this sync type leaves no PK set.
     """
     new_pk = data.get("primary_key_columns")
     if new_pk:
@@ -634,7 +635,9 @@ def _apply_primary_key_columns(
                 "Delete the synced data first, then change the primary key."
             )
         payload["primary_key_columns"] = new_pk
-    elif not payload.get("primary_key_columns"):
+    # A table already on this sync type keeps taking edits without a key: the sync resolves one
+    # from the source, or fails with its own error when the table has none.
+    elif not payload.get("primary_key_columns") and data.get("sync_type") != instance.sync_type:
         raise ValidationError(
             f"{label} requires a primary key on table '{instance.name}'. "
             "Select its primary key columns when you choose the sync method, "
@@ -973,15 +976,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Maximum 5184000 (60 days)."
         ),
     )
-    sync_frequency = serializers.ChoiceField(
-        choices=SettableSyncFrequency.choices,
-        required=False,
-        allow_null=True,
-        help_text="How often to sync. The fastest sync frequency is 5 minutes.",
-        error_messages={
-            "invalid_choice": '"{input}" is not a valid sync frequency. The fastest sync frequency is 5 minutes.'
-        },
-    )
+    sync_frequency = SyncFrequencyField(required=False, allow_null=True)
     sync_time_of_day = serializers.TimeField(
         required=False, allow_null=True, help_text="UTC time of day to run the sync (HH:MM:SS)."
     )
@@ -1361,16 +1356,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return None
         return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
 
-    def validate_sync_frequency(self, value: str | None) -> str | None:
-        # "never" maps to a null interval, which the schedule builder cannot turn into a cadence.
-        # The choices still list it, so callers do send it. The message names should_sync because
-        # that is what stops a sync.
-        if value == "never":
-            raise ValidationError(
-                '"never" is not a sync frequency. To stop syncing this table, set should_sync to false.'
-            )
-        return value
-
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[ExternalDataSchema], self.instance)
         override = attrs["api_version"] if "api_version" in attrs else (instance.api_version if instance else None)
@@ -1559,7 +1544,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Pop non-model fields from validated_data so super().update() doesn't try to set them
         validated_data.pop("sync_type", None)
-        validated_data.pop("sync_frequency", None)
+        # The validated value is canonical; the raw payload can carry a synonym such as "daily".
+        sync_frequency = validated_data.pop("sync_frequency", None)
         validated_data.pop("sync_time_of_day", None)
         validated_data.pop("incremental_field", None)
         validated_data.pop("incremental_field_type", None)
@@ -1666,12 +1652,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # save a `cdc` label that nothing can read a change stream for.
             if not source_type_supports_cdc(instance.source.source_type):
                 raise ValidationError(f"CDC is not supported for {instance.source.source_type} sources.")
-
-            from posthog.models import Team
-
-            team = Team.objects.get(id=self.context["team_id"])
-            if not is_cdc_enabled_for_team(team):
-                raise ValidationError("CDC is not enabled for this team")
 
         # Close the enum-exposure window: `XMIN` is a valid `SyncType` choice, so the field accepts
         # "xmin" the moment the foundation lands. Reject it unless the source is Postgres and the table
@@ -1963,7 +1943,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         )
 
         should_sync = validated_data.get("should_sync", None)
-        sync_frequency = data.get("sync_frequency", None)
         sync_time_of_day_in_payload = "sync_time_of_day" in data
         sync_time_of_day = data.get("sync_time_of_day", None)
         was_sync_frequency_updated = False
@@ -2217,6 +2196,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self._empty_history_table_for_mask(instance, keep_record=resulting_keeps_history)
         elif adds_a_mask:
             self._purge_history_staging_for_mask(instance)
+
+        if should_sync is False:
+            # The customer chose to keep the schema off, so it no longer counts as stopped by PostHog.
+            # Staff tools re-enable only stopped schemas, and the failure digest reports only those.
+            # Cleared whatever this request loaded, because a stop can commit after the load.
+            validated_data["auto_disabled_at"] = None
 
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
@@ -3290,7 +3275,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if direct_engine_adapter is not None:
                 direct_engine_adapter.hide_table(instance.table)
             instance.should_sync = False
-            instance.save(update_fields=["should_sync", "updated_at"])
+            instance.auto_disabled_at = None
+            instance.save(update_fields=["should_sync", "auto_disabled_at", "updated_at"])
             return Response(status=status.HTTP_200_OK)
 
         # Turn syncing off first, or the next scheduled run rebuilds the deleted table. The serializer
@@ -3444,12 +3430,15 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
+        # The form keeps a configured cursor, so it needs no recommendation.
+        if not instance.incremental_field:
+            apply_stored_suggestion(schema, instance.sync_type_config, team=self.team, schema_id=str(instance.id))
 
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(SourceInputsStore.load_settings(source).get("cdc_enabled"))
         source_impl = SourceRegistry.get_source(source.source_type)
-        cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
+        cdc_available = schema.supports_cdc if source_cdc_enabled else None
         # xmin is source-capability-gated, mirroring the database_schema endpoint.
         xmin_available = schema.supports_xmin if source_impl.supports_xmin else None
 

@@ -156,6 +156,27 @@ def build_hog_event_global(
     return event_global
 
 
+# The VM keeps printed lines outside its memory accounting, so a print in a loop could fill a worker's memory
+# within the time limit. Output past this many characters is dropped.
+MAX_HOG_OUTPUT_CHARS = 64_000
+
+
+class _BoundedOutput(list[str]):
+    """The VM's stdout list for one run. Every print, direct or through an alias, appends here."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.chars = 0
+
+    def append(self, line: str) -> None:
+        if self.chars >= MAX_HOG_OUTPUT_CHARS:
+            return
+        line = line[: MAX_HOG_OUTPUT_CHARS - self.chars]
+        super().append(line)
+        # The newline that joins the lines counts too, so empty prints also use up the cap.
+        self.chars += len(line) + 1
+
+
 def execute_hog_eval_bytecode(
     bytecode: list,
     globals_dict: dict[str, Any],
@@ -173,10 +194,12 @@ def execute_hog_eval_bytecode(
     code rather than in the user's Hog source or its input.
     Numeric success replaces `verdict` with a validated `score`.
     """
+    output = _BoundedOutput()
     try:
         response = execute_bytecode(
             bytecode,
             globals=globals_dict,
+            stdout=output,
             timeout=timedelta(seconds=10),
             team=None,
         )
@@ -204,7 +227,7 @@ def execute_hog_eval_bytecode(
             "unexpected": True,
         }
 
-    reasoning = "\n".join(response.stdout) if response.stdout else ""
+    reasoning = "\n".join(output)
 
     if response.result is None and allows_na:
         return {"verdict": None, "applicable": False, "reasoning": reasoning, "error": None}

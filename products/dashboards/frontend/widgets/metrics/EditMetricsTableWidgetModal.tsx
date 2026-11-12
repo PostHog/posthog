@@ -6,6 +6,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect, type LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
@@ -23,6 +24,7 @@ import {
 } from './editMetricsTableWidgetModalLogic'
 import {
     METRICS_TABLE_DATE_RANGE_OPTIONS,
+    METRICS_TABLE_MAX_GROUP_BY,
     type MetricsTableAggregation,
     type MetricsTableColumn,
 } from './metricsTableWidgetConfigValidation'
@@ -189,7 +191,7 @@ function EditMetricsTableWidgetModalContents(): JSX.Element {
             isOpen
             onClose={onClose}
             title="Widget settings"
-            description="Show one row for each value of a label, with a column for each metric."
+            description="Show one row for each value of a label, or each combination of labels, with a column for each metric."
             width={800}
             footer={
                 <>
@@ -222,14 +224,17 @@ function EditMetricsTableWidgetModalContents(): JSX.Element {
                     <h5 className="text-sm font-semibold m-0">{getDashboardWidgetGroupLabel('metrics')}</h5>
                     <LemonField.Pure
                         label="One row for each value of"
-                        help="A label on your metrics, such as http.route or service.name."
+                        help={`Up to ${METRICS_TABLE_MAX_GROUP_BY} labels, such as http.route and http.request.method. With several labels, each row is one combination of their values.`}
                     >
-                        <LemonInput
+                        <LemonInputSelect
+                            mode="multiple"
+                            allowCustomValues
+                            sortable
                             value={groupBy}
-                            placeholder="http.route"
+                            placeholder={groupBy.length ? 'Add a label' : 'http.route'}
                             disabled={saving}
                             onChange={setGroupBy}
-                            fullWidth
+                            data-attr="metrics-table-widget-group-by"
                         />
                     </LemonField.Pure>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

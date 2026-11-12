@@ -17,7 +17,6 @@ from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.constants import AvailableFeature
-from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
@@ -32,6 +31,7 @@ from posthog.tasks.email import (
     send_async_migration_errored_email,
     send_batch_export_run_failure,
     send_canary_email,
+    send_code_based_verification,
     send_discussions_mentioned,
     send_email_change_emails,
     send_email_sending_reputation_finding,
@@ -52,6 +52,7 @@ from posthog.tasks.email import (
     send_posthog_ai_access_request,
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
+    send_team_hog_functions_digest,
     send_team_matview_failure_digest,
     send_warehouse_destination_paused,
     send_wizard_pr_ready_email,
@@ -61,6 +62,7 @@ from posthog.tasks.email import (
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
+from posthog.test.fixtures import create_app_metric2
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
@@ -172,14 +174,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert MockEmailMessage.call_args.kwargs["template_name"] == "delegation_invite"
 
     @parameterized.expand([("member_invite", False), ("delegation_invite", True)])
-    @patch("posthog.tasks.email.check_esp_suppression")
-    def test_send_invite_flags_suppressed_target_email(
-        self, _name: str, is_setup_delegation: bool, mock_check: MagicMock, MockEmailMessage: MagicMock
+    def test_send_invite_flags_a_target_email_the_provider_refuses(
+        self, MockEmailMessage: MagicMock, _name: str, is_setup_delegation: bool
     ) -> None:
-        mock_email_messages(MockEmailMessage)
-        mock_check.return_value = ESPSuppressionResult(
-            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED
-        )
+        MockEmailMessage.return_value.send.return_value = ["bounced@example.com"]
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
         invite = OrganizationInvite.objects.create(
             organization=org,
@@ -188,7 +186,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             is_setup_delegation=is_setup_delegation,
         )
 
-        with self.settings(CUSTOMER_IO_API_KEY="test-key"):
+        with self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"):
             send_invite(invite.id)
 
         invite.refresh_from_db()
@@ -527,7 +525,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     @patch("posthog.tasks.email.ph_scoped_capture")
     def test_send_wizard_pr_ready_email_uses_customer_io_context(
-        self, _mock_ph_scoped_capture: MagicMock, MockEmailMessage: MagicMock
+        self, mock_ph_scoped_capture: MagicMock, MockEmailMessage: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard@posthog.com")
@@ -553,6 +551,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         send_wizard_pr_ready_email(str(run.id))
 
+        capture = mock_ph_scoped_capture.return_value.__enter__.return_value
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "wizard pr ready email sent"
+        assert capture.call_args.kwargs["distinct_id"] == user.distinct_id
+        assert capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         call_kwargs = MockEmailMessage.call_args.kwargs
@@ -654,11 +657,25 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mock_scoped_capture.return_value.__enter__.return_value.assert_called_once_with(
             event="verification code sent",
             distinct_id=user.distinct_id,
+            properties={"$update_person_last_seen_at": False},
             groups={"organization": str(user.current_organization_id)},
         )
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    @patch("posthog.tasks.email.posthoganalytics.capture")
+    def test_send_code_based_verification(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
+        MockEmailMessage.return_value.send.return_value = False
+
+        send_code_based_verification(self.user.id, "123456")
+
+        mock_capture.assert_called_once_with(
+            event="login verification code sent",
+            distinct_id=str(self.user.distinct_id),
+            properties={"$update_person_last_seen_at": False},
+            groups={"organization": str(self.user.current_organization_id)},
+        )
 
     def test_send_fatal_plugin_error(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -1874,6 +1891,42 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Should now be sent to all users (creator, editor, original user, test2) - 4 separate emails
         assert len(mocked_email_messages) == 4
 
+    @parameterized.expand(
+        [
+            ("below_both_minimums", 40, 5, False),
+            ("enough_runs_above_threshold", 95, 5, True),
+            ("few_runs_but_enough_failures", 20, 10, True),
+            ("every_run_failed_at_low_volume", 0, 3, True),
+        ]
+    )
+    def test_send_team_hog_functions_digest_requires_enough_runs(
+        self, MockEmailMessage: MagicMock, _name: str, succeeded: int, failed: int, expect_email: bool
+    ) -> None:
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"data_pipeline_error_threshold": 0.01}
+        self.user.save()
+
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Low Volume Function", type="transformation", enabled=True, hog="return event"
+        )
+        for metric_kind, metric_name, count in (("success", "succeeded", succeeded), ("failure", "failed", failed)):
+            if count:
+                create_app_metric2(
+                    team_id=self.team.id,
+                    app_source="hog_function",
+                    app_source_id=str(hog_function.id),
+                    timestamp=timezone.now() - dt.timedelta(hours=1),
+                    metric_kind=metric_kind,
+                    metric_name=metric_name,
+                    count=count,
+                )
+
+        send_team_hog_functions_digest(self.team.id)
+
+        assert len(mocked_email_messages) == (1 if expect_email else 0)
+
     def test_send_hog_functions_digest_email_with_test_email_override(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2130,7 +2183,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.tasks.email.get_client")
     @patch("posthog.tasks.email.check_and_cache_login_device")
     def test_login_from_new_device_notification(
-        self, mock_check_device: MagicMock, _mock_get_client: MagicMock, MockEmailMessage: MagicMock
+        self, mock_check_device: MagicMock, mock_get_client: MagicMock, MockEmailMessage: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         mock_check_device.return_value = True  # Simulate new device
@@ -2152,6 +2205,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert html_body
         assert "Canada" in html_body
         assert "Google OAuth" in html_body
+        capture = mock_get_client.return_value.capture
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["distinct_id"] == str(self.user.distinct_id)
+        assert capture.call_args.kwargs["event"] == "login notification sent"
+        assert capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
 
     @patch("posthog.tasks.email.get_client")
     @patch("posthog.tasks.email.check_and_cache_login_device")

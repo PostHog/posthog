@@ -40,7 +40,11 @@ export function DefaultPageGroup(): ReactElement {
     }
 
     return (
-        <SettingsGroup title="Start page" testID="settings-default-page">
+        <SettingsGroup
+            title="Start page"
+            description="Choose the home page that opens when you start the app."
+            testID="settings-default-page"
+        >
             {DEFAULT_PAGES.map((option) => (
                 <SettingsRadioRow
                     key={option}

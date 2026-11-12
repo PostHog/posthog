@@ -8,6 +8,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import (
     GitHubIntegrationBase,
     GitHubIntegrationError,
@@ -25,6 +26,7 @@ from products.tasks.backend.pr_urls import (
     read_head_branches,
     read_pr_urls,
 )
+from products.tasks.backend.task_run_sync import sync_task_pr_urls_on_commit
 from products.tasks.backend.webhooks import _run_repository_filter, _task_run_scope_team_ids, find_task_run
 
 logger = structlog.get_logger(__name__)
@@ -114,8 +116,13 @@ class PullRequestReconciler:
 
     @staticmethod
     def _github(run: TaskRun) -> GitHubIntegrationBase | None:
-        integration = run.task.github_integration
-        if integration is not None and integration.team_id == run.team_id and integration.kind == "github":
+        integration_id = run.task.github_integration_id
+        integration = (
+            IntegrationManager.github.oauth.get_many(run.team_id, [integration_id]).get(integration_id)
+            if integration_id is not None
+            else None
+        )
+        if integration is not None:
             return GitHubIntegration(integration, source="task_pr_reconciliation", priority=Priority.BATCH)
         personal = run.task.github_user_integration
         if (
@@ -141,7 +148,7 @@ class PullRequestReconciler:
         runs = TaskRun.objects.using("default").filter(team_id=self.team_id, id=self.run_id)
         run = (
             runs.filter(_run_repository_filter(parsed.repository))
-            .select_related("task__github_integration", "task__github_user_integration", "team")
+            .select_related("task__github_user_integration", "team")
             .first()
         )
         if run is None or not self._eligible(run):
@@ -216,6 +223,7 @@ class PullRequestReconciler:
                     locked.state["reconciled_pr_merge_url"] = self.pr_url
             # Output receivers must retry report linking after verification, even if the URL is unchanged.
             locked.save(update_fields=["state", "output", "updated_at"])
+            sync_task_pr_urls_on_commit(locked.task_id)
             reconcile_pull_request_state(
                 team_id=self.team_id,
                 repository=parsed.repository,

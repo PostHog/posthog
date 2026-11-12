@@ -5951,6 +5951,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     flag?: string
     /** Other flags that also show the item. The item is shown when `flag` or any of these is on. */
     alternativeFlags?: string[]
+    /** Flags that hide the item when every one of them is on. */
+    hiddenWhenFlags?: string[]
     /** Order of object in tree */
     visualOrder?: number
     /** Tag for the product 'beta' / 'alpha' */
@@ -5979,6 +5981,8 @@ export interface FileSystemSearchTab {
     name: string
     href: string
     flag?: string
+    /** Flags that must all be on to show the tab. */
+    requiredFlags?: string[]
     searchKeywords?: string[]
 }
 
@@ -6597,6 +6601,8 @@ export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQuer
     feature_flag: Record<string, any>
     start_date: string | null
     end_date: string | null
+    /** The instant the window is evaluated at, when it ends before `end_date`. Unset means now. */
+    as_of?: string | null
     holdout?: ExperimentHoldoutType
 }
 
@@ -8934,14 +8940,13 @@ export type MarketingAnalyticsRecommendationCpaBenchmarkSource = 'target_cpa' | 
 
 export interface MarketingAnalyticsRecommendationCpa {
     /**
-     * Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, or their total
-     * CPA when the benchmark is a target CPA or the rule is the Performance Max rank rule. Null when it has no
-     * conversions or is not bought yet.
+     * Cost per conversion of the subject. Campaigns use their non-brand CPA, or their total CPA when the benchmark is a
+     * target CPA. Null when it has no conversions.
      */
     value: number | null
     /**
-     * CPA benchmark for the subject. Rules that judge a CPA compare it with this value, and other rules show it for
-     * context. Null when the account has no non-brand conversions.
+     * CPA benchmark the rule compares the subject with. Only rules that judge a CPA carry `cpa`: review, Search
+     * scale, budget, spend without conversions and content gap.
      */
     benchmark: number | null
     /** Where the benchmark comes from. Null when there is no benchmark. */
@@ -9874,6 +9879,11 @@ export interface TicketSidebarConfiguration {
     hidden?: string[]
 }
 
+export interface SessionReplayListConfiguration {
+    /** Whether a new recordings list opens with internal and test users filtered out. An absent value falls back to the legacy browser preference. */
+    filter_test_accounts?: boolean
+}
+
 export interface UserUIConfiguration {
     /**
      * Schema version of this configuration blob, for future format migrations.
@@ -9883,6 +9893,7 @@ export interface UserUIConfiguration {
     sql_editor?: SQLEditorConfiguration
     analytics_list?: AnalyticsListDisplayConfiguration
     ticket_sidebar?: TicketSidebarConfiguration
+    session_replay?: SessionReplayListConfiguration
     [key: string]: unknown
 }
 

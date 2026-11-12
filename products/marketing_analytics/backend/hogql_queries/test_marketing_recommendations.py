@@ -71,30 +71,60 @@ def _inputs(
 class TestMarketingRecommendations(SimpleTestCase):
     @parameterized.expand(
         [
-            ("google_recommends_more", ("BUDGET_CONSTRAINED",), "ELIGIBLE", 300.0, True),
-            ("no_google_recommendation", ("BUDGET_CONSTRAINED",), "ELIGIBLE", None, False),
-            ("not_budget_constrained", ("UNKNOWN",), "ELIGIBLE", 300.0, False),
-            ("paused_campaign", ("BUDGET_CONSTRAINED",), "PAUSED", 300.0, False),
+            ("cpa_below_target", ("BUDGET_CONSTRAINED",), "ELIGIBLE", 300.0, {"target_cpa": 200.0}, (), True),
+            ("no_google_recommendation", ("BUDGET_CONSTRAINED",), "ELIGIBLE", None, {}, (), False),
+            ("not_budget_constrained", ("UNKNOWN",), "ELIGIBLE", 300.0, {}, (), False),
+            ("paused_campaign", ("BUDGET_CONSTRAINED",), "PAUSED", 300.0, {}, (), False),
+            ("cpa_above_target", ("BUDGET_CONSTRAINED",), "ELIGIBLE", 300.0, {"target_cpa": 50.0}, (), False),
+            (
+                "brand_campaign",
+                ("BUDGET_CONSTRAINED",),
+                "ELIGIBLE",
+                300.0,
+                {"target_cpa": 200.0},
+                (_term("example login", "c1", 1000, 10),),
+                False,
+            ),
         ]
     )
-    def test_budget_rule_needs_a_budget_limit_and_google_recommendation(
-        self, _name: str, reasons: tuple[str, ...], status: str, recommended: float | None, expected: bool
+    def test_budget_rule_needs_a_budget_limit_google_recommendation_and_cpa_within_benchmark(
+        self,
+        _name: str,
+        reasons: tuple[str, ...],
+        status: str,
+        recommended: float | None,
+        overrides: dict[str, object],
+        terms: tuple[SearchTermStats, ...],
+        expected: bool,
     ) -> None:
-        campaign = _campaign(status_reasons=reasons, primary_status=status, recommended_daily_budget=recommended)
-        rules = [rec for rec in recommend(_inputs((campaign,))) if rec.rule == "budget_constrained"]
+        campaign = _campaign(
+            status_reasons=reasons, primary_status=status, recommended_daily_budget=recommended, **overrides
+        )
+        rules = [rec for rec in recommend(_inputs((campaign,), terms)) if rec.rule == "budget_constrained"]
         assert bool(rules) == expected
         if expected:
             assert rules[0].action == "Raise the daily budget from $100 to $300"
             assert rules[0].impact == 6000
+            assert rules[0].cpa is not None
+            assert (rules[0].cpa.value, rules[0].cpa.benchmark) == (100, 200)
 
     @parameterized.expand(
         [
-            ("cheap_campaign_losing_impressions", "Cheap", None, "scale_campaign", 50.0, 133.33, "account", "$133"),
+            (
+                "cheap_campaign_losing_impressions",
+                "Cheap",
+                None,
+                "scale_campaign",
+                50.0,
+                133.33,
+                "account",
+                "at or below the account's",
+            ),
             ("expensive_campaign", "Expensive", None, "review_campaign", 600.0, 133.33, "account", "4.5x"),
             ("bids_to_a_target_cpa", "Expensive", 150.0, "review_campaign", 600.0, 150.0, "target_cpa", "4.0x"),
         ]
     )
-    def test_campaign_cpa_fields_match_the_reason(
+    def test_campaign_cpa_fields_and_reason_name_the_benchmark(
         self,
         _name: str,
         subject: str,
@@ -122,8 +152,46 @@ class TestMarketingRecommendations(SimpleTestCase):
             "bestCampaign": 50.0,
             "worstCampaign": 600.0,
         }
-        assert f"CPA is ${value:.0f}" in rec.reason
         assert reason_benchmark in rec.reason
+
+    @parameterized.expand(
+        [
+            ("spent_less_than_the_bar", 200.0, 0.0, None),
+            (
+                "spent_past_the_bar",
+                360.0,
+                0.0,
+                "Spent $360 (4.3x the account's non-brand CPA) with no non-brand conversions.",
+            ),
+            ("only_brand_spend_past_the_bar", 360.0, 160.0, None),
+        ]
+    )
+    def test_campaign_without_conversions_needs_enough_spend_to_review(
+        self, _name: str, cost: float, brand_cost: float, reason: str | None
+    ) -> None:
+        campaigns = (
+            _campaign(id="a", name="Converting", cost=1000, conversions=20),
+            _campaign(id="b", name="Silent", cost=cost, conversions=0),
+            _campaign(id="c", name="Average", cost=2000, conversions=20),
+        )
+        terms = (
+            (
+                _term("example", "b", cost=brand_cost, conversions=0),
+                _term("other", "b", cost=cost - brand_cost, conversions=0),
+            )
+            if brand_cost
+            else ()
+        )
+
+        reviews = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "review_campaign"]
+
+        pause = (
+            "If after two weeks it still has no non-brand conversions, or its non-brand CPA is more than 3x "
+            "the account's non-brand CPA, pause it in Campaigns."
+        )
+        assert [(rec.subject, rec.reason, (rec.steps or [])[-1].text) for rec in reviews] == (
+            [("Silent", reason, pause)] if reason else []
+        )
 
     def test_conversions_without_cost_leave_no_benchmark(self) -> None:
         campaigns = (
@@ -310,6 +378,7 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         rules = {rec.rule for rec in recs if rec.subject == "funnel analysis"} & {"content_gap", "striking_distance"}
         assert rules == expected
+        assert all(rec.cpa is None for rec in recs if rec.rule == "striking_distance")
 
     @parameterized.expand(
         [
@@ -335,6 +404,7 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         assert [(rec.subject, rec.impactDirection) for rec in overlap] == [("example", direction)]
         assert overlap[0].action.startswith(action_start)
+        assert overlap[0].cpa is None
 
     @parameterized.expand(
         [
@@ -384,6 +454,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("scale_campaign", "Raise the target CPA or improve its asset groups"),
             ("policy_limited", "Check the affected ads in Policy manager"),
         }
+        assert all(rec.cpa is None for rec in recs)
         leak = next(rec for rec in recs if rec.rule == "brand_leak")
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["PMax", "example"]
 

@@ -169,7 +169,6 @@ function SessionRecordingPlayerInternal({
         const rightDock = debugMode && watchDebugDock === 'right' && !isFullScreen
         return (
             <div
-                ref={playerRef}
                 className={clsx('SessionRecordingPlayerWrapper SessionRecordingPlayerWrapper--watch', {
                     'SessionRecordingPlayerWrapper--watch-right-dock': rightDock,
                 })}
@@ -184,6 +183,8 @@ function SessionRecordingPlayerInternal({
                 >
                     <ResizablePanel
                         id="player"
+                        // Fullscreen targets the player alone so the watch panel stays mounted
+                        elementRef={playerRef}
                         defaultSize={70}
                         minSize="12rem"
                         className={clsx(
@@ -193,12 +194,8 @@ function SessionRecordingPlayerInternal({
                     >
                         <PurePlayer noMeta={noMeta} noBorder={noBorder} />
                     </ResizablePanel>
-                    {!isFullScreen && (
-                        <>
-                            <ResizableHandle withHandle data-attr="watch-panel-resize-handle" />
-                            <WatchPanelResizablePanel />
-                        </>
-                    )}
+                    <ResizableHandle withHandle data-attr="watch-panel-resize-handle" />
+                    <WatchPanelResizablePanel />
                 </ResizablePanelGroup>
                 {rightDock && (
                     <PlayerSidebar

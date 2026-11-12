@@ -1,7 +1,7 @@
 from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 
-from products.dashboards.backend.api import dashboard, dashboard_templates
+from products.dashboards.backend.presentation.views import dashboard, dashboard_templates
 
 
 def register_routes(routers: RouterRegistry) -> None:

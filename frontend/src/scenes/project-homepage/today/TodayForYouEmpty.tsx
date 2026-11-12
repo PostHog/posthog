@@ -11,6 +11,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { TodayAiRow } from './TodayAiRow'
+import { todayLogic } from './todayLogic'
 import { todayPromptsLogic } from './todayPromptsLogic'
 import { TodayWatchedNote } from './TodayWatchedNote'
 
@@ -18,7 +19,21 @@ const TodaySelfDrivingStatus = lazyWithRetry(() =>
     import('./TodaySelfDrivingStatus').then(({ TodaySelfDrivingStatus }) => ({ default: TodaySelfDrivingStatus }))
 )
 
-function QuietRow(): JSX.Element {
+const ALERTS_CTA = { label: 'Set up alerts', to: urls.alerts(), dataAttr: 'today-for-you-empty-alerts' }
+const SELF_DRIVING_CTA = {
+    label: 'Set up self-driving',
+    to: urls.inbox(),
+    dataAttr: 'today-for-you-empty-self-driving',
+}
+
+function localDayNumber(now: number): number {
+    const date = new Date(now)
+    return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000)
+}
+
+function QuietRow({ offerSelfDriving }: { offerSelfDriving: boolean }): JSX.Element {
+    const { now } = useValues(todayLogic)
+    const cta = offerSelfDriving && localDayNumber(now) % 2 === 1 ? SELF_DRIVING_CTA : ALERTS_CTA
     return (
         <ol className="TodayRows" data-attr="today-for-you-empty">
             <li className="TodayRow">
@@ -35,10 +50,10 @@ function QuietRow(): JSX.Element {
                     <Button
                         size="sm"
                         variant="link-muted"
-                        render={<LinkPrimitive to={urls.alerts()} />}
-                        data-attr="today-for-you-empty-alerts"
+                        render={<LinkPrimitive to={cta.to} />}
+                        data-attr={cta.dataAttr}
                     >
-                        Set up alerts
+                        {cta.label}
                     </Button>
                 </div>
             </li>
@@ -53,13 +68,13 @@ export function TodayForYouEmpty(): JSX.Element {
         return (
             <>
                 <TodayAiRow />
-                <QuietRow />
+                <QuietRow offerSelfDriving={false} />
             </>
         )
     }
     return (
         <Suspense fallback={<Skeleton className="h-12 w-full" />}>
-            <TodaySelfDrivingStatus fallback={<QuietRow />} />
+            <TodaySelfDrivingStatus quietRow={(offerSelfDriving) => <QuietRow offerSelfDriving={offerSelfDriving} />} />
         </Suspense>
     )
 }

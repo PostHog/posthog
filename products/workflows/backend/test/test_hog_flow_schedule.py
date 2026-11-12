@@ -1,19 +1,26 @@
+import re
 import json
+import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import unittest.mock
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
+import jwt
 import requests
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.settings import CDP_API_URL
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -607,19 +614,92 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
         schedule.refresh_from_db()
         assert schedule.next_run_at is not None
 
-    def test_cdp_api_error_lands_in_failed(self, mock_invocation):
-        mock_response = unittest.mock.MagicMock()
-        mock_response.status_code = 500
-        mock_response.raise_for_status.side_effect = Exception("CDP API returned 500")
-        mock_invocation.return_value = mock_response
+    @parameterized.expand(
+        [
+            ("engine_error_fails", 500, {"error": "Internal error"}, "failed"),
+            ("over_quota_skips_the_run", 429, {"error": "The project is over its workflow quota"}, "processed"),
+        ]
+    )
+    def test_cdp_refusal_outcome(self, mock_invocation, _name, status_code, body, outcome):
+        mock_invocation.return_value = _worker_response(status_code, body)
 
         _, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
         response = self._post()
         assert response.status_code == 200
-        assert str(schedule.id) in response.json()["failed"]
-        assert len(response.json()["processed"]) == 0
+        assert {key: response.json()[key] for key in ("processed", "failed")} == {
+            "processed": [str(schedule.id)] if outcome == "processed" else [],
+            "failed": [str(schedule.id)] if outcome == "failed" else [],
+        }
+        schedule.refresh_from_db()
+        assert schedule.next_run_at is not None
+        assert schedule.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
+
+
+def _worker_response(status_code: int, body: dict[str, Any]) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = json.dumps(body).encode()
+    response.headers["Content-Type"] = "application/json; charset=utf-8"
+    return response
+
+
+# Answers the manual run as CdpApi.postHogFlowManualInvocation in nodejs/src/cdp/cdp-api.ts does.
+class _ManualRunWorker:
+    ROUTE = re.compile(re.escape(CDP_API_URL) + r"/api/projects/(\d+)/hog_flows/([^/]+)/manual_invocations")
+
+    def __init__(self, signing_keys: list[str] | None = None, refusal: tuple[int, str] | None = None) -> None:
+        self.signing_keys = signing_keys if signing_keys is not None else list(settings.WORKFLOWS_CANCEL_JWT_SECRETS)
+        self.refusal = refusal
+        self.runs: dict[str, dict[str, Any]] = {}
+
+    def post(self, url: str, json: Any = None, headers: dict[str, str] | None = None, **_: Any) -> requests.Response:
+        route = self.ROUTE.fullmatch(url)
+        if not route:
+            return _worker_response(404, {"error": "Not found"})
+        team_id, hog_flow_id = int(route.group(1)), route.group(2)
+        body = json if isinstance(json, dict) else {}
+        claims = self._verified_claims((headers or {}).get("Authorization", ""))
+        if (
+            claims is None
+            or claims.get("team_id") != team_id
+            or claims.get("hog_flow_id") != hog_flow_id
+            or claims.get("user_id") != body.get("user_id")
+        ):
+            return _worker_response(401, {"error": "Unauthorized: Invalid manual run token"})
+        user_id, variables = body.get("user_id"), body.get("variables", {})
+        if not isinstance(user_id, str) or not user_id:
+            return _worker_response(400, {"error": "user_id is required"})
+        if not isinstance(variables, dict):
+            return _worker_response(400, {"error": "variables must be an object"})
+        if self.refusal:
+            refusal_status, message = self.refusal
+            return _worker_response(refusal_status, {"error": message})
+        invocation_id = str(uuid.uuid4())
+        self.runs[invocation_id] = {
+            "team_id": team_id,
+            "hog_flow_id": hog_flow_id,
+            "user_id": user_id,
+            "variables": variables,
+        }
+        return _worker_response(200, {"status": "queued", "invocation_id": invocation_id})
+
+    def _verified_claims(self, authorization: str) -> dict[str, Any] | None:
+        if not authorization.startswith("Bearer "):
+            return None
+        for key in self.signing_keys:
+            try:
+                return jwt.decode(
+                    authorization[len("Bearer ") :],
+                    key,
+                    algorithms=["HS256"],
+                    audience=PosthogJwtAudience.WORKFLOWS_MANUAL_RUN.value,
+                    leeway=30,
+                )
+            except jwt.PyJWTError:
+                continue
+        return None
 
 
 @unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_scheduled_invocation")
@@ -705,22 +785,30 @@ class TestHogFlowRun(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         mock_invocation.assert_not_called()
 
-    @unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_manual_invocation")
-    def test_run_starts_a_manual_trigger_for_the_calling_user(self, mock_manual_invocation, mock_invocation):
-        self._mock_success(mock_manual_invocation)
+    def _start_manual_run_worker(
+        self, signing_keys: list[str] | None = None, refusal: tuple[int, str] | None = None
+    ) -> _ManualRunWorker:
+        worker = _ManualRunWorker(signing_keys=signing_keys, refusal=refusal)
+        transport = unittest.mock.patch("posthog.plugins.plugin_server_api.internal_requests.post", worker.post)
+        transport.start()
+        self.addCleanup(transport.stop)
+        return worker
+
+    def test_run_starts_a_manual_trigger_for_the_calling_user(self, _mock_scheduled_invocation):
+        worker = self._start_manual_run_worker()
         workflow = self._create_workflow(trigger_type="manual", variables=[{"key": "greeting", "default": "Hello"}])
 
         response = self.client.post(self._run_url(workflow.id), {"variables": {"name": "Ada"}}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"status": "queued", "invocation_id": "abc-123"}
-        mock_manual_invocation.assert_called_once_with(
-            team_id=self.team.id,
-            hog_flow_id=str(workflow.id),
-            user_id=self.user.email,
-            variables={"greeting": "Hello", "name": "Ada"},
-        )
-        mock_invocation.assert_not_called()
+        [invocation_id] = worker.runs
+        assert response.json() == {"status": "queued", "invocation_id": invocation_id}
+        assert worker.runs[invocation_id] == {
+            "team_id": self.team.id,
+            "hog_flow_id": str(workflow.id),
+            "user_id": self.user.email,
+            "variables": {"greeting": "Hello", "name": "Ada"},
+        }
 
     @unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_manual_invocation")
     def test_run_refuses_a_manual_trigger_for_a_workflows_viewer(self, mock_manual_invocation, mock_invocation):
@@ -738,21 +826,31 @@ class TestHogFlowRun(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("token_rejected", 401, "Invalid manual run token", 502, "The workflow engine refused the call."),
-            ("template_refused", 422, "The trigger refused the run (400): bad input", 422, "The trigger refused"),
-            ("disabled", 429, "Disabled", 429, "This workflow was disabled"),
-            ("no_run_started", 500, "The trigger did not start a run.", 502, "The trigger did not start a run."),
+            (
+                "token_rejected",
+                {"signing_keys": ["a-key-the-web-tier-does-not-hold"]},
+                502,
+                "The workflow engine refused the call.",
+            ),
+            (
+                "template_refused",
+                {"refusal": (422, "The trigger refused the run (400): bad input")},
+                422,
+                "The trigger refused the run (400): bad input",
+            ),
+            ("disabled", {"refusal": (429, "Disabled")}, 429, "This workflow was disabled"),
+            (
+                "no_run_started",
+                {"refusal": (500, "The trigger did not start a run. Check the workflow logs.")},
+                502,
+                "The trigger did not start a run.",
+            ),
         ]
     )
-    @unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_manual_invocation")
     def test_run_reports_a_refused_manual_trigger_as_a_message(
-        self, _name, cdp_status, cdp_error, expected_status, expected_detail, mock_manual_invocation, mock_invocation
+        self, _mock_scheduled_invocation, _name, worker_setup, expected_status, expected_detail
     ):
-        mock_response = unittest.mock.MagicMock()
-        mock_response.status_code = cdp_status
-        mock_response.json.return_value = {"error": cdp_error}
-        mock_response.text = json.dumps({"error": cdp_error})
-        mock_manual_invocation.return_value = mock_response
+        self._start_manual_run_worker(**worker_setup)
         workflow = self._create_workflow(trigger_type="manual")
 
         response = self.client.post(self._run_url(workflow.id))
@@ -786,16 +884,20 @@ class TestHogFlowRun(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_invocation.assert_not_called()
 
-    def test_run_surfaces_cdp_error(self, mock_invocation):
-        mock_response = unittest.mock.MagicMock()
-        mock_response.status_code = 502
-        mock_response.text = "bad gateway"
-        mock_invocation.return_value = mock_response
+    @parameterized.expand(
+        [
+            ("engine_error", 502, {"error": "bad gateway"}),
+            ("over_quota", 429, {"error": "The project is over its workflow quota"}),
+        ]
+    )
+    def test_run_surfaces_cdp_error(self, mock_invocation, _name, status_code, body):
+        mock_invocation.return_value = _worker_response(status_code, body)
         workflow = self._create_workflow()
 
         response = self.client.post(self._run_url(workflow.id))
 
-        assert response.status_code == 502
+        assert response.status_code == status_code
+        assert response.json() == {"detail": body["error"]}
 
     def test_run_accepts_null_variable_override(self, mock_invocation):
         # A null override must reach dispatch as None, not be rejected by the child field —
@@ -949,11 +1051,21 @@ class TestSendCalendarAPI(APIBaseTest):
         HogFlowBatchJob.objects.filter(id=job.id).update(created_at=created_at)
         return str(job.id)
 
-    def _get(self, start=None, end=None):
-        return self.client.get(
-            f"/api/projects/{self.team.id}/hog_flows/send_calendar/",
-            {"start": (start or self.RANGE_START).isoformat(), "end": (end or self.RANGE_END).isoformat()},
-        )
+    def _get(self, start=None, end=None, ids=None):
+        params = {"start": (start or self.RANGE_START).isoformat(), "end": (end or self.RANGE_END).isoformat()}
+        if ids is not None:
+            params["ids"] = ids
+        return self.client.get(f"/api/projects/{self.team.id}/hog_flows/send_calendar/", params)
+
+    def test_ids_return_only_the_requested_flows(self):
+        wanted = self._flow("Launch email", email=_email_step())
+        self._flow("Other email", email=_email_step())
+
+        response = self._get(ids=str(wanted.id))
+        invalid = self._get(ids="not-an-id")
+
+        assert [row["id"] for row in response.json()] == [str(wanted.id)]
+        assert invalid.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
         [

@@ -40,6 +40,22 @@ interface UrlFilters {
     propertyFilters: AnyPropertyFilter[]
 }
 
+export function writeSharedFilterParams(
+    searchParams: Record<string, any>,
+    { filterTestAccountsOverride, propertyFilters }: UrlFilters
+): void {
+    if (filterTestAccountsOverride === null) {
+        delete searchParams.filter_test_accounts
+    } else {
+        searchParams.filter_test_accounts = filterTestAccountsOverride
+    }
+    if (propertyFilters.length > 0) {
+        searchParams.properties = propertyFilters
+    } else {
+        delete searchParams.properties
+    }
+}
+
 // kea-router may hand a boolean param back already coerced, or as its string form.
 export function parseUrlBoolean(raw: unknown): boolean | null {
     return raw === true || raw === 'true' ? true : raw === false || raw === 'false' ? false : null
@@ -143,16 +159,7 @@ export const mcpAnalyticsFiltersLogic = kea<mcpAnalyticsFiltersLogicType>([
         const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
             const { currentLocation } = router.values
             const searchParams = { ...currentLocation.searchParams }
-            if (values.filterTestAccountsOverride === null) {
-                delete searchParams.filter_test_accounts
-            } else {
-                searchParams.filter_test_accounts = values.filterTestAccountsOverride
-            }
-            if (values.propertyFilters.length > 0) {
-                searchParams.properties = values.propertyFilters
-            } else {
-                delete searchParams.properties
-            }
+            writeSharedFilterParams(searchParams, values)
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
         return {

@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { derivePrState } from 'lib/signals/prState'
@@ -22,6 +23,7 @@ import {
 } from 'products/signals/frontend/generated/api'
 import type {
     PaginatedSignalReportListListApi,
+    PaginatedSignalReportListListApiPersonalRankingStatus,
     ReviewerRemovalReasonEnumApi,
     SignalReportMetricSnapshotsApi,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -52,8 +54,13 @@ import type { InboxCreatedWindow, InboxFilterState, InboxSortDirection, InboxSor
 import { prCiStatusLogic } from './prCiStatusLogic'
 
 const PAGE_SIZE = 50
+const REPORT_LIST_RETRY_DELAY_MS = 300
 // The refresh endpoint's own id cap per call.
 const METRIC_REFRESH_PAGE_SIZE = 20
+
+function isRetryableReportListError(error: unknown): boolean {
+    return error instanceof ApiError && (error.status === undefined || error.status === 408 || error.status >= 500)
+}
 
 /** The row fields the list leaves empty (`include_source_metadata=false`) and `source_metadata` fills in. */
 export type ReportSourceMeta = Pick<SignalReport, 'source_products' | 'scout_name'>
@@ -72,7 +79,7 @@ export interface ReportListRequestContext {
 
 /** A list response stamped with the query params and display context that produced it (see the loader). */
 export type ReportListResponse = CountedPaginatedResponse<SignalReport> &
-    Pick<PaginatedSignalReportListListApi, 'count_is_capped' | 'ranking_id'> & {
+    Pick<PaginatedSignalReportListListApi, 'count_is_capped' | 'ranking_id' | 'personal_ranking_status'> & {
         /** The ranker the server used for `sort=recommended` or `sort=personal`. Null for every other sort. */
         ranker?: string | null
         /** Whether the client shows a ranking score pill on each card, for `sort=recommended` or `sort=personal`. Null for every other sort. */
@@ -265,6 +272,7 @@ export interface reportListLogicValues {
     loadedContext: ReportListRequestContext | null
     loadedPersonalFallback: boolean
     loadedPersonalOrder: boolean
+    loadedPersonalRankingStatus: PaginatedSignalReportListListApiPersonalRankingStatus
     loadedQueryKey: string | null
     loadedRanker: string | null
     loadedRankingPill: boolean
@@ -538,6 +546,9 @@ export interface reportListLogicMeta {
         loadedRanker: (reportsResponse: ReportListResponse | null) => string | null
         loadedRankingPill: (reportsResponse: ReportListResponse | null) => boolean
         loadedPersonalOrder: (reportsResponse: ReportListResponse | null) => boolean
+        loadedPersonalRankingStatus: (
+            reportsResponse: ReportListResponse | null
+        ) => PaginatedSignalReportListListApiPersonalRankingStatus
         loadedPersonalFallback: (reportsResponse: ReportListResponse | null) => boolean
     }
 }
@@ -705,15 +716,26 @@ export const reportListLogic = kea<reportListLogicType>([
                     const requestContext = requestContextFromValues(values)
                     cache.firstPageRequestId = (cache.firstPageRequestId ?? 0) + 1
                     const rowsBefore = values.reportsResponse?.results
-                    // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
-                    const response = await api.signalReports.list({
-                        ...listRequestParams(params),
-                        offset: 0,
-                        limit: PAGE_SIZE,
-                        ranking_id: isMergeKeySortField(requestContext.sortField)
-                            ? loadedPersonalRankingId(requestContext.sortField, params.teammate_uuid)
-                            : undefined,
-                    })
+                    const request = (): Promise<CountedPaginatedResponse<SignalReport>> =>
+                        // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
+                        api.signalReports.list({
+                            ...listRequestParams(params),
+                            offset: 0,
+                            limit: PAGE_SIZE,
+                            ranking_id: isMergeKeySortField(requestContext.sortField)
+                                ? loadedPersonalRankingId(requestContext.sortField, params.teammate_uuid)
+                                : undefined,
+                        })
+                    let response: CountedPaginatedResponse<SignalReport>
+                    try {
+                        response = await request()
+                    } catch (error) {
+                        if (!isRetryableReportListError(error)) {
+                            throw error
+                        }
+                        await breakpoint(REPORT_LIST_RETRY_DELAY_MS)
+                        response = await request()
+                    }
                     // A newer first-page request for a changed query supersedes this one.
                     breakpoint()
                     return {
@@ -749,6 +771,8 @@ export const reportListLogic = kea<reportListLogicType>([
                     return {
                         ...response,
                         results: [...latest, ...keepRowFieldsWrittenDuringFetch(response.results, current, latest)],
+                        // Only the first page reads the status, so a later page must not blank it.
+                        personal_ranking_status: values.reportsResponse?.personal_ranking_status ?? null,
                         requestParams: params,
                         requestContext,
                     }
@@ -1019,6 +1043,12 @@ export const reportListLogic = kea<reportListLogicType>([
         loadedPersonalOrder: [
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): boolean => reportsResponse?.ranker === 'personal',
+        ],
+        // The user's own stored personal ranking as the first page found it. Null when personal ranking is off.
+        loadedPersonalRankingStatus: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): PaginatedSignalReportListListApiPersonalRankingStatus =>
+                reportsResponse?.personal_ranking_status ?? null,
         ],
         // The user asked for the Personalized sort, but they have no stored personal ranking, so the
         // server answered with the Recommended order.

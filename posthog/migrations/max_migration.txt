@@ -1,1 +1,1 @@
-1431_squash_2026_11_02_schema_addons
+1434_drop_unused_activitylog_org_detail_indexes

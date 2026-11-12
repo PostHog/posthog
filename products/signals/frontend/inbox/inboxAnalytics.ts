@@ -4,7 +4,10 @@ import type { CaptureOptions } from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 
 import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import type { InboxSummaryApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    InboxSummaryApi,
+    PaginatedSignalReportListListApiPersonalRankingStatus,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import type { ReportDiscussionIntent } from './inboxTaskKickoffLogic'
@@ -182,6 +185,10 @@ export type InboxReportActionType =
     | 'resume_discussion'
     | 'restore'
     | 'create_pr'
+    | 'implementation_button_clicked'
+    | 'monitor'
+    | 'reopen'
+    | 'change_priority'
     | 'github_access_recovery'
     | 'copy_implementation_prompt'
     | 'refund'
@@ -194,6 +201,7 @@ export type InboxReportActionType =
     | 'remove_suggested_reviewer'
     | 'claim'
     | 'unclaim'
+    | 'claim_dialog'
     | 'expand_preview'
     | 'add_note'
 
@@ -456,7 +464,15 @@ export function captureInboxViewed(params: {
     /** Selected report states on the flat Reports list; [] (every state) on other surfaces. */
     stateFilter?: string[]
     scope: string
+    /** The user's own stored personal ranking. Null when personal ranking is off or no page loaded. */
+    personalRankingStatus: PaginatedSignalReportListListApiPersonalRankingStatus
+    /** Reports in the For you scope across the counted states. Null when the counts describe another scope or a filtered list. */
+    forYouReportCount: number | null
+    /** The sort and ranker of the served list, as on `Inbox reports impressed`. */
+    sortField: string
+    rankerId: string | null
 }): void {
+    const status = params.personalRankingStatus
     captureInboxEvent(INBOX_EVENTS.VIEWED, {
         tab: params.tab,
         report_count: params.reports.length,
@@ -469,6 +485,14 @@ export function captureInboxViewed(params: {
         priority_filter: params.priorityFilter,
         state_filter: params.stateFilter ?? [],
         scope: params.scope,
+        personal_list_state: status?.state ?? null,
+        personal_list_size: status?.size ?? null,
+        personal_list_age_minutes: status?.age_minutes ?? null,
+        personal_list_checked_age_minutes: status?.checked_age_minutes ?? null,
+        personal_list_fallback_reason: status?.fallback_reason ?? null,
+        for_you_report_count: params.forYouReportCount,
+        sort_field: params.sortField,
+        ranker_id: params.rankerId,
         ...priorityBreakdown(params.reports),
         ...actionabilityBreakdown(params.reports),
     })

@@ -17,7 +17,6 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { uuid } from 'lib/utils/dom'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
@@ -33,7 +32,6 @@ import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery, LinkBreadcrumb, InsightModel } from '../../../types'
 import { NEW_QUERY, normalizeFiltersForUrl, sqlEditorLogic, toDataVisualizationNode } from './sqlEditorLogic'
 import type { QueryTab, SqlEditorSource } from './sqlEditorLogic'
@@ -81,33 +79,18 @@ export interface EditorSceneLogicProps {
 export function buildSqlNotebook(
     queryInput: string,
     activeTab: QueryTab | null,
-    editingInsight: InsightModel | null,
-    featureFlags: FeatureFlagsSet
+    editingInsight: InsightModel | null
 ): { title: string; content: JSONContent[] } {
     const activeTabName = activeTab?.name === NEW_QUERY ? undefined : activeTab?.name
-    const sqlNode = featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]
-        ? {
-              type: NotebookNodeType.SQLV2,
-              attrs: {
-                  nodeId: uuid(),
-                  code: queryInput,
-                  returnVariable: '',
-                  edit: true,
-              },
-          }
-        : {
-              type: NotebookNodeType.Query,
-              attrs: {
-                  query: {
-                      kind: NodeKind.DataTableNode,
-                      source: {
-                          kind: NodeKind.HogQLQuery,
-                          query: queryInput,
-                      },
-                  },
-                  edit: true,
-              },
-          }
+    const sqlNode = {
+        type: NotebookNodeType.SQLV2,
+        attrs: {
+            nodeId: uuid(),
+            code: queryInput,
+            returnVariable: '',
+            edit: true,
+        },
+    }
 
     return {
         title: editingInsight?.name || editingInsight?.derived_name || activeTabName || 'SQL query',
@@ -125,7 +108,6 @@ export interface editorSceneLogicValues {
     editingView: DataWarehouseSavedQuery | undefined // sqlEditorLogic
     editorSource: SqlEditorSource // sqlEditorLogic
     editorUrl: string // sqlEditorLogic
-    featureFlags: FeatureFlagsSet // sqlEditorLogic
     insightLoading: boolean // sqlEditorLogic
     queryInput: string | null // sqlEditorLogic
     sourceQuery: DataVisualizationNode // sqlEditorLogic
@@ -310,7 +292,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 'editingView',
                 'editorUrl',
                 'editorSource',
-                'featureFlags',
                 'insightLoading',
                 'queryInput',
                 'sourceQuery',
@@ -639,8 +620,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             const { title, content } = buildSqlNotebook(
                 values.queryInput ?? '',
                 values.activeTab,
-                values.editingInsight,
-                values.featureFlags
+                values.editingInsight
             )
             actions.createNotebook(NotebookTarget.Scene, title, content)
         },

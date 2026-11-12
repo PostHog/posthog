@@ -406,36 +406,62 @@ def test_deny_exceptions_are_per_pattern_and_per_file(deny_exceptions, files: li
     assert detect_deny_categories(files) == expected
 
 
-def test_disabling_deny_exceptions_keeps_ignored_files(deny_exceptions) -> None:
+def test_disabling_deny_exceptions_keeps_lifted_files(deny_exceptions) -> None:
     files = ["apps/billing/values.yaml", "posthog/migrations/0999_add_column.py"]
-    ignored = {"posthog/migrations/0999_add_column.py"}
+    lifted = {"migrations": {"posthog/migrations/0999_add_column.py"}}
 
-    assert detect_deny_categories(files, ignored_files=ignored) == []
-    assert detect_deny_categories(files, ignored_files=ignored, apply_exceptions=False) == ["billing"]
+    assert detect_deny_categories(files, lifted) == []
+    assert detect_deny_categories(files, lifted, apply_exceptions=False) == ["billing"]
     assert detect_title_scrutiny_flags("fix: billing helm auth") == ["auth", "billing", "infra_cicd"]
 
 
-# ── Deny-list bypass via ignored_files ───────────────────────────
+# ── Deny-list bypass via lifted_files ────────────────────────────
 
 
-def test_ignored_files_bypass_deny_list() -> None:
-    files = [
-        "posthog/migrations/1117_alter_integration_kind.py",
-        "posthog/migrations/max_migration.txt",
-    ]
-    ignored = set(files)
-
-    assert detect_deny_categories(files, ignored_files=ignored) == []
-
-
-def test_ignored_files_does_not_bypass_other_deny_list_files() -> None:
-    files = [
-        "posthog/migrations/1117_alter_integration_kind.py",
-        "posthog/migrations/1118_add_column.py",
-    ]
-    ignored = {"posthog/migrations/1117_alter_integration_kind.py"}
-
-    assert detect_deny_categories(files, ignored_files=ignored) == ["migrations"]
+@pytest.mark.parametrize(
+    "files, lifted, expected",
+    [
+        pytest.param(
+            ["posthog/migrations/1117_alter_integration_kind.py", "posthog/migrations/max_migration.txt"],
+            {
+                "migrations": {
+                    "posthog/migrations/1117_alter_integration_kind.py",
+                    "posthog/migrations/max_migration.txt",
+                }
+            },
+            [],
+            id="lifted-files-pass",
+        ),
+        pytest.param(
+            ["posthog/migrations/1117_alter_integration_kind.py", "posthog/migrations/1118_add_column.py"],
+            {"migrations": {"posthog/migrations/1117_alter_integration_kind.py"}},
+            ["migrations"],
+            id="unlisted-file-still-denies",
+        ),
+        pytest.param(
+            ["ee/billing/migrations/0001_add_plan.py"],
+            {"migrations": {"ee/billing/migrations/0001_add_plan.py"}},
+            ["billing"],
+            id="lift-covers-only-its-category",
+        ),
+        pytest.param(
+            [".stamphog/policy.yml"],
+            {"migrations": {".stamphog/policy.yml"}},
+            ["stamphog_policy"],
+            id="lift-never-reaches-another-category",
+        ),
+        pytest.param(
+            ["Posthog/migrations/0001_add_col.py"],
+            {"migrations": {"posthog/migrations/0001_add_col.py"}},
+            ["migrations"],
+            id="lift-matches-exact-case",
+        ),
+    ],
+)
+def test_lifted_files_bypass_only_their_category(
+    files: list[str], lifted: dict[str, set[str]], expected: list[str]
+) -> None:
+    assert detect_deny_categories(files, lifted) == expected
 
 
 # ── Data warehouse connector exemption (auth + billing) ──────────

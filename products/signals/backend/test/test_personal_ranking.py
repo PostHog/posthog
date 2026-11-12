@@ -12,8 +12,10 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.core.management import call_command
+from django.db import connection
 from django.db.models import F
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import httpx
@@ -45,6 +47,7 @@ from products.signals.backend.personal_ranking.config import (
     ReasonLimits,
     parse_config,
 )
+from products.signals.backend.personal_ranking.list_sort import personal_ranking_state
 from products.signals.backend.personal_ranking.logic import (
     BUILT_EVENT,
     InputChanges,
@@ -55,7 +58,11 @@ from products.signals.backend.personal_ranking.logic import (
 )
 from products.signals.backend.personal_ranking.prompt import render_person, system_prompt, user_message
 from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
-from products.signals.backend.personal_ranking_tasks import build_lock_key, build_personal_inbox_ranking
+from products.signals.backend.personal_ranking_tasks import (
+    build_lock_key,
+    build_personal_inbox_ranking,
+    start_first_summary_build,
+)
 from products.signals.backend.ranking.inbox_sort import PERSONAL_RECOMMENDED_FLAG, RECOMMENDED_INBOX_SORT_FLAG
 from products.signals.backend.ranking.report_predictions import OutcomePrediction, ReportPredictions
 
@@ -948,6 +955,43 @@ class TestBuildPersonalRanking(BaseTest):
         assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=other_user.id).count() == 1
         assert PersonalInboxRanking.objects.for_team(other_team.id).filter(user_id=self.user.id).count() == 1
 
+    @parameterized.expand(
+        [
+            ("first summary with candidates", {}, True, False, ["first_summary"]),
+            ("already has a list", {}, True, True, ["on_demand"]),
+            ("disabled payload", {"enabled": False}, True, False, []),
+            ("no candidates", {}, False, False, []),
+        ]
+    )
+    def test_a_first_summary_builds_a_list_only_for_a_person_without_one(
+        self, _name: str, payload: dict[str, Any], has_candidates: bool, has_list: bool, triggers: list[str]
+    ) -> None:
+        cache.delete(build_lock_key(self.team.id, self.user.id))
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        if has_candidates:
+            self._setup_reports()
+        self.create.return_value = _response(_answer([]))
+        if has_list:
+            self._build()
+        queued: list[tuple[Any, ...]] = []
+
+        with (
+            patch("products.signals.backend.personal_ranking.config.read_flag_payload", return_value=payload),
+            patch(
+                "products.signals.backend.personal_ranking_tasks.build_personal_inbox_ranking.delay",
+                side_effect=lambda *args: queued.append(args),
+            ),
+        ):
+            start_first_summary_build(self.team.id, self.user.id)
+            for args in queued:
+                build_personal_inbox_ranking(*args)
+
+        captured = [call.kwargs["properties"]["trigger"] for call in self.capture.call_args_list]
+        assert captured == triggers
+        assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == len(triggers)
+        assert cache.get(build_lock_key(self.team.id, self.user.id)) is None
+
 
 class TestForMeEndpoint(APIBaseTest):
     def setUp(self) -> None:
@@ -1251,6 +1295,23 @@ class TestForMeEndpoint(APIBaseTest):
         assert (self._rows(), self.queued) == (0, [])
 
 
+class TestPersonalRankingState(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("real", "ok", True, 2, "real"),
+            ("one_report", "ok", True, 1, "one_report"),
+            ("not_personalized", "ok", False, 3, "not_personalized"),
+            ("ok_without_reports", "ok", True, 0, "empty"),
+            ("empty", "empty", False, 0, "empty"),
+            ("fallback", "fallback", False, 3, "fallback"),
+        ]
+    )
+    def test_only_an_ok_personalized_row_of_two_reports_is_real(
+        self, _name: str, status: str, personalized: bool, size: int, expected: str
+    ) -> None:
+        assert personal_ranking_state(status, personalized, size) == expected
+
+
 class TestPersonalListSort(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1309,8 +1370,7 @@ class TestPersonalListSort(APIBaseTest):
             input_hash="h",
             model="m",
             prompt_version=1,
-            status="ok",
-            **{"user": self.user, **defaults, **kwargs},
+            **{"user": self.user, "status": "ok", **defaults, **kwargs},
         )
 
     def _variants(self, variants: dict[str, str]) -> None:
@@ -1432,17 +1492,20 @@ class TestPersonalListSort(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("full_list", 4, "personal", "personal"),
-            ("full_list_in_control", 4, "control", "priority"),
-            ("short_list", 3, "personal", "priority"),
-            ("no_list", None, "personal", "priority"),
+            ("full_list", 4, "personal", "personal", [True]),
+            ("full_list_in_control", 4, "control", "priority", [True]),
+            # A rebuild can make an exposed person's list shorter, and they must keep their arm.
+            ("short_list", 3, "personal", "personal", [False]),
+            ("short_list_in_control", 3, "control", "priority", [False]),
+            ("no_list", None, "personal", "priority", []),
         ]
     )
-    def test_recommended_tests_the_personal_order_only_with_a_full_list(
-        self, _name: str, ranked: int | None, variant: str, ranker: str
+    def test_recommended_exposes_the_personal_test_only_with_a_full_list(
+        self, _name: str, ranked: int | None, variant: str, ranker: str, exposures: list[bool]
     ) -> None:
         r0, r1, r2, r3, r4 = self.reports
-        row = self._ranking([r3, r1, r4, r0][:ranked], [r2]) if ranked is not None else None
+        listed = [r3, r1, r4, r0][:ranked]
+        row = self._ranking(listed, [r2]) if ranked is not None else None
         base = self._ids(self._list(sort="priority"))
         self._variants({PERSONAL_RECOMMENDED_FLAG: variant, RECOMMENDED_INBOX_SORT_FLAG: "control"})
 
@@ -1450,15 +1513,72 @@ class TestPersonalListSort(APIBaseTest):
 
         if ranker == "personal":
             assert row is not None
-            assert self._ids(body) == [str(r3.id), str(r1.id), str(r4.id), str(r0.id), str(r2.id)]
+            assert self._ids(body)[: len(listed) + 1] == [str(report.id) for report in [*listed, r2]]
             assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("personal", str(row.id), True)
             assert body["results"][0]["personal_reason"] == "reason R3"
         else:
             assert self._ids(body) == base
             assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("priority", None, False)
-        exposures = [
+        assert [
             call.kwargs["send_feature_flag_events"]
             for call in self.analytics.get_feature_flag.call_args_list
             if call.args[0] == PERSONAL_RECOMMENDED_FLAG
-        ]
-        assert exposures == ([True] if ranked == 4 else [])
+        ] == exposures
+
+    @parameterized.expand([("priority", {}), ("personal", {}), ("personal", {"scope": "teammate"})])
+    def test_first_page_reports_the_viewer_ranking_status(self, sort: str, params: dict[str, Any]) -> None:
+        r0, r1, r2, *_ = self.reports
+        teammate = User.objects.create(email="teammate@example.com")
+        OrganizationMembership.objects.create(user=teammate, organization=self.organization)
+        with time_machine.travel("2026-03-01T12:00:00Z", tick=False):
+            row = self._ranking([r0, r1], [r2], status="fallback", personalized=False, fallback_reason="timeout")
+        PersonalInboxRanking.objects.filter(id=row.id).update(
+            checked_at=datetime.datetime(2026, 3, 1, 13, 30, tzinfo=datetime.UTC)
+        )
+        self._ranking([r2, r1], [], user=teammate)
+        if params:
+            params = {**params, "teammate_uuid": teammate.uuid}
+
+        with time_machine.travel("2026-03-01T14:00:00Z", tick=False):
+            first = self._list(sort=sort, limit=2, **params)
+            later = self._list(sort=sort, limit=2, offset=2, **params)
+
+        assert first["personal_ranking_status"] == {
+            "state": "fallback",
+            "size": 3,
+            "age_minutes": 120,
+            "checked_age_minutes": 30,
+            "fallback_reason": "timeout",
+        }
+        assert later["personal_ranking_status"] is None
+        assert (self.gather.call_count, self.delay.call_count) == (0, 0)
+
+    @parameterized.expand([("flag_off", False, None), ("no_row", True, "none")])
+    def test_ranking_status_without_a_ranking(self, _name: str, flag_enabled: bool, state: str | None) -> None:
+        self.flag_enabled = flag_enabled
+
+        status = self._list(sort="priority")["personal_ranking_status"]
+
+        if state is None:
+            assert status is None
+        else:
+            assert status == {
+                "state": state,
+                "size": None,
+                "age_minutes": None,
+                "checked_age_minutes": None,
+                "fallback_reason": None,
+            }
+
+    def test_ranking_status_adds_one_query_to_the_first_page(self) -> None:
+        r0, r1, *_ = self.reports
+        self._ranking([r0, r1], [])
+        self._list(sort="priority")
+
+        def queries(payload: dict[str, Any]) -> int:
+            self.payload = payload
+            with CaptureQueriesContext(connection) as captured:
+                self._list(sort="priority")
+            return len(captured)
+
+        assert queries({}) - queries({"enabled": False}) == 1

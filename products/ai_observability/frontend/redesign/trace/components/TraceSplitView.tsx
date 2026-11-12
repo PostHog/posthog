@@ -1,4 +1,4 @@
-import type { TraceNodeApi } from '../../../generated/api.schemas'
+import type { TraceNodeApi, TraceStepFeedbackApi } from '../../../generated/api.schemas'
 import { EvalRollupOutcome } from '../types'
 import { NodeDetail, NodeDetailProps } from './NodeDetail'
 import { TraceTree } from './TraceTree'
@@ -9,8 +9,8 @@ export interface TraceSplitViewProps {
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
     detail: Omit<NodeDetailProps, 'onSelectNode' | 'highlightQuery' | 'matchStepCount'> | null
-    evalOutcomes: Record<string, EvalRollupOutcome>
-    feedbackCountByNodeId?: Record<string, number>
+    evalOutcomes: ReadonlyMap<string, EvalRollupOutcome>
+    stepFeedback?: ReadonlyMap<string, TraceStepFeedbackApi>
     matchingNodeIds?: ReadonlySet<string> | null
     highlightQuery?: string | null
     matchStepCount?: number
@@ -23,7 +23,7 @@ export function TraceSplitView({
     onPrefetchNode,
     detail,
     evalOutcomes,
-    feedbackCountByNodeId,
+    stepFeedback,
     matchingNodeIds = null,
     highlightQuery = null,
     matchStepCount = 0,
@@ -38,7 +38,7 @@ export function TraceSplitView({
                         onSelectNode={onSelectNode}
                         onPrefetchNode={onPrefetchNode}
                         evalOutcomes={evalOutcomes}
-                        feedbackCountByNodeId={feedbackCountByNodeId}
+                        stepFeedback={stepFeedback}
                         matchingNodeIds={matchingNodeIds}
                         matchStepCount={matchStepCount}
                     />
