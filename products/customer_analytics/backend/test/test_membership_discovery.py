@@ -7,10 +7,13 @@ import pytest
 from time_machine import travel
 from unittest.mock import patch
 
+from clickhouse_driver import Client
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.client.execute import _get_kill_switch_level, _get_kill_switch_team_sets
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.person_group_membership.sql import GROUP_KEY_EXPR
 
 from products.customer_analytics.backend.logic.membership import MembershipKey
@@ -38,18 +41,55 @@ class TestMembershipDiscovery(MembershipTestCase):
     def run_discovery(self) -> MembershipDiscoveryCounts:
         return run_membership_discovery(MembershipDiscoveryInput(team_id=self.team.pk), self.store)
 
-    def test_discovery_queries_work_with_development_tag_guard(self) -> None:
+    @parameterized.expand([(None,), (100,)])
+    def test_discovery_queries_work_with_development_tag_guard(self, remaining: int | None) -> None:
         self.create_membership()
         self.create_mapping(self.create_person())
         self.create_group()
-        with (
-            patch("posthog.clickhouse.client.execute.DEBUG", True),
-            patch("posthog.clickhouse.client.execute.TEST", False),
-            tags_context(product=None, feature=None),
-        ):
-            assert list_membership_discovery_teams(self.store) == [self.team.pk]
-            assert self.run_discovery().scanned == 1
-            assert self.run_discovery().discovered == 0
+        self.store.deadline = monotonic() + remaining if remaining is not None else None
+        execute = Client.execute
+        observed_settings: list[dict[str, object]] = []
+
+        def execute_with_limits(client: Client, query: str, *args: object, **kwargs: object) -> object:
+            if "WHERE team_id = " in query:
+                settings = kwargs["settings"]
+                assert isinstance(settings, dict)
+                assert settings["max_execution_time"] == 15
+                assert settings["max_threads"] == 30
+                assert settings["max_bytes_to_read"] == 1000000000000
+                assert settings["max_block_size"] == 321
+                observed_settings.append(settings)
+            return execute(client, query, *args, **kwargs)
+
+        _get_kill_switch_level.cache_clear()
+        _get_kill_switch_team_sets.cache_clear()
+        try:
+            with (
+                patch("posthog.clickhouse.client.execute.DEBUG", True),
+                patch("posthog.clickhouse.client.execute.TEST", False),
+                patch.dict(
+                    "products.customer_analytics.backend.logic.membership.QUERY_SETTINGS", {"max_execution_time": 100}
+                ),
+                override_instance_config("CLICKHOUSE_KILL_SWITCH", "off"),
+                override_instance_config("CLICKHOUSE_KILL_SWITCH_FULL_TEAMS", [self.team.pk]),
+                override_instance_config("CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS", []),
+                patch.dict(
+                    "posthog.clickhouse.client.execute.CLICKHOUSE_PER_TEAM_QUERY_SETTINGS",
+                    {str(self.team.pk): {"max_block_size": 321}},
+                    clear=True,
+                ),
+                patch.object(Client, "execute", execute_with_limits),
+                tags_context(product=None, feature=None),
+            ):
+                assert list_membership_discovery_teams(self.store) == [self.team.pk]
+                assert self.run_discovery().scanned == 1
+                assert self.run_discovery().discovered == 0
+                with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.DATA_DELETION):
+                    assert self.store.get_existing_keys(self.team.pk, {self.key}) == {self.key}
+        finally:
+            _get_kill_switch_level.cache_clear()
+            _get_kill_switch_team_sets.cache_clear()
+        assert observed_settings
         assert not MembershipCleanupCandidate.objects.for_team(self.team.pk).exists()
 
     @parameterized.expand([("live_team", False), ("deleted_team", True)])

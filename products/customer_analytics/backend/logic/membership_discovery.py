@@ -103,7 +103,7 @@ class MembershipDiscoveryStore:
                 {"after": cursor},
                 settings={
                     **get_membership_query_settings(self.deadline),
-                    "max_execution_time": "2",
+                    "max_execution_time": 2,
                     "optimize_read_in_order": "1",
                 },
                 workload=Workload.OFFLINE,
@@ -134,6 +134,7 @@ class MembershipDiscoveryStore:
             external_tables=[get_membership_key_table([cursor_key])],
             settings={**get_membership_query_settings(self.deadline), "optimize_distinct_in_order": "1"},
             workload=Workload.OFFLINE,
+            team_id=team_id,
         )
         return [MembershipKey(group_type_index=row[0], group_key=row[1], distinct_id=row[2]) for row in rows]
 
@@ -148,6 +149,7 @@ class MembershipDiscoveryStore:
             external_tables=[get_membership_key_table(list(keys))],
             settings=get_membership_query_settings(self.deadline),
             workload=Workload.OFFLINE,
+            team_id=team_id,
         )
         return {MembershipKey(group_type_index=row[0], group_key=row[1], distinct_id=row[2]) for row in rows}
 

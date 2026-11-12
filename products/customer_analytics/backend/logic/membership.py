@@ -26,8 +26,8 @@ MEMBERSHIP_LEASE_SECONDS = 60 * 60
 MEMBERSHIP_LEASE_RENEWAL_SECONDS = 5
 
 # Partial results must fail the batch, never report a missing identity.
-QUERY_SETTINGS = {
-    "max_execution_time": str(QUERY_TIMEOUT_SECONDS),
+QUERY_SETTINGS: dict[str, str | int] = {
+    "max_execution_time": QUERY_TIMEOUT_SECONDS,
     "result_overflow_mode": "throw",
     "skip_unavailable_shards": "0",
     "timeout_overflow_mode": "throw",
@@ -39,13 +39,13 @@ class MembershipCleanupBusy(Exception):
     pass
 
 
-def get_membership_query_settings(deadline: float | None = None) -> dict[str, str]:
+def get_membership_query_settings(deadline: float | None = None) -> dict[str, str | int]:
     if deadline is None:
         return QUERY_SETTINGS
     remaining = int(deadline - monotonic())
     if remaining <= 0:
         raise TimeoutError("The membership batch deadline has passed. Retry the batch.")
-    return {**QUERY_SETTINGS, "max_execution_time": str(min(QUERY_TIMEOUT_SECONDS, remaining))}
+    return {**QUERY_SETTINGS, "max_execution_time": min(QUERY_TIMEOUT_SECONDS, remaining)}
 
 
 def get_membership_cleanup_lease(team_id: int, *, timeout: float = MEMBERSHIP_LEASE_SECONDS) -> Lock:
@@ -126,6 +126,7 @@ def _get_live_groups(
             {"team_id": team_id, "groups": list(set(lookup_keys.values()))},
             settings=get_membership_query_settings(deadline),
             workload=Workload.OFFLINE,
+            team_id=team_id,
         )
     live_groups = {(row[0], row[1]) for row in groups}
     missing_groups = set(lookup_keys.values()) - live_groups
@@ -168,6 +169,7 @@ def get_membership_existence(
             parameters,
             settings=get_membership_query_settings(deadline),
             workload=Workload.OFFLINE,
+            team_id=team_id,
         )
     person_ids = list({mapping[1][0] for mapping in mappings})
     with timings.measure("read_persons") if timings else nullcontext():
@@ -178,6 +180,7 @@ def get_membership_existence(
                 {"team_id": team_id, "person_ids": person_ids},
                 settings=get_membership_query_settings(deadline),
                 workload=Workload.OFFLINE,
+                team_id=team_id,
             )
             if person_ids
             else []
