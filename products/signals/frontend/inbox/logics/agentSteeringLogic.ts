@@ -15,6 +15,17 @@ export const STEERING_FIELDS = {
 
 export type SteeringRole = keyof typeof STEERING_FIELDS
 
+export const CUSTOM_IMAGE_FIELDS = {
+    scout: 'scout_custom_image_id',
+    research: 'research_custom_image_id',
+    implementation: 'implementation_custom_image_id',
+} as const satisfies Record<SteeringRole, keyof SignalTeamConfigApi>
+
+export interface SaveCustomImage {
+    role: SteeringRole
+    imageId: string | null
+}
+
 export interface SaveSteeringInstructions {
     role: SteeringRole
     instructions: string
@@ -30,6 +41,7 @@ export interface agentSteeringLogicValues {
     selectedRole: SteeringRole
     steeringConfig: SignalTeamConfigApi | null
     steeringConfigLoading: boolean
+    storedCustomImageId: string | null
     storedInstructions: string | null
 }
 
@@ -52,6 +64,21 @@ export interface agentSteeringLogicActions {
     ) => {
         steeringConfig: SignalTeamConfigApi | null
         payload?: any
+    }
+    saveCustomImage: ({ role, imageId }: SaveCustomImage) => SaveCustomImage
+    saveCustomImageFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    saveCustomImageSuccess: (
+        steeringConfig: SignalTeamConfigApi,
+        payload?: SaveCustomImage
+    ) => {
+        steeringConfig: SignalTeamConfigApi
+        payload?: SaveCustomImage
     }
     saveSteeringInstructions: ({ role, instructions }: SaveSteeringInstructions) => SaveSteeringInstructions
     saveSteeringInstructionsFailure: (
@@ -99,6 +126,10 @@ export interface agentSteeringLogicMeta {
             selectedRole: 'implementation' | 'research' | 'scout',
             storedInstructions: string | null
         ) => string
+        storedCustomImageId: (
+            steeringConfig: SignalTeamConfigApi | null,
+            selectedRole: 'implementation' | 'research' | 'scout'
+        ) => string | null
         instructionsDirty: (instructions: string, storedInstructions: string | null) => boolean
     }
 }
@@ -129,6 +160,8 @@ export const agentSteeringLogic = kea<agentSteeringLogicType>([
                 instructions,
             }: SaveSteeringInstructions): Promise<SignalTeamConfigApi> =>
                 signalsConfigCreate(String(values.currentProjectId), { [STEERING_FIELDS[role]]: instructions }),
+            saveCustomImage: async ({ role, imageId }: SaveCustomImage): Promise<SignalTeamConfigApi> =>
+                signalsConfigCreate(String(values.currentProjectId), { [CUSTOM_IMAGE_FIELDS[role]]: imageId }),
         },
     })),
     reducers({
@@ -173,6 +206,11 @@ export const agentSteeringLogic = kea<agentSteeringLogicType>([
             (drafts: Partial<Record<SteeringRole, string>>, role: SteeringRole, stored: string | null): string =>
                 drafts[role] ?? stored ?? '',
         ],
+        storedCustomImageId: [
+            (s) => [s.steeringConfig, s.selectedRole],
+            (config: SignalTeamConfigApi | null, role: SteeringRole): string | null =>
+                config?.[CUSTOM_IMAGE_FIELDS[role]] ?? null,
+        ],
         instructionsDirty: [
             (s) => [s.instructions, s.storedInstructions],
             (instructions: string, stored: string | null): boolean => stored !== null && instructions !== stored,
@@ -187,6 +225,9 @@ export const agentSteeringLogic = kea<agentSteeringLogicType>([
         },
         saveSteeringInstructionsSuccess: () => {
             lemonToast.success('Steering instructions saved')
+        },
+        saveCustomImageSuccess: () => {
+            lemonToast.success('Default image saved')
         },
     })),
     afterMount(({ actions }) => actions.loadSteeringConfig()),

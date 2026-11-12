@@ -8,7 +8,7 @@ import { agentSteeringLogic } from './agentSteeringLogic'
 describe('agentSteeringLogic', () => {
     let logic: ReturnType<typeof agentSteeringLogic.build>
     let posted: unknown[]
-    let config: Record<string, string>
+    let config: Record<string, string | null>
 
     beforeEach(() => {
         initKeaTests()
@@ -17,12 +17,15 @@ describe('agentSteeringLogic', () => {
             scout_instructions: 'Focus on onboarding.',
             research_instructions: 'Check intent.',
             implementation_instructions: 'Open draft PRs.',
+            scout_custom_image_id: null,
+            research_custom_image_id: 'image-research',
+            implementation_custom_image_id: null,
         }
         useMocks({
             get: { '/api/projects/:id/signals/config/': () => [200, config] },
             post: {
                 '/api/projects/:id/signals/config/': async ({ request }) => {
-                    const body = (await request.json()) as Record<string, string>
+                    const body = (await request.json()) as Record<string, string | null>
                     posted.push(body)
                     config = { ...config, ...body }
                     return [200, config]
@@ -118,5 +121,24 @@ describe('agentSteeringLogic', () => {
             .toDispatchActions(['saveSteeringInstructionsSuccess'])
             .toMatchValues({ instructions: 'Retry these rules.', instructionsDirty: false })
         expect(logic.values.steeringConfig?.scout_instructions).toBe('Retry these rules.')
+    })
+
+    it('saves the default image for one role without touching drafts or other roles', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.storedCustomImageId).toBe('image-research')
+        logic.actions.setDraft('research', 'Unsaved research rules.')
+        logic.actions.selectRole('scout')
+        expect(logic.values.storedCustomImageId).toBeNull()
+
+        await expectLogic(logic, () => logic.actions.saveCustomImage({ role: 'scout', imageId: 'image-scout' }))
+            .toDispatchActions(['saveCustomImageSuccess'])
+            .toMatchValues({ storedCustomImageId: 'image-scout' })
+        await expectLogic(logic, () => {
+            logic.actions.selectRole('research')
+            logic.actions.saveCustomImage({ role: 'research', imageId: null })
+        })
+            .toDispatchActions(['saveCustomImageSuccess'])
+            .toMatchValues({ storedCustomImageId: null, instructions: 'Unsaved research rules.' })
+        expect(posted).toEqual([{ scout_custom_image_id: 'image-scout' }, { research_custom_image_id: null }])
     })
 })
