@@ -72,10 +72,12 @@ SHARE_BLOCKED_PERSON_COUNT = 60
 SHARE_CONTROL_PERSON_COUNT = 20
 SHARE_BASELINE_FROM_DAYS_AGO = 30
 SHARE_BLOCK_FROM_DAYS_AGO = 9
-SHARE_BLOCK_TO_DAYS_AGO = 4
+# The last day of flag exposure events. The blocked cohort shares nothing from the block start through day 1.
+SHARE_EXPOSURE_TO_DAYS_AGO = 4
 SHARE_BLOCKED_SHARES_PER_DAY = 2
 
-# SHARE_DAU: steady daily sharing with a known average, because the Hedgebox data has no share events.
+# SHARE_DAU: steady daily sharing with a known average. The Hedgebox generator can emit share events, but the
+# seeded master data has none.
 SHARE_DAU_PERSON_COUNT = 48
 SHARE_DAU_DAILY_SHARERS = 12
 SHARE_DAU_WINDOW_DAYS = 90
@@ -120,7 +122,7 @@ _CRM_REP_NAMES = (
 _CRM_REP_BASE_DEAL_USD = (9000, 8500, 8000, 7600, 7200, 6400, 6000, 5500)
 CRM_OUTLIER_REP_NAME = _CRM_REP_NAMES[6]
 
-# SLACK_PRETAX_NOTE and SLACK_UNHAPPY_ACCOUNTS: one Slack export with both needles.
+# SLACK_PRETAX_NOTE: a Slack export with one finance note among noise.
 SLACK_MESSAGES_SCHEMA = f"slack_messages_{PACK_TOKEN}"
 SLACK_MESSAGES_TABLE = f"postgres_{SLACK_MESSAGES_SCHEMA}"
 SLACK_MESSAGES_COLUMNS = ("channel", "ts", "user", "text")
@@ -129,21 +131,11 @@ SLACK_PRETAX_CHANNEL = "#finance"
 SLACK_PRETAX_TEXT = "reminder: paid_bill.amount_usd is pre-tax, finance reports post-tax (x1.08)"
 SLACK_PRETAX_DAYS_AGO = 40
 POST_TAX_MULTIPLIER = 1.08
-SLACK_UNHAPPY_CHANNEL = "#support"
-SLACK_UNHAPPY_WINDOW_DAYS = 182
-SLACK_UNHAPPY_THRESHOLD = 3
-
-# ACCOUNT_HEALTH_TABLE: a churn score per account.
-ACCOUNT_HEALTH_SCHEMA = f"account_health_{PACK_TOKEN}"
-ACCOUNT_HEALTH_TABLE = f"postgres_{ACCOUNT_HEALTH_SCHEMA}"
-ACCOUNT_HEALTH_COLUMNS = ("account_name", "churn_health", "as_of")
-ACCOUNT_COUNT = 16
-CHURN_HEALTH_THRESHOLD = 5
 
 # ORG_GRAIN_METRIC: an approved metric whose grain is the account, not the user.
 ORG_GRAIN_METRIC_NAME = "avg_spend_per_account"
 ORG_GRAIN_METRIC_DESCRIPTION = (
-    "Average paid_bill spend per account over the trailing 30 days, per account, pre-tax. "
+    "Average paid_bill spend per account over the trailing 30 days, pre-tax. "
     "Groups bills by the account group, not by person."
 )
 ORG_GRAIN_METRIC_DEFINITION: dict[str, Any] = {
@@ -225,11 +217,6 @@ _SLACK_NOISE_TEMPLATES = (
     "dashboard for weekly uploads is pinned in the team channel",
     "reminder to log your time off before {weekday}",
     "{account} wants a demo of team folders",
-)
-_SLACK_UNHAPPY_TEMPLATES = (
-    "{account} is unhappy with sync speed again, they opened another ticket",
-    "{account} escalated: unhappy about the storage limit change",
-    "call with {account} went badly, they are unhappy with support response times",
 )
 _WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
 
@@ -354,15 +341,6 @@ class SalesOutlier:
 @frozen
 class SlackExport:
     table: TableNeedle
-    unhappy_accounts: tuple[str, ...]
-    """Accounts with at least ``SLACK_UNHAPPY_THRESHOLD`` unhappy messages inside the window."""
-
-
-@frozen
-class AccountHealth:
-    table: TableNeedle
-    at_risk_accounts: tuple[str, ...]
-    """Accounts whose ``churn_health`` is above ``CHURN_HEALTH_THRESHOLD``."""
 
 
 _WEB_CLIENTS = (
@@ -590,8 +568,7 @@ def build_share_drop_flag() -> FlagNeedle:
                         properties={},
                     )
                 )
-                in_block = SHARE_BLOCK_TO_DAYS_AGO <= day <= SHARE_BLOCK_FROM_DAYS_AGO
-                if in_block:
+                if SHARE_EXPOSURE_TO_DAYS_AGO <= day <= SHARE_BLOCK_FROM_DAYS_AGO:
                     events.append(
                         PlantedEvent(
                             event="$feature_flag_called",
@@ -754,31 +731,6 @@ def build_slack_export() -> SlackExport:
         rows.append((rng.choice(_SLACK_CHANNELS), 1 + rng.randrange(240), rng.choice(users), text))
     rows.append((SLACK_PRETAX_CHANNEL, SLACK_PRETAX_DAYS_AGO, users[0], SLACK_PRETAX_TEXT))
 
-    unhappy = _ACCOUNT_NAMES[1:5]
-    for account_index, account in enumerate(unhappy):
-        for message in range(SLACK_UNHAPPY_THRESHOLD):
-            days_ago = 10 + account_index * 20 + message * 15
-            text = _SLACK_UNHAPPY_TEMPLATES[message].format(account=account)
-            rows.append((SLACK_UNHAPPY_CHANNEL, days_ago, users[1 + message], text))
-    # Near misses: two unhappy messages inside the window, and three that are too old to count.
-    for message in range(SLACK_UNHAPPY_THRESHOLD - 1):
-        rows.append(
-            (
-                SLACK_UNHAPPY_CHANNEL,
-                30 + message * 30,
-                users[4],
-                _SLACK_UNHAPPY_TEMPLATES[message].format(account=_ACCOUNT_NAMES[5]),
-            )
-        )
-    for message in range(SLACK_UNHAPPY_THRESHOLD):
-        rows.append(
-            (
-                SLACK_UNHAPPY_CHANNEL,
-                SLACK_UNHAPPY_WINDOW_DAYS + 20 + message * 10,
-                users[5],
-                _SLACK_UNHAPPY_TEMPLATES[message].format(account=_ACCOUNT_NAMES[6]),
-            )
-        )
     rows.sort(key=lambda row: (-row[1], row[0], row[3]))
     return SlackExport(
         table=TableNeedle(
@@ -788,31 +740,4 @@ def build_slack_export() -> SlackExport:
             rows=tuple(rows),
             date_column="ts",
         ),
-        unhappy_accounts=tuple(unhappy),
-    )
-
-
-def build_account_health() -> AccountHealth:
-    rng = random.Random(PACK_SEED + 4)
-    rows: list[tuple[Any, ...]] = []
-    at_risk: list[str] = []
-    for index, name in enumerate(_ACCOUNT_NAMES[:ACCOUNT_COUNT]):
-        # Three planted accounts sit above the threshold. One of them is also unhappy in Slack, so
-        # the two branches of the churn-risk definition overlap and the union is smaller than the sum.
-        if index in (2, 9, 13):
-            score = 6 + rng.randrange(4)
-        else:
-            score = rng.randrange(CHURN_HEALTH_THRESHOLD + 1)
-        rows.append((name, score, 1))
-        if score > CHURN_HEALTH_THRESHOLD:
-            at_risk.append(name)
-    return AccountHealth(
-        table=TableNeedle(
-            schema_name=ACCOUNT_HEALTH_SCHEMA,
-            table_name=ACCOUNT_HEALTH_TABLE,
-            columns=ACCOUNT_HEALTH_COLUMNS,
-            rows=tuple(rows),
-            date_column="as_of",
-        ),
-        at_risk_accounts=tuple(at_risk),
     )

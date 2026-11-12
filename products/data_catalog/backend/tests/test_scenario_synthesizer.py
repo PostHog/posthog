@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 
 from parameterized import parameterized
 
@@ -16,10 +17,9 @@ from products.data_catalog.evals import scenario_synthesizer as pack
         ("mcp_tool_shipped", pack.build_mcp_tool_shipped),
         ("revenue_rep_outlier", pack.build_revenue_rep_outlier),
         ("slack_export", pack.build_slack_export),
-        ("account_health", pack.build_account_health),
     ]
 )
-def test_needles_are_deterministic(_name: str, build) -> None:
+def test_needles_are_deterministic(_name: str, build: Callable[[], object]) -> None:
     assert build() == build()
 
 
@@ -85,7 +85,7 @@ def test_share_drop_flag_stops_only_the_blocked_cohort() -> None:
         for event in needle.events.events
         if event.event == "$feature_flag_called"
     }
-    window = range(pack.SHARE_BLOCK_TO_DAYS_AGO, pack.SHARE_BLOCK_FROM_DAYS_AGO + 1)
+    window = range(pack.SHARE_EXPOSURE_TO_DAYS_AGO, pack.SHARE_BLOCK_FROM_DAYS_AGO + 1)
     shares_in_window = Counter(
         exposures[event.distinct_id]
         for event in needle.events.events
@@ -106,7 +106,7 @@ def test_share_drop_flag_stops_only_the_blocked_cohort() -> None:
 def test_revenue_outlier_and_its_duplicate_decide_the_ranking() -> None:
     outlier = pack.build_revenue_rep_outlier()
     amounts = sorted({deal.amount_usd for deal in outlier.deals}, reverse=True)
-    assert amounts[0] >= pack.CRM_OUTLIER_FACTOR * amounts[1] * 0.99
+    assert amounts[0] == round(pack.CRM_OUTLIER_FACTOR * amounts[1], 2)
     assert Counter(deal.deal_id for deal in outlier.deals)[outlier.outlier_deal_id] == 2
     assert outlier.top_reps_with_outlier[0] == pack.CRM_OUTLIER_REP_NAME
     assert pack.CRM_OUTLIER_REP_NAME not in outlier.top_reps_without_outlier
@@ -125,24 +125,25 @@ def test_mcp_export_tool_ships_mid_window_and_correlates_with_share() -> None:
     assert sum(with_export) / len(with_export) == 3 * sum(without_export) / len(without_export)
 
 
-def test_slack_and_health_tables_match_their_declared_truths() -> None:
-    slack = pack.build_slack_export()
-    texts = [row[3] for row in slack.table.rows]
+def test_slack_export_holds_one_pretax_note() -> None:
+    texts = [row[3] for row in pack.build_slack_export().table.rows]
     assert texts.count(pack.SLACK_PRETAX_TEXT) == 1
     assert sum("pre-tax" in text for text in texts) == 1
 
-    unhappy_counts = Counter(
-        account
-        for _, days_ago, _, text in slack.table.rows
-        if "unhappy" in text and days_ago <= pack.SLACK_UNHAPPY_WINDOW_DAYS
-        for account in pack._ACCOUNT_NAMES
-        if text.startswith(account) or f"with {account}" in text
-    )
-    flagged = {account for account, count in unhappy_counts.items() if count >= pack.SLACK_UNHAPPY_THRESHOLD}
-    assert flagged == set(slack.unhappy_accounts)
 
-    health = pack.build_account_health()
-    at_risk = {row[0] for row in health.table.rows if row[1] > pack.CHURN_HEALTH_THRESHOLD}
-    assert at_risk == set(health.at_risk_accounts)
-    # The two branches overlap, so a union and a sum of the two lists give different answers.
-    assert at_risk & flagged
+@parameterized.expand(
+    [
+        ("first_day", 20, 20, 0.0),
+        ("last_day", 20, 1, 0.25),
+        ("midway", 21, 11, 0.125),
+        # A one-day window has no growth to spread, so it starts at the end share.
+        ("one_day_window", 1, 1, 0.25),
+    ]
+)
+def test_adoption_share_grows_linearly_to_the_end_share(
+    _name: str, first_seen_days_ago: int, days_ago: int, expected_share: float
+) -> None:
+    spec = pack.AdoptionSpec(
+        event="previewed_file", first_seen_days_ago=first_seen_days_ago, start_share=0.0, end_share=0.25
+    )
+    assert spec.share_on(days_ago) == expected_share

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from parameterized import parameterized
@@ -71,10 +72,13 @@ def _session_update(sequence: int, update: dict) -> str:
     )
 
 
-def _tool_log(calls: list[tuple[str, dict[str, Any], str]]) -> str:
+def _tool_log(calls: Sequence[tuple[Any, ...]]) -> str:
+    """A fourth tuple element sets the tool output, which is ``ok`` or ``error`` otherwise."""
     updates: list[str] = []
     sequence = 0
-    for index, (tool_name, raw_input, status) in enumerate(calls, start=1):
+    for index, call in enumerate(calls, start=1):
+        tool_name, raw_input, status = call[0], call[1], call[2]
+        output = call[3] if len(call) > 3 else ("error" if status == "failed" else "ok")
         call_id = f"call-{index}"
         sequence += 1
         updates.append(
@@ -98,7 +102,7 @@ def _tool_log(calls: list[tuple[str, dict[str, Any], str]]) -> str:
                     "sessionUpdate": "tool_call_update",
                     "toolCallId": call_id,
                     "status": status,
-                    "rawOutput": "error" if status == "failed" else "ok",
+                    "rawOutput": output,
                 },
             )
         )
@@ -890,17 +894,21 @@ _SPIKE_SPEC = {"measure": r"count\s*\(\s*distinct", "cause": r"referr|utm_"}
 
 @parameterized.expand(
     [
-        ("measured_first", [_WAU_QUERY, _CAUSE_QUERY], 1.0),
-        ("cause_first", [_CAUSE_QUERY, _WAU_QUERY], 0.0),
+        ("measured_first", [_WAU_QUERY, _CAUSE_QUERY], False, 1.0),
+        ("cause_first", [_CAUSE_QUERY, _WAU_QUERY], False, 0.0),
         # A breakdown by cause that also counts users is still a cause query, not a check of the premise.
-        ("breakdown_counts_as_cause", [_CAUSE_AND_MEASURE, _WAU_QUERY], 0.0),
-        ("never_explained", [_WAU_QUERY], None),
+        ("breakdown_counts_as_cause", [_CAUSE_AND_MEASURE, _WAU_QUERY], False, 0.0),
+        ("never_explained", [_WAU_QUERY], False, None),
+        ("never_explained_when_required", [_WAU_QUERY], True, 0.0),
     ]
 )
-def test_verified_before_explaining(_name: str, queries: list[str], expected_score: float | None) -> None:
+def test_verified_before_explaining(
+    _name: str, queries: list[str], required: bool, expected_score: float | None
+) -> None:
     log = _tool_log([("execute-sql", {"query": query}, "completed") for query in queries])
+    spec = _SPIKE_SPEC | {"required": required}
 
-    score = VerifiedBeforeExplaining()._run_eval_sync({"raw_log": log}, {"verified_before_explaining": _SPIKE_SPEC})
+    score = VerifiedBeforeExplaining()._run_eval_sync({"raw_log": log}, {"verified_before_explaining": spec})
 
     assert score.score == expected_score
 
@@ -965,19 +973,35 @@ def test_first_seen_checked(_name: str, query: str, expected_score: float) -> No
     assert score.score == expected_score
 
 
+_ANNOTATION = "Sponsorship went live"
+_ANNOTATION_ROWS = f'[{{"content": "{_ANNOTATION}", "date_marker": "2026-11-02"}}]'
+
+
 @parameterized.expand(
     [
-        ("list", "annotations-list", {}, 1.0),
-        ("sql", "execute-sql", {"query": "SELECT content FROM system.annotations"}, 1.0),
-        ("change_feed", "change-feed-list", {"date_from": "2026-11-01"}, 1.0),
-        ("change_feed_without_annotations", "change-feed-list", {"kinds": ["feature_flag"]}, 0.0),
-        ("create_is_not_a_read", "annotation-create", {"content": "launch"}, 0.0),
-        ("column_annotations", "warehouse-column-annotations-list", {}, 0.0),
+        ("list", "annotations-list", {}, _ANNOTATION_ROWS, 1.0),
+        ("sql", "execute-sql", {"query": "SELECT content FROM system.annotations"}, _ANNOTATION_ROWS, 1.0),
+        ("change_feed", "change-feed-list", {"date_from": "-30d"}, _ANNOTATION_ROWS, 1.0),
+        # The default 24-hour window of the change feed misses an older annotation.
+        ("change_feed_default_window", "change-feed-list", {}, "[]", 0.0),
+        ("change_feed_without_annotations", "change-feed-list", {"kinds": ["feature_flag"]}, _ANNOTATION_ROWS, 0.0),
+        (
+            "schema_lookup_is_not_a_read",
+            "execute-sql",
+            {"query": "SELECT name FROM system.information_schema.tables WHERE name LIKE '%annotation%'"},
+            _ANNOTATION_ROWS,
+            0.0,
+        ),
+        ("create_is_not_a_read", "annotation-create", {"content": _ANNOTATION}, _ANNOTATION_ROWS, 0.0),
+        ("column_annotations", "warehouse-column-annotations-list", {}, _ANNOTATION_ROWS, 0.0),
     ]
 )
-def test_annotations_read(_name: str, tool: str, tool_input: dict[str, Any], expected_score: float) -> None:
+def test_annotations_read(
+    _name: str, tool: str, tool_input: dict[str, Any], tool_output: str, expected_score: float
+) -> None:
     score = AnnotationsRead()._run_eval_sync(
-        {"raw_log": _tool_log([(tool, tool_input, "completed")])}, {"annotations_read": {}}
+        {"raw_log": _tool_log([(tool, tool_input, "completed", tool_output)])},
+        {"annotations_read": {"content": _ANNOTATION.lower()}},
     )
 
     assert score.score == expected_score
@@ -1044,9 +1068,14 @@ def test_analysis_judges_read_the_answer_after_the_last_data_call(
     expected = {
         "surfaces_all_findings": ["finding one", "finding two"],
         "analysis_diligence": {"expected_behavior": "Name the campaign."},
+        "semantic_layer_answer": {"expected_behavior": "Name the campaign."},
     }
 
-    for judge, field in ((SurfacesAllFindingsWhenListed(), "last_message"), (AnalysisDiligence(), "final_message")):
+    for judge, field in (
+        (SurfacesAllFindingsWhenListed(), "last_message"),
+        (AnalysisDiligence(), "final_message"),
+        (SemanticLayerAnswer(), "final_message"),
+    ):
         prepared = judge._prepare(output, expected)
         assert isinstance(prepared, dict)
         answer = prepared["output"][field]

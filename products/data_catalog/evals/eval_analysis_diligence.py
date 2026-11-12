@@ -5,8 +5,8 @@ deterministic check on the tool chain with a judge on the answer.
 
 To run the suite, once per surface:
 
-    EVAL_SURFACE=app ./bin/hogli evals eval_analysis_diligence --skill-delivery bundled --provider modal
-    EVAL_SURFACE=mcp ./bin/hogli evals eval_analysis_diligence --skill-delivery exec --provider modal
+    ./bin/hogli evals eval_analysis_diligence --surface app --skill-delivery bundled --provider modal
+    ./bin/hogli evals eval_analysis_diligence --surface mcp --skill-delivery exec --provider modal
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from products.data_catalog.evals.scenario_seeder import (
     seed_upload_double_count,
     seed_wau_bot_spike,
     seed_wau_spike_with_annotation,
-    table_aliases,
 )
 from products.data_catalog.evals.scenario_synthesizer import (
     CAMPAIGN_ANNOTATION_CONTENT,
@@ -58,6 +57,7 @@ from products.data_catalog.evals.scorers_analysis import (
     SurfacesAllFindingsWhenListed,
     VerifiedBeforeExplaining,
 )
+from products.data_catalog.evals.seeders import synced_table_names
 from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -73,8 +73,8 @@ _ACTIVE_USERS_MEASURE = (
 # A query that breaks traffic down by a candidate cause of the change.
 _SPIKE_CAUSE = r"referr|utm_|\$browser|\$device_type|\$pathname|\$current_url|mariustechtips|\$os\b"
 
-_CRM_TABLE = table_aliases(crm_deals_table(build_revenue_rep_outlier()))
-_SLACK_TABLE = table_aliases(build_slack_export().table)
+_CRM_TABLE = synced_table_names(crm_deals_table(build_revenue_rep_outlier()).table_name)
+_SLACK_TABLE = synced_table_names(build_slack_export().table.table_name)
 
 
 async def eval_analysis_diligence(ctx: EvalContext) -> None:
@@ -115,7 +115,7 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
             prompt=_SPIKE_PROMPT,
             expected={
                 "verified_before_explaining": {"measure": _ACTIVE_USERS_MEASURE, "cause": _SPIKE_CAUSE},
-                "annotations_read": {},
+                "annotations_read": {"content": CAMPAIGN_ANNOTATION_CONTENT},
                 "analysis_diligence": {
                     "expected_behavior": (
                         "Confirm in the data that weekly active users rose sharply about 8 to 10 days ago. "
@@ -131,7 +131,11 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
             name="verify_spike_is_bots",
             prompt=_SPIKE_PROMPT,
             expected={
-                "verified_before_explaining": {"measure": _ACTIVE_USERS_MEASURE, "cause": _SPIKE_CAUSE},
+                "verified_before_explaining": {
+                    "measure": _ACTIVE_USERS_MEASURE,
+                    "cause": _SPIKE_CAUSE,
+                    "required": True,
+                },
                 "anomaly_flagged": {
                     "anomaly": (
                         f"The extra weekly actives are anonymous visitors on {WAU_BOT_BROWSER} with device type "

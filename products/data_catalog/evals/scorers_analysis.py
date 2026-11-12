@@ -12,15 +12,18 @@ import re
 import json
 from typing import Any
 
+from products.data_catalog.evals.scorers import chain_judge_input, final_answer
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall, is_schema_discovery_call
 from products.posthog_ai.eval_harness.scorers import (
     BINARY_CHOICE_SCORES,
     GRADED_ALIGNMENT_CHOICE_SCORES,
     JUDGE_MODEL,
     JudgedScorer,
+    call_order,
+    expected_spec,
+    parser_for,
 )
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
-from products.posthog_ai.eval_harness.tool_chain import build_tool_chain, render_tool_chain
 from products.posthog_ai.evals.experiments.scorers import SurfacesAllFindings
 
 _EXECUTE_SQL = "execute-sql"
@@ -32,55 +35,6 @@ _FIRST_SEEN_PATTERN = re.compile(
 _ANNOTATION_PATTERN = re.compile(r"\bannotations?\b", re.IGNORECASE)
 _ANNOTATION_READ_TOOLS = frozenset({"annotations-list", "annotation-retrieve"})
 _CHANGE_FEED_TOOL = "change-feed-list"
-_PRESENTATION_TOOLS = frozenset({"show_actions", "task_summary_update"})
-
-
-def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
-    raw_log = (output or {}).get("raw_log")
-    if not raw_log:
-        return None
-    return LogParser.cached(raw_log, initial_prompt=(output or {}).get("prompt", "") or "")
-
-
-def _final_answer(output: dict[str, Any] | None) -> str:
-    """The agent's text after its last tool call that is not a presentation tool.
-
-    In the app, the agent can write its answer, call ``show_actions``, and then add a one-line note
-    about the buttons. The note is the last message, but the answer is the text before it.
-    """
-    fallback = (output or {}).get("last_message")
-    fallback = fallback if isinstance(fallback, str) else ""
-    messages = (output or {}).get("messages")
-    if not isinstance(messages, list):
-        return fallback
-    texts: list[str] = []
-    for message in reversed(messages):
-        if not isinstance(message, dict) or message.get("role") != "assistant":
-            continue
-        content = message.get("content")
-        blocks = [block for block in content if isinstance(block, dict)] if isinstance(content, list) else []
-        work = [
-            index
-            for index, block in enumerate(blocks)
-            if block.get("type") == "tool_use"
-            and str(block.get("name") or "").rsplit("__", 1)[-1] not in _PRESENTATION_TOOLS
-        ]
-        after_work = blocks[work[-1] + 1 :] if work else blocks
-        text = "\n".join(block["text"] for block in after_work if block.get("type") == "text" and block.get("text"))
-        if text:
-            texts.append(text)
-        if work:
-            break
-    return "\n\n".join(reversed(texts)) or fallback
-
-
-def _spec(expected: dict | None, name: str) -> dict[str, Any] | None:
-    spec = expected.get(name) if isinstance(expected, dict) else None
-    return spec if isinstance(spec, dict) else None
-
-
-def _call_order(call: ToolCall) -> int:
-    return call.sequence if call.sequence is not None else call.position
 
 
 def _call_text(call: ToolCall) -> str:
@@ -100,7 +54,7 @@ def _data_calls(parser: LogParser) -> list[ToolCall]:
             and (call.name == _EXECUTE_SQL or call.name.startswith(_TYPED_QUERY_PREFIX))
             and not is_schema_discovery_call(call)
         ),
-        key=_call_order,
+        key=call_order,
     )
 
 
@@ -120,14 +74,14 @@ class EvidenceQueried(Scorer):
         return self._label
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        spec = _spec(expected, self._name())
+        spec = expected_spec(expected, self._name())
         if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
         patterns = [re.compile(pattern, re.IGNORECASE) for pattern in spec.get("patterns", [])]
         tools = set(spec.get("tools", []))
         if not patterns and not tools:
             return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
-        parser = _parser_for(output)
+        parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
         tool_hits = [call.name for call in parser.get_tool_calls() if not call.is_error and call.name in tools]
@@ -149,20 +103,21 @@ class VerifiedBeforeExplaining(Scorer):
     ``expected[name]`` holds a ``measure`` regex (a query that measures the claim, such as weekly active
     users over time) and a ``cause`` regex (a query that breaks the change down by a candidate cause,
     such as referrer or browser). A query that matches ``cause`` is a cause query even when it also
-    measures. ``score=None`` when no cause query ran, because then there was nothing to explain early.
+    measures. When no cause query ran, ``score=None`` because there was nothing to explain early, or 0
+    when ``required`` is true.
     """
 
     def _name(self) -> str:
         return "verified_before_explaining"
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        spec = _spec(expected, self._name())
+        spec = expected_spec(expected, self._name())
         if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
         measure, cause = spec.get("measure"), spec.get("cause")
         if not isinstance(measure, str) or not isinstance(cause, str):
             return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
-        parser = _parser_for(output)
+        parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
         calls = _data_calls(parser)
@@ -170,7 +125,11 @@ class VerifiedBeforeExplaining(Scorer):
             (index for index, call in enumerate(calls) if re.search(cause, _call_text(call), re.IGNORECASE)), None
         )
         if cause_index is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "No cause query ran"})
+            return Score(
+                name=self._name(),
+                score=0.0 if spec.get("required") else None,
+                metadata={"reason": "No cause query ran"},
+            )
         measured_first = any(re.search(measure, _call_text(call), re.IGNORECASE) for call in calls[:cause_index])
         return Score(
             name=self._name(),
@@ -190,13 +149,13 @@ class FirstSeenChecked(Scorer):
         return "first_seen_checked"
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        spec = _spec(expected, self._name())
+        spec = expected_spec(expected, self._name())
         if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
         subject = spec.get("subject")
         if not isinstance(subject, str) or not subject:
             return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
-        parser = _parser_for(output)
+        parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
         hits = [
@@ -214,23 +173,40 @@ def _reads_annotations(call: ToolCall) -> bool:
         # The change feed returns annotations unless `kinds` leaves them out.
         kinds = call.input.get("kinds")
         return not kinds or (isinstance(kinds, list) and "annotation" in kinds)
-    return call.name == _EXECUTE_SQL and bool(_ANNOTATION_PATTERN.search(_call_text(call)))
+    return (
+        call.name == _EXECUTE_SQL
+        and not is_schema_discovery_call(call)
+        and bool(_ANNOTATION_PATTERN.search(_call_text(call)))
+    )
 
 
 class AnnotationsRead(Scorer):
-    """Binary: did the agent read the project's annotations, through a tool or SQL?"""
+    """Binary: did a call that reads annotations return the annotation in ``expected[name]["content"]``?
+
+    The output check matters because a read can miss the annotation, as the change feed does with its
+    default 24-hour window.
+    """
 
     def _name(self) -> str:
         return "annotations_read"
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        if _spec(expected, self._name()) is None:
+        spec = expected_spec(expected, self._name())
+        if spec is None:
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
-        parser = _parser_for(output)
+        content = spec.get("content")
+        if not isinstance(content, str) or not content:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
+        parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
-        hits = [call.name for call in parser.get_tool_calls() if not call.is_error and _reads_annotations(call)]
-        return Score(name=self._name(), score=1.0 if hits else 0.0, metadata={"annotation_calls": hits})
+        reads = [call for call in parser.get_tool_calls() if not call.is_error and _reads_annotations(call)]
+        hits = [call.name for call in reads if content.casefold() in call.output.casefold()]
+        return Score(
+            name=self._name(),
+            score=1.0 if hits else 0.0,
+            metadata={"annotation_calls": [call.name for call in reads], "calls_with_annotation": hits},
+        )
 
 
 _JUDGE_CONTEXT = """\
@@ -260,26 +236,12 @@ class _ChainJudge(JudgedScorer):
             prompt_template=template.replace("{{context}}", _JUDGE_CONTEXT),
             choice_scores=choice_scores,
             model=JUDGE_MODEL,
+            use_cot=True,
             **kwargs,
         )
 
     def _prepare(self, output: Any, expected: Any) -> dict[str, Any] | Score:
-        spec = _spec(expected, self._name())
-        if spec is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
-        if not isinstance(spec.get(self.expected_field), str):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
-        final_message = _final_answer(output)
-        if not final_message.strip():
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No final assistant message"})
-        return {
-            "output": {
-                "prompt": (output or {}).get("prompt", ""),
-                "final_message": final_message,
-                "tool_chain": render_tool_chain(build_tool_chain(output)),
-            },
-            "expected": spec,
-        }
+        return chain_judge_input(self._name(), output, expected, self.expected_field)
 
 
 class AnalysisDiligence(_ChainJudge):
@@ -395,5 +357,5 @@ class SurfacesAllFindingsWhenListed(SurfacesAllFindings):
         if not isinstance(expected, dict) or self._name() not in expected:
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
         if isinstance(output, dict):
-            output = output | {"last_message": _final_answer(output)}
+            output = output | {"last_message": final_answer(output)}
         return super()._prepare(output, expected)
