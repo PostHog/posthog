@@ -34,7 +34,6 @@ from products.data_modeling.backend.facade.api import (
     SchedulingUnavailableError,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
-    carry_saved_query_frequency_target,
     is_materialization_fresh,
     latest_saved_query_materialization_job,
     link_endpoint_nodes,
@@ -230,17 +229,13 @@ class EndpointMaterializationService:
         version: EndpointVersion,
         data_freshness_seconds: int,
         bucket_overrides: dict[str, str] | None = None,
-        replaced_version: EndpointVersion | None = None,
     ) -> None:
         """Enable materialization for an endpoint version.
 
-        Each version gets its own saved_query named {endpoint_name}_v{version}. `replaced_version` is
-        the materialized version this one takes over from when a query edit created it.
+        Each version gets its own saved_query named {endpoint_name}_v{version}.
         """
         try:
-            self._enable_materialization_inner(
-                endpoint, version, data_freshness_seconds, bucket_overrides, replaced_version
-            )
+            self._enable_materialization_inner(endpoint, version, data_freshness_seconds, bucket_overrides)
             # The throttle may hold a not-ready snapshot cached before the enable. Drop it so the
             # first completed run is picked up on the next request, not when the entry expires.
             transaction.on_commit(
@@ -291,7 +286,6 @@ class EndpointMaterializationService:
         version: EndpointVersion,
         data_freshness_seconds: int,
         bucket_overrides: dict[str, str] | None = None,
-        replaced_version: EndpointVersion | None = None,
     ) -> None:
         can_mat, reason = version.can_materialize()
         if not can_mat:
@@ -344,10 +338,6 @@ class EndpointMaterializationService:
                 # tell them to retry, and would page on-call through the status="error" metric.
                 raise ValidationError(f"Cannot materialize endpoint. Reason: {e}")
 
-            if replaced_version is not None and replaced_version.declared_target_seconds() == data_freshness_seconds:
-                carry_saved_query_frequency_target(
-                    saved_query.team_id, saved_query.id, timedelta(seconds=data_freshness_seconds)
-                )
             # NOTE: on v1, schedule_materialization only triggers an immediate run when it CREATES
             # the Temporal schedule; re-enabling an existing materialization just (re)syncs it.
             # trigger_immediate_run mirrors that on v2: first run only for a newly created saved

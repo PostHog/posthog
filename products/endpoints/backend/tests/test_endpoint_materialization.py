@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS, AvailableFeature
+from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
@@ -396,82 +396,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         new_version = endpoint.get_version()
         self.assertEqual(new_version.version, 2)
         self.assertEqual(new_version.data_freshness_seconds, 43200)
-
-    def _six_hour_plan_floor(self):
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
-        ]
-        self.organization.save(update_fields=["available_product_features"])
-        return mock.patch(
-            "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=True
-        )
-
-    @parameterized.expand(
-        [
-            ("saved_cadence_carries_over", True),
-            ("query_cache_duration_stays_held_to_the_floor", False),
-        ]
-    )
-    def test_query_edit_under_a_plan_floor(self, _name, was_materialized):
-        endpoint = create_endpoint_with_version(
-            name="floored_query_edit",
-            team=self.team,
-            query=self.sample_hogql_query,
-            created_by=self.user,
-            data_freshness_seconds=900,
-        )
-        if was_materialized:
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-                {"is_materialized": True},
-                format="json",
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-
-        with self._six_hour_plan_floor():
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-                {"query": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}, "is_materialized": True},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual("materialization_error" not in response.json(), was_materialized, response.json())
-        new_version = endpoint.get_version()
-        self.assertEqual(new_version.version, 2)
-        self.assertEqual(new_version.saved_query_id is not None, was_materialized)
-        if was_materialized:
-            self.assertEqual(new_version.data_freshness_seconds, 900)
-
-    def test_query_edit_cannot_speed_up_a_cadence_past_the_plan_floor(self):
-        endpoint = create_endpoint_with_version(
-            name="floored_speed_up",
-            team=self.team,
-            query=self.sample_hogql_query,
-            created_by=self.user,
-            data_freshness_seconds=3600,
-        )
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-
-        with self._six_hour_plan_floor():
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-                {
-                    "query": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
-                    "is_materialized": True,
-                    "data_freshness_seconds": 900,
-                },
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertIn("materialization_error", response.json())
-        self.assertIsNone(endpoint.get_version().saved_query_id)
 
     @parameterized.expand([(True,), (False,)])
     def test_node_target_change_invalidates_readiness_after_commit(self, has_endpoint_link):

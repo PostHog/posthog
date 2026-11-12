@@ -306,9 +306,10 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
             to_attr=cls.FREQUENCY_NODES_ATTR,
         )
 
-    def declared_target_seconds(self) -> int | None:
+    @property
+    def data_freshness_seconds(self) -> int:
         if self.saved_query_id is None:
-            return None
+            return self.cache_ttl_seconds
 
         nodes = getattr(self.saved_query, self.FREQUENCY_NODES_ATTR, None)
         if nodes is None:
@@ -317,12 +318,9 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
             )
         else:
             target = next((target for node in nodes if (target := get_declared_target(node)) is not None), None)
-        return int(target.total_seconds()) if target is not None else None
-
-    @property
-    def data_freshness_seconds(self) -> int:
-        declared = self.declared_target_seconds()
-        return self.cache_ttl_seconds if declared is None else declared
+        if target is not None:
+            return int(target.total_seconds())
+        return self.cache_ttl_seconds
 
     def disable_materialization(self, *, cache_ttl_seconds: int | None = None) -> None:
         """Disable materialization: revert and soft-delete the saved query, clear version fields."""
