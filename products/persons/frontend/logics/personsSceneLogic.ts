@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { ActorsQuery, DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 import type { TeamPublicType, TeamType } from '~/types'
 
@@ -160,7 +160,16 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     urlToAction(({ actions, values }) => ({
         [urls.persons()]: (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
-                if (!queryParam) {
+                // Command K links here with `?search=`. The router parses `001234` as the number 1234 and
+                // `0` as falsy, so read the raw string: person and distinct IDs keep their exact text.
+                const search = new URLSearchParams(router.values.location.search).get('search')
+                if (!queryParam && search) {
+                    actions.setQuery({
+                        ...values.defaultQuery,
+                        source: { ...(values.defaultQuery.source as ActorsQuery), search },
+                        defaultColumns: values.defaultColumns,
+                    })
+                } else if (!queryParam) {
                     actions.setQuery({
                         ...values.defaultQuery,
                         defaultColumns: values.defaultColumns,

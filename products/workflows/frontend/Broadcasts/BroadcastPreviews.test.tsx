@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -11,7 +11,7 @@ import { BroadcastEmailPreview } from './BroadcastEmailPreview'
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
 import { BroadcastPushPreview } from './BroadcastPushPreview'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
-import { broadcastWizardLogic } from './broadcastWizardLogic'
+import { DEFAULT_BROADCAST_EMAIL, broadcastWizardLogic } from './broadcastWizardLogic'
 
 describe('broadcast previews', () => {
     const priorAppContext = window.POSTHOG_APP_CONTEXT
@@ -60,5 +60,41 @@ describe('broadcast previews', () => {
         expect(
             document.querySelector(`[data-attr="broadcast-open-test-${channel === 'email' ? 'email' : 'push'}"]`)
         ).toHaveAttribute('aria-disabled', expected)
+    })
+
+    it('shows the modify content button as busy while a new broadcast saves its draft', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/': () => new Promise(() => {}),
+            },
+        })
+        initKeaTests()
+        const wizard = broadcastWizardLogic({ id: 'new' })
+        wizard.mount()
+        wizard.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, html: '<p>Hi</p>' })
+
+        render(
+            <Provider>
+                <BindLogic logic={broadcastWizardLogic} props={{ id: 'new' }}>
+                    <BindLogic logic={broadcastPreviewLogic} props={{ id: 'new' }}>
+                        <BindLogic logic={broadcastTestSendLogic} props={{ id: 'new' }}>
+                            <BroadcastEmailPreview
+                                showTestButton={false}
+                                onModifyContent={wizard.actions.editEmailContent}
+                            />
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </Provider>
+        )
+        const button = document.querySelector('[data-attr="broadcast-review-modify-content"]') as HTMLElement
+        expect(button).toHaveAttribute('aria-disabled', 'false')
+
+        act(() => {
+            fireEvent.click(button)
+        })
+
+        expect(button).toHaveAttribute('aria-disabled', 'true')
+        wizard.unmount()
     })
 })

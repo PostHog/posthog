@@ -1,8 +1,18 @@
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from django.conf import settings
 
+from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.security.url_validation import has_ambiguous_authority, is_url_allowed
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
+UNAUTHORIZED_HEATMAP_URL_REASON = (
+    "This page's domain isn't in the project's authorized URLs. "
+    "Add it to the authorized URLs in project settings, then export again."
+)
 
 
 def _is_same_origin(url: str) -> bool:
@@ -21,9 +31,17 @@ def _is_same_origin(url: str) -> bool:
     )
 
 
-def is_heatmap_url_allowed(heatmap_url: str, heatmap_type: object) -> tuple[bool, str | None]:
+def is_heatmap_url_allowed(heatmap_url: str, heatmap_type: object, team: "Team") -> tuple[bool, str | None]:
     if heatmap_type == "screenshot":
         if has_ambiguous_authority(heatmap_url) or not _is_same_origin(heatmap_url):
             return False, "Screenshot heatmap URL must use the PostHog instance origin"
+    else:
+        # Every other heatmap type renders the page itself, so it uses the same allowlist as the toolbar.
+        try:
+            hostname = None if has_ambiguous_authority(heatmap_url) else urlparse(heatmap_url).hostname
+        except ValueError:
+            hostname = None
+        if not hostname_in_allowed_url_list(team.app_urls, hostname):
+            return False, UNAUTHORIZED_HEATMAP_URL_REASON
 
     return is_url_allowed(heatmap_url)

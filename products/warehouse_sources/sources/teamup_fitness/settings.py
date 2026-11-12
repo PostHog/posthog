@@ -19,10 +19,17 @@ ENDPOINTS: dict[str, TeamupFitnessEndpoint] = {
     "invoices": TeamupFitnessEndpoint(path="invoices", sort="due_date", partition_key="created_at"),
     "venues": TeamupFitnessEndpoint(path="venues"),
     "instructors": TeamupFitnessEndpoint(path="instructors"),
+    "membership_categories": TeamupFitnessEndpoint(path="membership_categories"),
+    "offering_types": TeamupFitnessEndpoint(path="offering_types"),
+    "lead_sources": TeamupFitnessEndpoint(path="crm/lead_sources"),
+    "payment_subscriptions": TeamupFitnessEndpoint(path="payment_subscriptions"),
 }
 
 AUTH_ERROR = "TeamUp rejected the M2M token. Create a new token in your TeamUp business dashboard."
-PERMISSION_ERROR = "TeamUp denied access. Check that your M2M token has access to the specified provider ID."
+PERMISSION_ERROR = (
+    "TeamUp denied access. Check that your M2M token has access to the specified provider ID "
+    "and has the permissions this table needs."
+)
 PROVIDER_ERROR = "TeamUp could not select your business. Enter the numeric provider ID for your TeamUp business."
 
 NON_RETRYABLE_ERRORS: dict[str, str | None] = {

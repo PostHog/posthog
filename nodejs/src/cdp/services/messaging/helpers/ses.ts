@@ -1,3 +1,4 @@
+import { LRUCache } from 'lru-cache'
 import crypto from 'node:crypto'
 import addressparser from 'nodemailer/lib/addressparser'
 import { Counter } from 'prom-client'
@@ -265,6 +266,9 @@ export const SES_SENSITIVE_TAG = 'ph_sensitive'
 // and echoed back on every event for that message. SES allows only ASCII letters, digits, underscores
 // and dashes in a tag, so the value is 'true' as for SES_SENSITIVE_TAG.
 export const SES_EMAIL_STATUS_TAG = 'ph_email_status'
+
+const isTransactionalMail = (mail: { tags?: Record<string, string[]> }): boolean =>
+    mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true'
 
 export type SesEmailStatusUpdate = {
     teamId: string
@@ -571,8 +575,27 @@ const plainTextPrefix = (message: string): string | undefined =>
 
 const UNSIGNED_RAW_DELIVERY = { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
 
+export const SNS_SIGNING_CERT_CACHE_SIZE = 32
+
+const SNS_HOSTNAME = /^sns\.[a-z0-9-]+\.amazonaws\.com$/
+const SNS_CERT_PATH = /^\/SimpleNotificationService-[A-Za-z0-9]{8,64}\.pem$/
+
+const parseSnsUrl = (url: string): URL | undefined => {
+    const parsed = URL.parse(url)
+    return parsed?.protocol === 'https:' && SNS_HOSTNAME.test(parsed.hostname) ? parsed : undefined
+}
+
+const canonicalSnsCertUrl = (url: string): string | undefined => {
+    const parsed = parseSnsUrl(url)
+    return parsed && SNS_CERT_PATH.test(parsed.pathname) ? `https://${parsed.hostname}${parsed.pathname}` : undefined
+}
+
 export class SesWebhookHandler {
-    certCache: Record<string, Promise<string> | undefined> = {}
+    private certCache = new LRUCache<string, string>({
+        max: SNS_SIGNING_CERT_CACHE_SIZE,
+        ignoreFetchAbort: true,
+        fetchMethod: (url) => this.fetchText(url),
+    })
     private allowedTopicArns: Set<string>
 
     constructor(
@@ -600,61 +623,11 @@ export class SesWebhookHandler {
     }
 
     private async fetchCert(url: string): Promise<string> {
-        // Validate that the URL is from AWS SNS
-        if (!this.isValidSnsCertUrl(url)) {
+        const certUrl = canonicalSnsCertUrl(url)
+        if (!certUrl) {
             throw new Error(`Invalid SNS certificate URL: ${url}`)
         }
-
-        if (this.certCache[url]) {
-            return await this.certCache[url]!
-        }
-        this.certCache[url] = this.fetchText(url)
-        return this.certCache[url]!
-    }
-
-    private isValidSnsCertUrl(url: string): boolean {
-        try {
-            const parsedUrl = new URL(url)
-
-            // Must be HTTPS
-            if (parsedUrl.protocol !== 'https:') {
-                return false
-            }
-
-            // Must be from sns.{region}.amazonaws.com
-            const hostname = parsedUrl.hostname
-            if (!hostname.match(/^sns\.[a-z0-9-]+\.amazonaws\.com$/)) {
-                return false
-            }
-
-            // Must end with .pem
-            if (!parsedUrl.pathname.endsWith('.pem')) {
-                return false
-            }
-
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    private isValidSnsSubscribeUrl(url: string): boolean {
-        try {
-            const parsedUrl = new URL(url)
-
-            if (parsedUrl.protocol !== 'https:') {
-                return false
-            }
-
-            // Must be from sns.{region}.amazonaws.com
-            if (!parsedUrl.hostname.match(/^sns\.[a-z0-9-]+\.amazonaws\.com$/)) {
-                return false
-            }
-
-            return true
-        } catch {
-            return false
-        }
+        return await this.certCache.forceFetch(certUrl)
     }
 
     /**
@@ -762,10 +735,19 @@ export class SesWebhookHandler {
         logger.info('[SesWebhookHandler] handleWebhook', { mode: parsed.mode })
 
         // Raw deliveries carry no signature, so a required verification rejects them to block forged events.
-        if (verifySignature) {
-            if (!('envelope' in parsed)) {
-                return UNSIGNED_RAW_DELIVERY
-            }
+        if (verifySignature && !('envelope' in parsed)) {
+            return UNSIGNED_RAW_DELIVERY
+        }
+
+        // A valid signature proves the envelope came from AWS, but not from the workflow SES topic.
+        if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
+            logger.warn('[SesWebhookHandler] Rejecting event from disallowed TopicArn', {
+                topicArn: parsed.envelope.TopicArn,
+            })
+            return { status: 403, body: { error: 'SNS TopicArn not allowed' } }
+        }
+
+        if (verifySignature && 'envelope' in parsed) {
             logger.info('[SesWebhookHandler] verifying signature', {
                 type: parsed.envelope.Type,
                 messageId: parsed.envelope.MessageId,
@@ -777,20 +759,12 @@ export class SesWebhookHandler {
             }
         }
 
-        // A valid signature proves the envelope came from AWS, but not from the workflow SES topic.
-        if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
-            logger.warn('[SesWebhookHandler] Rejecting event from disallowed TopicArn', {
-                topicArn: parsed.envelope.TopicArn,
-            })
-            return { status: 403, body: { error: 'SNS TopicArn not allowed' } }
-        }
-
         if (parsed.mode === 'sns' && parsed.envelope.Type === 'SubscriptionConfirmation') {
             logger.info('[SesWebhookHandler] confirming subscription', { envelope: parsed.envelope })
             // Confirm by visiting the top-level SubscribeURL field; Message is human-readable text here.
             const subscribeUrl = parsed.envelope.SubscribeURL
             if (subscribeUrl) {
-                if (!this.isValidSnsSubscribeUrl(subscribeUrl)) {
+                if (!parseSnsUrl(subscribeUrl)) {
                     logger.warn('[SesWebhookHandler] Invalid SubscribeURL, rejecting', {
                         url: subscribeUrl,
                     })
@@ -982,6 +956,7 @@ export class SesWebhookHandler {
                     $email_to: rec.mail.destination?.[0],
                     $email_message_id: rec.mail.messageId,
                     ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
+                    ...(isTransactionalMail(rec.mail) ? { $email_transactional: true } : {}),
                 }
 
                 // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)
@@ -1180,7 +1155,7 @@ export class SesWebhookHandler {
             }
 
             // A status write is state-changing too, so it needs the signed code like the writes above.
-            if (suppressionAllowed && invocationId && rec.mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true') {
+            if (suppressionAllowed && invocationId && isTransactionalMail(rec.mail)) {
                 const update = resolveEmailStatusUpdate(rec)
                 if (update) {
                     emailStatusUpdates.push({ teamId, invocationId, ...update })

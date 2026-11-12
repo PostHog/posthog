@@ -745,6 +745,13 @@ class TestIntegrationAccessors(BaseTest):
         assert not Integration._base_manager.filter(integration_id="github_oauth").exists()
         assert Integration._base_manager.filter(id=self.rows["github_token"].id).exists()
 
+    @parameterized.expand([("none", None), ("empty", "")])
+    def test_delete_by_external_id_refuses_a_missing_external_id(self, _name: str, external_id: Any) -> None:
+        with self.assertRaises(ValueError):
+            IntegrationManager.github.oauth.delete_by_external_id(external_id)
+
+        assert Integration._base_manager.filter(integration_id="github_oauth").count() == 2
+
     def test_delete_by_external_id_rolls_back_every_row_when_one_delete_fails(self) -> None:
         original_delete = Integration.delete
         calls: list[int] = []
