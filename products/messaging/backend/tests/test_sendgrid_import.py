@@ -26,7 +26,7 @@ from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.sendgrid import SendGridImportProvider, missing_scopes
 from products.messaging.backend.provider_imports.sendgrid_templates import convert_version, plain_text_from_html
-from products.messaging.backend.services.sendgrid_client import SendGridClient
+from products.messaging.backend.services.sendgrid_client import SendGridClient, _seconds_until_reset
 from products.messaging.backend.services.suppression import remove_suppressions
 from products.messaging.backend.tests.fake_sendgrid import (
     EMPTY_ACCOUNT_KEY,
@@ -497,9 +497,18 @@ class TestSendGridTemplateConversion(SimpleTestCase):
     def test_many_unclosed_tags_convert_quickly(self) -> None:
         assert convert_version({"html_content": "{{" * 200_000, "generate_plain_content": False}).html
 
-    def test_scopes_accept_the_broader_suppression_scope(self) -> None:
+    def test_scopes_need_the_broad_suppression_scope(self) -> None:
         assert missing_scopes({"suppression.read"}, ["suppressions", "global_unsubscribes"]) == []
-        assert missing_scopes(set(), ["suppressions"])[0] == "suppression.bounces.read"
+        per_list = {"suppression.bounces.read", "suppression.invalid_emails.read", "suppression.spam_reports.read"}
+        assert missing_scopes(per_list, ["suppressions"]) == ["suppression.read"]
+        assert missing_scopes({"asm.groups.read"}, ["group_unsubscribes"]) == ["suppression.read"]
+
+    @parameterized.expand([("seconds_left", "37", 37.0), ("unix_time", "1700000060", 60.0)])
+    def test_rate_limit_reset_reads_both_header_formats(self, _name: str, header: str, expected: float) -> None:
+        response = requests.Response()
+        response.headers["X-RateLimit-Reset"] = header
+        with patch(f"{_CLIENT}.time.time", return_value=1700000000.0):
+            assert _seconds_until_reset(response) == expected
 
     def test_client_repr_hides_the_key(self) -> None:
         assert FULL_KEY not in repr(SendGridClient(FULL_KEY, "https://example.com"))
