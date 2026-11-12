@@ -210,6 +210,10 @@ class TestSelection(SimpleTestCase):
             self.assertTrue(request.url.path.startswith("/api/projects/42/"))
             self.assertEqual(request.url.host, "posthog.example.com")
             parameter = "query" if "search/" in request.url.path else "search"
+            self.assertEqual(
+                request.url.params.get("search_fields"),
+                "name_and_description" if "llm_skills/search/" in request.url.path else None,
+            )
             query = request.url.params[parameter]
             self.assertLessEqual(len(query), 200)
             self.assertIn("activation", query)

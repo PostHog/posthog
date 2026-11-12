@@ -211,6 +211,8 @@ class ContextSelector:
         path, limit = SOURCE_ENDPOINTS[kind]
         params: dict[str, str | int] = {"limit": limit}
         params["query" if kind in ("skill", "business_knowledge") else "search"] = self.query
+        if kind == "skill":
+            params["search_fields"] = "name_and_description"
         with httpx.Client(
             base_url=settings.SITE_URL,
             headers={"Authorization": self._authorization},

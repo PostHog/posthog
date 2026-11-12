@@ -41,7 +41,7 @@ from .skill_analytics import record_skill_event, skill_analytics_props
 from .skill_catalog import list_queryset
 from .skill_manifest import build_skill_manifests
 from .skill_permissions import CommunityPublishFeatureFlagPermission, CommunityPublishOwnerPermission
-from .skill_search import SkillSearchTimeout, search_skills
+from .skill_search import SkillSearchFields, SkillSearchTimeout, search_skills
 from .skill_serializers import (
     LLMSkillCreateSerializer,
     LLMSkillListQuerySerializer,
@@ -181,9 +181,14 @@ class LLMSkillViewSet(
     @llma_track_latency("llma_skills_search")
     @monitor(feature=None, endpoint="llma_skills_search", method="GET")
     def search(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        query = cast(str, self._validated_query(LLMSkillSearchQuerySerializer, request)["query"])
+        params = self._validated_query(LLMSkillSearchQuerySerializer, request)
         try:
-            results = search_skills(self.team, self.user_access_control, query)
+            results = search_skills(
+                self.team,
+                self.user_access_control,
+                cast(str, params["query"]),
+                SkillSearchFields(params["search_fields"]),
+            )
         except SkillSearchTimeout:
             return Response(
                 {"detail": "Skill search timed out. Use a more specific query and try again."},

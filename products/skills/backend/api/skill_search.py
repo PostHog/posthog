@@ -4,7 +4,7 @@ import re
 from collections.abc import Sequence
 from typing import Any, Literal, Protocol, cast
 
-from django.db import OperationalError
+from django.db import OperationalError, models
 from django.db.models import Case, Exists, Expression, IntegerField, OuterRef, Q, QuerySet, Subquery, Value, When
 from django.db.models.functions import Coalesce
 
@@ -37,6 +37,11 @@ SKILL_SEARCH_FIELD_LOOKUPS: dict[SkillSearchField, str] = {
 }
 
 
+class SkillSearchFields(models.TextChoices):
+    ALL = "all", "All"
+    NAME_AND_DESCRIPTION = "name_and_description", "Name and description"
+
+
 class _ScoredSkill(Protocol):
     search_score: int
 
@@ -45,7 +50,12 @@ class SkillSearchTimeout(Exception):
     """The search exceeded SKILL_SEARCH_TIMEOUT_MS in the database."""
 
 
-def search_skills(team: Team, user_access_control: UserAccessControl, query: str) -> list[dict[str, Any]]:
+def search_skills(
+    team: Team,
+    user_access_control: UserAccessControl,
+    query: str,
+    fields: SkillSearchFields = SkillSearchFields.ALL,
+) -> list[dict[str, Any]]:
     """Every readable skill matching the query, best match first, with excerpts.
 
     Raises SkillSearchTimeout when the query outruns its database timeout. The search spans skill
@@ -58,9 +68,9 @@ def search_skills(team: Team, user_access_control: UserAccessControl, query: str
                     "name": skill.name,
                     "description": skill.description,
                     "score": cast(_ScoredSkill, skill).search_score,
-                    "matches": search_matches(skill, query),
+                    "matches": search_matches(skill, query, fields),
                 }
-                for skill in search_queryset(team, user_access_control, query)
+                for skill in search_queryset(team, user_access_control, query, fields)
             ]
     except OperationalError as err:
         if not isinstance(err.__cause__, psycopg.errors.QueryCanceled):
@@ -68,9 +78,37 @@ def search_skills(team: Team, user_access_control: UserAccessControl, query: str
         raise SkillSearchTimeout from err
 
 
-def search_queryset(team: Team, user_access_control: UserAccessControl, query: str) -> QuerySet[LLMSkill]:
-    skill_files = LLMSkillFile.objects.filter(skill_id=OuterRef("pk"))
+def search_queryset(
+    team: Team,
+    user_access_control: UserAccessControl,
+    query: str,
+    fields: SkillSearchFields = SkillSearchFields.ALL,
+) -> QuerySet[LLMSkill]:
     tokens = _skill_search_tokens(query)
+    queryset = LLMSkill.objects.filter(
+        team=team,
+        deleted=False,
+        is_latest=True,
+        category="",
+    )
+    queryset = user_access_control.filter_queryset_by_access_level(queryset, resource="llm_skill")
+    exact_name_score = Case(
+        When(name__iexact=query, then=Value(SKILL_SEARCH_EXACT_NAME_BONUS)),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+    summary_score = (
+        exact_name_score
+        + _skill_search_field_score("name", query, tokens, 1_000)
+        + _skill_search_field_score("description", query, tokens, 300)
+    )
+    summary_query = _skill_search_field_query("name", query, tokens) | _skill_search_field_query(
+        "description", query, tokens
+    )
+    if fields == SkillSearchFields.NAME_AND_DESCRIPTION:
+        return _ranked(queryset.filter(summary_query).defer("body"), summary_score)
+
+    skill_files = LLMSkillFile.objects.filter(skill_id=OuterRef("pk"))
     matching_skill_files = skill_files.filter(
         _skill_search_field_query("path", query, tokens)
         | (markdown_file_query() & _skill_search_field_query("content", query, tokens))
@@ -95,37 +133,20 @@ def search_queryset(team: Team, user_access_control: UserAccessControl, query: s
         Value(0),
     )
 
-    queryset = LLMSkill.objects.filter(
-        team=team,
-        deleted=False,
-        is_latest=True,
-        category="",
-    )
-    queryset = user_access_control.filter_queryset_by_access_level(queryset, resource="llm_skill")
     queryset = queryset.filter(
-        _skill_search_field_query("name", query, tokens)
-        | _skill_search_field_query("description", query, tokens)
-        | _skill_search_field_query("body", query, tokens)
-        | Q(Exists(matching_skill_files))
+        summary_query | _skill_search_field_query("body", query, tokens) | Q(Exists(matching_skill_files))
     )
+    score = summary_score + _skill_search_field_score("body", query, tokens, 80) + file_path_score + file_content_score
+    return _ranked(queryset, score)
 
-    exact_name_score = Case(
-        When(name__iexact=query, then=Value(SKILL_SEARCH_EXACT_NAME_BONUS)),
-        default=Value(0),
-        output_field=IntegerField(),
-    )
-    score = (
-        exact_name_score
-        + _skill_search_field_score("name", query, tokens, 1_000)
-        + _skill_search_field_score("description", query, tokens, 300)
-        + _skill_search_field_score("body", query, tokens, 80)
-        + file_path_score
-        + file_content_score
-    )
+
+def _ranked(queryset: QuerySet[LLMSkill], score: Expression) -> QuerySet[LLMSkill]:
     return queryset.annotate(search_score=score).order_by("-search_score", "name", "id")[:SKILL_SEARCH_RESULT_LIMIT]
 
 
-def search_matches(skill: LLMSkill, query: str) -> list[dict[str, Any]]:
+def search_matches(
+    skill: LLMSkill, query: str, fields: SkillSearchFields = SkillSearchFields.ALL
+) -> list[dict[str, Any]]:
     matches: list[dict[str, Any]] = []
     tokens = _skill_search_tokens(query)
 
@@ -141,6 +162,8 @@ def search_matches(skill: LLMSkill, query: str) -> list[dict[str, Any]]:
                 "excerpt": skill.description[excerpt_start : excerpt_start + SKILL_SEARCH_EXCERPT_LENGTH],
             }
         )
+    if fields == SkillSearchFields.NAME_AND_DESCRIPTION:
+        return matches
     body_match_term = _skill_search_match_term(skill.body, query, tokens)
     body_match = (
         _content_search_match(skill.body, body_match_term, matched_field="body", path="SKILL.md")

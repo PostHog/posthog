@@ -1263,4 +1263,20 @@ export type LlmSkillsSearchRetrieveParams = {
      * @maxLength 200
      */
     query: string
+    /**
+     * Which skill text to match. `all` searches names, descriptions, bodies, file paths, and Markdown file contents. `name_and_description` searches only names and descriptions, which is much faster on projects with many or large skills.
+     *
+     * * `all` - All
+     * * `name_and_description` - Name and description
+     * @minLength 1
+     */
+    search_fields?: LlmSkillsSearchRetrieveSearchFields
 }
+
+export type LlmSkillsSearchRetrieveSearchFields =
+    (typeof LlmSkillsSearchRetrieveSearchFields)[keyof typeof LlmSkillsSearchRetrieveSearchFields]
+
+export const LlmSkillsSearchRetrieveSearchFields = {
+    All: 'all',
+    NameAndDescription: 'name_and_description',
+} as const
