@@ -165,19 +165,43 @@ def scan_reads_denied_property(reader_access: ExperimentHealthReaderAccess, expe
         )
         if not rules:
             return False
+        cache_key = _access_cache_key(experiment, rules)
+        cached = cache.get(cache_key)
+        if isinstance(cached, bool):
+            return cached
         now = timezone.now()
         query = _scan_query(
             experiment, get_test_accounts_filter(team, experiment.exposure_criteria), window_start=now, window_end=now
         )
         modifiers = create_default_modifiers_for_team(team, _SCAN_MODIFIERS)
         database = Database.create_for(team=team, modifiers=modifiers)
-        return _compile(query, team, modifiers, database, rules) != _compile(
+        denied = _compile(query, team, modifiers, database, rules) != _compile(
             query, team, modifiers, database, frozenset()
         )
+        cache.set(cache_key, denied, _ANSWER_CACHE_SECONDS)
+        return denied
     except Exception as error:
         # Without an answer, the reader gets no share rather than one that might show what the rules mask.
         capture_exception(error)
         return True
+
+
+def _access_cache_key(experiment: Experiment, rules: frozenset[RestrictedProperty]) -> str:
+    flag = experiment.feature_flag
+    team = experiment.team
+    # Every input that decides which properties the scan reads, and the rules that can mask them.
+    inputs = json.dumps(
+        [
+            flag.key,
+            flag.aggregation_group_type_index,
+            team.test_account_filters if applies_test_account_filters(team, experiment.exposure_criteria) else None,
+            _reads_exposure_copies(team.organization_id),
+            sorted(f"{rule.property_type}:{rule.group_type_index}:{rule.name}" for rule in rules),
+        ],
+        sort_keys=True,
+    )
+    digest = hashlib.sha256(inputs.encode()).hexdigest()
+    return f"experiment_condition_set_traffic_access:{experiment.team_id}:{digest}"
 
 
 def _compile(

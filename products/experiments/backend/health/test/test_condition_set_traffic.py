@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
@@ -26,6 +27,7 @@ from products.experiments.backend.facade.contracts import ExperimentHealthReader
 from products.experiments.backend.health.condition_set_traffic import (
     load_condition_set_traffic,
     query_condition_set_traffic,
+    scan_reads_denied_property,
 )
 from products.experiments.backend.health.context import ConditionSetTraffic, load_health_context
 from products.experiments.backend.models.experiment import Experiment
@@ -216,6 +218,33 @@ class TestLoadConditionSetTraffic(BaseTest):
             traffic, query = self._load(TRAFFIC)
 
         self.assertEqual((cached, traffic, query.call_count), (TRAFFIC, None, 0))
+
+    @parameterized.expand(
+        [
+            ("another_reader", _denied(PERSON, "plan"), _STAFF_EMAILS_EXCLUDED, False),
+            (
+                "another_filter",
+                _denied(PERSON, "email"),
+                [{"key": "$host", "value": "localhost", "operator": "is_not", "type": "event"}],
+                False,
+            ),
+            ("the_same_reader_and_filter", _denied(PERSON, "email"), _STAFF_EMAILS_EXCLUDED, True),
+        ]
+    )
+    def test_the_access_answer_is_cached_for_its_rules_and_filter(
+        self,
+        _name: str,
+        second_reader: ExperimentHealthReaderAccess,
+        second_filters: list[dict[str, Any]],
+        expected: bool,
+    ) -> None:
+        Team.objects.filter(pk=self.team.pk).update(test_account_filters=_STAFF_EMAILS_EXCLUDED)
+        first = scan_reads_denied_property(_denied(PERSON, "email"), Experiment.objects.get(pk=self.experiment.pk))
+        Team.objects.filter(pk=self.team.pk).update(test_account_filters=second_filters)
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            second = scan_reads_denied_property(second_reader, Experiment.objects.get(pk=self.experiment.pk))
+
+        self.assertEqual((first, second, create_for.call_count), (True, expected, 0 if expected else 1))
 
     def test_a_cohort_test_account_filter_reads_the_stored_members(self) -> None:
         cohort = Cohort.objects.create(
