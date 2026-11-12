@@ -137,10 +137,13 @@ def resend_email(request: HttpRequest, obj: Model, form: forms.Form | None) -> H
 
 def upload_signed_document(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
     assert form is not None
+    # The console runs behind admin_view, so the user is a signed-in staff member with a primary key.
+    user_id = request.user.pk
+    assert user_id is not None
     document_type = form.cleaned_data["document_type"]
     upload = StaffSignedDocumentUpload(
         organization_id=obj.pk,
-        created_by_id=request.user.pk,
+        created_by_id=user_id,
         document_type=document_type,
         company_name=form.cleaned_data["company_name"],
         company_address=form.cleaned_data["company_address"],

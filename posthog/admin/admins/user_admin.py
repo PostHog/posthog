@@ -42,7 +42,7 @@ class UserChangeList(ChangeList):
 class UserChangeForm(DjangoUserChangeForm):
     # Django's password field renders the first characters of the salt and hash. UserAdmin shows
     # password_display instead, which names only the algorithm.
-    password = None
+    password = None  # type: ignore[assignment]
 
     class Meta(DjangoUserChangeForm.Meta):
         exclude = ("password",)
