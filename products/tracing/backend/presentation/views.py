@@ -43,6 +43,8 @@ from posthog.schema import (
     TraceSpansQueryResponse,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -1234,6 +1236,12 @@ def _cursor_timestamp(value: dt.datetime | str) -> str:
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "tracing"
     serializer_class = _FallbackSerializer
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # A filter the query can't resolve, such as an unknown span key, is the caller's to fix, as in /query.
+        if isinstance(exc, ExposedHogQLError):
+            exc = DRFValidationError(str(exc), code=exc.code_name)
+        return super().handle_exception(exc)
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:

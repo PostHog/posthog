@@ -6,9 +6,11 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import PropertyOperator, SpanPropertyFilter, SpanPropertyFilterType
+from posthog.schema import PropertyGroupFilter, PropertyOperator, SpanPropertyFilter, SpanPropertyFilterType
 
-from products.tracing.backend.logic import translate_span_filter
+from posthog.hogql.errors import QueryError
+
+from products.tracing.backend.logic import split_span_filters, translate_span_filter
 
 PROMPTS_DIR = Path(__file__).parents[2] / "mcp" / "prompts"
 
@@ -20,6 +22,22 @@ def _span_filter(key: str, value: object) -> SpanPropertyFilter:
         type=SpanPropertyFilterType.SPAN,
         value=value,
     )
+
+
+def _filter_group(*filters: SpanPropertyFilter) -> PropertyGroupFilter:
+    return PropertyGroupFilter.model_validate({"type": "AND", "values": [{"type": "AND", "values": list(filters)}]})
+
+
+class TestSplitSpanFilters(SimpleTestCase):
+    @parameterized.expand([("output_metric", "p95"), ("attribute_name", "http.method"), ("map_column", "attributes")])
+    def test_rejects_unknown_span_key(self, _name, key):
+        with self.assertRaisesRegex(QueryError, rf"'{re.escape(key)}'.*duration"):
+            split_span_filters(_filter_group(_span_filter(key, "x")))
+
+    @parameterized.expand([("duration",), ("kind",), ("is_root_span",), ("service_name",)])
+    def test_accepts_known_span_key(self, key):
+        filters = split_span_filters(_filter_group(_span_filter(key, "1")))
+        self.assertEqual([f.key for f in filters.span], [key])
 
 
 class TestTranslateSpanFilter(SimpleTestCase):
