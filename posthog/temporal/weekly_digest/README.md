@@ -23,10 +23,10 @@ Sending starts only after generation succeeds and has separate six-hour run and 
 
 ### Delivery
 
-The send activity checks the `transactional-emails-via-workflows` flag for each recipient, with `transactional_email_template` set to `weekly_digest_report` and the recipient's `email` and `region`.
-When the flag is off, it captures `transactional email` in the US project, and the Customer.io destination forwards it to the Customer.io digest campaign.
-When the flag is on, it posts the digest to the webhook of the digest workflow in the US project, with the recipient address in `to`.
-Both regions post to that webhook. `WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL` and `WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET` configure it, and without both every digest goes through Customer.io.
+The send activity posts each recipient's digest to the webhook of the digest workflow in the US project, with the recipient address in `to`.
+Both regions post to that webhook. `WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL` and `WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET` configure it.
+When either one is unset, the send activity sends no digest, logs which setting is missing, counts the run in `weekly_digest_workflows_send_failed` with the reason `not_configured`, and fails without a retry.
+A dry run sends nothing, so it runs without them.
 The secret goes in the `Authorization` header, so only the digest send can start the workflow.
 Each post carries an `Idempotency-Key` made from the digest key and the user id, so a retried post starts no second run.
 An organization stays unsent when a post fails after its retries, so the next attempt resends it.
@@ -39,7 +39,6 @@ The workflow paces the emails themselves with its own sending rate limit.
 `python manage.py resend_weekly_digest --digest-key <key> --org <uuid>` resends a digest to the listed organizations, in the region where it runs.
 It skips generation and reads the data the scheduled run left in the digest Redis, so it works only within `redis_ttl` (3 days) of that run.
 It sends to the listed organizations even when they are marked sent, so members who already got the digest get a second copy.
-`--workflows-only` sends only to members the routing flag sends through Workflows, so nobody gets a second Customer.io email.
 `--dry-run` logs who would get the digest.
 The period in the email comes from the digest key, not from the day of the resend.
 
@@ -129,9 +128,9 @@ Generated via `user_data_key(digest_key, UserDataKey.*, user_id)`:
 │       a. Load user's notification team set                                  │
 │       b. Load user's product suggestion                                     │
 │       c. Create UserSpecificDigest via org_digest.for_user()                │
-│       d. Render payload and queue it as a PostHog capture event             │
-│    3. Flush queued events, then stamp the org's MessagingRecord as sent     │
-│       (a dropped, oversized, or undrained event leaves the org unsent)      │
+│       d. Render payload and post it to the digest workflow's webhook        │
+│    3. Stamp the org's MessagingRecord as sent                               │
+│       (a failed or oversized post leaves the org unsent)                    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

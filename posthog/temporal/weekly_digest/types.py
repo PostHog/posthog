@@ -36,7 +36,6 @@ class WeeklyDigestInput(BaseModel):
     common: CommonInput = CommonInput()
     # A resend sets these. None sends to every organization.
     organization_ids: list[str] | None = None
-    workflows_only: bool = False
     period_end_override: datetime | None = None
 
 
@@ -77,7 +76,6 @@ class SendWeeklyDigestInput(BaseModel):
     digest: Digest
     common: CommonInput
     organization_ids: list[str] | None = None
-    workflows_only: bool = False
 
 
 class SendWeeklyDigestBatchInput(BaseModel):
@@ -87,7 +85,6 @@ class SendWeeklyDigestBatchInput(BaseModel):
     digest: Digest
     common: CommonInput
     organization_ids: list[str] | None = None
-    workflows_only: bool = False
 
 
 class DigestDashboard(BaseModel):
@@ -292,6 +289,8 @@ DigestResourceType: TypeAlias = (
     | type[ErrorIssueList]
 )
 
+EMAIL_EVENT_DEFINITIONS_LIMIT = 6
+
 
 class TeamDigest(BaseModel):
     id: int
@@ -335,13 +334,10 @@ class TeamDigest(BaseModel):
     def render_payload(
         self,
         product_suggestion: "DigestProductSuggestion | None" = None,
-        event_definitions_limit: int | None = None,
     ) -> dict[str, str | int | dict[str, list | dict | int]]:
-        # A project can create thousands of events in a week, and the email lists only the first few.
-        # The count carries the rest, so a limited payload still renders the same email.
-        event_definitions = self.event_definitions.model_dump()
-        if event_definitions_limit is not None:
-            event_definitions = event_definitions[:event_definitions_limit]
+        # A project can create thousands of events in a week, and the webhook refuses a large body. The email
+        # lists only the first few events and reads the total from new_event_definitions_count.
+        event_definitions = self.event_definitions.model_dump()[:EMAIL_EVENT_DEFINITIONS_LIMIT]
         report: dict[str, list | dict | int] = {
             "new_dashboards": self.dashboards.model_dump(),
             "new_event_definitions": event_definitions,
@@ -425,9 +421,7 @@ class UserSpecificDigest(BaseModel):
     def count_items(self) -> int:
         return sum(td.count_items() for td in self.team_digests)
 
-    def render_payload(
-        self, digest: Digest, event_definitions_limit: int | None = None
-    ) -> dict[str, str | list | dict[str, str] | int | None]:
+    def render_payload(self, digest: Digest) -> dict[str, str | list | dict[str, str] | int | None]:
         teams = []
         product_suggestion = self.context.product_suggestion
         for td in self.team_digests:
@@ -436,11 +430,7 @@ class UserSpecificDigest(BaseModel):
             suggestion_for_team = (
                 product_suggestion if product_suggestion and product_suggestion.team_id == td.id else None
             )
-            teams.append(
-                td.render_payload(
-                    product_suggestion=suggestion_for_team, event_definitions_limit=event_definitions_limit
-                )
-            )
+            teams.append(td.render_payload(product_suggestion=suggestion_for_team))
 
         return {
             "organization_name": self.name,
