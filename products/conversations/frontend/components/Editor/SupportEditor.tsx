@@ -413,7 +413,7 @@ function serializeNode(node: JSONContent, atLineStart = false): string {
     // Handle specific node types
     switch (node.type) {
         case 'doc':
-            return (node.content || []).map(serializeNode).join('')
+            return (node.content || []).map((child) => serializeNode(child)).join('')
 
         case 'paragraph':
             return serializeInlineNodes(node.content || []) + '\n\n'
