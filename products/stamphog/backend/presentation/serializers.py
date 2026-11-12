@@ -1073,11 +1073,11 @@ class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
     )
     merged_after = serializers.DateTimeField(
         required=False,
-        help_text="Keep only runs of pull requests merged at or after this time (ISO 8601). Implies merged.",
+        help_text="Keep only runs of pull requests merged at or after this time (ISO 8601). Only merged pull requests match.",
     )
     merged_before = serializers.DateTimeField(
         required=False,
-        help_text="Keep only runs of pull requests merged before this time (ISO 8601). Implies merged.",
+        help_text="Keep only runs of pull requests merged before this time (ISO 8601). Only merged pull requests match.",
     )
     ordering = serializers.ChoiceField(
         choices=RoutingRunOrdering.choices,
@@ -1089,6 +1089,9 @@ class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
     )
 
 
+SIZE_NULL_HELP = "{}. Null until the pull request merges, because stamphog stores the size at merge."
+
+
 @extend_schema_serializer(component_name="StamphogRoutingPullRequest")
 class RoutingPullRequestSerializer(DataclassSerializer):
     class Meta:
@@ -1098,9 +1101,9 @@ class RoutingPullRequestSerializer(DataclassSerializer):
             "author": {"help_text": "The GitHub login of the pull request author."},
             "url": {"help_text": "Link to the pull request on GitHub."},
             "merged_at": {"help_text": "When the pull request merged. Null when it is not merged."},
-            "additions": {"help_text": "Added lines. 0 until the pull request merges."},
-            "deletions": {"help_text": "Deleted lines. 0 until the pull request merges."},
-            "changed_files": {"help_text": "Changed files. 0 until the pull request merges."},
+            "additions": {"allow_null": True, "help_text": SIZE_NULL_HELP.format("Added lines")},
+            "deletions": {"allow_null": True, "help_text": SIZE_NULL_HELP.format("Deleted lines")},
+            "changed_files": {"allow_null": True, "help_text": SIZE_NULL_HELP.format("Changed files")},
         }
 
 

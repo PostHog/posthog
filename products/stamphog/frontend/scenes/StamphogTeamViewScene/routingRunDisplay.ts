@@ -12,25 +12,35 @@ export type TeamViewOutcome =
     | typeof StamphogRoutingRunsListOutcomeItem.Cut
     | typeof StamphogRoutingRunsListOutcomeItem.Requested
 
+const SEGMENT_LABEL: Record<TeamViewOutcome, string> = {
+    [StamphogRoutingRunsListOutcomeItem.NotRequested]: 'Would have been asked',
+    [StamphogRoutingRunsListOutcomeItem.Cut]: 'Cut by the model',
+    [StamphogRoutingRunsListOutcomeItem.Requested]: 'Asked',
+}
+
 export const TEAM_VIEW_OUTCOME_OPTIONS: { value: TeamViewOutcome; label: string }[] = [
-    { value: StamphogRoutingRunsListOutcomeItem.NotRequested, label: 'Would have been asked' },
-    { value: StamphogRoutingRunsListOutcomeItem.Cut, label: 'Cut by the model' },
-    { value: StamphogRoutingRunsListOutcomeItem.Requested, label: 'Asked' },
+    {
+        value: StamphogRoutingRunsListOutcomeItem.NotRequested,
+        label: SEGMENT_LABEL[StamphogRoutingRunsListOutcomeItem.NotRequested],
+    },
+    { value: StamphogRoutingRunsListOutcomeItem.Cut, label: SEGMENT_LABEL[StamphogRoutingRunsListOutcomeItem.Cut] },
+    {
+        value: StamphogRoutingRunsListOutcomeItem.Requested,
+        label: SEGMENT_LABEL[StamphogRoutingRunsListOutcomeItem.Requested],
+    },
 ]
 
+export const DEFAULT_OUTCOME: TeamViewOutcome = StamphogRoutingRunsListOutcomeItem.NotRequested
+
 /**
- * What each segment sends as the `outcome` filter. "Asked" also takes the runs where the team was asked on an
- * earlier run (`already_requested`) or by label on a fork pull request (`labeled`), so no pull request drops out.
+ * The outcomes that mean the team was asked. Besides `requested`, the team was asked on an earlier run
+ * (`already_requested`) or by label on a fork pull request (`labeled`), so no pull request drops out of the "Asked" tab.
  */
-export const TEAM_VIEW_OUTCOME_FILTER: Record<TeamViewOutcome, StamphogRoutingRunsListOutcomeItem[]> = {
-    [StamphogRoutingRunsListOutcomeItem.NotRequested]: [StamphogRoutingRunsListOutcomeItem.NotRequested],
-    [StamphogRoutingRunsListOutcomeItem.Cut]: [StamphogRoutingRunsListOutcomeItem.Cut],
-    [StamphogRoutingRunsListOutcomeItem.Requested]: [
-        StamphogRoutingRunsListOutcomeItem.Requested,
-        StamphogRoutingRunsListOutcomeItem.AlreadyRequested,
-        StamphogRoutingRunsListOutcomeItem.Labeled,
-    ],
-}
+export const ASKED_OUTCOMES: StamphogRoutingRunsListOutcomeItem[] = [
+    StamphogRoutingRunsListOutcomeItem.Requested,
+    StamphogRoutingRunsListOutcomeItem.AlreadyRequested,
+    StamphogRoutingRunsListOutcomeItem.Labeled,
+]
 
 export type TeamViewWindowDays = 7 | 30 | 90
 
@@ -39,6 +49,8 @@ export const TEAM_VIEW_WINDOW_OPTIONS: { value: TeamViewWindowDays; label: strin
     { value: 30, label: 'Last 30 days' },
     { value: 90, label: 'Last 90 days' },
 ]
+
+export const DEFAULT_WINDOW_DAYS: TeamViewWindowDays = 7
 
 const REASON_LABEL: Record<RoutingOwnerReasonEnumApi, string> = {
     [RoutingOwnerReasonEnumApi.Sensitive]: 'Owns a sensitive path',
@@ -52,11 +64,11 @@ const REASON_LABEL: Record<RoutingOwnerReasonEnumApi, string> = {
 }
 
 const OUTCOME_LABEL: Record<RoutingOwnerOutcomeEnumApi, string> = {
-    [RoutingOwnerOutcomeEnumApi.Requested]: 'Asked',
+    [RoutingOwnerOutcomeEnumApi.Requested]: SEGMENT_LABEL[StamphogRoutingRunsListOutcomeItem.Requested],
     [RoutingOwnerOutcomeEnumApi.Labeled]: 'Labeled',
     [RoutingOwnerOutcomeEnumApi.Refused]: 'Refused by GitHub',
-    [RoutingOwnerOutcomeEnumApi.Cut]: 'Cut',
-    [RoutingOwnerOutcomeEnumApi.NotRequested]: 'Would have been asked',
+    [RoutingOwnerOutcomeEnumApi.Cut]: SEGMENT_LABEL[StamphogRoutingRunsListOutcomeItem.Cut],
+    [RoutingOwnerOutcomeEnumApi.NotRequested]: SEGMENT_LABEL[StamphogRoutingRunsListOutcomeItem.NotRequested],
     [RoutingOwnerOutcomeEnumApi.AlreadyRequested]: 'Asked earlier',
 }
 

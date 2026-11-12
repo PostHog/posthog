@@ -3,52 +3,17 @@ import { combineUrl } from 'kea-router'
 import { LemonBanner, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { Field, Section, TimeField } from '../../components/RunDetailFields'
 import { ReviewRunApi } from '../../generated/api.schemas'
 import { runDuration } from './runDisplay'
 
 // The engine emits its LLM traces under these product tags. They carry no review run id, so a link
 // can only narrow to stamphog's traces in the run's own time window, not to this exact run.
 const STAMPHOG_AI_PRODUCTS = ['stamphog', 'aio_stamphog']
-
-function Field({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
-    return (
-        <>
-            <dt className="text-muted">{label}</dt>
-            <dd className="m-0 min-w-0 font-mono text-xs break-all">
-                {children ?? <span className="text-muted">—</span>}
-            </dd>
-        </>
-    )
-}
-
-function TimeField({ label, time }: { label: string; time?: string | null }): JSX.Element {
-    return <Field label={label}>{time ? <TZLabel time={time} /> : null}</Field>
-}
-
-function Section({
-    title,
-    note,
-    children,
-}: {
-    title: string
-    note?: React.ReactNode
-    children: React.ReactNode
-}): JSX.Element {
-    return (
-        <section className="min-w-0">
-            <h5 className="text-muted mb-1.5">{title}</h5>
-            {/* An auto label column sits against its longest label — a fixed width would open a ragged
-                gap beside the short ones. Baseline alignment keeps plain values level with the tag rows. */}
-            <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1.5 text-xs">{children}</dl>
-            {note && <p className="text-muted text-xs mt-2 mb-0">{note}</p>}
-        </section>
-    )
-}
 
 function llmTracesUrl(run: ReviewRunApi): string {
     return combineUrl(urls.aiObservabilityTraces(), {

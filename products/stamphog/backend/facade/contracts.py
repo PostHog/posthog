@@ -217,10 +217,10 @@ class RoutingPullRequestDTO:
     author: str
     url: str
     merged_at: datetime | None = None
-    # Stamphog stores the size only when it records the merge, so these stay 0 until the pull request merges.
-    additions: int = 0
-    deletions: int = 0
-    changed_files: int = 0
+    # Stamphog stores the size only when it records the merge, so these are None until the pull request merges.
+    additions: int | None = None
+    deletions: int | None = None
+    changed_files: int | None = None
 
 
 @dataclass(frozen=True)

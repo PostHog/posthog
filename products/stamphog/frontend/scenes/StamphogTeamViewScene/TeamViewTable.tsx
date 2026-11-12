@@ -12,7 +12,7 @@ import { ownerDecision, reasonLabel } from './routingRunDisplay'
 import { TEAM_VIEW_PAGE_SIZE, stamphogTeamViewSceneLogic } from './stamphogTeamViewSceneLogic'
 
 export function TeamViewTable(): JSX.Element {
-    const { owner, merged, runs, runsResponse, pullRequestCount, runsResponseLoading, runsFailed, page } =
+    const { owner, merged, runs, runsResponse, runsResponseLoading, runsFailed, page } =
         useValues(stamphogTeamViewSceneLogic)
     const { setPage, loadRuns } = useActions(stamphogTeamViewSceneLogic)
 
@@ -36,6 +36,9 @@ export function TeamViewTable(): JSX.Element {
             </LemonBanner>
         )
     }
+
+    const isLoading = runsResponseLoading || !runsResponse
+    const pullRequestCount = runsResponse?.count ?? 0
 
     const columns: LemonTableColumns<StamphogRoutingRunApi> = [
         {
@@ -70,17 +73,19 @@ export function TeamViewTable(): JSX.Element {
         {
             title: 'Size',
             key: 'size',
-            render: (_, run) =>
-                // GitHub reports the size only when the pull request merges.
-                run.pull_request.merged_at ? (
+            render: (_, run) => {
+                const { additions, deletions, changed_files } = run.pull_request
+                if (additions == null || deletions == null || changed_files == null) {
+                    return null
+                }
+                return (
                     <span className="font-mono text-xs whitespace-nowrap">
-                        <span className="text-success">{`+${run.pull_request.additions ?? 0}`}</span>{' '}
-                        <span className="text-danger">{`-${run.pull_request.deletions ?? 0}`}</span>{' '}
-                        <span className="text-muted">{`in ${pluralize(run.pull_request.changed_files ?? 0, 'file')}`}</span>
+                        <span className="text-success">{`+${additions}`}</span>{' '}
+                        <span className="text-danger">{`-${deletions}`}</span>{' '}
+                        <span className="text-muted">{`in ${pluralize(changed_files, 'file')}`}</span>
                     </span>
-                ) : (
-                    <span className="text-muted">-</span>
-                ),
+                )
+            },
         },
         {
             title: 'Decision',
@@ -122,7 +127,7 @@ export function TeamViewTable(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div className="text-secondary text-sm">
-                {runsResponseLoading || !runsResponse ? (
+                {isLoading ? (
                     <span>Loading pull requests</span>
                 ) : (
                     <span data-attr="stamphog-team-view-count">{pluralize(pullRequestCount, 'pull request')}</span>
@@ -131,7 +136,7 @@ export function TeamViewTable(): JSX.Element {
             <LemonTable
                 columns={columns}
                 dataSource={runs}
-                loading={runsResponseLoading || !runsResponse}
+                loading={isLoading}
                 rowKey="id"
                 expandable={{ expandedRowRender: (run) => <ExpandedRoutingRunDetails run={run} owner={owner} /> }}
                 pagination={{

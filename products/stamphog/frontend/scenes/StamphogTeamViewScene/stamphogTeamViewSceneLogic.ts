@@ -11,10 +11,13 @@ import {
     type PaginatedStamphogRoutingRunListApi,
     type StamphogRoutingRunApi,
     StamphogRoutingRunsListOrdering,
+    StamphogRoutingRunsListOutcomeItem,
     type StamphogRoutingRunsListParams,
 } from '../../generated/api.schemas'
 import {
-    TEAM_VIEW_OUTCOME_FILTER,
+    ASKED_OUTCOMES,
+    DEFAULT_OUTCOME,
+    DEFAULT_WINDOW_DAYS,
     TEAM_VIEW_OUTCOME_OPTIONS,
     TEAM_VIEW_WINDOW_OPTIONS,
     TeamViewOutcome,
@@ -38,7 +41,6 @@ export interface stamphogTeamViewSceneLogicValues {
     outcome: TeamViewOutcome
     owner: string
     page: number
-    pullRequestCount: number
     runs: StamphogRoutingRunApi[]
     runsFailed: boolean
     runsResponse: PaginatedStamphogRoutingRunListApi | null
@@ -93,7 +95,6 @@ export interface stamphogTeamViewSceneLogicActions {
 export interface stamphogTeamViewSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         runs: (runsResponse: any) => StamphogRoutingRunApi[]
-        pullRequestCount: (runsResponse: any) => number
     }
 }
 
@@ -133,11 +134,11 @@ export const stamphogTeamViewSceneLogic = kea<stamphogTeamViewSceneLogicType>([
             { setOwner: (_, { owner }) => owner.trim(), setFilters: (_, { filters }) => filters.owner.trim() },
         ],
         outcome: [
-            TEAM_VIEW_OUTCOME_OPTIONS[0].value as TeamViewOutcome,
+            DEFAULT_OUTCOME,
             { setOutcome: (_, { outcome }) => outcome, setFilters: (_, { filters }) => filters.outcome },
         ],
         windowDays: [
-            TEAM_VIEW_WINDOW_OPTIONS[0].value as TeamViewWindowDays,
+            DEFAULT_WINDOW_DAYS,
             { setWindowDays: (_, { windowDays }) => windowDays, setFilters: (_, { filters }) => filters.windowDays },
         ],
         merged: [true, { setMerged: (_, { merged }) => merged, setFilters: (_, { filters }) => filters.merged }],
@@ -169,15 +170,18 @@ export const stamphogTeamViewSceneLogic = kea<stamphogTeamViewSceneLogicType>([
             null as PaginatedStamphogRoutingRunListApi | null,
             {
                 loadRuns: async (_, breakpoint) => {
-                    // The team field loads on every keystroke, so wait until typing pauses.
-                    await breakpoint(300)
+                    // A newer load supersedes this one, so a deep link that fires several actions makes one request.
+                    await breakpoint(1)
                     if (!values.owner) {
                         return null
                     }
                     const since = dayjs().subtract(values.windowDays, 'day').toISOString()
                     const params: StamphogRoutingRunsListParams = {
                         owner: values.owner,
-                        outcome: TEAM_VIEW_OUTCOME_FILTER[values.outcome],
+                        outcome:
+                            values.outcome === StamphogRoutingRunsListOutcomeItem.Requested
+                                ? ASKED_OUTCOMES
+                                : [values.outcome],
                         latest_per_pr: true,
                         limit: TEAM_VIEW_PAGE_SIZE,
                         offset: (values.page - 1) * TEAM_VIEW_PAGE_SIZE,
@@ -198,15 +202,15 @@ export const stamphogTeamViewSceneLogic = kea<stamphogTeamViewSceneLogicType>([
             (runsResponse: PaginatedStamphogRoutingRunListApi | null): StamphogRoutingRunApi[] =>
                 runsResponse?.results ?? [],
         ],
-        // With latest_per_pr the API counts pull requests, not runs.
-        pullRequestCount: [
-            (s) => [s.runsResponse],
-            (runsResponse: PaginatedStamphogRoutingRunListApi | null): number => runsResponse?.count ?? 0,
-        ],
     }),
 
     listeners(({ actions }) => ({
-        setOwner: () => actions.loadRuns(),
+        // The team field sets the owner on every keystroke, so wait until typing pauses. The other
+        // filters change in one step and load right away.
+        setOwner: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadRuns()
+        },
         setOutcome: () => actions.loadRuns(),
         setWindowDays: () => actions.loadRuns(),
         setMerged: () => actions.loadRuns(),
@@ -240,10 +244,10 @@ export const stamphogTeamViewSceneLogic = kea<stamphogTeamViewSceneLogicType>([
             const owner = typeof searchParams.team === 'string' ? searchParams.team : values.owner
             const outcome =
                 TEAM_VIEW_OUTCOME_OPTIONS.find((option) => option.value === searchParams.outcome)?.value ??
-                values.outcome
+                DEFAULT_OUTCOME
             const windowDays =
                 TEAM_VIEW_WINDOW_OPTIONS.find((option) => option.value === Number(searchParams.days))?.value ??
-                values.windowDays
+                DEFAULT_WINDOW_DAYS
             const merged = searchParams.merged !== 'false' && searchParams.merged !== false
             const page = Number(searchParams.page ?? 1) || 1
             // The URL echoes every change the controls make, so skip it when nothing differs.

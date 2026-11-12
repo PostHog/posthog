@@ -227,7 +227,7 @@ export const StamphogReviewRunsRetrieveParams = () => zod.object({
 })
 
 /**
- * List reviewer routing runs, newest first. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason, and the pull request it routed. Filter by owner to answer why a team or person was or was not asked to review. With latest_per_pr, list what landed in an owner's area. Get one run for the files each owner owns.
+ * List reviewer routing runs, newest run first by default or newest merge first with ordering=-merged_at. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason, and the pull request it routed. Filter by owner to answer why a team or person was or was not asked to review. With latest_per_pr, list what landed in an owner's area. Get one run for the files each owner owns.
  */
 export const StamphogRoutingRunsListParams = () => zod.object({
     project_id: zod
@@ -272,11 +272,15 @@ export const StamphogRoutingRunsListQueryParams = () => zod.object({
     merged_after: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Keep only runs of pull requests merged at or after this time (ISO 8601). Implies merged.'),
+        .describe(
+            'Keep only runs of pull requests merged at or after this time (ISO 8601). Only merged pull requests match.'
+        ),
     merged_before: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Keep only runs of pull requests merged before this time (ISO 8601). Implies merged.'),
+        .describe(
+            'Keep only runs of pull requests merged before this time (ISO 8601). Only merged pull requests match.'
+        ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
         .enum(['-created_at', '-merged_at'])

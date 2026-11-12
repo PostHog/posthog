@@ -737,6 +737,8 @@ def _routing_owner_to_dto(row: RoutingRunOwner, *, with_files: bool) -> contract
 
 
 def _routing_run_to_dto(row: RoutingRun, *, with_files: bool = False) -> contracts.RoutingRunDTO:
+    # The stored size is 0 until the merge, which would read as an empty pull request.
+    merged = row.pull_request.merged_at is not None
     return contracts.RoutingRunDTO(
         id=row.id,
         team_id=row.team_id,
@@ -747,9 +749,9 @@ def _routing_run_to_dto(row: RoutingRun, *, with_files: bool = False) -> contrac
             author=row.pull_request.author_login,
             url=row.pull_request.pr_url,
             merged_at=row.pull_request.merged_at,
-            additions=row.pull_request.additions,
-            deletions=row.pull_request.deletions,
-            changed_files=row.pull_request.changed_files,
+            additions=row.pull_request.additions if merged else None,
+            deletions=row.pull_request.deletions if merged else None,
+            changed_files=row.pull_request.changed_files if merged else None,
         ),
         head_sha=row.head_sha,
         mode=RoutingMode(row.mode),
@@ -828,12 +830,13 @@ def list_routing_runs(
     merged_before: datetime | None = None,
     ordering: RoutingRunOrdering = RoutingRunOrdering.NEWEST_RUN,
 ) -> LazyDTOList[contracts.RoutingRunDTO]:
-    """The team's reviewer routing runs, each with its decision for every owner but no file lists.
+    """The team's reviewer routing runs with their decision for every owner but no file lists.
+
+    Newest run first by default, or newest merge first with `ordering`.
 
     `owner` keeps the runs that decided about that owner, as owners.yaml spells it (`team-devex`, `@alice`).
     `outcome` (any of several) and `reason` keep the runs where one owner row has them, the same row as `owner` when it is set.
-    `latest_per_pr` picks each pull request's newest run first, and every other filter then applies to that
-    run, so a pull request whose newest run fails a filter drops out rather than falling back to an older run.
+    `latest_per_pr` keeps one run per pull request, its newest, and the other filters judge that run.
     `team_id` must be canonical, as every view passes it, so the reads skip the team lookup.
     """
     qs = _routing_runs(team_id, with_files=False)

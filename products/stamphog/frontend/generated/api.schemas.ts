@@ -738,12 +738,21 @@ export interface StamphogRoutingPullRequestApi {
      * @nullable
      */
     merged_at?: string | null
-    /** Added lines. 0 until the pull request merges. */
-    additions?: number
-    /** Deleted lines. 0 until the pull request merges. */
-    deletions?: number
-    /** Changed files. 0 until the pull request merges. */
-    changed_files?: number
+    /**
+     * Added lines. Null until the pull request merges, because stamphog stores the size at merge.
+     * @nullable
+     */
+    additions?: number | null
+    /**
+     * Deleted lines. Null until the pull request merges, because stamphog stores the size at merge.
+     * @nullable
+     */
+    deletions?: number | null
+    /**
+     * Changed files. Null until the pull request merges, because stamphog stores the size at merge.
+     * @nullable
+     */
+    changed_files?: number | null
 }
 
 /**
@@ -1176,11 +1185,11 @@ export type StamphogRoutingRunsListParams = {
      */
     merged?: boolean | null
     /**
-     * Keep only runs of pull requests merged at or after this time (ISO 8601). Implies merged.
+     * Keep only runs of pull requests merged at or after this time (ISO 8601). Only merged pull requests match.
      */
     merged_after?: string
     /**
-     * Keep only runs of pull requests merged before this time (ISO 8601). Implies merged.
+     * Keep only runs of pull requests merged before this time (ISO 8601). Only merged pull requests match.
      */
     merged_before?: string
     /**

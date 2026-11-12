@@ -1529,6 +1529,10 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             "deletions": 12,
             "changed_files": 3,
         }
+        # The stored size is 0 until the merge, which the API reports as unknown.
+        PullRequest.objects.unscoped().filter(team_id=self.team.id, pr_number=1).update(merged_at=None)
+        unmerged = self.client.get(self.url, {"pr_number": 1}).json()["results"][0]["pull_request"]
+        assert (unmerged["additions"], unmerged["deletions"], unmerged["changed_files"]) == (None, None, None)
         owners = {owner["owner"]: owner for owner in response.json()["results"][0]["owners"]}
         assert owners["team-alpha"]["pins"] == [self._PIN]
         # The list stays small on a large pull request. One run carries the files.

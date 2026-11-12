@@ -772,7 +772,7 @@ class RoutingRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
 
     @extend_schema(
         description=(
-            "List reviewer routing runs, newest first. Each run holds its decision for every owner of the "
+            "List reviewer routing runs, newest run first by default or newest merge first with ordering=-merged_at. Each run holds its decision for every owner of the "
             "changed code: requested, cut, or not asked, with the reason, and the pull request it routed. Filter "
             "by owner to answer why a team or person was or was not asked to review. With latest_per_pr, list "
             "what landed in an owner's area. Get one run for the files each owner owns."
