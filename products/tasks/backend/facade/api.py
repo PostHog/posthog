@@ -2873,7 +2873,7 @@ def update_sandbox_environment(
     env_id: str | UUID, team_id: int, user_id: int, **fields
 ) -> contracts.SandboxEnvironmentDTO | None:
     """Partially update a visible environment. Returns ``None`` if not found/visible."""
-    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
+    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id, internal=False).first()
     if env is None:
         return None
     if "environment_variables" in fields:
@@ -2890,7 +2890,7 @@ def update_sandbox_environment(
 
 def delete_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -> bool:
     """Delete a visible environment. Returns whether a row was deleted."""
-    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
+    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id, internal=False).first()
     if env is None:
         return False
     env.delete()
@@ -3219,6 +3219,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "use_modal_vm_sandbox",
         # The image a run boots from; a PATCHed value would pick an image the task never asked for.
         "sandbox_template",
+        "custom_image_id",
         # Rollout stamps written once at dispatch by _capture_run_feature_flags or at run
         # creation; a PATCHable value would let a task controller bypass the org feature flags
         # (for telemetry, that means injecting the internal OTLP capture token into their

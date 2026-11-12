@@ -8644,6 +8644,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "inactivity_timeout_seconds": 600,
                 "use_modal_vm_sandbox": False,
                 "sandbox_template": "default_base",
+                "custom_image_id": "img-server",
                 "agent_otel_telemetry_enabled": False,
                 "sandbox_event_ingest_enabled": False,
                 "overlap_clone_boot_enabled": False,
@@ -8725,6 +8726,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "use_modal_vm_sandbox": True,
                     # a VM template here would boot a Docker-capable box past the VM gate
                     "sandbox_template": "vm_base",
+                    "custom_image_id": "img-caller",
                     "agent_otel_telemetry_enabled": True,
                     "sandbox_event_ingest_enabled": True,
                     "overlap_clone_boot_enabled": True,
@@ -8809,6 +8811,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
         assert run.state["use_modal_vm_sandbox"] is False
         assert run.state["sandbox_template"] == "default_base"
+        assert run.state["custom_image_id"] == "img-server"
         assert run.state["agent_otel_telemetry_enabled"] is False
         assert run.state["sandbox_event_ingest_enabled"] is False
         assert run.state["overlap_clone_boot_enabled"] is False
@@ -8886,6 +8889,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "stream_thin_tail",
                     "sandbox_id",
                     "use_modal_vm_sandbox",
+                    "custom_image_id",
                     "snapshot_external_id",
                     "snapshot_kind",
                     "snapshot_mount_path",
@@ -8938,6 +8942,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["stream_thin_tail"] is True  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
         assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
+        assert run.state["custom_image_id"] == "img-server"
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
         assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
         assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
@@ -17703,23 +17708,38 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("effective_domains", response.json())
 
-    def test_update_environment(self):
-        env = SandboxEnvironment.objects.create(team=self.team, name="Old Name", created_by=self.user)
+    @parameterized.expand([("user_environment", False), ("internal_environment", True)])
+    def test_update_environment(self, _name, internal):
+        env = SandboxEnvironment.objects.create(
+            team=self.team, name="Old Name", created_by=self.user, private=False, internal=internal
+        )
         response = self.client.patch(
             self.detail_url(env.id),
             {"name": "New Name", "network_access_level": "custom", "allowed_domains": ["new.example.com"]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
         env.refresh_from_db()
-        self.assertEqual(env.name, "New Name")
-        self.assertEqual(env.allowed_domains, ["new.example.com"])
+        if internal:
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            self.assertEqual(env.name, "Old Name")
+            self.assertEqual(env.allowed_domains, [])
+        else:
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(env.name, "New Name")
+            self.assertEqual(env.allowed_domains, ["new.example.com"])
 
-    def test_delete_environment(self):
-        env = SandboxEnvironment.objects.create(team=self.team, name="To Delete", created_by=self.user)
+    @parameterized.expand([("user_environment", False), ("internal_environment", True)])
+    def test_delete_environment(self, _name, internal):
+        env = SandboxEnvironment.objects.create(
+            team=self.team, name="To Delete", created_by=self.user, private=False, internal=internal
+        )
         response = self.client.delete(self.detail_url(env.id))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(SandboxEnvironment.objects.filter(id=env.id).exists())
+        if internal:
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            self.assertTrue(SandboxEnvironment.objects.filter(id=env.id).exists())
+        else:
+            self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+            self.assertFalse(SandboxEnvironment.objects.filter(id=env.id).exists())
 
     def test_non_uuid_detail_path_returns_404(self):
         # A non-UUID id (e.g. a mistyped nested route matched as a pk) must 404, not 500.
