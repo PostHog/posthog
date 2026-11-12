@@ -167,6 +167,15 @@ describe('buildReleaseRow', () => {
     })
 })
 
+describe('broadcast suggestion', () => {
+    it('links the new broadcast to the release without asking for an audience', () => {
+        const suggestion = row(false).suggestions.find((item) => item.key === 'broadcast')
+        const params = new URL(suggestion?.to ?? '', 'https://example.com').searchParams
+
+        expect([params.get('source_record'), params.has('audience')]).toEqual(['release:release-1', false])
+    })
+})
+
 describe('rankLinkSuggestions', () => {
     const candidate = (kind: LinkCandidate['kind'], label: string): LinkCandidate => ({
         key: `${kind}:${label}`,
