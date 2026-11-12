@@ -37,9 +37,9 @@ export interface Judge {
     evidence(): { journal: JournalEntry[]; truth: TruthRecord[] }
 }
 
-export type JudgeOptions = { edgeUrl: string; probe: CyclotronProbe; pollMs?: number }
+export type JudgeOptions = { edgeUrl: string; probe: CyclotronProbe; pollMs?: number; now?: () => number }
 
-export function createJudge({ edgeUrl, probe, pollMs = 1000 }: JudgeOptions): Judge {
+export function createJudge({ edgeUrl, probe, pollMs = 1000, now = Date.now }: JudgeOptions): Judge {
     let journal: JournalEntry[] = []
     let truth: TruthRecord[] = []
     let cursor = 0
@@ -96,12 +96,12 @@ export function createJudge({ edgeUrl, probe, pollMs = 1000 }: JudgeOptions): Ju
         },
 
         async converge(withinMs, signal) {
-            const startedAt = Date.now()
+            const startedAt = now()
             for (;;) {
                 await pullTruth()
                 const unfinishedJobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
                 const unrecorded = unrecordedUnits()
-                const tookMs = Date.now() - startedAt
+                const tookMs = now() - startedAt
                 const converged = unfinishedJobs === 0 && unrecorded.length === 0 && tookMs <= withinMs
                 if (converged || tookMs >= withinMs || signal.aborted) {
                     return { converged, unfinishedJobs, unrecorded, tookMs }

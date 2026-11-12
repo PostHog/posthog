@@ -1,5 +1,4 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
-import { setTimeout as sleep } from 'timers/promises'
 
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { internalFetch } from '~/common/utils/request'
@@ -16,14 +15,21 @@ describe('judge', () => {
     let edge: ProviderEdge
     let ses: SESv2Client
     let unfinishedJobs: number
-    let probeAnswersAfterMs: number
+    let clockMs: number
+    let probeTakesMs: number
     let judge: Judge
 
     const judgeOf = (): Judge =>
         createJudge({
             edgeUrl: edge.url,
-            probe: { unfinishedJobs: () => sleep(probeAnswersAfterMs).then(() => unfinishedJobs) },
+            probe: {
+                unfinishedJobs: () => {
+                    clockMs += probeTakesMs
+                    return Promise.resolve(unfinishedJobs)
+                },
+            },
             pollMs: 10,
+            now: () => clockMs,
         })
 
     beforeEach(async () => {
@@ -35,7 +41,8 @@ describe('judge', () => {
             maxAttempts: 1,
         })
         unfinishedJobs = 0
-        probeAnswersAfterMs = 0
+        clockMs = 0
+        probeTakesMs = 10
         judge = judgeOf()
         await judge.open(SEED)
     })
@@ -224,9 +231,9 @@ describe('judge', () => {
     })
 
     it.each<[string, number, boolean, number, object]>([
-        ['jobs are still unfinished', 3, true, 0, { converged: false, unfinishedJobs: 3, unrecorded: [] }],
-        ['a delivery has no record', 0, false, 0, { converged: false, unfinishedJobs: 0, unrecorded: [UNIT] }],
-        ['the queues are empty and every delivery is recorded', 0, true, 0, { converged: true, unfinishedJobs: 0 }],
+        ['jobs are still unfinished', 3, true, 10, { converged: false, unfinishedJobs: 3, unrecorded: [] }],
+        ['a delivery has no record', 0, false, 10, { converged: false, unfinishedJobs: 0, unrecorded: [UNIT] }],
+        ['the queues are empty and every delivery is recorded', 0, true, 10, { converged: true, unfinishedJobs: 0 }],
         [
             'the last poll answers only after the deadline',
             0,
@@ -236,9 +243,9 @@ describe('judge', () => {
         ],
     ])(
         'converges only when no job is unfinished and every delivery is recorded within the deadline: %s',
-        async (_story, jobs, delivered, answersAfterMs, expected) => {
+        async (_story, jobs, delivered, pollTakesMs, expected) => {
             unfinishedJobs = jobs
-            probeAnswersAfterMs = answersAfterMs
+            probeTakesMs = pollTakesMs
             judge.record(offered())
             if (delivered) {
                 await deliver(UNIT)
