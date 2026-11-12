@@ -779,10 +779,20 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             duplicateWorkflow: async ({ row }) => {
                 await runRowAction(row, 'duplicate', async () => {
                     const teamId = String(values.currentTeamId)
+                    const controller = new AbortController()
+                    const timeoutMessage = 'The server took too long to respond. Refresh the list before you try again.'
                     try {
                         // The summary row has no step graph, so the copy starts from the full workflow.
-                        const full = await hogFlowsRetrieve(teamId, row.id)
-                        await hogFlowsCreate(teamId, prepareWorkflowDuplicate(full))
+                        const full = await withRequestDeadline(
+                            controller,
+                            (signal) => hogFlowsRetrieve(teamId, row.id, { signal }),
+                            timeoutMessage
+                        )
+                        await withRequestDeadline(
+                            controller,
+                            (signal) => hogFlowsCreate(teamId, prepareWorkflowDuplicate(full), { signal }),
+                            timeoutMessage
+                        )
                         lemonToast.success(`Workflow "${row.name}" duplicated`)
                         actions.refreshWorkflows()
                     } catch (error) {

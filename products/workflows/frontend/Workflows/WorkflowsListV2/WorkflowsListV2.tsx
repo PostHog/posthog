@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -38,6 +39,10 @@ export function WorkflowsListV2(): JSX.Element {
         metricsStatus,
     } = useValues(workflowsListV2Logic)
     const { setValue, loadWorkflows, loadMetrics, clearFilters } = useActions(workflowsListV2Logic)
+    // A new filter starts again on page one, as the flag-off list does.
+    const filterKey = `${serializeFacetQuery(value.filters)}\n${value.text}`
+    const [pageForFilter, setPageForFilter] = useState({ filterKey, page: 1 })
+    const currentPage = pageForFilter.filterKey === filterKey ? pageForFilter.page : 1
 
     useOnMountEffect(() => {
         // Leaving the new-workflow scene keeps its logic mounted, so drop it here as WorkflowsTable does.
@@ -107,8 +112,6 @@ export function WorkflowsListV2(): JSX.Element {
             <>
                 {loadFailed && !listComplete && renderLoadError("Couldn't load all workflows")}
                 <LemonTable
-                    // A new filter starts again on page one, as the flag-off list does.
-                    key={`${serializeFacetQuery(value.filters)}\n${value.text}`}
                     size="small"
                     dataSource={filteredRows}
                     // Until the server search answers, a match in an email body can still add rows.
@@ -121,7 +124,11 @@ export function WorkflowsListV2(): JSX.Element {
                     rowKey="id"
                     columns={buildWorkflowsListV2Columns(shownColumns, metricsLoading)}
                     // Client-side pages stay out of the URL; `page` there is an old list param.
-                    pagination={{ pageSize: PAGE_SIZE, useUrl: false }}
+                    pagination={{
+                        pageSize: PAGE_SIZE,
+                        currentPage,
+                        onPageChange: (page) => setPageForFilter({ filterKey, page }),
+                    }}
                     nouns={['workflow', 'workflows']}
                     emptyState={listComplete ? 'No workflows yet' : 'None of the workflows loaded so far match'}
                 />
