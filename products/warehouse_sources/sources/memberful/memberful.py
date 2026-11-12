@@ -6,7 +6,7 @@ from typing import Any
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.memberful.settings import (
     MEMBERFUL_ENDPOINTS,
@@ -17,6 +17,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     make_tracked_session,
+    max_retry_after_seconds,
     retry_with_deadline,
 )
 
@@ -37,7 +38,9 @@ VALIDATE_CREDENTIALS_QUERY = "query MemberfulValidate { members(first: 1) { page
 
 
 class MemberfulRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class MemberfulAccountNotFoundError(Exception):
@@ -85,10 +88,37 @@ def _make_session(api_key: str) -> requests.Session:
     )
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a delta-seconds `Retry-After` header. Anything else falls back to exponential backoff."""
+    if not value:
+        return None
+    try:
+        delay = float(value.strip())
+    except ValueError:
+        return None
+    return delay if delay >= 0 else None
+
+
+_backoff = wait_exponential_jitter(initial=1, max=30)
+
+
+def _server_delay(retry_state: RetryCallState) -> float | None:
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    return exc.retry_after if isinstance(exc, MemberfulRetryableError) else None
+
+
+def _wait(retry_state: RetryCallState) -> float:
+    retry_after = _server_delay(retry_state)
+    if retry_after is not None:
+        return min(retry_after, max_retry_after_seconds())
+    return _backoff(retry_state)
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type(MemberfulRetryableError),
     stop=stop_after_attempt(MAX_ATTEMPTS),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    wait=_wait,
+    requested_wait=_server_delay,
     reraise=True,
 )
 def _execute_query(session: requests.Session, url: str, query: str, variables: dict[str, Any]) -> dict[str, Any]:
@@ -99,7 +129,10 @@ def _execute_query(session: requests.Session, url: str, query: str, variables: d
         raise MemberfulRetryableError(f"Memberful API error (retryable): {e}") from e
 
     if response.status_code == 429 or response.status_code >= 500:
-        raise MemberfulRetryableError(f"Memberful API error (retryable): status {response.status_code}")
+        raise MemberfulRetryableError(
+            f"Memberful API error (retryable): status {response.status_code}",
+            retry_after=_parse_retry_after(response.headers.get("Retry-After")),
+        )
 
     # An unknown subdomain answers with an HTML 404 page.
     if response.status_code == 404:

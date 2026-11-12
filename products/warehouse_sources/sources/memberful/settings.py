@@ -125,6 +125,8 @@ class MemberfulEndpointConfig:
     # True when the root field takes a `createdAt: CreatedAtFilter` argument.
     created_at_filter: bool = False
     supports_append: bool = False
+    # New connections default to full refresh even when incremental sync is offered.
+    prefers_full_refresh: bool = False
     partition_keys: list[str] | None = None
     # (nested object, key inside it, flat column). A null object gives a null column.
     nested_values: tuple[tuple[str, str, str], ...] = ()
@@ -147,12 +149,14 @@ MEMBERFUL_ENDPOINTS: dict[str, MemberfulEndpointConfig] = {
             ("coupon", "code", "couponCode"),
         ),
     ),
-    # Order status changes (a refund, a suspension) do not move createdAt, so append is not offered.
+    # A refund or a suspension changes an order's status but not its createdAt, so an incremental
+    # sync never re-reads older orders. Full refresh is the default and append is not offered.
     "orders": MemberfulEndpointConfig(
         root_field="orders",
         fields=ORDER_FIELDS,
         primary_key="uuid",
         created_at_filter=True,
+        prefers_full_refresh=True,
         partition_keys=[CREATED_AT],
         nested_values=(
             ("purchasable", "id", "purchasableId"),

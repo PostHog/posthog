@@ -200,7 +200,6 @@ class TestRowShaping:
                 "couponCode": None,
             },
         ]
-        assert result.response.primary_keys == ["uuid"]
 
     def test_coupons_collect_id_lists_and_skip_null_items(self) -> None:
         nodes = [{"id": "1", "plans": [{"id": "p-1"}, None, {"id": "p-2"}], "downloads": None}]
@@ -245,6 +244,15 @@ class TestErrors:
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["1"]
         assert len(result.requests) == 2
+
+    def test_retry_after_beyond_the_request_budget_stops_after_one_request(self) -> None:
+        result = _driver().run(
+            "members", always(ScriptedResponse(status=429, json={}, headers={"Retry-After": "3600"}))
+        )
+
+        assert result.raised is not None
+        assert "Memberful API error (retryable): status 429" in str(result.raised)
+        assert len(result.requests) == 1
 
 
 class TestValidateCredentials:

@@ -115,6 +115,7 @@ Your subdomain is the part before `.memberful.com` in your Memberful dashboard U
                 name=endpoint,
                 supports_incremental=bool(INCREMENTAL_FIELDS[endpoint]),
                 supports_append=MEMBERFUL_ENDPOINTS[endpoint].supports_append,
+                prefers_full_refresh=MEMBERFUL_ENDPOINTS[endpoint].prefers_full_refresh,
                 incremental_fields=INCREMENTAL_FIELDS[endpoint],
             )
             for endpoint in ENDPOINTS
