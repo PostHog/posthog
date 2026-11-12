@@ -934,10 +934,12 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         self.alert.refresh_from_db()
         assert (self.alert.enabled, self._copy().enabled) == (False, False)
 
-    @parameterized.expand([("row", False), ("native", True)])
-    def test_a_snooze_from_slack_mutes_the_platform_copy(self, _name: str, native: bool) -> None:
+    @parameterized.expand([("row", False, False), ("row_the_copy_lags", False, True), ("native", True, False)])
+    def test_a_snooze_from_slack_mutes_the_platform_copy(self, _name: str, native: bool, copy_lags: bool) -> None:
         if native:
             self._forget_the_insight_row()
+        if copy_lags:
+            AlertConfiguration.objects.filter(id=self.alert.id).update(name="Renamed")
 
         # The snooze menu of an alert with no insight row carries its platform alert's id.
         outcome = snooze_alert_from_slack(self.copy_id if native else self.alert.id, user=self.user, duration="1d")
