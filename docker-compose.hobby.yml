@@ -137,6 +137,9 @@ services:
             WEB_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-2}
             # The pool children share one copy of Django with the worker parent instead of copying it.
             GC_FREEZE_BEFORE_POOL_FORK: ${GC_FREEZE_BEFORE_POOL_FORK:-true}
+            # The pool replaces a child after this many tasks, which returns the memory that tasks
+            # leave behind in it.
+            CELERY_MAX_TASKS_PER_CHILD: ${CELERY_MAX_TASKS_PER_CHILD:-1000}
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             # The documented telemetry opt-out. web already receives it; beat and the
@@ -214,6 +217,13 @@ services:
             GRANIAN_WORKERS: ${GRANIAN_WORKERS:-2}
             # The workers share one copy of Django with the granian parent instead of loading their own.
             POSTHOG_GRANIAN_PRELOAD: ${POSTHOG_GRANIAN_PRELOAD:-true}
+            # A worker's own memory grows as it writes to the pages it shares with the parent. Granian
+            # replaces each worker after six hours, which returns that memory. It starts the new
+            # worker before it stops the old one.
+            GRANIAN_WORKERS_LIFETIME: ${GRANIAN_WORKERS_LIFETIME:-21600}
+            # Seconds a replaced worker gets to finish its requests. Without a limit, one connection
+            # that never closes stops granian from replacing or restarting any worker.
+            GRANIAN_WORKERS_KILL_TIMEOUT: ${GRANIAN_WORKERS_KILL_TIMEOUT:-60}
             # See the same setting on feature-flags.
             FLAGS_BILLING_COUNTERS_ENABLED: 'false'
             SITE_URL: https://$DOMAIN
