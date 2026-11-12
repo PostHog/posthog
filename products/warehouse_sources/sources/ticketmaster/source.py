@@ -107,7 +107,8 @@ class TicketmasterSource(ResumableSource[TicketmasterSourceConfig, TicketmasterR
             iconPath="/static/services/ticketmaster.png",
             caption=(
                 "Copy your API key from [My apps](https://developer.ticketmaster.com/) in the Ticketmaster Developer Portal. "
-                "This source imports public Discovery API results that match your search keyword. "
+                "This source imports public Discovery API results that match your search keyword, "
+                "plus the full list of event classifications. "
                 "Each table must have at most 1,000 results. Use a specific keyword to stay within this limit."
             ),
             fields=cast(
