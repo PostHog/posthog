@@ -97,6 +97,15 @@ def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None 
     # classifies as `other`. Meta rate limits use codes 4, 17, and 32, which do not match.
     if kind in ("meta-ads", "instagram") and status_code < 500 and isinstance(error, dict) and error.get("code") == 190:
         return REFRESH_FAILURE_REASON_INVALID_GRANT
+    # Stripe's refusal of our app, not of the customer's grant: the same refresh token can be
+    # accepted again later, so it belongs with our credential failures, not the dead grants.
+    if (
+        kind == "stripe"
+        and status_code == 400
+        and error == "invalid_request"
+        and body.get("error_description") == "Authorization not supported for this app"
+    ):
+        return REFRESH_FAILURE_REASON_INVALID_CLIENT
     # Transient throttling, not a credential problem: the backoff cap synchronises failed
     # integrations into retry herds that can trip a provider's per-second limit and take
     # healthy refreshes in the same second down with them.

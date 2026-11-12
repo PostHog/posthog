@@ -1134,6 +1134,27 @@ class TestOauthIntegrationModel(BaseTest):
             ("meta_shape_on_other_kind", 400, {"error": {"code": 190}}, "hubspot", "other"),
             ("meta_non_grant_error_code", 400, {"error": {"type": "OAuthException", "code": 10}}, "meta-ads", "other"),
             ("meta_190_5xx_is_outage", 502, {"error": {"code": 190}}, "meta-ads", "http_5xx"),
+            (
+                "stripe_app_rejected",
+                400,
+                {"error": "invalid_request", "error_description": "Authorization not supported for this app"},
+                "stripe",
+                "invalid_client",
+            ),
+            (
+                "stripe_other_invalid_request",
+                400,
+                {"error": "invalid_request", "error_description": "Missing required param: refresh_token."},
+                "stripe",
+                "other",
+            ),
+            (
+                "stripe_app_rejected_shape_on_other_kind",
+                400,
+                {"error": "invalid_request", "error_description": "Authorization not supported for this app"},
+                "hubspot",
+                "other",
+            ),
         ]
     )
     def test_oauth_refresh_failure_reason(self, _name, status_code, body, kind, expected):
