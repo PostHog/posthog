@@ -36954,6 +36954,28 @@ export namespace Schemas {
       steps: DestinationConnectionTestStep[];
     }
 
+    /**
+     * * `slack` - Slack
+     * * `discord` - Discord
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `pagerduty` - PagerDuty
+     * * `email` - Email
+     * * `in_app` - In-app notification
+     */
+    export type DestinationTypeEnum = typeof DestinationTypeEnum[keyof typeof DestinationTypeEnum];
+
+
+    export const DestinationTypeEnum = {
+      Slack: 'slack',
+      Discord: 'discord',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Pagerduty: 'pagerduty',
+      Email: 'email',
+      InApp: 'in_app',
+    } as const;
+
     export interface DetectableEffectCheckpoint {
       /** The week mark, in whole weeks since launch. */
       weeks_since_launch: number;
@@ -75687,6 +75709,23 @@ export namespace Schemas {
       readonly labels: PlatformAlertLabels;
     }
 
+    export interface PlatformAlertStateInterval {
+      /** Interval start, inclusive. */
+      start: string;
+      /** Interval end, exclusive. */
+      end: string;
+      /** The whole alert's state during the interval.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      state: BillingAlertConfigurationStateEnum;
+      /** Whether the alert was enabled during the interval. */
+      enabled: boolean;
+    }
+
     /**
      * Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key.
      */
@@ -75785,6 +75824,22 @@ export namespace Schemas {
       readonly labels: PlatformAlertConfigurationLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       readonly annotations: PlatformAlertConfigurationAnnotations;
+      /** Who created the alert. Null when it was created by a system or the user is gone. Set on reads of the list and of one alert. */
+      readonly created_by: UserBasic | null;
+      /**
+         * When the alert was last checked. Null when it has not been checked, or when its check history could not be read.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /**
+         * Error from the alert's last check in the past day, or null when that check succeeded.
+         * @nullable
+         */
+      readonly last_error_message: string | null;
+      /** The whole alert's state over the past 24 hours, oldest first. Each interval holds one state and one enabled setting. Empty on a create or an edit. */
+      readonly state_timeline: readonly PlatformAlertStateInterval[];
+      /** Types of the alert's enabled notification destinations, such as slack. Empty when it has none. */
+      readonly destination_types: readonly DestinationTypeEnum[];
     }
 
     export interface PaginatedPlatformAlertConfigurationList {
@@ -78648,7 +78703,7 @@ export namespace Schemas {
       readonly scope: RoutingScopeEnum | null;
       /** The head commit the record is for. It can be older than the pull request head. */
       readonly head_sha: string;
-      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
       readonly trigger: string;
       /** True when a 'routing' or 'requested' claim is older than the takeover limit. The task can still be alive, and a later delivery does not always finish an expired 'requested' claim. */
       readonly claim_expired: boolean;
@@ -78908,7 +78963,7 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
       trigger: string;
       /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
        *
@@ -95160,6 +95215,78 @@ export namespace Schemas {
       pagerduty_region?: PagerDutyRegionEnum;
     }
 
+    /**
+     * The condition the check was evaluated against, as it was then, so its value reads in that condition's unit. Empty for a change.
+     */
+    export type PlatformAlertEventCondition = { [key: string]: unknown };
+
+    /**
+     * * `check` - Check
+     * * `enable` - Enable
+     * * `disable` - Disable
+     * * `snooze` - Snooze
+     * * `unsnooze` - Unsnooze
+     * * `reset` - Reset
+     * * `config_change` - Config change
+     */
+    export type PlatformAlertEventKindEnum = typeof PlatformAlertEventKindEnum[keyof typeof PlatformAlertEventKindEnum];
+
+
+    export const PlatformAlertEventKindEnum = {
+      Check: 'check',
+      Enable: 'enable',
+      Disable: 'disable',
+      Snooze: 'snooze',
+      Unsnooze: 'unsnooze',
+      Reset: 'reset',
+      ConfigChange: 'config_change',
+    } as const;
+
+    export interface PlatformAlertEvent {
+      /** When it happened. */
+      occurred_at: string;
+      /** check for a check that moved the alert's state or failed, else the change a person made.
+       *
+       * * `check` - Check
+       * * `enable` - Enable
+       * * `disable` - Disable
+       * * `snooze` - Snooze
+       * * `unsnooze` - Unsnooze
+       * * `reset` - Reset
+       * * `config_change` - Config change */
+      kind: PlatformAlertEventKindEnum;
+      /** The alert's state before it.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      previous_state: BillingAlertConfigurationStateEnum;
+      /** The alert's state after it.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      state: BillingAlertConfigurationStateEnum;
+      /**
+         * What a check measured. Null for a change, or a check that measured nothing.
+         * @nullable
+         */
+      value: number | null;
+      /**
+         * Why a check failed. Null otherwise.
+         * @nullable
+         */
+      error_message: string | null;
+      /** Key of the group a check moved, as the grouping_key of the alert's instances. Empty for a change, or for an alert that does not group. */
+      grouping_key: string;
+      /** The condition the check was evaluated against, as it was then, so its value reads in that condition's unit. Empty for a change. */
+      condition: PlatformAlertEventCondition;
+    }
+
     export interface PlatformAlertGroupSnooze {
       /**
          * Key of the group to snooze, as the grouping_key of one of the alert's instances.
@@ -95168,6 +95295,14 @@ export namespace Schemas {
       grouping_key: string;
       /**
          * Time until which this group's notifications are muted. Must be in the future and at most 30 days away. Null clears the group's snooze. The group keeps being checked, and its firing stays open.
+         * @nullable
+         */
+      snooze_until: string | null;
+    }
+
+    export interface PlatformAlertSnooze {
+      /**
+         * Time until which every group's notifications are muted. Must be in the future and at most 30 days away. Null clears the snooze. The alert keeps being checked.
          * @nullable
          */
       snooze_until: string | null;
@@ -113861,7 +113996,7 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
       trigger: string;
       /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
        *
@@ -124565,6 +124700,18 @@ export namespace Schemas {
       dateFrom?: string;
       /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
       dateTo?: string;
+      /**
+         * Leave out series whose every point is zero or null, and count them in 'omitted_empty_series'. Defaults to true for MCP clients and false otherwise.
+         * @nullable
+         */
+      dropEmptySeries?: boolean | null;
+      /**
+         * Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries.
+         * @minimum 1
+         * @maximum 100
+         * @nullable
+         */
+      limit?: number | null;
     }
 
     export interface _MetricQueryCount {
@@ -124591,6 +124738,10 @@ export namespace Schemas {
       results: _MetricSeries[];
       /** Set only when the query returned no points: what to check before querying again. */
       hint?: string;
+      /** Number of series left out because every point was zero or null. Set only when dropEmptySeries left some out. */
+      omitted_empty_series?: number;
+      /** Number of series left out by 'limit'. Set only when it left some out. */
+      omitted_by_limit?: number;
     }
 
     export interface _MetricSamplesBody {
@@ -138390,6 +138541,10 @@ export namespace Schemas {
 
     export type PlatformAlertsListParams = {
     /**
+     * Only alerts created by the user with this UUID.
+     */
+    created_by?: string;
+    /**
      * Only the alert copied from, or created with, this source configuration, such as a logs alert's id.
      */
     legacy_configuration_id?: string;
@@ -138427,6 +138582,15 @@ export namespace Schemas {
       Metrics: 'metrics',
       Traces: 'traces',
     } as const;
+
+    export type PlatformAlertsEventsListParams = {
+    /**
+     * Most events to return, newest first. Up to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
 
     export type PluginConfigsLogsListParams = {
     /**

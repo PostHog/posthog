@@ -466,6 +466,7 @@ export const FEATURE_FLAGS = {
     PLATFORM_ALERTS: 'platform-alerts', // owner: #team-apm, gates the shared alerts platform read API and UI
     PLATFORM_ALERTS_ROUTING: 'platform-alerts-routing', // owner: #team-apm, turns on team-wide receivers and routes for platform alerts
     PLATFORM_ALERTS_SOURCE_METRICS: 'platform-alerts-source-metrics', // owner: #team-apm, gates creating metrics alerts in the platform alert API, and the metrics scene's alerts tab
+    PLATFORM_ALERTS_SOURCE_TRACES: 'platform-alerts-source-traces', // owner: #team-apm, gates traces alert creates and edits on the alerts platform, and with platform-alerts the tracing scene's alerts tab
     PLATFORM_ALERTS_SOURCE_WAREHOUSE: 'platform-alerts-source-warehouse', // owner: #team-warehouse-sources, opens warehouse sync alerts in the platform API without platform-alerts
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai
     POSTHOG_AI_CHANGELOG: 'posthog-ai-changelog', // owner: #team-posthog-ai
