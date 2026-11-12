@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { initKeaTests } from '~/test/init'
@@ -66,15 +65,16 @@ describe('ChecksTable', () => {
 
         expect(await screen.findByText('Running')).toBeInTheDocument()
 
-        await userEvent.click(screen.getByRole('button', { name: /Actions for check/i }))
-        expect(await screen.findByRole('menuitem', { name: 'Run now' })).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(screen.getByLabelText(/Actions for check/))
+        const runNow = (await screen.findByText('Run now')).closest('[role="menuitem"]')
+        expect(runNow).toHaveAttribute('aria-disabled', 'true')
         logic.unmount()
     })
 
     it('disables opening failing rows until the check has run', async () => {
         const logic = await renderTable(buildCheck({ last_run_at: null }))
 
-        await userEvent.click(screen.getByRole('button', { name: /Actions for check/i }))
+        fireEvent.click(screen.getByLabelText(/Actions for check/))
         const item = (await screen.findByText(/Open failing rows/)).closest('[role="menuitem"]')
         expect(item).toHaveAttribute('aria-disabled', 'true')
         logic.unmount()
