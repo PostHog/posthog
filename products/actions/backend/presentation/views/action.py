@@ -1,11 +1,7 @@
 import json
-from collections import Counter
-from datetime import UTC, datetime
+from dataclasses import asdict
 from functools import lru_cache
-from typing import Any, cast
-
-from django.db import connection
-from django.db.models import Count
+from typing import Any, Optional, cast
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -16,7 +12,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_serializer,
 )
-from rest_framework import request, serializers, viewsets
+from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action as drf_action
 from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
@@ -35,33 +31,37 @@ from posthog.api.documentation import (
 )
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
+from posthog.api.tagged_item import (
+    BULK_UPDATE_TAGS_SKIPPED_REASON,
+    BulkUpdateTagsRequestSerializer,
+    BulkUpdateTagsResponseSerializer,
+    TaggedItemViewSetMixin,
+)
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
-from posthog.models import Team
+from posthog.models import User
 from posthog.models.event.event import MAX_SELECTOR_LENGTH, Selector, SelectorTooLongError
 from posthog.models.property.util import build_selector_regex
+from posthog.permissions import is_service_auth
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.actions.backend.facade.contracts import ACTION_STEP_MATCHING_OPTIONS
-from products.actions.backend.facade.enums import ACTION_REFERENCE_JSONPATH, ACTIONS_ARRAY_JSONPATH
-from products.actions.backend.models.action import Action
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.facade.actions import (
-    count_experiments_referencing_actions,
-    experiments_referencing_action,
+from products.actions.backend.facade import api, contracts
+from products.actions.backend.facade.contracts import (
+    ACTION_ORDERING_FIELDS,
+    ACTION_STEP_MATCHING_OPTIONS,
+    ActionOrderingField,
+    ActionWriteField,
 )
 from products.feature_flags.backend.facade.flags import hides_flag_calls_from_query_builders
-from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -132,6 +132,11 @@ def _compile_selector(selector_str: str) -> _CompiledSelector:
 
 def _selector_str(obj) -> str | None:
     return obj.get("selector") if isinstance(obj, dict) else getattr(obj, "selector", None)
+
+
+def _action_access_ref(action: contracts.Action | contracts.ActionDetail, team_id: int) -> ObjectAccessRef:
+    # The request's team, so a project's environment checks the action against its own access rules.
+    return ObjectAccessRef(resource="action", id=str(action.id), team_id=team_id, created_by_id=action.created_by_id)
 
 
 class ActionStepJSONSerializer(serializers.Serializer):
@@ -209,22 +214,64 @@ class ActionStepJSONSerializer(serializers.Serializer):
         return _compile_selector(selector_str).warning if selector_str else None
 
 
-class ActionSerializer(
-    TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.HyperlinkedModelSerializer
-):
+# drf-spectacular publishes this docstring in the Action schema, so changing it changes the published API.
+class ActionSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
+    """Serializer mixin that handles tags for objects."""
+
+    id = serializers.IntegerField(read_only=True, label="ID")
+    name = serializers.CharField(
+        allow_blank=True,
+        allow_null=True,
+        max_length=400,
+        required=False,
+        help_text="Name of the action (must be unique within the project).",
+    )
+    description = serializers.CharField(
+        allow_blank=True,
+        required=False,
+        style={"base_template": "textarea.html"},
+        help_text="Human-readable description of what this action represents.",
+    )
+    # No help_text, because a description would change the published schema of the field.
+    tags = serializers.ListField(required=False)
+    post_to_slack = serializers.BooleanField(
+        required=False,
+        help_text="Whether to post a notification to Slack when this action is triggered.",
+    )
+    slack_message_format = serializers.CharField(
+        allow_blank=True,
+        max_length=1200,
+        required=False,
+        help_text="Custom Slack message format. Supports templates with event properties.",
+    )
     steps = ActionStepJSONSerializer(
         many=True,
         required=False,
         help_text="Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.",
     )
+    created_at = serializers.DateTimeField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
+    deleted = serializers.BooleanField(required=False)
     is_calculating = serializers.SerializerMethodField()
+    last_calculated_at = serializers.DateTimeField(required=False)
+    team_id = serializers.IntegerField(read_only=True)
     is_action = serializers.BooleanField(read_only=True, default=True)
+    bytecode_error = serializers.CharField(read_only=True, allow_null=True)
+    pinned_at = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+        help_text="ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.",
+    )
     creation_context = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    user_access_level = serializers.SerializerMethodField(
+        method_name="get_action_access_level",
+        read_only=True,
+        help_text="The effective access level the user has for this object",
+    )
 
+    # A plain serializer ignores Meta; `get_fields` orders by it and surveys projects stored actions with it.
     class Meta:
-        model = Action
         fields = [
             "id",
             "name",
@@ -246,30 +293,23 @@ class ActionSerializer(
             "_create_in_folder",
             "user_access_level",
         ]
-        read_only_fields = [
-            "team_id",
-            "bytecode_error",
-        ]
-        extra_kwargs = {
-            "team_id": {"read_only": True},
-            "name": {"help_text": "Name of the action (must be unique within the project)."},
-            "description": {"help_text": "Human-readable description of what this action represents."},
-            "tags": {"help_text": "Tags for organizing and filtering actions."},
-            "post_to_slack": {"help_text": "Whether to post a notification to Slack when this action is triggered."},
-            "slack_message_format": {
-                "help_text": "Custom Slack message format. Supports templates with event properties."
-            },
-            "pinned_at": {
-                "help_text": "ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin."
-            },
-        }
 
-    def get_is_calculating(self, action: Action) -> bool:
+    def get_fields(self) -> dict[str, serializers.Field]:
+        # DRF puts base-class fields such as `user_access_level` first; the published schema uses Meta's order.
+        fields = super().get_fields()
+        return {name: fields[name] for name in self.Meta.fields}
+
+    def get_is_calculating(self, action: contracts.ActionDetail) -> bool:
         return False
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_creation_context(self, obj) -> None:
         return None
+
+    def get_action_access_level(self, action: contracts.ActionDetail) -> Optional[str]:
+        if self.user_access_control is None:
+            return None
+        return self.get_user_access_level(_action_access_ref(action, team_id=self.context["get_team"]().id))
 
     def validate_steps(self, steps: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
         # ClickHouse compiles these with RE2 at query time, so one pattern RE2 rejects fails
@@ -295,14 +335,7 @@ class ActionSerializer(
         return steps
 
     def validate(self, attrs):
-        instance = cast(Action, self.instance)
-        exclude_args = {}
-        if instance:
-            include_args = {"team": instance.team}
-            exclude_args = {"id": instance.pk}
-        else:
-            attrs["team_id"] = self.context["view"].team_id
-            include_args = {"team_id": attrs["team_id"]}
+        instance = cast(contracts.ActionDetail | None, self.instance)
         if attrs.get("pinned_at") == "":
             attrs["pinned_at"] = None
 
@@ -315,14 +348,14 @@ class ActionSerializer(
             )
 
         if "name" in attrs:
-            colliding_action_ids = list(
-                Action.objects.filter(name=attrs["name"], deleted=False, **include_args)
-                .exclude(**exclude_args)[:1]
-                .values_list("id", flat=True)
+            colliding_action_id = api.find_action_id_by_name(
+                team_id=instance.team_id if instance else self.context["view"].team_id,
+                name=attrs["name"],
+                exclude_action_id=instance.id if instance else None,
             )
-            if colliding_action_ids:
+            if colliding_action_id is not None:
                 raise serializers.ValidationError(
-                    {"name": f"This project already has an action with this name, ID {colliding_action_ids[0]}"},
+                    {"name": f"This project already has an action with this name, ID {colliding_action_id}"},
                     code="unique",
                 )
 
@@ -348,51 +381,23 @@ class ActionSerializer(
 
         return attrs
 
-    def create(self, validated_data: Any) -> Any:
-        creation_context = self.context["request"].data.get("creation_context")
-        validated_data["created_by"] = self.context["request"].user
-        team = self.context["get_team"]()
-        current_count = Action.objects.filter(team_id=team.id, deleted=False).count()
-        check_count_limit(
-            team=team,
-            key=LimitKey.MAX_ACTIONS_PER_TEAM,
-            current_count=current_count,
-            user=self.context["request"].user,
-        )
-        instance = super().create(validated_data)
-
-        report_user_action(
-            validated_data["created_by"],
-            "action created",
-            {**instance.get_analytics_metadata(), "creation_context": creation_context},
-            team=instance.team,
-            request=self.context["request"],
-        )
-
-        return instance
-
-    def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
-        if validated_data.get("pinned_at"):
-            if instance.pinned_at:
-                # drop it from the update
-                del validated_data["pinned_at"]
+    def to_write(self) -> contracts.ActionWrite:
+        values: dict[str, Any] = {}
+        fields_set: set[ActionWriteField] = set()
+        for name, value in self.validated_data.items():
+            if name == "steps":
+                values["steps"] = tuple(contracts.ActionStep(**step) for step in value)
+                fields_set.add(ActionWriteField.STEPS)
+            elif name == "tags":
+                values["tags"] = tuple(value)
+                fields_set.add(ActionWriteField.TAGS)
+            elif name == "_create_in_folder":
+                values["create_in_folder"] = value
+                fields_set.add(ActionWriteField.CREATE_IN_FOLDER)
             else:
-                # ignore the user-provided timestamp, generate our own
-                validated_data["pinned_at"] = datetime.now(UTC).isoformat()
-
-        instance = super().update(instance, validated_data)
-
-        report_user_action(
-            self.context["request"].user,
-            "action updated",
-            {
-                **instance.get_analytics_metadata(),
-                "updated_by_creator": self.context["request"].user == instance.created_by,
-            },
-            team=instance.team,
-            request=self.context["request"],
-        )
-        return instance
+                values[name] = value
+                fields_set.add(ActionWriteField(name))
+        return contracts.ActionWrite(fields_set=frozenset(fields_set), **values)
 
 
 class ActionReferenceSerializer(serializers.Serializer):
@@ -402,189 +407,6 @@ class ActionReferenceSerializer(serializers.Serializer):
     url = serializers.CharField(help_text="Relative URL to the resource")
     created_at = serializers.DateTimeField(help_text="When the resource was created", allow_null=True)
     created_by = UserBasicSerializer(help_text="User who created the resource", allow_null=True)
-
-
-def find_action_references(action_id: int, team: Team) -> list[dict[str, Any]]:
-    """Find resources that reference a given action using database-level jsonb_path queries."""
-    refs: list[dict[str, Any]] = []
-    vars_json = json.dumps({"id": action_id, "id_str": str(action_id)})
-    cap = 50
-
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-    insights = (
-        Insight.objects.filter(team_id=team.pk, deleted=False)
-        .select_related("created_by")
-        .extra(
-            where=[
-                f"""
-                jsonb_path_exists(query, '{ACTION_REFERENCE_JSONPATH}', %s::jsonb)
-                OR jsonb_path_exists(filters, '{ACTION_REFERENCE_JSONPATH}', %s::jsonb)
-                OR jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', %s::jsonb)
-                """
-            ],
-            params=[vars_json] * 3,
-        )
-    )
-    for insight in insights[:cap]:
-        refs.append(
-            {
-                "type": "insight",
-                "id": str(insight.short_id),
-                "name": insight.name or insight.derived_name or "Unnamed",
-                "url": f"/insights/{insight.short_id}",
-                "created_at": insight.created_at,
-                "created_by": insight.created_by,
-            }
-        )
-
-    remaining = cap - len(refs)
-    if remaining <= 0:
-        return refs
-
-    for exp in experiments_referencing_action(team.pk, action_id, limit=remaining):
-        refs.append(
-            {
-                "type": "experiment",
-                "id": str(exp.id),
-                "name": exp.name or "Unnamed",
-                "url": f"/experiments/{exp.id}",
-                "created_at": exp.created_at,
-                "created_by": exp.created_by,
-            }
-        )
-
-    remaining = cap - len(refs)
-    if remaining <= 0:
-        return refs
-
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-    cohorts = (
-        Cohort.objects.filter(team__project_id=team.project_id, deleted=False)
-        .select_related("created_by")
-        .extra(
-            where=[
-                """
-                jsonb_path_exists(filters, '$.** ? (@.event_type == "actions" && (@.key == $id || @.key == $id_str))', %s::jsonb)
-                OR jsonb_path_exists(filters, '$.** ? (@.seq_event_type == "actions" && (@.seq_event == $id || @.seq_event == $id_str))', %s::jsonb)
-                """
-            ],
-            params=[vars_json] * 2,
-        )
-    )
-    for cohort in cohorts[:remaining]:
-        refs.append(
-            {
-                "type": "cohort",
-                "id": str(cohort.id),
-                "name": cohort.name or "Unnamed",
-                "url": f"/cohorts/{cohort.id}",
-                "created_at": cohort.created_at,
-                "created_by": cohort.created_by,
-            }
-        )
-
-    remaining = cap - len(refs)
-    if remaining <= 0:
-        return refs
-
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-    hog_functions = (
-        HogFunction.objects.filter(team_id=team.pk, deleted=False)
-        .select_related("created_by")
-        .extra(
-            where=[f"jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', %s::jsonb)"],
-            params=[vars_json],
-        )
-    )
-    for hf in hog_functions[:remaining]:
-        refs.append(
-            {
-                "type": "hog_function",
-                "id": str(hf.id),
-                "name": hf.name or "Unnamed",
-                "url": f"/functions/{hf.id}",
-                "created_at": hf.created_at,
-                "created_by": hf.created_by,
-            }
-        )
-
-    return refs
-
-
-def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int, int]:
-    """Count references for multiple actions in bulk using the same jsonb_path patterns as find_action_references."""
-    if not action_ids:
-        return {}
-
-    counts: Counter[int] = Counter()
-    ids_array = list(action_ids)
-
-    insight_table = Insight._meta.db_table
-    cohort_table = Cohort._meta.db_table
-    team_table = Team._meta.db_table
-    hf_table = HogFunction._meta.db_table
-
-    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
-            CROSS JOIN LATERAL (
-                SELECT 1 FROM {insight_table}
-                WHERE team_id = %s AND NOT deleted
-                AND (
-                    jsonb_path_exists(query, '{ACTION_REFERENCE_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
-                    OR jsonb_path_exists(filters, '{ACTION_REFERENCE_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
-                    OR jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
-                )
-            ) AS matched
-            GROUP BY aid
-            """,
-            [ids_array, team.pk],
-        )
-        for aid, cnt in cursor.fetchall():
-            counts[aid] += cnt
-
-    counts.update(count_experiments_referencing_actions(team.pk, ids_array))
-
-    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
-            CROSS JOIN LATERAL (
-                SELECT 1 FROM {cohort_table}
-                WHERE team_id IN (SELECT id FROM {team_table} WHERE project_id = %s) AND NOT deleted
-                AND (
-                    jsonb_path_exists(filters, '$.** ? (@.event_type == "actions" && (@.key == $id || @.key == $id_str))', jsonb_build_object('id', aid, 'id_str', aid::text))
-                    OR jsonb_path_exists(filters, '$.** ? (@.seq_event_type == "actions" && (@.seq_event == $id || @.seq_event == $id_str))', jsonb_build_object('id', aid, 'id_str', aid::text))
-                )
-            ) AS matched
-            GROUP BY aid
-            """,
-            [ids_array, team.project_id],
-        )
-        for aid, cnt in cursor.fetchall():
-            counts[aid] += cnt
-
-    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
-            CROSS JOIN LATERAL (
-                SELECT 1 FROM {hf_table}
-                WHERE team_id = %s AND NOT deleted
-                AND jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
-            ) AS matched
-            GROUP BY aid
-            """,
-            [ids_array, team.pk],
-        )
-        for aid, cnt in cursor.fetchall():
-            counts[aid] += cnt
-
-    return dict(counts)
 
 
 class ActionListPagingQuerySerializer(serializers.Serializer):
@@ -607,52 +429,81 @@ class ActionListResponseSerializer(serializers.Serializer):
 class ActionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    TaggedItemViewSetMixin,
     ForbidDestroyModel,
-    viewsets.ModelViewSet,
+    viewsets.GenericViewSet,
 ):
     scope_object = "action"
+    path_parameters = {
+        "pk": PathParameter(type=int, description="A unique integer value identifying this action."),
+    }
     renderer_classes = cast(
         tuple[type[BaseRenderer], ...],
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
     )
-    queryset = Action.objects.select_related("created_by").all()
     serializer_class = ActionSerializer
-    ordering = ["-last_calculated_at", "name"]
 
-    def safely_get_queryset(self, queryset):
-        if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+    def read_object(self) -> contracts.ActionDetail | None:
+        try:
+            return api.get_action_detail(team_id=self.team_id, action_id=self.kwargs["pk"])
+        except contracts.ActionNotFound:
+            return None
 
-        queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
-        return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
+    def object_access_ref(self, record: contracts.Action | contracts.ActionDetail) -> ObjectAccessRef:
+        return _action_access_ref(record, team_id=self.team.id)
+
+    def _list_access(self) -> contracts.ActionListAccess | None:
+        """The access control narrowing a queryset list gets from TeamAndOrgViewSetMixin, with the same gates."""
+        if is_service_auth(self.request):
+            return None
+        access = self.user_access_control.list_access_filter(
+            "action", include_all_if_admin=self.request.GET.get("admin_include_all") == "true"
+        )
+        if access is None:
+            return None
+        return contracts.ActionListAccess(
+            viewer_id=cast(User, self.request.user).id,
+            only_allowed=access.only_allowed,
+            allowed_ids=access.allowed_ids,
+            blocked_ids=access.blocked_ids,
+        )
+
+    @staticmethod
+    def _ordering_from_request(request: request.Request) -> contracts.ActionOrdering | None:
+        raw = request.query_params.get("ordering")
+        if not raw:
+            return None
+        field = raw.lstrip("-")
+        if field not in ACTION_ORDERING_FIELDS:
+            return None
+        return contracts.ActionOrdering(field=cast(ActionOrderingField, field), descending=raw.startswith("-"))
+
+    def _list_filters(self, request: request.Request) -> contracts.ActionListFilters:
+        created_by = request.query_params.get("created_by")
+        creator_ids = tuple(int(v) for v in created_by.split(",") if v.strip().isdigit()) if created_by else ()
+
+        tags_list: Any = None
+        tags = request.query_params.get("tags")
+        if tags:
+            try:
+                tags_list = json.loads(tags)
+            except (json.JSONDecodeError, TypeError):
+                tags_list = None
+
+        return contracts.ActionListFilters(
+            search=request.query_params.get("search") or None,
+            created_by_ids=creator_ids,
+            tags=tuple(tags_list) if tags_list else (),
+            ordering=self._ordering_from_request(request),
+        )
 
     @extend_schema(responses={200: ActionReferenceSerializer(many=True)})
     @drf_action(methods=["GET"], detail=True, required_scopes=["action:read"], pagination_class=None)
     def references(self, request: request.Request, **kwargs: Any) -> Response:
         action_obj = self.get_object()
-        refs = find_action_references(action_obj.id, action_obj.team)
+        refs = api.find_action_references(
+            team_id=action_obj.team_id, project_id=self.team.project_id, action_id=action_obj.id
+        )
         return Response(ActionReferenceSerializer(refs, many=True).data)
-
-    _ORDERING_WHITELIST = {"name", "created_at", "pinned_at", "created_by"}
-
-    def _ordering_from_request(self, request: request.Request) -> list[str] | None:
-        raw = request.query_params.get("ordering")
-        if not raw:
-            return None
-        field = raw.lstrip("-")
-        if field not in self._ORDERING_WHITELIST:
-            return None
-        prefix = "-" if raw.startswith("-") else ""
-        # created_by is a FK, so sort by the creator's full name rather than the raw id.
-        ordering: list[str]
-        if field == "created_by":
-            ordering = [f"{prefix}created_by__first_name", f"{prefix}created_by__last_name"]
-        else:
-            ordering = [f"{prefix}{field}"]
-        if field != "name":
-            ordering.append("name")  # stable tiebreak within equal values
-        return ordering
 
     @extend_schema(
         parameters=[
@@ -694,55 +545,120 @@ class ActionViewSet(
         # pulling every action at once (a project can have thousands), which
         # otherwise overflows the context window of LLM clients calling the
         # `actions-get-all` MCP tool.
-        actions = self.filter_queryset(self.get_queryset())
-
-        search = request.query_params.get("search")
-        if search:
-            actions = actions.filter(name__icontains=search)
-
-        created_by = request.query_params.get("created_by")
-        if created_by:
-            creator_ids = [int(v) for v in created_by.split(",") if v.strip().isdigit()]
-            if creator_ids:
-                actions = actions.filter(created_by_id__in=creator_ids)
-
-        tags = request.query_params.get("tags")
-        if tags:
-            try:
-                tags_list = json.loads(tags)
-            except (json.JSONDecodeError, TypeError):
-                tags_list = None
-            if tags_list:
-                actions = actions.filter(tagged_items__tag__name__in=tags_list).distinct()
-
-        ordering = self._ordering_from_request(request)
-        if ordering:
-            actions = actions.order_by(*ordering)
+        filters = self._list_filters(request)
+        access = self._list_access()
 
         paging = ActionListPagingQuerySerializer(data=request.query_params)
         paging.is_valid(raise_exception=True)
-        offset: int = paging.validated_data["offset"]
-        limit: int | None = paging.validated_data.get("limit")
-        # Only pay for a COUNT query when actually paginating. The full-list default
-        # (no `limit`) is a hot path shared with the taxonomic filter, so we derive the
-        # count from the serialized results there instead of hitting the DB again.
-        count = actions.count() if limit is not None else None
-        if limit is not None:
-            actions = actions[offset : offset + limit]
-        elif offset:
-            actions = actions[offset:]
 
-        actions_list: list[dict[Any, Any]] = self.serializer_class(
-            actions, many=True, context={"request": request, "view": self}
-        ).data  # type: ignore
+        page = api.list_action_details(
+            team_id=self.team_id,
+            filters=filters,
+            access=access,
+            offset=paging.validated_data["offset"],
+            limit=paging.validated_data.get("limit"),
+        )
+        actions_list: list[dict[Any, Any]] = self.get_serializer(page.results, many=True).data
 
         if request.query_params.get("include_reference_count"):
-            action_ids = [a["id"] for a in actions_list]
-            ref_counts = count_action_references_bulk(action_ids, self.team)
+            ref_counts = api.count_action_references(
+                team_id=self.team.id,
+                project_id=self.team.project_id,
+                action_ids=[a["id"] for a in actions_list],
+            )
             for a in actions_list:
                 a["reference_count"] = ref_counts.get(a["id"], 0)
 
-        if count is None:
-            count = offset + len(actions_list)
+        return Response({"count": page.count, "results": actions_list})
 
-        return Response({"count": count, "results": actions_list})
+    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(self.get_serializer(self.get_object()).data)
+
+    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = ActionSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+        check_count_limit(
+            team=self.team,
+            key=LimitKey.MAX_ACTIONS_PER_TEAM,
+            current_count=api.count_live_actions(team_id=self.team.id),
+            user=user,
+        )
+        result = api.add_action(team_id=self.team_id, created_by=user, write=serializer.to_write())
+
+        report_user_action(
+            user,
+            "action created",
+            {**asdict(result.analytics), "creation_context": request.data.get("creation_context")},
+            team=self.team,
+            request=request,
+        )
+        return Response(self.get_serializer(result.action).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        return self._update(request, partial=False)
+
+    def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        return self._update(request, partial=True)
+
+    def _update(self, request: request.Request, *, partial: bool) -> Response:
+        action = self.get_object()
+        serializer = ActionSerializer(action, data=request.data, partial=partial, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        result = api.edit_action(team_id=self.team_id, action_id=action.id, write=serializer.to_write())
+
+        user = cast(User, request.user)
+        report_user_action(
+            user,
+            "action updated",
+            {
+                **asdict(result.analytics),
+                "updated_by_creator": result.action.created_by_id is not None
+                and result.action.created_by_id == user.id,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self.get_serializer(result.action).data)
+
+    @extend_schema(
+        request=BulkUpdateTagsRequestSerializer,
+        responses={200: BulkUpdateTagsResponseSerializer},
+    )
+    @drf_action(methods=["POST"], detail=False)
+    def bulk_update_tags(self, request: request.Request, **kwargs: Any) -> Response:
+        serializer = BulkUpdateTagsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        action_ids: list[int] = serializer.validated_data["ids"]
+
+        editable_ids: list[int] = []
+        skipped: list[dict[str, Any]] = []
+        actions = api.list_actions_in_list_order(team_id=self.team_id, action_ids=action_ids)
+        for action in actions:
+            access_level = self.user_access_control.access_level_for_ref(self.object_access_ref(action))
+            if access_level and access_level_satisfied_for_resource("action", access_level, "editor"):
+                editable_ids.append(action.id)
+            else:
+                skipped.append({"id": action.id, "reason": BULK_UPDATE_TAGS_SKIPPED_REASON})
+
+        found_ids = {action.id for action in actions}
+        skipped += [
+            {"id": action_id, "reason": BULK_UPDATE_TAGS_SKIPPED_REASON}
+            for action_id in action_ids
+            if action_id not in found_ids
+        ]
+
+        changes = api.change_action_tags(
+            team_id=self.team_id,
+            action_ids=editable_ids,
+            tag_action=serializer.validated_data["action"],
+            tags=serializer.validated_data["tags"],
+        )
+        return Response(
+            BulkUpdateTagsResponseSerializer(
+                {"updated": [{"id": change.id, "tags": list(change.tags)} for change in changes], "skipped": skipped}
+            ).data
+        )
+
+    # Shared so this endpoint is documented like every TaggedItemViewSetMixin bulk tag endpoint.
+    bulk_update_tags.__doc__ = TaggedItemViewSetMixin.bulk_update_tags.__doc__

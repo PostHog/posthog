@@ -42,3 +42,20 @@ class ExperimentResultConfigurationStatus(LabeledStrEnum):
     CURRENT = "current", "Current settings"
     PREVIOUS = "previous", "Earlier settings"
     UNKNOWN = "unknown", "Settings not recorded"
+
+
+class RecalculationStartOutcome(StrEnum):
+    STARTED = "started"
+    # An active run already existed, so no new run was created.
+    REUSED = "reused"
+    NOT_CREATED = "not_created"
+    # The row was created, but the workflow did not start, so the row is marked failed.
+    WORKFLOW_NOT_STARTED = "workflow_not_started"
+
+
+class TerminalMarkOutcome(StrEnum):
+    MARKED = "marked"
+    NOT_FOUND = "not_found"
+    ALREADY_TERMINAL = "already_terminal"
+    # A run without a query window never started, so it can only be marked failed.
+    NEVER_STARTED = "never_started"

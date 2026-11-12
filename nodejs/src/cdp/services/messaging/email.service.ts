@@ -48,11 +48,17 @@ import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './help
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
+import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import {
     PreferencesTokenSource,
     RecipientTokensService,
     preferencesTokenSourceForInvocation,
 } from './recipient-tokens.service'
+
+const emailEngagementSettingReadFailuresTotal = new Counter({
+    name: 'cdp_email_engagement_setting_read_failures_total',
+    help: 'Email sends whose engagement setting read failed after the send attempt. The send keeps its outcome.',
+})
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -180,7 +186,7 @@ class EmailSendDeadlineError extends Error {
 
 class MessageTooLargeError extends Error {
     constructor() {
-        super('The attachment files of this email are larger than one email can carry')
+        super('This email and its attachment files are larger than one email can carry')
         this.name = 'MessageTooLargeError'
     }
 }
@@ -233,7 +239,7 @@ function describeAttachmentFailure(
     if (error instanceof MessageTooLargeError) {
         return {
             reason: EMAIL_MESSAGE_TOO_LARGE,
-            message: `${EMAIL_MESSAGE_TOO_LARGE}: the attachment files of this email are larger than one email can carry, so it was not sent.`,
+            message: `${EMAIL_MESSAGE_TOO_LARGE}: this email and its attachment files are larger than one email can carry, so it was not sent.`,
         }
     }
     if (isAttachmentLoadFailure(error)) {
@@ -261,6 +267,19 @@ function pickThrottleRetryDelayMs(): number {
     // simply re-claim a token if SES capacity has refreshed. Exponential
     // backoff isn't needed at this layer.
     return 500 + Math.floor(Math.random() * 500)
+}
+
+function sendingProviderOf(integration: IntegrationType): 'ses' | 'maildev' {
+    const provider = integration.config.provider ?? 'ses'
+    if (provider === 'unsupported') {
+        throw new Error('Email delivery mode not supported')
+    }
+    if (provider !== 'ses' && provider !== 'maildev') {
+        throw new Error(
+            "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
+        )
+    }
+    return provider
 }
 
 const workflowEmailRateLimitedTotal = new Counter({
@@ -784,6 +803,8 @@ export class EmailService {
             // (workflow action or email destination hog function) resolves it the same way.
             trackingEnabled = await this.resolveTrackingEnabled(result.invocation, deliverableParams)
 
+            const provider = sendingProviderOf(integration)
+
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
             // suspended or suppressed send never spends a token. Test sends bypass it. When the
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
@@ -883,25 +904,19 @@ export class EmailService {
                 : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
 
-            switch (integration.config.provider ?? 'ses') {
-                case 'maildev':
-                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
-                    break
-                case 'ses':
-                    messageId = await this.sendEmailWithSES(
-                        result,
-                        sendParams,
-                        from,
-                        trackingEnabled,
-                        isTest,
-                        queueWait,
-                        files,
-                        deadline
-                    )
-                    break
-
-                case 'unsupported':
-                    throw new Error('Email delivery mode not supported')
+            if (provider === 'maildev') {
+                await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
+            } else {
+                messageId = await this.sendEmailWithSES(
+                    result,
+                    sendParams,
+                    from,
+                    trackingEnabled,
+                    isTest,
+                    queueWait,
+                    files,
+                    deadline
+                )
             }
 
             // Emit the `[Email:…]` token in the success log only when an asset row
@@ -1040,11 +1055,7 @@ export class EmailService {
 
         const distinctId = resolveEmailTrackingDistinctId(invocation)
         const workflowVersion = invocation.state.renderedWorkflowVersion
-        if (
-            distinctId &&
-            !isTest &&
-            (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId))
-        ) {
+        if (distinctId && !isTest && (await this.readEngagementCaptureOrWarn(invocation, addLog))) {
             result.capturedPostHogEvents.push({
                 team_id: invocation.teamId,
                 timestamp: new Date().toISOString(),
@@ -1056,6 +1067,7 @@ export class EmailService {
                     $workflow_invocation_id: invocation.id,
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...(messageId ? { $email_message_id: messageId } : {}),
+                    ...(isTransactionalEmailSend(invocation) ? { $email_transactional: true } : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
                     ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
@@ -1078,6 +1090,26 @@ export class EmailService {
         }
 
         return result
+    }
+
+    private async readEngagementCaptureOrWarn(
+        invocation: CyclotronJobInvocationHogFunction,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): Promise<boolean> {
+        try {
+            return await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId)
+        } catch (error) {
+            emailEngagementSettingReadFailuresTotal.inc()
+            logger.error('Failed to read the email engagement capture setting', {
+                teamId: invocation.teamId,
+                functionId: invocation.functionId,
+                actionId: invocation.state.actionId,
+                invocationId: invocation.id,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            addLog('warn', 'Could not read the engagement setting, so no engagement event was recorded for this email.')
+            return false
+        }
     }
 
     /**
@@ -1415,6 +1447,16 @@ export class EmailService {
                   params.preheader
               )
             : null
+        if (
+            files.length > 0 &&
+            estimateMessageBytes(
+                files.map(({ bytes }) => bytes.byteLength),
+                [html ?? '', params.text ?? ''],
+                sanitizeEmailSubject(params.subject)
+            ) > MESSAGE_MAX_BYTES
+        ) {
+            throw new MessageTooLargeError()
+        }
         const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 
         const sendEmailParams: SendEmailCommandInput = {

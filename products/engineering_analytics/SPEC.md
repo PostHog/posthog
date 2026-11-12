@@ -1,246 +1,281 @@
-# engineering_analytics: Engineering Spec
+# engineering_analytics: engineering spec
 
-Owner: team-devex
-Sibling doc: [README.md](./README.md), read that first for the product picture and motivations. This file is the engineering contract: architecture, contracts, locked decisions.
+Owner: team-devex.
+Read [README.md](./README.md) first for the product picture.
+This file is the engineering contract: the architecture rules, the locked decisions, and the constraints of each data source.
 
 ## 1. Purpose
 
-The product surfaces PR + CI data through **named, typed endpoints** that run curated HogQL privately over the warehouse (`github_*` tables), Logs, and Traces. Two first-class surfaces consume the same endpoints: the in-app UI and **MCP tools**. Nothing is registered as a global HogQL view, so the product stays isolated and off the per-query catalog hot path; core imports only the viewset, exactly like `visual_review`.
+The product answers questions about pull requests and CI through named, typed endpoints.
+Each endpoint runs curated HogQL over the warehouse tables of the team's GitHub, Depot and Trunk sources, and over Logs and Traces.
+The in-app UI and the MCP tools call the same endpoints.
 
-Reads are the product. The one write is the test-health sidecar (quarantine: issue plus PR through the team's GitHub App), reachable via the API and MCP tool; the Tests tab is the Trunk quarantine debt scoreboard.
+Reads are the product.
+Three endpoints write: `enable` enrolls the team, the CI Signals config update turns Signals on or off, and the test quarantine request files an issue and a pull request through the team's GitHub App.
 
-The goal is Signals for PostHog Desktop (README → "The goal"): Signal detection is defined once in `logic/` over the read layer, shared by the surfaces and the Signal emitter. Emission rides the curated builders; it does not wait on lifecycle events.
+CI Signals for PostHog Desktop are the goal (see the README).
+Signal detection is defined once in `logic/` over the read layer, so the emitter and the endpoints share one definition.
+
+### What must stay true
+
+Three properties outrank any single feature. Reject a change that weakens one of them.
+
+- The product never ranks engineers. It measures what the delivery pipeline costs people, and it has no leaderboard of output or speed (§2, §6).
+- The code follows "A Philosophy of Software Design".
+  - A module hides a decision behind a small interface. `logic/` holds each domain rule once, and callers never repeat it.
+  - Complexity moves down into the builders. An endpoint, a tool or a component stays thin.
+  - An interface makes the wrong call impossible where it can. Do not add a flag that a caller must pair with a second call.
+  - A pass-through method, a duplicated rule or a rule that leaks into a consumer is a defect to fix, not a style note.
+- The product is a model for other products in this repository, because the DevEx team owns both.
+  - It is isolated: other code imports only `backend/facade/`, and `backend:contract-check` enforces that.
+  - It follows every repository guide in `.agents/` and every skill that `AGENTS.md` at the root requires, with no local exemption.
+  - When a repository rule and this product disagree, change the product, or change the rule in its own PR.
 
 ## 2. Non-goals
 
-- Rating developers' performance, ever. Such rankings exist only to compare people.
-  - No read ranks, scores or compares people by what they produce or how fast they deliver: no leaderboards of merged pull requests, lines or lead time, no "who is slower", and no scorecard of an author's flaky tests. Another author's delivery figures come back only when the person asking named that author.
-  - Friction is not performance. A read may score and order the friction developers meet: red CI they did not cause, re-runs that failed again, merge-queue kickouts, review waits and rework. The purpose is to find the people the dev loop costs most. A friction figure is a mean per pull request of what happened to the author, so shipping more or faster does not raise it. The pull request count only decides whether an author gets a score and how far a short record is pulled toward the typical author. Friction reads one fixed 30-day window of merged pull requests on every page, whatever the date picker says, so a pull request's score is the same on its own page and in its author's list. The inputs are defined once in `logic/friction.py`.
-  - The author-scoped _page_ is allowed: one author's pull requests, CI cost, delivery timing and lead time, each figure next to the same figure over the whole repository. It answers "is my friction unusual here", never "who is slower". It is reached from the author links on PR rows, and a colleague's page may be opened directly for a deliberate comparison.
-  - The author's own team is the standing baseline next to the repository: the ready-to-merge time also sits next to the aggregate of the team the author works in, on the author page and on the pull request page. When the rule below cannot settle on one of the author's teams, each of those teams gets its own row. A team row is always an aggregate, never a member.
-  - A team figure is shown only when at least two other authors contribute a value to it in the window. Below that the median is one or two pull requests, which reads as a team's pace and is not one. Two keeps a real three-person team readable. This is a noise floor, not a privacy floor: every author page opens by name, and each pull request's own time is on its page, so the median discloses nothing that is not already shown.
-  - The team baseline's window is the page's date range on the author page. On the pull request page it is the 30 days before the pull request merged, or the last 30 days while it is open, and the pull request itself stays out of the figures it is compared with.
-- Real-time alerting on individual PRs. That's notification surface, not analytics.
-- Replacing GitHub's own UI. We surface signal, not the raw PR thread.
-- Code-quality static analysis. Different product space.
+- The product never rates a developer's performance.
+  - No read ranks, scores or lists people by output or delivery speed.
+  - A read returns another author's delivery figures only when the caller named that author.
+- Friction is not performance, so a read may score and order the friction that developers meet.
+  - Friction covers red CI the author did not cause, re-runs that failed again, merge-queue kickouts, review waits and rework.
+  - A friction figure is a mean per pull request, so shipping more or faster does not raise it.
+  - Friction reads one fixed 30-day window of merged pull requests, whatever the date picker says.
+  - `logic/friction.py` defines the friction inputs once.
+- The author page is allowed. It shows one author's figures next to the same figures for the repository and for the author's team.
+  - A team figure is always an aggregate and never a member's figure.
+  - A team figure appears only when at least two other authors contribute a value to it. This is a noise floor and not a privacy floor.
+- The product does not send real-time alerts about individual pull requests.
+- The product does not replace GitHub's own UI.
+- The product does not do static analysis of code quality.
 
 ## 3. Architecture
 
-One general **curated read layer** that every surface composes. The curated query builders are the deep, reusable layer where all domain knowledge lives once; the named endpoints, MCP tools, and the UI are thin consumers above it. The layer runs privately (§1); the only core→product edge is the viewset registration in `posthog/api/`, the standard edge every viewset has. (APOSD: general-purpose lower layer, thin surfaces, domain rules defined once.)
+Every consumer composes one curated read layer.
+The curated query builders hold all domain knowledge once.
+The endpoints, the MCP tools and the UI are thin consumers above them.
 
 ```mermaid
 graph TB
-    subgraph Consumers
-        MCP["MCP clients: Claude Code / Cursor / PostHog AI"]
-        UI["in-app UI: React + kea"]
-        Other["PostHog Desktop & other agent-driven callers"]
-        SQL["insights / subscriptions / execute-sql"]
-    end
-
-    subgraph "Surface (thin)"
-        Endpoints["named typed DRF endpoints<br/>@extend_schema → OpenAPI → MCP tools + UI client"]
-        WV["managed warehouse views<br/>job_costs / ci_job_history / ci_failures / pr_friction<br/>ci_runs / ci_jobs (stored)"]
-    end
-
-    subgraph "Curated read layer (domain rules defined ONCE)"
-        Sys["curated query builders: build_query()<br/>embedded as subqueries, run via execute_hogql_query<br/>NOT registered as global views"]
-    end
-
-    subgraph Storage
-        WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members<br/>issue_events")]
-        LOGS[("Logs: github-ci-logs<br/>thinned CI failure lines")]
-        TRACES[("Traces: per-test CI spans<br/>from Backend and Frontend CI")]
-    end
-
-    JL["Temporal job-logs pipeline"] --> LOGS
-    MCP --> Endpoints
-    UI --> Endpoints
-    Other --> Endpoints
-    SQL --> WV
-    Endpoints --> Sys
-    Sys -. "rendered per team" .-> WV
+    UI["in-app UI"] --> EP["named typed DRF endpoints"]
+    MCP["MCP tools"] --> EP
+    SQL["insights, subscriptions, execute-sql"] --> WV["managed warehouse views"]
+    EP --> CUR["curated query builders<br/>logic/views and logic/queries"]
+    CUR -. "SQL rendered per team" .-> WV
+    CUR --> WH[("warehouse: GitHub, Depot and Trunk sources")]
     WV --> WH
-    Sys --> WH
-    Sys --> LOGS
-    Sys --> TRACES
+    CUR --> LOGS[("Logs: CI failure lines")]
+    CUR --> TRACES[("Traces: per-test CI spans")]
+    JL["Temporal job-logs pipeline"] --> LOGS
 ```
 
-Rules, when adding or changing a capability:
+Follow these rules when you add or change a capability.
 
-- **Domain knowledge is defined once, in `logic/`.** Bot detection, attribution joins, metric naming, default exclusions: never re-derive them in an endpoint, tool, or the UI.
-- **Never hardcode warehouse table names.** The GitHub source prefix is user-chosen; resolve per team and repo via `logic/sources.py`.
-- **Never register anything in `Database.create_for`.** Run the builders privately via `execute_hogql_query`; a global view puts the product on every team's per-query hot path.
-- **One endpoint set for every consumer.** A capability is a named typed endpoint returning `facade/contracts.py` types; the UI and MCP tools consume that same endpoint (no client-side HogQL, no UI-only read paths), and its `mcp/tools.yaml` entry is set in the same PR.
-- **When tools change, update the family skill in `skills/`.** Skills teach tool selection and carry the metric caveats.
+- Define domain knowledge once, in `logic/`. An endpoint, a tool or the UI never re-derives bot detection, attribution joins, metric names or default exclusions.
+- Never hardcode a warehouse table name. The user chooses the source prefix, so `logic/sources.py` resolves the tables per team and repository.
+- Never add a table or view to the global HogQL database. The builders run as subqueries through `execute_hogql_query`, so other teams' queries never load this product.
+- Serve every consumer from one endpoint set. A capability is a named endpoint that returns `facade/contracts.py` types, and the UI runs no HogQL of its own.
+- Decide the endpoint's `mcp/tools.yaml` entry in the same PR that adds the endpoint.
+- Update the matching skill in `skills/` when the tools change. The skills teach tool selection and carry the metric caveats.
 
-## 4. Canonical types
+## 4. Contract types
 
-Defined in `backend/facade/contracts.py` as `pydantic.dataclasses.dataclass(frozen=True)`: stdlib `is_dataclass()` semantics (so `DataclassSerializer` works) with runtime validation at construction. No Django imports. Every endpoint returns these typed contracts (objects or lists); there is no untyped row surface.
-Caveats ride in the contracts themselves: honest field names (`open_to_merge_seconds`, never `cycle_time`) and, where load-bearing, a typed `metric_quality` field. `contracts.py` is the source of truth for what's modeled.
+`backend/facade/contracts.py` defines every return type as a frozen `pydantic.dataclasses.dataclass`.
+The module imports no Django models.
+Every endpoint returns these contracts, and no endpoint returns untyped rows.
 
-## 5. Curated read layer & surface
+Field names carry the caveats.
+`open_to_merge_seconds` is never called `cycle_time`.
+Where a caveat changes how a caller must read a figure, the contract adds a typed `metric_quality` field.
+
+## 5. Read layer, endpoints and warehouse views
 
 ### Curated read layer
 
-One `build_query()` builder per source table in `logic/views/`, embedded as subqueries by the query modules in `logic/queries/` (via `_curated`), mapping columns from the JSON the source already lands.
-`source_schema.py` is the locked shape contract for those tables (see §6); the builder code is the source of truth for columns.
+`logic/views/` holds one `build_query()` builder per source table.
+The query modules in `logic/queries/` embed those builders as subqueries through `_curated`.
+Warehouse columns land as strings and Nullable JSON, so the builders parse and guard them.
+`logic/views/source_schema.py` mirrors the landed types.
 
-### Surface
+### Endpoints
 
-The endpoint catalog is `presentation/views.py`; the agent-facing descriptions live in `mcp/tools.yaml`. Those are the source of truth, not this file. Every endpoint follows the same design practices:
+The endpoint catalog is the `presentation/views/` package.
+Every endpoint follows the same practices.
 
-- Time windows are `date_from` / `date_to`, relative (`-30d`) or ISO8601.
-- Capped list contracts that include a sibling aggregate return `{items, truncated, limit}` so they never silently undercount against it.
-- Span-derived reads (flaky tests, team CI health) report absolute counts, never rates: sub-threshold runs aren't emitted, so denominators are biased.
-- Test evidence is counted per CI run, never per span or run attempt (one run fans a test across matrix legs, and every attempt re-tests the same commit), and both span-derived reads group the same `run_evidence()` so the grain and the meaning of flaky cannot drift. A test is `confirmed_flake` only on same-commit recovery proof: a re-run attempt going green, or an in-job retry. Unproven failures rank as `suspected_regression` by blast radius.
-- A CI setup break is not per-test evidence. `run_evidence()` drops every trial of a run attempt whose errored tests span 3 or more jobs or 3 or more owning teams, and of a job attempt with 100 or more distinct failed or errored tests, so their failures are no test's failure and their passes are no test's recovery. The spans name the attempt, and GitHub's synced `workflow_jobs` rows confirm it: a run attempt must report 3 or more failed jobs there, a job attempt at least one. CI stamps every span attribute the rule reads, so no evidence is dropped on the spans alone, and an unsynced jobs table drops nothing.
-- Reads over optional data (e.g. `team_members`) degrade honestly (`has_membership_data: false`), never 500.
-- A reverting pull request is recognized by its title, defined once in `logic/reverts.py`: GitHub's `Revert "<title>"` or a conventional-commit `revert: ...` / `revert(scope): ...` title. GitHub records no link from a revert to the change it undid, so `repo_overview` reports `reverting_pr_count` and `revert_share` against every merged pull request in the window, counted when the revert merges. The share is the guardrail to read before a review requirement is loosened.
-- A pull request's lifetime cost on the list reads is cached for 5 minutes per pull request, because it needs a full jobs scan however few pull requests a page shows. CI status stays live. The cache key carries a hash of the cost query, so a change to the query, its prices or the resolved tables starts a fresh cache. A cached value is served only when the reader's HogQL catalog grants every table that query reads.
+- A time window is `date_from` and `date_to`, each relative (`-30d`) or ISO 8601.
+- A capped list that sits next to an aggregate reports `truncated` and `limit`, so a caller can see an undercount.
+- A read over span data reports absolute counts and never rates. CI emits no span for most passing tests, so a rate has a biased denominator.
+- Test evidence is counted per CI run, never per span or per run attempt. `run_evidence()` in `logic/queries/_test_spans.py` defines that grain for every span read.
+- A CI setup break is not test evidence, so `run_evidence()` drops attempts whose failures spread across many jobs or teams.
+- A test is `confirmed_flake` only with proof of recovery on the same commit. A failure without that proof is `suspected_regression`.
+- A read over optional data degrades to a typed empty answer such as `has_membership_data: false`. It never returns a 500.
+- `logic/reverts.py` recognizes a reverting pull request by its title, because GitHub records no link from a revert to the change it undid.
+- The list reads cache a pull request's lifetime cost for 5 minutes, and CI status stays live.
+  - The cache key carries a hash of the cost query, so a change to the query, the prices or the tables starts a new cache.
+  - A cached value is served only when the reader's HogQL catalog grants every table that the query reads.
+- A run or job lookup accepts `ci_engine`. An integer id that exists in both engines fails with a 400 until the caller names the engine.
 
 ### Exposed warehouse views
 
-Per-team managed views (`DataWarehouseSavedQuery`, kind `engineering_analytics`) expose the curated CI substrate to insights, subscriptions, other products, and `execute-sql`: the only surface where the read layer is reachable as data rather than through the named endpoints.
-The team's managed viewset row is its opt-in. The `enable` endpoint creates it when a user opens the product with a GitHub source connected, and no background job creates it: a team with a GitHub source it connected for another product gets no views. Every background job of this product (the post-load view sync, the daily test census, the GitHub and Depot job-log sweeps) runs only for enrolled teams, filtered in the database query through `logic/enrollment.py`. CI Signals has its own opt-in on top.
-One gate for the three per-job views: an enrolled team gets them only when a GitHub source has **both** `workflow_runs` and `workflow_jobs` synced, so they appear together or not at all.
-They are non-materialized: the rendered SQL is persisted per team and re-synced on every runs/jobs load and every Depot job-attempts load, so a builder change reaches active teams within one sync cycle.
-The per-PR friction view and the stored CI rows are the exceptions, below: they are materialized, and the friction view also needs the `pull_requests` snapshot.
+Each enrolled team gets managed views (`DataWarehouseSavedQuery` rows in the `engineering_analytics` managed viewset).
+They let insights, subscriptions, other products and `execute-sql` query the curated CI data.
 
-#### `engineering_analytics_job_costs`
+The team's managed viewset row is its opt-in.
+The `enable` endpoint creates it when a user opens the product, and no background job creates it.
+Every background job of this product runs only for enrolled teams, through `logic/enrollment.py`.
 
-- Grain: one row per job attempt (a retry appears once per attempt; correct for cost). Jobs whose run row is missing keep NULL attribution rather than being dropped.
-- Joins jobs to runs on `(ci_engine, run_id)`, never `(ci_engine, run_id, run_attempt)` — same key and same reason as `ci_job_history`: the runs snapshot keeps only the newest attempt's row, so attempt equality blanks attribution for every earlier-attempt job, which after a partial re-run is exactly the population that executed. Attribution is attempt-invariant.
-- NULL cost is disambiguated by `provider` (non-billable: github-hosted, non-Linux, unclassifiable), `completed_at` (unsettled), or `is_rerun_copy` (never executed). A queued job is never shown as `$0.00`.
-- `is_rerun_copy` marks the rows GitHub re-lists but never ran (see §6). They are kept, not dropped — the grain and the row count stay identical to `ci_job_history` — but carry no `billable_seconds` / `estimated_cost_usd`.
-- Cost runs off Depot's billed clock, not `duration_seconds` (§6). `billable_seconds` is that clock; `duration_seconds` stays the full wall-clock GitHub reports.
-- Cost is defined once, in `logic/cost.py`, rendered to HogQL; a ClickHouse-backed parity test asserts the view equals the Python model. The endpoint cost queries read the same rendered SELECT (via `_curated.job_cost_source()`), so there is no second cost path to drift.
-- `is_merge_queue` splits merge-queue gate spend from the rest without anyone re-deriving what a gate branch is. Both this view and `ci_job_history` carry it, so neither answers "what does the queue cost" by pattern-matching a branch name.
-- **The view carries no scan floor, so filter it tightly.** It is stored SQL with no window of its own, so an unfiltered `SELECT` reads the team's whole job history, and the `is_rerun_copy` duplicate scan always aggregates all of it. Insights and `execute-sql` should bound `created_at`, and pair it with a coarse `created_at_raw >= '<YYYY-MM-DD>'` floor: a predicate on the parsed `created_at` cannot prune the parquet scan, so the raw twin is what lets the scan skip. The view exposes `created_at_raw` for exactly that, the way `ci_job_history` does. The product's own endpoint queries pass `created_floor` instead (§6). Memory stays bounded either way: the flag comes from a narrow duplicate-key join, never a window function, because a window sorts every column of the whole scan in memory.
+A team gets the views only when one GitHub source has both `workflow_runs` and `workflow_jobs` synced.
+The three per-job views are not materialized.
+Data modeling stores their rendered SQL per team and syncs it again after each load.
 
-#### `engineering_analytics_ci_job_history`
+The three materialized views spend the team's warehouse compute.
+They exist only for teams that the `engineering-analytics-friction` flag targets.
+When the flag service gives no answer, the sync keeps the views that the team already has.
 
-- The per-job-attempt history with commit attribution, for green/red boundary analysis ("master went red at SHA X, authored by Y, via PR Z").
-- Column order is the locked contract (it fixes the UNION ALL order and the saved-query schema): append, never reorder.
-- `is_rerun_copy` rides here too (§6), so a green/red boundary or duration read can drop the re-listed rows instead of counting one execution twice.
-- Two PR keys, by design (§6): `pr_number` is the run's `pull_requests` association (0 when absent: master pushes, fork PRs), or the PR a merge-queue gate branch was landing when `is_merge_queue`; `commit_pr_number` resolves the merged PR that produced the head commit, which is how a master push gets PR attribution at all.
-- Commit attribution joins the normalized runs table on `(ci_engine, run_id)`, never `run_attempt`: the runs snapshot upserts by id so only the newest attempt's row exists, and attribution is attempt-invariant (a re-run is the same commit).
+| View                                   | Grain                                             | Key or join rule                                     |
+| -------------------------------------- | ------------------------------------------------- | ---------------------------------------------------- |
+| `engineering_analytics_job_costs`      | One row per job attempt                           | Joins jobs to runs on `(ci_engine, run_id)`          |
+| `engineering_analytics_ci_job_history` | One row per job attempt, with commit attribution  | Joins jobs to runs on `(ci_engine, run_id)`          |
+| `engineering_analytics_ci_failures`    | One row per pytest `FAILED <nodeid>` line in Logs | Groups on `fingerprint`                              |
+| `engineering_analytics_pr_friction`    | One row per pull request merged in 30 days        | Carries `source_id`                                  |
+| `engineering_analytics_ci_runs`        | One row per run, stored                           | `(source_id, ci_engine, id)`                         |
+| `engineering_analytics_ci_jobs`        | One row per job attempt, stored                   | `(source_id, ci_engine, native_job_id, run_attempt)` |
 
-#### `engineering_analytics_ci_failures`
+These rules hold for the per-job views.
 
-- Row-level fingerprinted CI failure lines read from the **Logs** product, one row per pytest `FAILED <nodeid>` line. Team-global (logs aren't source-scoped) but gated with the other two views.
-- `fingerprint` = test id plus normalized error signature (volatile hex/digits collapsed): the group key across runs.
-- The recipe lives in code, not a stored materialization, on purpose: it is pytest-only and must evolve by PR as more runners (jest, playwright, cargo) get covered.
+- The jobs-to-runs join never includes `run_attempt`. The runs table keeps only the newest attempt's row, so an attempt match would blank attribution for every earlier attempt.
+- A NULL cost is never shown as zero. `provider`, `completed_at` and `is_rerun_copy` say why the cost is NULL.
+- `logic/cost.py` defines cost once and renders it to HogQL. The endpoint cost queries read the same rendered SELECT.
+- `is_merge_queue` separates merge-queue gate spend, so no consumer matches a branch name.
+- The column order of `ci_job_history` is a contract. Append columns and never reorder them.
+- The views carry no scan floor. Bound `created_at`, and add a coarse `created_at_raw >= '<YYYY-MM-DD>'` floor, because only the raw column prunes the parquet scan.
 
-#### `engineering_analytics_pr_friction`
+These rules hold for the friction view.
 
-- One row per pull request merged in the last 30 days: what its author went through. Red stretches counted by what turned them green, re-runs that failed again, CI running time per push, the wait for the first approval, pushes after approval, merge-queue time and kickouts.
-- `kickout_count` counts merge-queue gate attempts where any workflow run failed. A queue removes a pull request only when a check it requires fails, and the GitHub source does not record which checks those are, so a failed optional check also counts. The figure is an upper bound on queue removals. The column keeps its name because saved queries over the view select it.
-- The red and running time is the PR timeline replay (§6) written as set-based HogQL, so one query covers every pull request in the window. `tests/test_pr_friction.py` replays seeded pull requests through both and asserts they agree, the way the cost view is held to the Python cost model.
-- It counts friction and does not score it. Curves and weights are applied when the view is read, so a weight change needs no rematerialization.
-- Materialized on the managed-view schedule, because the replay is too heavy to run on every read. Each run replaces the table, so it only holds the pull requests inside the window.
-- A materialized view spends the team's warehouse compute, so it exists only for enrolled teams in organizations the `engineering-analytics-friction` flag targets. The flag is evaluated per organization, because the view sync runs with no user. When the flag service gives no answer, the sync keeps the view the team already has.
-- The view unions every GitHub source of the team, and each row carries its `source_id`. A product read filters on the one source the caller may use. A query on the materialized view itself checks access to the view, not to each source in it, like any materialized managed view.
+- The view counts friction and does not score it. A read applies curves and weights, so a weight change needs no new materialization.
+- `kickout_count` counts gate attempts where any workflow run failed. The source does not record which checks are required, so the count is an upper bound.
+- The view unions every GitHub source of the team, and each row carries `source_id`. A product read filters on the one source that the caller may use.
 
-#### `engineering_analytics_ci_runs` and `engineering_analytics_ci_jobs`
+These rules hold for the stored CI rows (`logic/views/ci_rows.py`, `logic/views/incremental_floor.py`, `logic/materialized_ci.py`).
 
-- The stored CI rows: the output of the runs builder and of the jobs builder with the cost columns, as two materialized views that data modeling updates in place every 15 minutes (`logic/views/ci_rows.py`). A run upserts the rows created since two days before the newest stored row, keyed on the parsed `created_at`. Runs use `(source_id, ci_engine, id)` as their unique key, so a retry replaces the previous snapshot. Jobs use `(source_id, ci_engine, native_job_id, run_attempt)`, so a Depot job retry replaces its carried-over copy even though the execution ID changes. A row that settles later than two days after its creation is read again only by a full build, which a definition change triggers. Until then its stored snapshot keeps the earlier conclusion and duration in every historical aggregate and cost total. A rerun of a run created more than two days earlier is stored as a new attempt without rewriting the run row, and a rerun whose first attempt is more than nine days before the window (the two-day lookback plus the seven-day duplicate scan) is counted as an execution because the scan no longer sees the copy it re-lists.
-- Two grains, never joined rows. A re-run mutates the run row and adds job rows with new ids, so a stored joined row would go stale. A read joins them on `(ci_engine, run_id)`, as `job_costs` does.
-- `is_handoff_shell` is a flag on both stored grains, not a filter. A jobs build resolves the flag from raw run and handoff evidence in the same query, across run history because a new retry job can belong to an old run. A reader filters each grain on its own flag, so independently refreshed runs cannot remove jobs before their replacement jobs arrive. This is the one exception to the §6 rule that a shell is filtered at the substrate: the stored rows are storage under the read layer, and the read that swaps onto them applies the flag, so every consumer still sees the same suppression.
-- The views name the run's window start as `{incremental_window_start}` (`logic/views/incremental_floor.py`) and floor their primary scans on the raw `created_at` string formatted from it, because a predicate on the parsed `created_at` cannot prune the parquet scan. The duplicate scan and the runs build's handoff scan start seven days earlier. The jobs build resolves suppression across run history so a recent job from an older run still gets its flag. On a full build the placeholder is NULL and the floors seed the rows created in the last 39 days (the 30-day default read window plus the widest scan-floor slack), because a full build runs as one ClickHouse query under the shared time limit and a busy repository's whole job history does not fit in it. Each incremental run then adds the rows created since. A view read at query time, outside data modeling, shows the same 39 days.
-- Rows carry `source_id` and `repository`, so a product read filters on the one source the caller may use, like the friction view. They spend the team's warehouse compute every 15 minutes, so they exist only for the organizations the friction flag targets. When flag evaluation gives no answer, each existing managed view is preserved individually and no new one is enabled. A team whose GitHub source syncs less often than every 15 minutes cannot be fed at that cadence; data modeling then leaves the views computed at query time.
-- Historical aggregates and cost reads use this stored pair through the shared curated layer when the friction flag is enabled. Each view's newest completed build must be at most 30 minutes old and carry the fingerprint of the current definition; a refresh that is running or failed leaves the previous build serving until that limit passes. The reader checks permission on the selected raw sources and both views, then filters on source and repository. Any failed readiness check sends the pair back to raw queries. Each read also names its window start. The stored pair serves it only when that start is at least nine days after the coverage start the newest full build recorded, so the widest scan floor stays inside the stored rows. An unbounded read, or one that starts earlier, uses the raw tables; the per-pull-request cost and push reads are unbounded, and a previous-period comparison reaches back twice its window.
-- Current CI status, single-run and single-PR detail, engine identity checks, and raw job steps stay live. Their latest-attempt lookup also stays live, so a newer rerun cannot select an older attempt's jobs. Stored reads report conservative source import timestamps from before the builds, rather than later source syncs, and their caches include the materialization versions. The producer's two-day reconciliation bound above still applies to historical aggregates.
+- Data modeling updates the two views in place every 15 minutes. Each run reads the rows created since two days before the newest stored row.
+- The two grains are joined at read time on `(ci_engine, run_id)`. A re-run changes the run row, so a stored joined row would go stale.
+- `is_handoff_shell` is a flag on both stored grains, and the read that uses the stored rows filters on it (§6).
+- Historical aggregates and cost reads use the stored rows only when both views are ready. Each view's newest build must be at most 30 minutes old and must match the current definition.
+- The reader checks permission on the raw sources and on both views, then filters on source and repository. A failed check sends the read back to the raw tables.
+- The stored rows serve a read only when its window starts at least nine days after the coverage start of the newest full build. An unbounded read uses the raw tables.
+- Current CI status, single-run detail, single-PR detail and raw job steps always read the raw tables.
 
 ## 6. Locked decisions
 
-Engineering-specific decisions. Product-level decisions live in README → Locked decisions. If you want to change one, do it in a separate PR with a written reason.
+These are the engineering decisions.
+The product decisions are in README, under "Locked decisions".
+Change a decision only in a separate PR with a written reason.
 
-- **CI ↔ PR linkage is by PR number, never by head SHA: one rule, every surface, including the Logs reads.**
-  - `pr_number` (the run's `pull_requests` association, keyed with repo, `> 0`) is the attribution key. The PR snapshot keeps only the current head, so a head-SHA join silently drops every push but the latest.
-  - `head_branch` is the capture-time / pre-PR / fork fallback (fork runs have an empty association). Branches are reused, so branch-keyed reads must be time-bounded.
-  - `head_sha` is per-commit precision only, and always the webhook head SHA, never the ephemeral `refs/pull/N/merge` SHA.
-  - Attribution is a possibly-empty, possibly-multi set (a run ↔ PR is 0..N); the read layer credits a run to the first PR in its association.
-  - **Only association entries whose `base.repo.id` is the run's own `repository.id` count.** GitHub lists every PR in the fork network sharing the run's head SHA, so a default-branch push arrives carrying downstream forks' "sync from upstream" PRs; reading the first entry unfiltered attributed those runs to a stranger's PR number under our own owner/name.
-  - `commit_pr_number` is the complementary key and the only PR attribution a default-branch push has. It resolves through the merged PR's `merge_commit_sha` (the commit GitHub records at merge _is_ the run's `head_sha`), and falls back to the head commit's `(#NNNN)` squash-merge suffix when the PR snapshot can't serve it: a repo with no `pull_requests` endpoint synced, or a PR row not landed yet. Consumers read `pr_number` first and fall back to `commit_pr_number`; both are defined once in the `workflow_runs` builder.
-  - **The `merge_commit_sha` lookup is not the head-SHA join banned above.** That ban is about resolving a run through a PR's _current head_, which the snapshot overwrites on every push. `merge_commit_sha` on a **merged** PR is terminal: written once at merge, one commit per PR, so it drops nothing. It must be gated on `merged_at`, because GitHub also fills it on an open PR with the throwaway commit from a test merge. The index is deduped to one row per SHA, because a raw join on a non-unique key fans one run row into several and multiplies every downstream count.
-- **Merge-queue gate branches are CI artifacts, not work — defined once in `logic/merge_queue.py`.** A merge queue (Trunk's `/trunk merge`, GitHub's native queue) lands a PR by pushing a throwaway branch with that PR's commits rebased onto trunk, running the full suite there, and merging only if it stays green. GitHub records that branch as a pull request, so on this repo a third of PR rows and ~13% of CI spend belong to gate attempts.
-  - Gate PRs are dropped in the `pull_requests` builder. They carry no diff, never merge, and no PR surface can act on one, so they are not the bot/draft case (which stays a per-read default so bot-impact analysis can still see bots).
-  - A gate run's `pr_number` resolves through its branch (`trunk-merge/pr-<n>/…`), not its `pull_requests` association — the association names the throwaway PR. This is not the head-SHA join banned above: the branch name is immutable for the branch's life and names exactly one PR. `ci_job_history.is_merge_queue` keeps the two populations separable. The same resolution runs over the CI test spans, where the emitter stamps the gate PR from the webhook payload and would otherwise make one test failing across N merge attempts read as N distinct PRs in every blast-radius count.
-  - A failure on a gate branch that never reached trunk classifies as `blocking_merge_queue`, not `pr_only`: the commit had already passed the PR's own CI, which is the semantic-conflict class the queue exists to catch.
-  - Every gate metric and timeline reads the same per-PR attempt rollup. Bisection probes fold into their parent attempt, probes started after merge do not affect landing metrics, and attempts before the seven-day gate lookback do not appear.
-  - A queue that batched several PRs onto one gate branch would break the one-PR assumption; that needs a new branch shape in `merge_queue.py`, not a new rule at each call site.
-- **Depot bills from the first step, not from `started_at` — the cost model uses a billed clock.** GitHub stamps a job's `started_at` the moment Depot accepts it; the machine then boots before "Set up job" runs, and Depot bills only the time after the job started running. The gap is tens of seconds per job (the other end, last step -> `completed_at`, is negligible), a few percent of billed minutes at scale. So `billed_elapsed = duration_seconds - provisioning_seconds` (clamped >= 0).
-  - `provisioning_seconds` (the curated jobs builder) is `started_at` -> the first `steps` entry's `started_at`, and NULL when the `steps` payload is missing or empty. NULL subtracts nothing: an under-correction is honest, an over-correction is not.
-  - `duration_seconds` is deliberately left alone — queue and duration UX is about the window GitHub reports. Only the cost columns read the billed clock, and `logic/cost.py` defines it once for both the Python model and the rendered SQL.
-- **A GitHub "re-run failed jobs" copy is not an execution — flagged once, in the `workflow_jobs` builder.** When a run is partially re-run, GitHub's jobs API lists every already-passed job again under the new `run_attempt` with new job ids but the earlier attempt's exact `started_at` / `completed_at` (`filter=latest` returns them too, so the source can't drop them). A row is a copy when the same `(run_id, name, started_at, completed_at)` exists at a lower `run_attempt`; `is_rerun_copy` says so, and `logic/cost.py`'s `render_is_billable_job` is the one predicate every cost consumer partitions on. Copies are a few percent of job rows and minutes; counting them over-reported CI spend, retry pressure, and duration samples by that much.
-  - Copies are flagged, never filtered at the substrate: the exposed views keep one row per job attempt, matching what GitHub shows for the run, and each consumer decides. Cost drops them; so do the per-job aggregates (a copy would double every duration sample and report a retry nobody performed). Red/green reads keep them — a copy is a green re-listing of a green job, so it changes no verdict.
-  - The flag comes from a duplicate-key join, never a window function: a five-column scan aggregates the duplicated `(run_id, name, started_at, completed_at)` groups, and each job LEFT JOINs against them. A window function would sort the whole scan in memory, and the exposed views have no floor to bound it. A caller's outer `created_at_raw` predicate never reaches the duplicate scan, so windowed callers pass `created_floor=True`, which floors both scans (see the `workflow_jobs` builder); `job_costs.build_query` and `_curated.job_cost_source()` thread it through for the cost surfaces.
-  - The floor's slack depends on which clock the query windows (`_workflow_filters`). One day when it filters the job's own `created_at` — that only absorbs a timezone offset. A week when it filters the RUN's start, which every cost surface does: a re-run's runs row carries only its newest attempt's `run_started_at`, so its earlier attempts' job rows — the ones that actually ran — were created before the window. A tight floor there would cut them and silently under-report the re-run, undoing the `run_id`-only join above.
-  - Two cost queries stay unfloored on purpose: single-PR cost and the PR-list cost rollup are keyed by PR number, not a window, and no cheap date bound exists for either (see `pr_cost.py`). The per-run job breakdown is unfloored too: it filters `run_id`, which prunes the jobs scan, and the five-column duplicate scan is cheap even unbounded.
-- **A successful CI hand-off shell is filtered at the substrate, unlike a re-run copy — defined once in `logic/views/depot_ci.py`.** A copy belongs to a run that executed, and a red/green read still wants it. A successful shell executed no tests; a Depot shell otherwise reads as a false green run. Defining suppression once keeps every consumer consistent. Failed and unsettled relays stay because the source tables have no exact event link: another event's Depot verdict must not erase a relay failure. This can count a failed relay alongside a failed Depot execution until explicit event correlation exists. The rows stay in the raw GitHub and Depot tables, so a migration-progress read can still count hand-offs there. §7 has the detection rule.
-- **Warehouse columns are strings + Nullable JSON; the builders parse and `ifNull`-guard.** Timestamps parse via `parseDateTimeBestEffort`; Nullable columns unwrap before any array function (ClickHouse rejects an Array inside a Nullable). `source_schema.py` mirrors the real landed types so seed and tests exercise the real path; violating this 500'd every endpoint on real data while idealized fixtures stayed green.
-- **The warehouse views are managed data, not code registration.** "No global HogQL views" locks out `Database.create_for` (core importing the product, every team's per-query hot path). A per-team `DataWarehouseSavedQuery`, synced only for qualifying teams, reopens nothing: it exists so cost and CI history are queryable by insights, subscriptions, and `execute-sql`.
-- **Workflow pass rate uses verdicts, not every completed run.** `success` is a pass. `failure`, `timed_out`, `startup_failure`, and `stale` are decisive failures. Skipped, cancelled, neutral, action-required, unsettled, and unknown outcomes reached no pass-or-fail verdict, so they stay in run volume but not the rate. The backend query layer owns this classification; frontend summaries over raw run rows mirror it in `lifecycle.ts`.
-- **A push is one authored head commit that reached CI.** All runs associated with the pull request for the same head SHA form one push, including when every workflow was skipped. Merge-queue gate runs do not count because the queue created their rebased head SHA. The push time is the earliest run creation time, falling back to the run start when creation time is missing. Delivery summaries, pull request lists, and timelines use this definition.
-- **CI Signals use immutable evidence.** Flaky checks require job rows from `github_workflow_jobs` showing a failed attempt followed by a successful later attempt for the same `(run_id, job)`. The run snapshot alone cannot prove this transition. Broken-default-branch detection reads GitHub's reported default branch from the PR snapshot's `base.repo`, the only full repository object in the tables this product reads (`query_default_branches` documents why the runs snapshot cannot answer it). A repo with no PR rows resolves nothing and is skipped: `repo_overview`'s master/main run-volume guess stays a display approximation, because a P1 needs GitHub's report, not inference. Detection gates on the canonical pass rate above. Duration comparisons require enough successful samples because the percentiles exclude failed and cancelled runs. All three conditions carry a week-stable `source_id`, and the coordinator records each emitted key in `SignalEmissionRecord` so an hourly sweep doesn't re-emit the same standing condition within its week. For broken-default-branch that means one signal per week per workflow, accepting that a distinct second breakage of the same workflow inside one week dedupes into the first rather than minting a signal (and a ledger row) per completed run.
-- **HogQL only for analytics data.** No raw ClickHouse.
-- **No product Postgres DB.** Analytics data lives in the warehouse / ClickHouse; any product-config model goes on the main DB as a team-scoped model (`TeamScopedRootMixin`), never a separate DB.
-- **No developer performance rankings; individual comparison is allowed.** The surveillance risk is a performance scorecard: output or speed turned into an ordered population of people. It is not an engineer inspecting their own friction, and not a comparison with a colleague they already know. Author figures may therefore be read one author at a time, and compared deliberately with another author, a GitHub team, or the repository. The product must not rank, sort, score or enumerate authors by delivery performance (throughput, lead time, time to merge), and a team view must never break a delivery aggregate down into a per-member ranking. Friction is outside that rule (§2): `author_friction` scores and orders the friction authors meet over the per-PR friction view, and a team list shows its members' friction with their repository-wide ranks. The delivery reads (`delivery_summary`, `pull_request_timelines`) take exactly one scope (one author, one GitHub team, or one pull request, defined once in `logic/delivery_scope.py`) and give repository context. `delivery_comparison` gives explicit comparison context: one author's ready-to-merge medians next to the aggregate of the relevant teams and the repository, and next to another author's figures when the person asking named that author. It does not discover, order or return a population of authors. Review pace differs a lot between teams, so the repository median alone cannot say whether an author's wait is normal for the work they do. The read picks the teams from the author's own memberships by one fixed rule, defined once in the logic layer: the teams the pull request in focus asked to review, else the team asked by the most of the author's pull requests, counting each pull request once per team and only requests made in the window, else every team the author is in. Each picked team gets its own row, and teams are never pooled. What a pull request asked comes from its immutable `review_requested` issue events, never from the pull request snapshot, which drops a request once the team reviews. Without those events the rule falls through to every team the author is in. A team scope matches authors through the `team_members` snapshot and matches nothing when it isn't synced. The team page passes its owning team straight through as that scope: an ownership file's team name is already the GitHub org team slug, which `hogli owners:lint --live` validates against the org on every ownership change, so no mapping sits between the two vocabularies. The author page is reached from PR-row author links, and a colleague's page may be opened directly; `author_workflow_costs`, `author_friction` and the delivery reads stay UI-only (MCP `enabled: false`).
-- **A pull request timeline is replayed from immutable timestamps, defined once in `logic/pr_timeline.py`.** Run and job attempts, reviews and merge-queue gate runs become change points, and the state between two points follows one precedence: merge queue, out of the queue (open PRs, Trunk's current state), red checks, running checks, review state. A commit's state per workflow is its latest started attempt, ordered by start, attempt and run id, so two runs that start in the same second always resolve the same way. An unfinished run with no update for a day stopped reporting (the webhook sync missed its final event), so the replay ends it at its last update. The run row then gives it no outcome, and only a failed job row can mark it failed. Otherwise a run stuck in `in_progress` would read as running until the pull request merged. A red stretch is labelled by what turned it green (a re-run of the same commit, the same job failing on the default branch within 12 hours, a later push), which is evidence about the cause, not proof of it. Every merge-queue state collapses into one span because the warehouse keeps no queue history. An author or team list reads CI from 30 days before the window at the earliest, so an older open pull request's timeline starts there. A single pull request replays its full CI history, while its merge-queue evidence uses the shared seven-day gate lookback.
-- **Bot detection, defined once:** `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`. Hardcoded allowlist; per-team config deferred.
-- **Bots and drafts excluded by default** in throughput / cycle-time reads; first-class in bot-impact analysis, so never strip them at the substrate.
-- **Time to merge** = `open_to_merge_seconds` = `merged_at - created_at`, coarse (draft + ready combined). The precise companion is `ready_to_merge_seconds` = `merged_at` minus the last observed `ready_for_review` issue event (only the last draft/ready switch counts; a draft can't merge), falling back to `created_at` for a merged PR verifiably never drafted (no transition rows and its whole open-to-merge span inside the observed issue-event window, so the transitions can't merely be unsynced). NULL means "not observed", never zero: GitHub caps the issue-events history walk, so coverage grows forward from the first sync.
-- **Flake ownership is stamped at CI emission time, never mirrored server-side.** The CI emitter stamps `test.owner_team` through `owners_yaml` (the repo's distributed `owners.yaml` files, with `products/*/product.yaml` as an alias; first listed team owner, individual `@handle` owners skipped); unstamped spans aggregate as the first-class team `unowned`. Capture-time truth is intentional: a test belongs to whoever owned it when it flaked.
-- **Quarantine debt ownership is resolved from the repository as it stands**, by the same resolver over the ownership files fetched from the default branch. A deliberate split from the rule above: a quarantine outlives the CI signal that would name a team, so reading standing debt off the stamps attributes most of it to nobody. A test the repository cannot place, or whose path no team claims, is `unowned`; a failed read leaves the whole board `unowned` and says so through `owners_resolved`, rather than attributing part of it. Trunk's own `codeowners` field is not the shortcut it looks like: it is empty for all but a handful of tests, because this repo keeps CODEOWNERS deliberately sparse. Team surfaces stay team-level: author→team joins (via the `team_members` snapshot) produce aggregates only, never per-member figures or cross-team rankings; a slug mismatch yields an empty series, never another team's data.
-- **The test-count denominator is a daily census event, never derived from spans.** Spans are signal-only (sub-threshold passes are not emitted), so a Celery task fetches each connected repo's tarball once a day, resolves every test file through `owners_yaml`, and captures one `eng_analytics_test_census` event per owning team into the team's own project. The roster joins census and merged-PR context by slug and adds census-only rows (zero signal, null `last_seen_at`) so an all-green team stays visible.
-- **No provider abstraction until a second code host lands.** GitHub-isms stay below the builder boundary, canonical types above it; that seam makes extracting a `CodeHostProvider` Protocol mechanical.
+- CI is linked to a pull request by PR number, never by head SHA. The PR snapshot keeps only the current head, so a head-SHA join drops every earlier push.
+  - `pr_number` is the first entry of the run's `pull_requests` association, and the `workflow_runs` builder defines it once.
+  - Only entries whose `base.repo.id` equals the run's `repository.id` count. GitHub also lists pull requests from forks that share the head SHA.
+  - `head_branch` is the fallback for runs without an association, such as fork runs. Branches are reused, so a branch-keyed read must be time-bounded.
+  - Consumers read `pr_number` first and fall back to `commit_pr_number`.
+- The first sanctioned exception is `commit_pr_number`, the only attribution that a default-branch push has.
+  - It joins the run's `head_sha` to a merged pull request's `merge_commit_sha`, which GitHub writes once at merge.
+  - The join is gated on `merged_at`, because an open pull request carries a throwaway test-merge SHA in the same column.
+  - The lookup keeps one row per SHA, because a non-unique key would multiply run rows.
+  - It falls back to the `(#NNNN)` suffix of the head commit message when the PR snapshot has no matching row.
+- The second sanctioned exception is a merge-queue gate run, which takes its `pr_number` from its branch name.
+  - The run's association names the throwaway pull request that the queue opened. The branch name is immutable and names exactly one pull request.
+- Merge-queue gate branches are CI artifacts and not work. `logic/merge_queue.py` defines them once.
+  - A gate branch has the Trunk shape (`trunk-merge/pr-<n>/<id>`) or the GitHub queue shape, and the queue's bot pushed it.
+  - The `pull_requests` builder drops gate pull requests, because they carry no diff and never merge.
+  - A failure on a gate branch that never reached the default branch classifies as `blocking_merge_queue`.
+  - Every gate metric reads one per-PR attempt rollup, which folds bisection probes into their parent attempt.
+- Cost uses a billed clock, because Depot bills from the first step and not from `started_at`.
+  - `billed_elapsed` is `duration_seconds` minus `provisioning_seconds`, clamped at zero.
+  - `duration_seconds` stays the wall-clock time that GitHub reports. Only the cost columns read the billed clock.
+- A re-run copy is flagged and never filtered in the builders or the exposed views. GitHub lists an already-passed job again under each later attempt, but that job did not run again.
+  - The `workflow_jobs` builder sets `is_rerun_copy` when the same `(run_id, name, started_at, completed_at)` exists at a lower `run_attempt`.
+  - Each consumer decides. Cost and per-job aggregates drop copies, and red or green reads keep them.
+  - The flag comes from a duplicate-key join and never a window function, which would sort the whole scan in memory.
+  - A windowed read floors both scans. The floor sits one day back when the read filters the job's `created_at`, and seven days back when it filters the run's start.
+  - The seven days keep the earlier attempts of a re-run, whose job rows were created before the run's newest start.
+- A read with no floor is scoped by run. The per-PR cost, push history and per-run job reads have no date bound, because a pull request's CI can predate it.
+  - Such a read first resolves the run ids it needs, then bounds every raw scan to them (`_curated.scoped_to_run`, `_curated.scoped_to_pr_history`, `pr_rollup_query`).
+- A successful CI hand-off shell is suppressed in the read layer, unlike a re-run copy. A shell ran no tests, so it would read as a false green run.
+  - `logic/views/depot_ci.py` defines the detection rule once. Failed and unsettled relays stay visible.
+  - A Depot workflow is a shell when it succeeded and its `wait-for-handoff` job ran alone.
+  - A GitHub run is a shell when the run, its hand-off job and its latest `Django Tests Pass` job all succeeded, and no synced job attempt failed.
+  - The GitHub rule also needs a successful Depot workflow that accepted the hand-off for the same PR number and `head_sha`. Missing data leaves the run visible.
+- Workflow pass rate uses verdicts. `success` passes, and `failure`, `timed_out`, `startup_failure` and `stale` fail.
+  - Every other outcome stays in run volume and out of the rate. `_workflow_filters.py` owns the classification.
+- A push is one authored head commit that reached CI. All of a pull request's runs for one head SHA form one push, even when every workflow was skipped.
+  - Merge-queue gate runs do not count, because the queue created their head SHA.
+  - The push time is the earliest run creation time, or the run start when the creation time is missing.
+- CI Signals use immutable evidence.
+  - A flaky check needs job rows that show a failed attempt and a later successful attempt of the same job.
+  - A broken default branch needs GitHub's reported default branch, read from the PR snapshot. A repository with no PR rows is skipped, never guessed.
+  - Each condition has a week-stable `source_id`, so the hourly sweep emits a standing condition once per week.
+- Analytics reads use HogQL only, with no raw ClickHouse queries.
+- The product has no Postgres database. A product config model would go on the main database as a team-scoped model.
+- The product has no developer performance rankings (§2), and it allows a deliberate individual comparison under these rules.
+  - Friction is the exception (§2). `author_friction` scores and orders the friction that authors meet.
+  - A delivery read takes exactly one scope, defined in `logic/delivery_scope.py`: one author, one GitHub team or one pull request.
+  - `delivery_comparison` sets one author's ready-to-merge medians next to each relevant team and the repository.
+  - `logic/comparison_teams.py` picks those teams by one fixed rule: the teams the pull request in focus asked to review, else the team the author's pull requests asked most, else every team of the author.
+  - The rule reads immutable `review_requested` events and never the PR snapshot, which drops a request once the team reviews. Teams are never pooled.
+  - The author, friction and delivery reads have no MCP tool.
+- A pull request timeline is replayed from immutable timestamps. `logic/pr_timeline.py` defines the replay and its state precedence once.
+  - Every merge-queue state collapses into one span, because the warehouse keeps no queue history.
+- Bot detection is `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`. The `pull_requests` builder defines it once.
+- Throughput and delivery reads exclude bots and drafts by default. The builders never strip them, because bot-impact analysis needs them.
+- Time to merge is `open_to_merge_seconds`, which is `merged_at - created_at`. The name says that it combines draft and ready time.
+  - `ready_to_merge_seconds` is `merged_at` minus the last observed `ready_for_review` event.
+  - It falls back to `created_at` for a merged pull request that the issue events show was never a draft.
+  - NULL means "not observed" and never zero.
+- Flake ownership is stamped when CI emits the span, and the server never recomputes it. A test belongs to whoever owned it when it flaked.
+  - The emitter stamps `test.owner_team` through `owners_yaml`. Unstamped spans aggregate as the team `unowned`.
+- Quarantine debt ownership is resolved from the repository as it stands today. A quarantine outlives the CI spans that would name a team.
+  - A failed read leaves the whole board `unowned` and reports it through `owners_resolved`.
+- Team reads stay at team level. A join from author to team produces aggregates only, and a slug mismatch yields an empty series.
+- The test-count denominator is a daily census event (`eng_analytics_test_census`) and is never derived from spans. Spans cover only some tests.
+- The product has no provider abstraction until a second code host lands. GitHub specifics stay inside the builders, and the contract types stay above them.
 
 ## 7. Data sources
 
-Warehouse tables (GitHub source):
+The GitHub source lands these warehouse tables.
 
-- `github_pull_requests`: PR snapshot. Current state only; transitions are overwritten on update.
-- `github_workflow_runs`: CI runs. Webhook-only (the webhook is the source of truth; history is a deliberate one-off backfill). A settled run never changes, so durations and trends are precise; until settled, `status` / `conclusion` mutate (see the freshness caveat).
-- `github_workflow_jobs`: per-job attempts (runner labels, queue and duration timestamps), the cost substrate. Webhook stream plus a window-limited backfill poll; per-run polling is infeasible at this volume.
-- `github_team_members`: org team membership, the author→team key. Optional at the source; every read that touches it must degrade gracefully when unsynced.
-- `github_reviews`: submitted pull request reviews (approvals, change requests, comments), fanned out per PR with `pr_number` injected. Backs the approval split and the review states on the author page. Optional at the source, so reads must degrade gracefully when unsynced.
-- `github_issue_events`: immutable issue/PR state transitions, landed raw with every event type kept (a source-side filter would pin the desc-walk watermark). The draft/ready transitions in them back `ready_to_merge_seconds` and the lifecycle timeline. Team review requests (`review_requested` events that carry `requested_team`) pick the team an author's delivery comparison uses: the repository's owner resolution asks the teams that own the changed files, so the teams an author's pull requests ask most often are the teams the author works for. GitHub adds that column only for a team request, so a repository where no pull request asked a team has no such column, and the source resolver checks for it before the read uses it. GitHub caps the endpoint's history walk, so rows cover a bounded recent window growing forward from the first sync; optional, and reads must degrade gracefully when unsynced.
+- `github_pull_requests` is a snapshot of each pull request. It holds current state only, and an update overwrites earlier state.
+- `github_workflow_runs` holds CI runs. A settled run never changes, but `status` and `conclusion` change until it settles.
+  - `head_sha` is the webhook head SHA and never the ephemeral `refs/pull/N/merge` SHA.
+  - The table keeps one row per run, so a re-run overwrites the earlier attempt.
+- `github_workflow_jobs` holds one row per job attempt, with runner labels and timestamps. Cost and queue reads depend on it.
+- `github_team_members` holds organization team membership, the key from author to team. It is optional.
+- `github_reviews` holds submitted pull request reviews. It is optional.
+- `github_issue_events` holds immutable issue and pull request events, such as draft and ready transitions and team review requests.
+  - It is optional, and it covers a bounded recent window that grows forward from the first sync.
+- `github_deployments` and `github_deployment_statuses` hold deploy requests and their status history. The DORA reads use them, and both are optional.
 
-Warehouse table (Depot source):
+The Depot source lands `depot_job_attempts`, one row per Depot CI job attempt.
 
-- `depot_job_attempts`: one row per Depot CI job attempt, for the repository the Depot source names. Reads keep only that repository's rows, because a source moved to another repository keeps what it synced before. Depot CI is its own engine, so these runs never reach the GitHub tables. `logic/views/depot_ci.py` reshapes the attempts into rows of the GitHub runs and jobs contracts and unions them onto those tables, so every builder reads both engines. Each Depot workflow is one runs row. A run with one workflow decodes its id to the integer `GITHUB_RUN_ID` Depot CI gives its jobs, which joins them to the CI test spans; a run with several workflows keys each by its own decoded workflow id, so no join fans out. The PR number comes from the run's `refs/pull/<n>/merge` ref, and the run's branch and actor from that PR's snapshot (its head ref and author). A merge-queue gate run's PR is the gate PR the queue bot opened, so the run resolves through `logic/merge_queue.py` to the PR being landed, like a GitHub gate run (§6). Job rows carry no branch, because a PR snapshot lookup in the jobs builder would add two full PR scans to every jobs read; a read that joins a job to its run takes the branch through `workflow_jobs.branch`, which falls back to the run's. Depot numbers attempts per job, not per run, so a job's last attempt is listed again under each later attempt of its run, as GitHub lists a job it did not re-run; the jobs builder flags those rows as `is_rerun_copy`. Depot's API reports no `runs-on`, so every attempt is costed as the default `depot-ubuntu-24.04` sandbox. Optional, and reads degrade to GitHub-only CI when unsynced.
-  - Depot ingestion replays seven days behind the creation-time watermark on every incremental sync and reconciles weekly. A reconciliation reads runs created up to 30 days before the previous reconciliation, the window in which GitHub Actions allows a re-run; Depot CI documents no window of its own. The first reconciliation, a full refresh, and a sync without a watermark read everything since the fixed `history_start`; a legacy source without that bound reads all available history. The durable reconciliation cursor advances only after extraction finishes and the pipeline makes the rows durable. An interrupted sync resumes after the last run it handed off and keeps the window of its first attempt, so a long reconciliation finishes across worker restarts. Completed runs do not wait behind queued or stuck runs. Late retries older than the replay window can remain stale until the next reconciliation. Replayed attempts merge by `attempt_id`; append mode is unsupported, and an existing append sync stops before extraction with instructions to change its sync method. Depot's existing two-page-size pagination workaround still cannot guarantee recovery of every same-second cursor omission.
-  - The shared CI sources assign `ci_engine` from the warehouse source: `github_actions` or `depot_ci`. Runner provider is independent: GitHub Actions can use Depot runners. Managed job-history and job-cost views append `ci_engine`, `native_run_id`, `native_workflow_run_id`, `native_job_id`, and `native_attempt_id`. GitHub's native workflow execution ID is its run ID; Depot's is its workflow ID. These additive string IDs preserve source identity while the existing integer IDs remain compatible with test traces and API consumers. CI job-to-run joins, failure attribution, job run shares, and timeline paging qualify integer IDs with `ci_engine`. The friction view consumes the same normalized sources and resolves a Depot job's default branch through its run. Run and job APIs append engine and source-native IDs; per-run costs and UI caches qualify compatible integers with the engine. Detail, job, and log lookups accept `ci_engine`; an unqualified integer that names both engines fails with a 400. New failure logs and test traces stamp the engine. Recovery evidence groups by engine, native workflow identity, and commit SHA; historical untagged telemetry remains unknown and cannot establish cross-engine identity. Legacy logs are read only for integer IDs unique to one engine in the selected source. Depot workflows without a hand-off job remain visible, including default-branch pushes; their branch and commit come from `ref` and `sha` when no PR head is present.
-  - Historical relay runs need deduplication. During Backend CI's migration to Depot CI in 2026, GitHub Actions routed each pull request to one engine, and both engines recorded a run of the commit.
-    The union suppresses a successful Depot workflow whose `wait-for-handoff` job ran alone.
-    To suppress a GitHub run, the run itself, its `Hand off backend tests to Depot CI` job, and its latest `Django Tests Pass` job must all have succeeded.
-    No synced job attempt may have decisively failed.
-    A successful Depot workflow must also have accepted the hand-off for the same PR number and `head_sha`.
-    Both sides use the run's own PR association for this comparison.
-    A merge-queue run's normalized `pr_number` names the PR being landed, while Depot's ref names the temporary gate PR, so those values cannot be compared directly.
-    Missing association or replacement data leaves the GitHub run visible.
-    Failed, canceled, and unsettled relays and waits stay visible, and a recovered relay retains its earlier failure history.
-    Suppression applies to runs and jobs; raw source rows remain available for full runner-cost accounting.
-    Curated cost estimates cover visible execution jobs and exclude suppressed hand-off and relay overhead, so they cannot establish total runner spend or reconcile an invoice.
-    `depot_ci_usage` sums the raw attempts of every Depot source and prices them at the Depot CI rate in `logic/cost.py`.
+- Depot CI is its own engine, so its runs never reach the GitHub tables.
+- `logic/views/depot_ci.py` reshapes the attempts into runs and jobs rows and unions them onto the GitHub tables.
+- Each row carries `ci_engine` (`github_actions` or `depot_ci`) and the source's native ids. A join on an integer run id or job id must also match `ci_engine`.
+- Depot numbers attempts per job, so the jobs builder flags the re-listed rows as `is_rerun_copy`.
+- A run with no executed job attempt has no row, so the table cannot prove that the run list is complete.
+- Depot's API reports no runner size, so every attempt is costed as the default `depot-ubuntu-24.04` sandbox.
+- Curated cost leaves out suppressed hand-off and relay jobs, so it cannot reconcile an invoice. `depot_ci_usage` prices the raw attempts.
+- The source is optional, and reads fall back to GitHub-only CI.
 
-The Depot source is attempt-grained. A terminal run with no executed job attempts has no row here, so
-the normalized run inventory cannot establish total run completeness. Vendor pagination can omit runs
-that share a second at a page boundary; replay cannot recover an ID the listing never returns.
+The Trunk source is optional and lands two snapshots.
+The merge-queue table gives a pull request's current queue state, and the quarantined-tests table backs the quarantine debt board.
 
-Other products read as sources:
+The product reads two other products.
 
-- Logs: the thinned CI failure lines this product's job-logs pipeline emits (`service.name = github-ci-logs`), keyed by `(ci_engine, run_id, job_id)`, for failed GitHub jobs and failed Depot CI job attempts, whose `run_id` and `job_id` are the decoded integer ids of `depot_ci.py`. Historical records without an engine retain unknown provenance.
-- Traces: per-test CI spans emitted by the main Backend pytest and Frontend Jest suites (`trace_spans`), behind flaky tests and team CI health. Jest covers both legacy `frontend/` tests and isolated product frontends through the shared root config; its quarantine adapter records tolerated failures beside JUnit so the trusted reporter can retain that evidence. Package-specific Jest and Vitest jobs are outside this signal.
+- Logs holds the thinned CI failure lines that the job-logs pipeline emits (`service.name = github-ci-logs`). Each line carries `ci_engine`, `run_id` and `job_id`.
+- Traces holds the per-test CI spans from the Backend pytest and Frontend Jest suites. Other test jobs emit no spans.
 
-**Freshness caveat:** a run's `conclusion` settles via the `workflow_run` webhook, which can lag or miss deliveries; the read layer surfaces `status` honestly rather than implying a settled conclusion.
-
-- `github_deployments` + `github_deployment_statuses`: deploy requests and their status history (webhook-fed; statuses append one row per transition, with a bounded reconciliation fan-out for the `inactive` transitions GitHub never webhooks). The DORA substrate. Optional at the source, so reads must degrade gracefully when unsynced.
-
-Lifecycle data the snapshots can't hold and no synced endpoint records needs immutable timestamped events (GitHub webhooks → PostHog events, PR as group type). That is the only thing the deferred events destination is for. Reviews and approvals are not in that bucket: the GitHub `reviews` endpoint syncs review submissions with their timestamps, and the author page reads them. Deploys and DORA left the deferral the same way: `github_deployment_statuses` already holds the immutable transition history, so those reads run on the warehouse like everything else. See README → "The data boundary".
+A run's `conclusion` settles through the `workflow_run` webhook, which can lag or miss a delivery.
+The read layer reports `status` as it is and never implies a settled conclusion.
 
 ## 8. Reference reading
 
-- `docs/published/handbook/engineering/ai/implementing-mcp-tools.md`: MCP tool design (DRF endpoint → OpenAPI → MCP tool)
-- `products/visual_review/backend/presentation/`: the precedent for a facade product whose DRF endpoints back both MCP tools and the UI, with core importing only the viewset
-- `products/architecture.md`: folder structure, isolation rules, tach + import-linter
+- `docs/published/handbook/engineering/ai/implementing-mcp-tools.md` covers MCP tool design.
+- `products/architecture.md` covers folder structure and isolation rules.

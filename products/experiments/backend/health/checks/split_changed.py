@@ -15,7 +15,12 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
 )
-from products.experiments.backend.health.checks.change_wording import duration, suggested_start, the_change
+from products.experiments.backend.health.checks.change_wording import (
+    RESET_EFFECT,
+    duration,
+    suggested_start,
+    the_change,
+)
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
     changes_to_check,
@@ -90,6 +95,7 @@ def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
                 *delay_after_launch(history, effect),
                 "People exposed in between may have switched variants.",
                 f"Move the start date to {start_at}, or reset the experiment.",
+                RESET_EFFECT,
             ],
         )
     return _finding(
@@ -210,11 +216,13 @@ def _consequence(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
                 f"The results leave out people who saw only {keys}, and people who had {keys} may now get "
                 "another variant.",
                 f"Reset the experiment, or move its start date to {start_at}.",
+                RESET_EFFECT,
             ]
         case SplitChangeShape.VARIANT_ADDED:
             return [
                 f"People exposed before {change} may have switched variants.",
                 f"Reset the experiment, or move its start date to {start_at}.",
+                RESET_EFFECT,
             ]
         case SplitChangeShape.VARIANT_ZEROED:
             # The zeroed share goes to other variants, which moves their boundaries too. Excluding the zeroed
@@ -223,6 +231,7 @@ def _consequence(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
             return [
                 f"People exposed before {change} may have switched variants, and no new users get {keys}.",
                 f"Reset the experiment, or move its start date to {start_at}.",
+                RESET_EFFECT,
             ]
         case SplitChangeShape.REORDERED:
             # Restoring the order moves the people exposed since the change a second time.
@@ -230,12 +239,14 @@ def _consequence(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
                 f"The order decides who gets which variant, so people exposed before {change} may have "
                 "switched variants.",
                 f"Reset the experiment, or move its start date to {start_at}.",
+                RESET_EFFECT,
             ]
         case _:
             return [
                 f"People exposed before {change} may have switched variants, so the results mix two assignments.",
                 f"Reset the experiment, or move its start date to {start_at} to analyze only the people exposed "
                 f"after {change}.",
+                RESET_EFFECT,
             ]
 
 
