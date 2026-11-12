@@ -6,6 +6,8 @@ that shape so each source module stays a thin config declaration. Sources with n
 columns (e.g. Jira's `fields`) still write a bespoke emitter — see `jira_issues.py`.
 """
 
+import re
+import html
 import json
 from collections.abc import Callable
 from typing import Any
@@ -15,6 +17,16 @@ from structlog import get_logger
 from products.signals.backend.emission.registry import SignalEmitterOutput
 
 logger = get_logger(__name__)
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def strip_html(raw: Any) -> str:
+    """Plain text from an HTML body column: tags dropped, entities decoded, whitespace collapsed."""
+    if not raw or not isinstance(raw, str):
+        return ""
+    return _WHITESPACE_RE.sub(" ", html.unescape(_TAG_RE.sub(" ", raw))).strip()
 
 
 def parse_json_list(raw: Any) -> list[Any]:
