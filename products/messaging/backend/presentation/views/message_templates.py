@@ -1255,6 +1255,9 @@ class MessageTemplatesViewSet(
         # under a row lock that keeps a concurrent make_transactional from slipping in between.
         with self._resolve_files_flag(fields, template.created_by_id), transaction.atomic():
             hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
+            # The first check read the placement without a lock, so a file filed since then is checked again
+            # while the template row is locked, before the save renames or deletes that file.
+            self._require_filing_access(fields, template)
             if hog_flow_id:
                 self._require_workflow_editor(hog_flow_id)
                 try:
