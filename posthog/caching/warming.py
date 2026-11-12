@@ -54,8 +54,6 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
 STALE_INSIGHTS_LIMIT = 500
-# With the time-of-day rule on, an insight is warmed only if it was read at this time of day on
-# this many of the last 7 days.
 READ_DAYS_REQUIRED = 2
 TIME_OF_DAY_FLAG = "cache-warming-time-of-day"
 
@@ -109,7 +107,6 @@ def teams_enabled_for_cache_warming() -> list[int]:
 def _stale_combos(team_id: int, *, read_at_this_time_only: bool) -> list[str]:
     if not read_at_this_time_only:
         return get_stale_insights(team_id=team_id, limit=STALE_INSIGHTS_LIMIT)
-    # The rule keeps a minority of the stale combos, so it must see all of them before the limit applies.
     combos = get_stale_insights(team_id=team_id)
     days_read = days_read_at_this_time(team_id=team_id, identifiers=combos, now=datetime.now(UTC))
     return [combo for combo in combos if days_read[combo] >= READ_DAYS_REQUIRED][:STALE_INSIGHTS_LIMIT]

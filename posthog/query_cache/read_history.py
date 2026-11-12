@@ -6,7 +6,6 @@ from posthog.query_cache.freshness_index import insight_identifier
 
 _REDIS_KEY_PREFIX = "cache_reads"
 HISTORY_DAYS = 7
-# One day more than the history, so the oldest hour that a lookup needs has not expired.
 _TTL = timedelta(days=HISTORY_DAYS + 1)
 
 
@@ -25,8 +24,6 @@ def record_read(*, team_id: int, insight_id: Optional[int], dashboard_id: Option
 
 
 def days_read_at_this_time(*, team_id: int, identifiers: list[str], now: datetime) -> dict[str, int]:
-    """For each identifier, the number of the last HISTORY_DAYS days on which it was read in the
-    hour of the day that contains `now`, or in the hour after."""
     if not identifiers:
         return {}
     pipeline = redis.get_client().pipeline(transaction=False)

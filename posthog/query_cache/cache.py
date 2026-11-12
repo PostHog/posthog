@@ -83,9 +83,6 @@ class QueryCache:
         return CacheLookup(entry=fetch_entry(self.cache_key, self.team_id), failure=failure)
 
     def record_read(self) -> None:
-        """Remember that the insight was read in this hour. Cache warming uses the history to
-        decide which insights are likely to be read soon."""
-        # The history only tunes warming, so a Redis failure here must not fail the query.
         try:
             record_read(
                 team_id=self.team_id, insight_id=self.insight_id, dashboard_id=self.dashboard_id, at=datetime.now(UTC)
