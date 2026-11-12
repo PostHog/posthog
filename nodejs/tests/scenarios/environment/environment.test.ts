@@ -82,25 +82,18 @@ const writeFake = (file: string, body: string): void => {
 
 const startPostgresRelay = async (
     upstreamUrl: string
-): Promise<{ url: string; unnamedSessions(): number; close(): Promise<void> }> => {
+): Promise<{ url: string; received(): string; close(): Promise<void> }> => {
     const upstream = new URL(upstreamUrl)
-    const names: (string | undefined)[] = []
+    let received = ''
     const sockets = new Set<net.Socket>()
     const server = net.createServer((client) => {
         sockets.add(client)
-        client.once('data', (startup: Buffer) => {
-            client.pause()
-            const fields = startup.subarray(8).toString('utf8').split('\0')
-            const at = fields.indexOf('application_name')
-            names.push(at === -1 ? undefined : fields[at + 1])
-            const relay = net.connect(Number(upstream.port || 5432), upstream.hostname, () => {
-                relay.write(startup)
-                client.pipe(relay).pipe(client)
-            })
-            sockets.add(relay)
-            relay.on('error', () => client.destroy())
-        })
-        client.on('error', () => undefined)
+        const relay = net.connect(Number(upstream.port || 5432), upstream.hostname)
+        sockets.add(relay)
+        client.on('data', (chunk: Buffer) => (received += chunk.toString('latin1')))
+        client.pipe(relay).pipe(client)
+        relay.on('error', () => client.destroy())
+        client.on('error', () => relay.destroy())
     })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     const url = new URL(upstreamUrl)
@@ -108,7 +101,7 @@ const startPostgresRelay = async (
     url.port = String((server.address() as net.AddressInfo).port)
     return {
         url: url.toString(),
-        unnamedSessions: () => names.filter((name) => name === undefined).length,
+        received: () => received,
         close: async () => {
             sockets.forEach((socket) => socket.destroy())
             await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -1438,48 +1431,54 @@ describe('scenario environment', () => {
 
         it("drops the roles' Postgres connections on every server they use and spares every other one", async () => {
             const secondServer = await startPostgresRelay(cyclotronUrl)
-            process.env.CYCLOTRON_NODE_DATABASE_URL = secondServer.url
-            environment = environmentOf()
-            await environment.up()
-            const connect = async (
-                applicationName: string
-            ): Promise<{ client: Client; ended: Promise<void>; backend: number }> => {
-                const client = new Client({ connectionString: templatesUrl, application_name: applicationName })
-                const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
-                await client.connect()
-                const backend = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid
-                return { client, ended, backend }
-            }
-            const tag = `${process.pid}-${Date.now()}`
-            const pool = await connect('cdp-cyclotron-worker-hogflow')
-            const cyclotron = await connect(`scenario-${tag}`)
-            const bystander = await connect(`bystander-${tag}`)
             try {
-                const unnamedBefore = secondServer.unnamedSessions()
-                const actuation = await environment.actuate({ kind: 'pg.terminate', share: 1 })
+                process.env.CYCLOTRON_NODE_DATABASE_URL = secondServer.url
+                environment = environmentOf()
+                await environment.up()
+                const connect = async (
+                    applicationName: string
+                ): Promise<{ client: Client; ended: Promise<void>; backend: number }> => {
+                    const client = new Client({ connectionString: templatesUrl, application_name: applicationName })
+                    const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
+                    await client.connect()
+                    const backend = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid
+                    return { client, ended, backend }
+                }
+                const tag = `${process.pid}-${Date.now()}`
+                const pool = await connect('cdp-cyclotron-worker-hogflow')
+                const cyclotron = await connect(`scenario-${tag}`)
+                const bystander = await connect(`bystander-${tag}`)
+                try {
+                    const actuation = await environment.actuate({ kind: 'pg.terminate', share: 1 })
 
-                expect(await actuation.observed()).toBe(true)
-                expect(secondServer.unnamedSessions()).toBeGreaterThan(unnamedBefore)
-                await Promise.all([pool.ended, cyclotron.ended])
-                const alive = await withPostgres(
-                    async (client) =>
-                        (
-                            await client.query<{ pid: number }>(
-                                'SELECT pid FROM pg_stat_activity WHERE pid = ANY($1::int[])',
-                                [[pool, cyclotron, bystander].map(({ backend }) => backend)]
-                            )
-                        ).rows.map(({ pid }) => pid),
-                    templatesUrl
-                )
-                expect(alive).toEqual([bystander.backend])
-                await actuation.release()
+                    expect(await actuation.observed()).toBe(true)
+                    expect(secondServer.received()).toContain('pg_terminate_backend')
+                    await Promise.all([pool.ended, cyclotron.ended])
+                    const alive = await withPostgres(
+                        async (client) =>
+                            (
+                                await client.query<{ pid: number }>(
+                                    'SELECT pid FROM pg_stat_activity WHERE pid = ANY($1::int[])',
+                                    [[pool, cyclotron, bystander].map(({ backend }) => backend)]
+                                )
+                            ).rows.map(({ pid }) => pid),
+                        templatesUrl
+                    )
+                    expect(alive).toEqual([bystander.backend])
+                    await actuation.release()
+                } finally {
+                    await Promise.all(
+                        [pool, cyclotron, bystander].map(({ client }) => client.end().catch(() => undefined))
+                    )
+                }
             } finally {
-                await Promise.all([pool, cyclotron, bystander].map(({ client }) => client.end().catch(() => undefined)))
                 await secondServer.close()
             }
         }, 30_000)
 
         it("drops the dose's share of the roles' Postgres connections, rounded up", async () => {
+            environment = environmentOf()
+            await environment.up()
             const tag = `${process.pid}-${Date.now()}`
             const sessions = await Promise.all(
                 [1, 2, 3].map(async (n) => {
