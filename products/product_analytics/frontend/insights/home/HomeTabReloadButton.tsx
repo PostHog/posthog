@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { homeTabReloadLogic } from './homeTabReloadLogic'
@@ -15,14 +14,17 @@ export function HomeTabReloadButton(): JSX.Element {
     const { reloadAll } = useActions(logic)
 
     return (
-        <LemonButton
-            type="secondary"
-            size="small"
+        <Button
+            variant="outline"
+            size="icon"
             onClick={reloadAll}
-            icon={areAnyLoading ? <Spinner textColored /> : <IconRefresh />}
+            loading={areAnyLoading}
             disabledReason={reloadDisabledReason}
+            aria-label="Reload"
             tooltip="Reload"
             data-attr="home-tab-reload"
-        />
+        >
+            <IconRefresh />
+        </Button>
     )
 }
