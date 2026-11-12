@@ -5,30 +5,24 @@ import { FIXTURE_USERS, buildWorkflowRow } from './workflowsListV2Fixtures'
 
 describe('buildWorkflowListRows', () => {
     it.each<[string, string, UserBasicApi | null, string[]]>([
-        // Catches the creator being listed even though the description names the owner.
         [
             'an explicit owner wins over the creator',
             'Owner: @Maya. Sends the welcome mail.',
             FIXTURE_USERS.ada,
             ['maya'],
         ],
-        // Catches keeping only the first match, or keeping the punctuation that ends a sentence.
         [
             'every explicit owner counts, trailing dots and dashes trimmed',
             'owner: @sam-; OWNER: @li.wei.',
             null,
             ['sam', 'li.wei'],
         ],
-        // Catches a name listed once per mention.
         ['a repeated owner counts once', 'Owner: @kim. Owner: @Kim', null, ['kim']],
-        // Catches matching any @mention, or `owner:` in the middle of another word.
         ['any other mention does not count', 'Ask @maya first', FIXTURE_USERS.ada, ['ada']],
         ['a co-owner is not the owner', 'Co-owner: @sam', FIXTURE_USERS.ada, ['ada']],
         ['a previous owner is not the owner', 'Previous owner: @jo', FIXTURE_USERS.ada, ['ada']],
-        // Catches only reading `Owner:` at the very start of the description.
         ['a bullet line counts', 'Sends reminders.\n- Owner: @kim', FIXTURE_USERS.lin, ['kim']],
         ['an owner in parentheses counts', 'Weekly digest (owner: @kim)', FIXTURE_USERS.ada, ['kim']],
-        // Catches the creator fallback dropping a creator without a first name, or not lowercasing.
         ['the creator gives their first name', '', FIXTURE_USERS.ada, ['ada']],
         ['the creator without a first name gives their email name', '', FIXTURE_USERS.lin, ['lin.ops']],
         ['no owner and no creator gives nothing', '', null, []],
@@ -42,18 +36,14 @@ describe('buildWorkflowListRows', () => {
     })
 
     it.each<[string, WorkflowStatsRowApi[] | null, object]>([
-        // Catches showing "No runs" counts before the metrics arrived, or after they failed.
         ['metrics still loading', null, { last7Days: null, health: 'idle' }],
-        // Catches a workflow without a metrics row reading as still loading once they arrived.
         ['no metrics row for the workflow', [], { last7Days: { succeeded: 0, failed: 0 }, health: 'idle' }],
         ['a row with no runs', [{ workflow_id: 'wf', succeeded: 0, failed: 0 }], { health: 'idle' }],
-        // Catches counts read from another workflow's row.
         [
             'only another workflow ran',
             [{ workflow_id: 'wf-other', succeeded: 4, failed: 2 }],
             { last7Days: { succeeded: 0, failed: 0 }, health: 'idle' },
         ],
-        // Catches a workflow that also succeeded hiding its failures.
         [
             'a failed run among successes',
             [{ workflow_id: 'wf', succeeded: 10, failed: 1 }],
@@ -66,7 +56,6 @@ describe('buildWorkflowListRows', () => {
         expect(row).toMatchObject(expected)
     })
 
-    // Catches sorting by name, by creation date, or as the server sent them.
     it('puts the most recently updated workflow first', () => {
         const rows = buildWorkflowListRows(
             [

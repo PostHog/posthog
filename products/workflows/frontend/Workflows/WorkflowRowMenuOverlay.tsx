@@ -17,7 +17,6 @@ export interface WorkflowRowMenuOverlayProps {
     onDelete: () => void
 }
 
-/** The actions of one workflow row, shared by both workflows lists. */
 export function WorkflowRowMenuOverlay({
     status,
     userAccessLevel,
