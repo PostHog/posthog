@@ -657,6 +657,8 @@ class CreateExperimentInput:
     filters: dict | None = None
     scheduling_config: dict | None = None
     create_in_folder: str | None = None
+    # The experiment rule to link when feature_flag_key names an existing flag with rules.
+    feature_flag_rule_id: "UUID | None" = None
 
     # Internal flags
     allow_unknown_events: bool = False
