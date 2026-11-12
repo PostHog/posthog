@@ -419,6 +419,13 @@ class TestHogFunctionDrafts(DraftTestCase):
                 "live",
             ),
             (
+                "changes_the_code_after_the_same_value_was_entered",
+                [{"inputs": sender_inputs(SENDER_URL, {"value": "live"})}, {"hog": MOVED_SENDER_HOG}],
+                {"reentered": 1, "staged": 1},
+                status.HTTP_400_BAD_REQUEST,
+                "live",
+            ),
+            (
                 "changes_the_url_after_the_secret_was_entered",
                 [{"inputs": sender_inputs(SENDER_URL, {"value": "new"})}, {"inputs": sender_inputs(MOVED_URL)}],
                 {"reentered": 1, "staged": 1},
@@ -467,6 +474,29 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
         function = HogFunction.objects.get(id=function_id)
         assert (function.hog, function.encrypted_inputs["token"]["value"]) == (SENDER_HOG, "rotated")
+
+    def test_draft_that_made_a_secret_public_does_not_recover_it_into_plaintext(self):
+        function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
+
+        with secret_reentry_flag(True):
+            self._stage(
+                function_id,
+                {
+                    "hog": MOVED_SENDER_HOG,
+                    "inputs_schema": [
+                        BASE_FUNCTION["inputs_schema"][0],
+                        {**BASE_FUNCTION["inputs_schema"][1], "secret": False},
+                    ],
+                },
+            )
+            staged = self._stage(function_id, {"inputs": {"url": {"value": SENDER_URL}}})
+            published = self._publish(function_id)
+
+        assert "live" not in str(staged), staged
+        function = HogFunction.objects.get(id=function_id)
+        assert "live" not in str(function.draft)
+        assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
+        assert (function.hog, function.encrypted_inputs["token"]["value"]) == (SENDER_HOG, "live")
 
     def test_restored_revision_publishes_once_a_draft_edit_enters_the_secret(self):
         function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
