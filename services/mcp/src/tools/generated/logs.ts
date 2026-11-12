@@ -64,6 +64,9 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
         if (params.labels !== undefined) {
             body['labels'] = params.labels
         }
+        if (params.annotations !== undefined) {
+            body['annotations'] = params.annotations
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
@@ -86,6 +89,7 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
             'snooze_until',
             'grouping',
             'labels',
+            'annotations',
             'platform_owned',
             'next_check_at',
             'last_notified_at',
@@ -300,6 +304,7 @@ const logsAlertsList = (): ToolBase<
                     'schedule_restriction',
                     'grouping',
                     'labels',
+                    'annotations',
                     'platform_owned',
                     'created_at',
                     'updated_at',
@@ -364,6 +369,9 @@ const logsAlertsPartialUpdate = (): ToolBase<
         if (params.labels !== undefined) {
             body['labels'] = params.labels
         }
+        if (params.annotations !== undefined) {
+            body['annotations'] = params.annotations
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/`,
@@ -386,6 +394,7 @@ const logsAlertsPartialUpdate = (): ToolBase<
             'snooze_until',
             'grouping',
             'labels',
+            'annotations',
             'platform_owned',
             'next_check_at',
             'last_notified_at',
@@ -433,6 +442,7 @@ const logsAlertsRetrieve = (): ToolBase<
             'snooze_until',
             'grouping',
             'labels',
+            'annotations',
             'platform_owned',
             'next_check_at',
             'last_notified_at',

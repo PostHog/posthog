@@ -199,6 +199,13 @@ export class ToolInputValidationError extends Error {
     }
 }
 
+export class ExperimentNotStartedError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ExperimentNotStartedError'
+    }
+}
+
 export type ExecCommandErrorReason =
     | 'unknown_command'
     | 'tool_as_command'
