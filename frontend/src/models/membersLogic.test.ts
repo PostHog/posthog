@@ -7,10 +7,12 @@ import {
 } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -101,7 +103,15 @@ describe('membersLogic', () => {
     })
 
     describe('postRemoveMember', () => {
-        it('drops the member and refreshes both organization counts', async () => {
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+        })
+
+        afterEach(() => {
+            resumeKeaLoadersErrors()
+        })
+
+        it.each([200, 503, 0])('preserves the member removal when the user refresh returns %s', async (status) => {
             organizationLogic.mount()
             await expectLogic(organizationLogic).toDispatchActions(['loadCurrentOrganizationSuccess'])
             await expectLogic(logic, () => {
@@ -113,7 +123,10 @@ describe('membersLogic', () => {
             useMocks({
                 get: {
                     '/api/organizations/@current/': updatedOrganization,
-                    '/api/users/@me/': { ...MOCK_DEFAULT_USER, organization: updatedOrganization },
+                    '/api/users/@me/': () =>
+                        status === 0
+                            ? HttpResponse.error()
+                            : [status, { ...MOCK_DEFAULT_USER, organization: updatedOrganization }],
                 },
             })
 
@@ -123,8 +136,9 @@ describe('membersLogic', () => {
 
             expect(logic.values.members).toEqual([MOCK_DEFAULT_ORGANIZATION_MEMBER])
             expect(organizationLogic.values.currentOrganization?.member_count).toBe(1)
-            expect(userLogic.values.user?.organization?.member_count).toBe(1)
-            expect(logic.values.memberCount).toBe(1)
+            expect(userLogic.values.user?.uuid).toBe(MOCK_USER_UUID)
+            expect(userLogic.values.user?.organization?.member_count).toBe(status === 200 ? 1 : 2)
+            expect(logic.values.memberCount).toBe(status === 200 ? 1 : 2)
         })
     })
 })

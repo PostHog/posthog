@@ -32,6 +32,23 @@ describe('userLogic', () => {
         userLogic.mount()
     })
 
+    it.each([
+        [503, undefined],
+        [401, false],
+        [403, false],
+    ])('clears the user on status %s with resetOnFailure=%s', async (status, resetOnFailure) => {
+        useMocks({ get: { '/api/users/@me/': () => [status, {}] } })
+        silenceKeaLoadersErrors()
+        try {
+            await expectLogic(userLogic, () => {
+                userLogic.actions.loadUser(resetOnFailure)
+            }).toFinishAllListeners()
+            expect(userLogic.values.user).toBeNull()
+        } finally {
+            resumeKeaLoadersErrors()
+        }
+    })
+
     describe('SQL draft logout cleanup', () => {
         beforeEach(() => {
             localStorage.clear()
