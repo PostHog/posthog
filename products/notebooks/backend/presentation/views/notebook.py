@@ -4,7 +4,6 @@ from collections import Counter
 from typing import Any, Literal, cast
 from uuid import UUID
 
-from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
@@ -92,7 +91,6 @@ from products.notebooks.backend.facade.notebook_run import (
 from products.notebooks.backend.facade.sql_v2 import (
     NodeRunDispatchFailed,
     NodeRunInvalid,
-    NodeRunNotPermitted,
     NodeRunRequest,
     build_ref_specs,
     dispatch_cell_run,
@@ -170,7 +168,6 @@ from products.notebooks.backend.sql_v2 import (
     fetch_sql_v2_page,
     interrupt_sql_v2_run,
     introspect_in_kernel,
-    is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
 from products.notebooks.backend.sql_v2_direct import cancel_direct_run, sync_direct_run
@@ -1926,8 +1923,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def _introspect_kernel(self, route: Literal["complete", "inspect"], payload: dict) -> dict | None:
         # Completion evaluates attribute access in the user's kernel, so it takes the access a run takes.
         user = self._current_user()
-        if not (settings.DEBUG or is_sql_v2_enabled(user)):
-            raise Http404()
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
         return introspect_in_kernel(notebook, user, route, payload)
@@ -1964,14 +1959,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             "The full notebook view for agents: title, document source (markdown, or raw content for "
             "legacy rich-text notebooks), the notebook's declared variables, every cell with its "
             "dependency edges and derived run status (including staleness), and the kernel's runtime "
-            "state and compute config. Flag-gated (revamped-py-notebooks)."
+            "state and compute config."
         ),
     )
     @action(methods=["GET"], url_path="sql_v2/state", detail=True, required_scopes=["notebook:read", "query:read"])
     def sql_v2_state(self, request: Request, **kwargs):
         user = self._current_user()
-        if not (settings.DEBUG or is_sql_v2_enabled(user)):
-            raise Http404()
         notebook = self._get_notebook_for_kernel()
         # Cell code and result metadata derive from the user's data, so the same query
         # gate as run results applies.
@@ -2029,23 +2022,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         description=(
             "Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; "
             "poll the run result endpoint until the status is terminal. One run at a time per notebook. "
-            "Python notebooks enable all run types. HogQL runs without a connection or kernel are always available."
+            "HogQL runs without a connection or kernel are always available."
         ),
     )
     @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
     def sql_v2_run(self, request: Request, **kwargs):
         user = self._current_user()
-        # Server-side gate is permissive in local dev (frontend still gates the UI); prod is flag-gated.
-        full_compute_enabled = settings.DEBUG or is_sql_v2_enabled(user)
-
         serializer = NotebookSQLV2RunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        if not full_compute_enabled and (
-            serializer.validated_data["node_type"] != "hogql"
-            or serializer.validated_data.get("connection_id") is not None
-            or any(ref["kind"] == "local" for ref in serializer.validated_data["refs"].values())
-        ):
-            raise Http404()
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
 
@@ -2064,7 +2048,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             connection_id=connection_id,
             send_raw_query=bool(serializer.validated_data["send_raw_query"]) and connection_id is not None,
             reuse_results=serializer.validated_data["reuse_results"],
-            allow_sandbox=full_compute_enabled,
         )
         try:
             dispatch = dispatch_cell_run(
@@ -2073,10 +2056,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 user_id=user.id if isinstance(user, User) else None,
                 request=run_request,
             )
-        except NodeRunNotPermitted:
-            # The plan resolved to the sandbox for a caller without full compute. 404 like
-            # the gates above: they are not told the lane exists.
-            raise Http404()
         except NodeRunInvalid as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunBusy as e:
@@ -2100,25 +2079,18 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             ).data
         )
 
-    def _require_notebook_runs_enabled(self, user: User | None) -> None:
-        # Server-side gate is permissive in local dev (the frontend still gates the UI);
-        # prod is flag-gated, the same as every other SQL v2 endpoint.
-        if not (settings.DEBUG or is_sql_v2_enabled(user)):
-            raise Http404()
-
     @extend_schema(
         request=NotebookRunStartRequestSerializer,
         responses={200: NotebookRunStartResponseSerializer},
         description=(
             "Run every SQL and Python cell of a markdown notebook, in document order, stopping at the "
             "first cell that does not finish. Returns as soon as the run starts; poll the run status "
-            "endpoint until the status is terminal. Flag-gated (revamped-py-notebooks)."
+            "endpoint until the status is terminal."
         ),
     )
     @action(methods=["POST"], url_path="runs", detail=True, required_scopes=["notebook:write", "query:read"])
     def notebook_runs(self, request: Request, **kwargs):
         user = self._current_user()
-        self._require_notebook_runs_enabled(user)
 
         serializer = NotebookRunStartRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -2195,7 +2167,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         description=(
             "Read a whole-notebook run: its state, which cell it is on, and one line per planned cell. "
             "Carries no result rows — fetch a cell's result from the cell run result endpoint. "
-            "Flag-gated (revamped-py-notebooks)."
         ),
     )
     @action(
@@ -2206,7 +2177,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     )
     def notebook_run_detail(self, request: Request, run_id: str | None = None, **kwargs):
         user = self._current_user()
-        self._require_notebook_runs_enabled(user)
         if run_id is None:
             raise Http404()
 
@@ -2260,7 +2230,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         responses={200: NotebookRunInterruptResponseSerializer},
         description=(
             "Stop a whole-notebook run and the cell it is on. Idempotent: stopping a run that already "
-            "finished returns its outcome unchanged. Flag-gated (revamped-py-notebooks)."
+            "finished returns its outcome unchanged."
         ),
     )
     @action(
@@ -2272,8 +2242,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def notebook_run_interrupt(self, request: Request, run_id: str | None = None, **kwargs):
         # A control call, not a data read: it stops a run, so it needs notebook write access
         # but neither query scope nor the RBAC query gate.
-        user = self._current_user()
-        self._require_notebook_runs_enabled(user)
         if run_id is None:
             raise Http404()
 
@@ -2370,7 +2338,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # A page fetch is not a run: a bounded synchronous
         # re-query of the run's code with LIMIT/OFFSET, proxied through the running kernel.
         user = self._current_user()
-        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
+        if run_id is None:
             raise Http404()
 
         serializer = NotebookSQLV2PageRequestSerializer(data=request.query_params)
@@ -2458,8 +2426,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             202: NotebookSQLV2InterruptResponseSerializer,
         },
         description=(
-            "Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome "
-            "unchanged. Flag-gated (revamped-py-notebooks)."
+            "Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome unchanged."
         ),
     )
     @action(
@@ -2473,7 +2440,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # but neither query scope nor the RBAC query gate (no analytics rows flow either way).
         # The terminal state still arrives through the normal callback -> run row -> poll.
         user = self._current_user()
-        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
+        if run_id is None:
             raise Http404()
 
         notebook = self._get_notebook_for_kernel()

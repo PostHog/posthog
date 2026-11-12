@@ -195,9 +195,6 @@ call appends at the end of the document, so no `after_node_id` is needed.
 - **One notebook per report** — never append a new anomaly to a prior run's notebook. A
   recurrence on a later day is a new notebook, linked from the `edit_report` note.
 
-`notebooks-create` (ProseMirror `content` with `ph-query` nodes) is retired. Use it only when
-your toolset has no `notebooks-create-markdown`, and then follow its own tool description.
-
 ### What goes in it
 
 Lead with the same hook the inbox sees, then the evidence the ~300-char preview can't hold:
