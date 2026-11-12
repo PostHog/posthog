@@ -47,9 +47,9 @@ class PlatformOccurrence(TeamScopedRootMixin, UUIDModel):
 
 
 class PlatformOccurrenceCursor(TeamScopedRootMixin, UUIDModel):
-    """How far the registry has read one source's feed for one project.
+    """How far the registrar has read one source's feed for one project.
 
-    Locked while the registry reads, so two checks of one project never record the same window twice.
+    Locked while the registrar records a read, so two runs never record the same window twice.
     """
 
     # The unique constraint leads with the team, so it serves the lookups an index on the team would.
@@ -58,6 +58,8 @@ class PlatformOccurrenceCursor(TeamScopedRootMixin, UUIDModel):
     )
     source_kind = models.CharField(max_length=32, choices=source_kind_choices)
     registered_until = models.DateTimeField(null=True, blank=True)
+    # The span the next read asks the feed for, shortened after a read the feed could not finish.
+    read_span = models.DurationField(null=True, blank=True)
 
     class Meta:
         db_table = "alerts_platformoccurrencecursor"
