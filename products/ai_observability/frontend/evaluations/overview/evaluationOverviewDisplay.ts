@@ -275,13 +275,3 @@ export function bucketDateRange(bucket: string, interval: BucketInterval): { dat
     }
     return { dateFrom: bucket.slice(0, 10), dateTo: bucket.slice(0, 10) }
 }
-
-/** Canvas colors cannot read CSS variables, so resolve the token and add transparency. */
-export function withAlpha(color: string, alpha: number): string {
-    const hex = color.startsWith('#') && color.length === 7 ? color : null
-    return hex
-        ? `${hex}${Math.round(alpha * 255)
-              .toString(16)
-              .padStart(2, '0')}`
-        : color
-}

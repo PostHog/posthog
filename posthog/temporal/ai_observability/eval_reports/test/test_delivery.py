@@ -483,8 +483,8 @@ class TestDeliverReport(SimpleTestCase):
     @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects")
     def test_deliver_report_partial_failure(self, mock_report_qs, mock_run_qs, mock_slack, mock_email):
         targets = [
-            {"type": "email", "value": "test@example.com"},
-            {"type": "slack", "integration_id": 1, "channel": "#reports"},
+            {"type": "email", "value": "test@example.com, other@example.com"},
+            {"type": "slack", "integration_id": 1, "channel": "C0001|reports"},
         ]
         report = self._make_report(targets)
         run = self._make_report_run()
@@ -497,6 +497,7 @@ class TestDeliverReport(SimpleTestCase):
         deliver_report("report-id", "run-id")
 
         self.assertEqual(run.delivery_status, "partial_failure")
+        self.assertEqual(run.delivery_destinations, ["test@example.com", "other@example.com", "#reports"])
 
     @parameterized.expand([("retryable_raises_for_retry", True), ("config_error_disables_report", False)])
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.disable_undeliverable_report")

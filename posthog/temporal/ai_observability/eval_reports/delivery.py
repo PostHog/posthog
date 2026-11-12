@@ -501,6 +501,18 @@ def deliver_slack_report(
     return failures
 
 
+def _destination_names(targets: list[dict]) -> list[str]:
+    names: list[str] = []
+    for target in targets:
+        if target.get("type") == "email":
+            names.extend(address.strip() for address in target.get("value", "").split(",") if address.strip())
+        elif target.get("type") == "slack" and target.get("channel"):
+            # A Slack target stores "channel id|channel name".
+            channel = target["channel"].split("|")[-1]
+            names.append(channel if channel.startswith("#") else f"#{channel}")
+    return names
+
+
 def deliver_report(report_id: str, report_run_id: str) -> None:
     """Deliver a report run via all configured delivery targets.
 
@@ -573,7 +585,8 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
         report_run.delivery_status = EvaluationReportRun.DeliveryStatus.DELIVERED
 
     report_run.delivery_errors = all_errors
-    report_run.save(update_fields=["delivery_status", "delivery_errors"])
+    report_run.delivery_destinations = _destination_names(targets)
+    report_run.save(update_fields=["delivery_status", "delivery_errors", "delivery_destinations"])
 
     logger.info(
         "llma_eval_reports_delivery_completed",

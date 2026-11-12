@@ -16,7 +16,6 @@ import {
     passFailCounts,
     toChartValues,
     trackedCategory,
-    withAlpha,
 } from './evaluationOverviewDisplay'
 
 // The volume axis is hidden, so the chart needs no room for labels on the right.
@@ -35,6 +34,16 @@ const HEADLINE_LABELS: Record<EvaluationResultApi['summary']['kind'], string> = 
     score: 'Mean score',
     sentiment: 'Negative share',
     categories: 'Share with the tracked label',
+}
+
+/** Canvas colors cannot read CSS variables, so resolve the token and add transparency. */
+function withAlpha(color: string, alpha: number): string {
+    const hex = color.startsWith('#') && color.length === 7 ? color : null
+    return hex
+        ? `${hex}${Math.round(alpha * 255)
+              .toString(16)
+              .padStart(2, '0')}`
+        : color
 }
 
 /** One value of a breakdown property, aligned with the buckets. NaN marks a bucket where it had nothing graded. */

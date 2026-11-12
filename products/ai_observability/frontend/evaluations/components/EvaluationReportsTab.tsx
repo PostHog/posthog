@@ -5,7 +5,7 @@ import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
-import { teamLogic } from 'scenes/teamLogic'
+import { cn } from 'lib/utils/css-classes'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -15,10 +15,10 @@ import { draftFromReport, evaluationReportLogic } from '../evaluationReportLogic
 import { evaluationReportTracking } from '../evaluationReportTracking'
 import type { EvaluationReportRun } from '../types'
 import { DeliveryTargetsConfig } from './DeliveryTargetsConfig'
-import { EvaluationReportsTrendChart } from './EvaluationReportsTrendChart'
 import { ReportDeliveryTag } from './ReportDeliveryTag'
 import { reportDestinationsText } from './reportDestinationsText'
-import { reportHeadline } from './reportHeadline'
+import { headlineChange, reportHeadline } from './reportHeadline'
+import { ReportResultBar } from './ReportResultBar'
 
 interface EvaluationReportsTabProps {
     evaluationId: string
@@ -33,16 +33,19 @@ function HeadlineCell({ run }: { run: EvaluationReportRun }): JSX.Element {
     if (!headline) {
         return <span className="text-secondary">–</span>
     }
-    const change = headline.previous == null ? null : headline.value - headline.previous
+    const change = headlineChange(headline)
     return (
-        <span className="tabular-nums whitespace-nowrap">
-            {`${headline.value.toFixed(1)}%`}
-            {change != null && Math.abs(change) >= 0.05 && (
-                <span className="ml-1 text-xs text-secondary">
-                    {`${change > 0 ? '+' : '−'}${Math.abs(change).toFixed(1)}pp`}
-                </span>
-            )}
-        </span>
+        <div className="flex w-36 flex-col gap-1.5">
+            <span className="tabular-nums whitespace-nowrap">
+                <span className="font-semibold">{`${headline.value.toFixed(1)}%`}</span>
+                {change && (
+                    <span className={cn('ml-1.5 text-xs font-medium', change.className)}>
+                        {`${change.change > 0 ? '▲' : '▼'} ${Math.abs(change.change).toFixed(1)}pp`}
+                    </span>
+                )}
+            </span>
+            <ReportResultBar segments={headline.segments} />
+        </div>
     )
 }
 
@@ -80,7 +83,6 @@ export function EvaluationReportsTab({
     } = useActions(logic)
     const { openRunId } = useValues(evaluationReportDrawerLogic({ evaluationId }))
     const { openRun } = useActions(evaluationReportDrawerLogic({ evaluationId }))
-    const { timezone } = useValues(teamLogic)
     const [editingDestinations, setEditingDestinations] = useState(false)
 
     const tracked = useRef(false)
@@ -222,8 +224,6 @@ export function EvaluationReportsTab({
                 </div>
             )}
 
-            <EvaluationReportsTrendChart reportRuns={reportRuns} timezone={timezone} />
-
             {reportRunsLoadFailed ? (
                 <div className="flex items-center gap-2 rounded border p-4 text-sm">
                     <span>Couldn't load the reports.</span>
@@ -277,7 +277,7 @@ export function EvaluationReportsTab({
                             title: 'Delivery',
                             key: 'delivery_status',
                             className: 'hidden @min-[32.5rem]:table-cell',
-                            render: (_, run) => <ReportDeliveryTag status={run.delivery_status} />,
+                            render: (_, run) => <ReportDeliveryTag run={run} />,
                         },
                     ]}
                     emptyState={

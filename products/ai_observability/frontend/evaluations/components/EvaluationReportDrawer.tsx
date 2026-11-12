@@ -104,7 +104,6 @@ export function EvaluationReportDrawer({
             {openRun ? (
                 <EvaluationReportViewer
                     key={openRun.id}
-                    evaluationId={evaluationId}
                     reportRun={openRun}
                     onOpenTrace={onOpenTrace}
                     onShowResults={() => onShowResults(openRun.period_start, openRun.period_end)}

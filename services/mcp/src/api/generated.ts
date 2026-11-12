@@ -43416,6 +43416,8 @@ export namespace Schemas {
       readonly delivery_status: EvaluationReportRunDeliveryStatusEnum;
       /** Delivery error messages. Empty when all configured deliveries succeeded. */
       readonly delivery_errors: readonly string[];
+      /** Slack channels and email addresses this report was sent to. Empty for reports sent before this was recorded. */
+      readonly delivery_destinations: readonly string[];
       /** When this report run was created. */
       readonly created_at: string;
     }

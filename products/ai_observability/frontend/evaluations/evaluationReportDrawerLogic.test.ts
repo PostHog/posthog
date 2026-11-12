@@ -40,6 +40,7 @@ function run(id: string, createdAt: string): EvaluationReportRun {
         period_end: createdAt,
         delivery_status: 'delivered',
         delivery_errors: [],
+        delivery_destinations: [],
         created_at: createdAt,
     }
 }

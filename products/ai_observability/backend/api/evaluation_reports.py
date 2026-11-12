@@ -534,7 +534,7 @@ class _EvaluationReportMetricsField(serializers.JSONField):
 
 
 @extend_schema_field(serializers.ListSerializer(child=serializers.CharField()))
-class _EvaluationReportDeliveryErrorsField(serializers.JSONField):
+class _EvaluationReportStringListField(serializers.JSONField):
     pass
 
 
@@ -548,9 +548,13 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Legacy mirror of content.metrics. May contain partial boolean metrics on older runs.",
     )
-    delivery_errors = _EvaluationReportDeliveryErrorsField(
+    delivery_errors = _EvaluationReportStringListField(
         read_only=True,
         help_text="Delivery error messages. Empty when all configured deliveries succeeded.",
+    )
+    delivery_destinations = _EvaluationReportStringListField(
+        read_only=True,
+        help_text="Slack channels and email addresses this report was sent to. Empty for reports sent before this was recorded.",
     )
 
     class Meta:
@@ -564,6 +568,7 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
             "period_end",
             "delivery_status",
             "delivery_errors",
+            "delivery_destinations",
             "created_at",
         ]
         read_only_fields = fields

@@ -3,17 +3,12 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import type {
-    EvaluationReportCitation,
-    EvaluationOutputType,
-    EvaluationReportRun,
-    EvaluationReportSection,
-    EvaluationReportStoredMetrics,
-} from '../types'
+import type { EvaluationReportCitation, EvaluationReportRun, EvaluationReportSection } from '../types'
 import { EvaluationReportCitations } from './EvaluationReportCitations'
-import { EvaluationReportPeriodChart } from './EvaluationReportPeriodChart'
+import { EvaluationReportMetrics } from './EvaluationReportMetrics'
 import { linkifyCitations } from './reportCitationLinks'
 import { ReportDeliveryTag } from './ReportDeliveryTag'
+import { reportHeadline } from './reportHeadline'
 
 // Strip a leading markdown heading line if it matches the section title.
 // The agent sometimes prefixes each section's content with its own heading,
@@ -76,205 +71,16 @@ export function ReportSectionContent({
     )
 }
 
-const RESULT_ORDER: Record<EvaluationOutputType, string[]> = {
-    boolean: ['pass', 'fail', 'na'],
-    numeric: ['pass', 'fail', 'na'],
-    categorical: ['pass', 'fail', 'na'],
-    sentiment: ['positive', 'neutral', 'negative'],
-}
-
 const PERIOD_FORMAT = { formatDate: 'MMM D', formatTime: 'HH:mm' }
 
 const METRICS_UNAVAILABLE_MESSAGE =
     'Metrics could not be calculated for this period because evaluation data was temporarily unavailable. This does not mean that no evaluations ran.'
 
-interface EvaluationReportResultMetric {
-    key: string
-    label: string
-    count?: number
-    rate?: number
-    previousRate?: number
-}
-
-function formatResultLabel(result: string): string {
-    if (result.toLowerCase() === 'na') {
-        return 'N/A'
-    }
-    const label = result.split('_').join(' ')
-    return label.length > 0 ? `${label[0].toUpperCase()}${label.slice(1)}` : result
-}
-
-function formatResultRate(rate: number | null | undefined, fractionDigits = 2): string {
-    if (rate == null) {
-        return '–'
-    }
-    return `${rate.toFixed(fractionDigits)}%`
-}
-
-function getResultMetrics(metrics: EvaluationReportStoredMetrics): EvaluationReportResultMetric[] {
-    const resultCounts = metrics.result_counts ?? {}
-    const totalResults = Object.values(resultCounts).reduce((total, count) => total + count, 0)
-    const calculatedResultRates: Record<string, number> = {}
-    if (totalResults > 0) {
-        for (const [key, count] of Object.entries(resultCounts)) {
-            calculatedResultRates[key] = (count / totalResults) * 100
-        }
-    }
-    const genericResultRates = metrics.result_rates ?? {}
-    const resultRates = Object.keys(genericResultRates).length > 0 ? genericResultRates : calculatedResultRates
-    const previousResultRates = metrics.previous_result_rates
-    const resultKeys = new Set([...Object.keys(resultCounts), ...Object.keys(resultRates)])
-    const configuredOrder = RESULT_ORDER[metrics.output_type ?? 'boolean'] ?? []
-    const orderedKeys = [...configuredOrder.filter((key) => resultKeys.delete(key)), ...Array.from(resultKeys).sort()]
-
-    return orderedKeys.map((key) => ({
-        key,
-        label: formatResultLabel(key),
-        count: resultCounts[key],
-        rate: resultRates[key],
-        previousRate: previousResultRates?.[key],
-    }))
-}
-
-function getBooleanPassRate(
-    metrics: EvaluationReportStoredMetrics,
-    resultMetrics: EvaluationReportResultMetric[]
-): number | undefined {
-    if (metrics.pass_rate != null) {
-        return metrics.pass_rate
-    }
-    const passCount = resultMetrics.find(({ key }) => key === 'pass')?.count
-    const failCount = resultMetrics.find(({ key }) => key === 'fail')?.count
-    if (passCount == null || failCount == null || passCount + failCount === 0) {
-        return undefined
-    }
-    return (passCount / (passCount + failCount)) * 100
-}
-
-/** The pass rate a report stored, or one worked out from its pass and fail counts. */
-export function reportPassRate(metrics: EvaluationReportStoredMetrics): number | undefined {
-    return getBooleanPassRate(metrics, getResultMetrics(metrics))
-}
-
-export function summarizeEvaluationReportResults(metrics: EvaluationReportStoredMetrics): string {
-    const resultMetrics = getResultMetrics(metrics)
-    if (['boolean', 'numeric', 'categorical'].includes(metrics.output_type ?? 'boolean')) {
-        const passRate = getBooleanPassRate(metrics, resultMetrics)
-        const summaryParts = passRate == null ? [] : [`Pass rate ${formatResultRate(passRate, 1)}`]
-        summaryParts.push(
-            ...resultMetrics.filter(({ count }) => count != null).map(({ label, count }) => `${label} ${count}`)
-        )
-        return summaryParts.join(' · ') || '–'
-    }
-
-    const summary = resultMetrics
-        .map(({ label, count, rate }) => {
-            if (count == null && rate == null) {
-                return null
-            }
-            if (count == null) {
-                return `${label} ${formatResultRate(rate, 1)}`
-            }
-            return rate == null ? `${label} ${count}` : `${label} ${count} (${formatResultRate(rate, 1)})`
-        })
-        .filter((value): value is string => value != null)
-        .join(' · ')
-    return summary || '–'
-}
-
-function MetricsCard({ metrics }: { metrics: EvaluationReportStoredMetrics }): JSX.Element {
-    const resultMetrics = getResultMetrics(metrics)
-    const isBooleanMetrics = ['boolean', 'numeric', 'categorical'].includes(metrics.output_type ?? 'boolean')
-    const passRate = isBooleanMetrics ? getBooleanPassRate(metrics, resultMetrics) : undefined
-    const passRateDiff =
-        passRate == null || metrics.previous_pass_rate == null ? null : passRate - metrics.previous_pass_rate
-    const passRateDiffClass =
-        passRateDiff == null || passRateDiff === 0 ? 'text-muted' : passRateDiff > 0 ? 'text-success' : 'text-danger'
-    const passingRule =
-        metrics.output_config && 'passing_rule' in metrics.output_config ? metrics.output_config.passing_rule : null
-
-    return (
-        <div className="rounded border bg-surface-primary p-3">
-            {metrics.output_type === 'numeric' && passingRule && 'threshold' in passingRule && (
-                <p className="text-sm text-muted">{`Passing rule used for this report: score ${passingRule.operator === 'gte' ? '≥' : '≤'} ${passingRule.threshold}`}</p>
-            )}
-            {metrics.output_type === 'categorical' && passingRule && 'categories' in passingRule && (
-                <p className="text-sm text-muted">
-                    Passing categories used for this report:{' '}
-                    {passingRule.categories
-                        .map(
-                            (key) => metrics.output_config?.options?.find((option) => option.key === key)?.label ?? key
-                        )
-                        .join(', ') || 'None'}
-                    . Every returned category must pass.
-                </p>
-            )}
-            <div className="flex items-center gap-6 flex-wrap text-sm">
-                <div>
-                    <div className="text-muted text-xs">Total runs</div>
-                    <div className="font-semibold">{metrics.total_runs ?? '–'}</div>
-                </div>
-                {passRate != null && (
-                    <div>
-                        <div className="text-muted text-xs">Pass rate</div>
-                        <div className="font-semibold">
-                            {formatResultRate(passRate)}
-                            {passRateDiff != null && (
-                                <span className={`text-xs ml-1 ${passRateDiffClass}`}>
-                                    {passRateDiff === 0 ? '→' : passRateDiff > 0 ? '▲' : '▼'}{' '}
-                                    {Math.abs(passRateDiff).toFixed(2)}pp vs previous
-                                </span>
-                            )}
-                        </div>
-                    </div>
-                )}
-                {resultMetrics.map(({ key, label, count, rate, previousRate }) => {
-                    const diff = previousRate == null || rate == null ? null : rate - previousRate
-                    const arrow = diff == null || diff === 0 ? '→' : diff > 0 ? '▲' : '▼'
-                    const booleanCountClass =
-                        isBooleanMetrics && key === 'pass'
-                            ? 'text-success'
-                            : isBooleanMetrics && key === 'fail'
-                              ? 'text-danger'
-                              : ''
-                    if (count == null && (isBooleanMetrics || rate == null)) {
-                        return null
-                    }
-                    return (
-                        <div key={key}>
-                            <div className="text-muted text-xs">{label}</div>
-                            <div className={`font-semibold ${booleanCountClass}`}>
-                                {count ?? '–'}
-                                {!isBooleanMetrics && rate != null && (
-                                    <span className="text-muted"> ({formatResultRate(rate)})</span>
-                                )}
-                                {!isBooleanMetrics && diff != null && (
-                                    <span className="text-xs text-muted ml-1">
-                                        {arrow} {Math.abs(diff).toFixed(2)}pp vs previous
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-                    )
-                })}
-                {metrics.previous_total_runs != null && (
-                    <div>
-                        <div className="text-muted text-xs">Previous runs</div>
-                        <div className="font-semibold text-muted">{metrics.previous_total_runs}</div>
-                    </div>
-                )}
-            </div>
-        </div>
-    )
-}
-
 export function EvaluationReportViewer({
-    evaluationId,
     reportRun,
     onOpenTrace,
     onShowResults,
 }: {
-    evaluationId: string
     reportRun: EvaluationReportRun
     onOpenTrace: (traceId: string, eventId: string | null) => void
     /** Opens the Runs tab on this report's period. */
@@ -296,7 +102,7 @@ export function EvaluationReportViewer({
                         <TZLabel time={reportRun.period_start} {...PERIOD_FORMAT} /> to{' '}
                         <TZLabel time={reportRun.period_end} {...PERIOD_FORMAT} />
                     </span>
-                    <ReportDeliveryTag status={reportRun.delivery_status} />
+                    <ReportDeliveryTag run={reportRun} />
                 </div>
             </header>
 
@@ -318,10 +124,7 @@ export function EvaluationReportViewer({
             {metricsUnavailable ? (
                 <div className="rounded border p-3 text-sm text-secondary">{METRICS_UNAVAILABLE_MESSAGE}</div>
             ) : (
-                <>
-                    {metrics && <MetricsCard metrics={metrics} />}
-                    <EvaluationReportPeriodChart evaluationId={evaluationId} reportRun={reportRun} />
-                </>
+                metrics && <EvaluationReportMetrics metrics={metrics} headline={reportHeadline(reportRun)} />
             )}
 
             {sections.map((section, index) => (

@@ -58,7 +58,8 @@ function reportRun(
     title: string,
     passRate: number,
     previousPassRate: number,
-    totalRuns: number
+    totalRuns: number,
+    deliveryDestinations: string[]
 ): EvaluationReportRun {
     const passed = Math.round((totalRuns * passRate) / 100)
     return {
@@ -101,6 +102,7 @@ function reportRun(
         period_end: periodEnd,
         delivery_status: 'delivered',
         delivery_errors: [],
+        delivery_destinations: deliveryDestinations,
         created_at: periodEnd,
     }
 }
@@ -112,25 +114,15 @@ const RUNS = [
         'Fails rose after answers started skipping follow-ups',
         81.4,
         87.6,
-        1204
+        1204,
+        ['#evals', 'team@example.com']
     ),
-    reportRun('run-2', '2026-11-09T09:00:00.000Z', 'Pass rate steady, two tool timeouts', 87.6, 87.2, 1180),
-    reportRun('run-1', '2026-11-08T09:00:00.000Z', 'First report for this evaluation', 87.2, 85.0, 960),
+    reportRun('run-2', '2026-11-09T09:00:00.000Z', 'Pass rate steady, two tool timeouts', 87.6, 87.2, 1180, ['#evals']),
+    reportRun('run-1', '2026-11-08T09:00:00.000Z', 'First report for this evaluation', 87.2, 85.0, 960, []),
 ]
 
 const scene = mswDecorator({
     get: {
-        // Before the `:id` route, which would match it. No live results, so the drawer leaves its chart out.
-        '/api/projects/:team_id/evaluations/overview/': {
-            start: '2026-11-08T09:00:00Z',
-            end: '2026-11-09T09:00:00Z',
-            previousStart: '2026-11-07T09:00:00Z',
-            previousEnd: '2026-11-08T09:00:00Z',
-            interval: 'hour',
-            buckets: [],
-            evaluations: [],
-            totals: {},
-        },
         '/api/projects/:team_id/evaluations/': toPaginatedResponse([EVALUATION]),
         '/api/projects/:team_id/evaluations/:id/': EVALUATION,
         '/api/projects/:team_id/llm_analytics/evaluation_reports/': toPaginatedResponse([REPORT]),
