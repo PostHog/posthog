@@ -3,6 +3,7 @@ import type { Env } from '@/tools/types'
 
 export const MCP_EXEC_SKILLS_FEATURE_FLAG = 'mcp-exec-skills'
 export const MCP_INBOX_FIRST_FLAG = 'mcp-inbox-first'
+export const MCP_CURSOR_EXEC_MODE_FLAG = 'mcp-cursor-exec-mode'
 
 export {
     USER_AGENT,

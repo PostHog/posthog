@@ -14,16 +14,23 @@
 // headers_1".
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
+import { MCP_CURSOR_EXEC_MODE_FLAG } from '@/hono/constants'
 
+import project from '../workers/fixtures/api_projects_id.json'
 import { contextMillHandler, handlers } from '../workers/fixtures/handlers'
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
-const mswServer = setupServer(...handlers, contextMillHandler)
+const mswServer = setupServer(
+    ...handlers,
+    contextMillHandler,
+    http.get('*/api/organizations/:orgId/projects/:projectId/', () => HttpResponse.json(project))
+)
 
 function createInMemoryRedis(): RedisLike & {
     ping(): Promise<string>
@@ -78,11 +85,22 @@ const fetchViaApp: typeof fetch = async (input, init) => {
 
 type ConnectableTransport = Parameters<Client['connect']>[0]
 
-interface ToolsListResponse {
-    result?: { tools?: Array<{ name: string }> }
+interface RpcResponse {
+    result?: {
+        tools?: Array<{ name: string }>
+        content?: Array<{ type: string; text?: string }>
+        isError?: boolean
+    }
 }
 
-async function listToolsOnSession(sessionId: string, vendorClient: string): Promise<Array<{ name: string }>> {
+const CURSOR_EXEC_MODE_ON = { 'x-posthog-flag-overrides': JSON.stringify({ [MCP_CURSOR_EXEC_MODE_FLAG]: true }) }
+
+async function rpcOnSession(
+    sessionId: string,
+    method: string,
+    params: Record<string, unknown>,
+    headers: Record<string, string>
+): Promise<NonNullable<RpcResponse['result']>> {
     const res = await fetchViaApp(new URL('/mcp', BASE_URL), {
         method: 'POST',
         headers: {
@@ -90,18 +108,18 @@ async function listToolsOnSession(sessionId: string, vendorClient: string): Prom
             'Content-Type': 'application/json',
             Accept: 'application/json, text/event-stream',
             'Mcp-Session-Id': sessionId,
-            'x-anthropic-client': vendorClient,
+            ...headers,
         },
-        body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 'pool-tools-list',
-            method: 'tools/list',
-            params: {},
-        }),
+        body: JSON.stringify({ jsonrpc: '2.0', id: `pool-${method}`, method, params }),
     })
     expect(res.status).toBe(200)
-    const json = (await res.json()) as ToolsListResponse
-    return json.result?.tools ?? []
+    const json = (await res.json()) as RpcResponse
+    return json.result ?? {}
+}
+
+async function listToolsOnSession(sessionId: string, vendorClient: string): Promise<Array<{ name: string }>> {
+    const result = await rpcOnSession(sessionId, 'tools/list', {}, { 'x-anthropic-client': vendorClient })
+    return result.tools ?? []
 }
 
 describe('Resolved mode is preserved across pooled-transport vendor flips', () => {
@@ -169,6 +187,54 @@ describe('Resolved mode is preserved across pooled-transport vendor flips', () =
         const pooledRoster = await listToolsOnSession(sessionId!, 'ClaudeCode')
         expect(pooledRoster.length).toBeGreaterThan(1)
         expect(pooledRoster.map((t) => t.name)).not.toContain('exec')
+
+        await client.close()
+    })
+
+    async function connectCursor(headers: Record<string, string> = {}): Promise<{ client: Client; sessionId: string }> {
+        const transport = new StreamableHTTPClientTransport(new URL('/mcp', BASE_URL), {
+            fetch: fetchViaApp,
+            requestInit: { headers: { Authorization: `Bearer ${TOKEN}`, ...headers } },
+        })
+        const client = new Client({ name: 'cursor', version: '1.0.0' }, { capabilities: {} })
+        await client.connect(transport as ConnectableTransport)
+        expect(transport.sessionId).toBeTruthy()
+        return { client, sessionId: transport.sessionId! }
+    }
+
+    it('moves a live Cursor session to cli when the flag turns on, and still serves its per-tool roster', async () => {
+        const { client, sessionId } = await connectCursor()
+        const cachedRoster = await client.listTools()
+        expect(cachedRoster.tools.map((t) => t.name)).toContain('project-get')
+
+        const roster = await rpcOnSession(sessionId, 'tools/list', {}, CURSOR_EXEC_MODE_ON)
+        expect(roster.tools?.map((t) => t.name)).toEqual(['exec'])
+
+        const call = await rpcOnSession(
+            sessionId,
+            'tools/call',
+            { name: 'project-get', arguments: {} },
+            CURSOR_EXEC_MODE_ON
+        )
+        expect(call.isError).toBeFalsy()
+        expect(call.content?.[0]?.text).toContain(project.name)
+
+        await client.close()
+    })
+
+    it('still serves exec to a Cursor session when the flag turns off again', async () => {
+        const { client, sessionId } = await connectCursor(CURSOR_EXEC_MODE_ON)
+        const cachedRoster = await client.listTools()
+        expect(cachedRoster.tools.map((t) => t.name)).toEqual(['exec'])
+
+        const call = await rpcOnSession(
+            sessionId,
+            'tools/call',
+            { name: 'exec', arguments: { command: 'search project-get' } },
+            {}
+        )
+        expect(call.isError).toBeFalsy()
+        expect(call.content?.[0]?.text).toContain('project-get')
 
         await client.close()
     })
