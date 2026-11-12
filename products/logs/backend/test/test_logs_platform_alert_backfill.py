@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
@@ -15,6 +16,7 @@ from products.alerts_platform.backend.facade.api import list_configurations
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import (
+    _first_enabled_of,
     backfill_platform_alert_configurations,
     disable_platform_alert_configurations,
 )
@@ -127,3 +129,27 @@ class TestPlatformLogsAlertBackfill(APIBaseTest):
             draft.id: None,
         }
         assert self._copies(other_team)[elsewhere.id].first_enabled_at == first
+
+    def test_the_command_fails_after_the_other_teams_when_one_team_fails(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._alert(self.team, first_enabled_at=datetime(2026, 9, 1, tzinfo=UTC))
+        elsewhere = self._alert(other_team, first_enabled_at=datetime(2026, 9, 1, tzinfo=UTC))
+        backfill_platform_alert_configurations()
+        LogsAlertConfiguration.objects.filter(id=elsewhere.id).update(first_enabled_at=datetime(2026, 9, 2, tzinfo=UTC))
+
+        with (
+            patch(
+                "products.logs.backend.platform_alert_backfill._first_enabled_of",
+                side_effect=lambda team_id, ids: (
+                    _raise() if team_id == self.team.id else _first_enabled_of(team_id, ids)
+                ),
+            ),
+            self.assertRaisesMessage(CommandError, str(self.team.id)),
+        ):
+            call_command("backfill_platform_logs_alert_first_enabled_at", apply=True, stdout=StringIO())
+
+        assert self._copies(other_team)[elsewhere.id].first_enabled_at == datetime(2026, 9, 2, tzinfo=UTC)
+
+
+def _raise() -> None:
+    raise RuntimeError("Postgres is down")

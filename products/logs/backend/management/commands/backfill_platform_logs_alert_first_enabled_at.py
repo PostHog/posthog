@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from products.logs.backend.platform_alert_backfill import backfill_copies_first_enabled_at
 
@@ -28,4 +28,4 @@ class Command(BaseCommand):
             f"across {len(result.matched)} teams"
         )
         if result.failed_team_ids:
-            self.stderr.write(f"Failed for teams: {', '.join(map(str, result.failed_team_ids))}")
+            raise CommandError(f"Failed for teams: {', '.join(map(str, result.failed_team_ids))}")
