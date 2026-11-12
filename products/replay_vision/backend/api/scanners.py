@@ -945,7 +945,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             self._check_can_take_over(self.instance)
             attrs["take_over_as_creator"] = True
         if attrs.get("free_only", self.instance.free_only) and free_credits_used_up(
-            self.context["get_team"]().organization_id
+            self.context["get_team"]().organization_id,
+            credits_per_observation=observation_credits_for_model(attrs.get("model", self.instance.model)),
         ):
             raise serializers.ValidationError(
                 {

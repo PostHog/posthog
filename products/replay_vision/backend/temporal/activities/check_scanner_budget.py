@@ -3,7 +3,12 @@ from django.utils import timezone
 
 from temporalio import activity
 
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerDisabledReason, initial_watermark
+from products.replay_vision.backend.models.replay_scanner import (
+    ReplayScanner,
+    ScannerDisabledReason,
+    ScannerType,
+    initial_watermark,
+)
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
@@ -11,6 +16,7 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
 )
 from products.replay_vision.backend.quota import compute_scanner_budget, current_period_bounds
 from products.replay_vision.backend.scanner_access import unrunnable_reason
+from products.replay_vision.backend.temporal.activities.find_scanner_candidates import stop_variant_analysis
 from products.replay_vision.backend.temporal.constants import CHECK_SCANNER_BUDGET_TIMEOUT
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
@@ -105,8 +111,12 @@ def _turn_off_free_only_scanner(scanner: ReplayScanner) -> CheckScannerBudgetOut
     """Turn a free-only scanner off once the free credits run out, so it doesn't start again when they reset.
 
     Its backfills are cancelled with it: one paused on the same free credits would otherwise resume
-    on its own next period, which is the restart this turn-off exists to prevent.
+    on its own next period, which is the restart this turn-off exists to prevent. An experiment scanner's
+    scouts are paused first, because once it is off nothing retries a failed pause.
     """
+    if scanner.scanner_type == ScannerType.EXPERIMENT and not stop_variant_analysis(scanner):
+        record_sweep_outcome(f"{ScannerDisabledReason.FREE_CREDITS_USED}_pause_failed")
+        return CheckScannerBudgetOutput(capped=True)
     with transaction.atomic():
         # One racing tick wins the lock, and a concurrent switch off "Free credits only" wins over the turn-off.
         locked = ReplayScanner.objects.select_for_update().filter(pk=scanner.pk, enabled=True, free_only=True).first()

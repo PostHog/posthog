@@ -1355,6 +1355,35 @@ def test_free_only_scanner_turns_off_when_the_free_credits_run_out(
     assert ("backfill was canceled" in notification.body) is expect_turned_off
 
 
+@pytest.mark.django_db(transaction=True)
+def test_free_only_experiment_scanner_stays_on_until_its_scout_is_paused() -> None:
+    scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT, free_only=True)
+    experiment = create_experiment(scanner.team, "free-flag", launched=True, variants=["control", "test"])
+    scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+    scanner.save()
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=200)
+    inputs = CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+
+    with (
+        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        patch("products.notifications.backend.facade.api.create_notification"),
+        patch(f"{_ACTIVITY}.pause_variant_analysis_scouts", side_effect=RuntimeError("signals down")),
+    ):
+        check_scanner_budget_activity(inputs)
+    scanner.refresh_from_db()
+    assert scanner.enabled is True
+
+    with (
+        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        patch("products.notifications.backend.facade.api.create_notification"),
+        patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts,
+    ):
+        check_scanner_budget_activity(inputs)
+    assert pause_scouts.called
+    scanner.refresh_from_db()
+    assert scanner.disabled_reason == ScannerDisabledReason.FREE_CREDITS_USED
+
+
 @pytest.mark.parametrize("case", ["creator_left_org", "no_ai_consent"])
 @pytest.mark.django_db(transaction=True)
 def test_check_scanner_budget_activity_lets_an_unrunnable_scanner_through_to_be_turned_off(case: str) -> None:

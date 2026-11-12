@@ -1831,7 +1831,8 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         scanner = self._create_scanner(enabled=before, free_only=free_only)
         ReplayScanner.objects.filter(pk=scanner.pk).update(disabled_reason=reason_before)
 
-        with patch("products.replay_vision.backend.quota.FREE_TIER_MONTHLY_CREDITS", 0):
+        # One free credit is left, less than one observation costs, so the sweep would stop it straight away.
+        with patch("products.replay_vision.backend.quota.FREE_TIER_MONTHLY_CREDITS", 1):
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": after}, format="json")
 
         self.assertEqual(resp.status_code, status, resp.json())

@@ -121,7 +121,7 @@ def _experiment_lifecycle_block(scanner: ReplayScanner) -> _LifecycleBlock | Non
     return None
 
 
-def _stop_variant_analysis(scanner: ReplayScanner) -> bool:
+def stop_variant_analysis(scanner: ReplayScanner) -> bool:
     """Pause the scanner's variant analysis scouts and return whether that worked.
 
     A failure here leaves the scout running one more day, which must never fail the tick.
@@ -165,7 +165,7 @@ def _turn_off_unrunnable_scanner(scanner: ReplayScanner, reason: ScannerDisabled
     An experiment scanner's scouts are paused first: a disabled scanner has no schedule left to retry a
     failed pause, so a failure keeps the scanner on and the next tick tries again.
     """
-    if scanner.scanner_type == ScannerType.EXPERIMENT and not _stop_variant_analysis(scanner):
+    if scanner.scanner_type == ScannerType.EXPERIMENT and not stop_variant_analysis(scanner):
         record_sweep_outcome(f"{reason}_pause_failed")
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
     scanner.turn_off(reason)
@@ -206,7 +206,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
                 # A pause resumes, and the scout can sit it out. An ended or archived experiment's
                 # data stops changing, so its scout would only re-read the same summaries on the
                 # customer's bill.
-                _stop_variant_analysis(scanner)
+                stop_variant_analysis(scanner)
             record_sweep_outcome("experiment_over")
             horizon = initial_watermark()
             return FindScannerCandidatesOutput(

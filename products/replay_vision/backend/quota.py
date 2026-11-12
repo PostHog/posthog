@@ -745,10 +745,16 @@ def free_credits_ceiling(cap: OrgCreditCap) -> int:
 FREE_CREDITS_USED_CODE = "scanner_free_credits_used"
 
 
-def free_credits_used_up(organization_id: UUID, cap: OrgCreditCap | None = None) -> bool:
-    """Whether a free-only scanner would stop before its first scan: the org's draw already fills the free credits."""
+def free_credits_used_up(
+    organization_id: UUID, cap: OrgCreditCap | None = None, credits_per_observation: int = 1
+) -> bool:
+    """Whether a free-only scanner would stop before its first scan: one more observation won't fit the free credits.
+
+    Matches `ScannerBudget.blocked`, so the API never turns on a scanner the next sweep turns straight back off.
+    """
     cap = cap or org_credit_cap(organization_id)
-    return quota_state_for_cap(organization_id, cap).credits_used >= free_credits_ceiling(cap)
+    credits_used = quota_state_for_cap(organization_id, cap).credits_used
+    return credits_used + max(credits_per_observation, 1) > free_credits_ceiling(cap)
 
 
 def _free_credits_budget(organization_id: UUID, period: BillingPeriod) -> ScannerBudget:
