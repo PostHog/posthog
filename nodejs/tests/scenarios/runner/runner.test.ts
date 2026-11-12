@@ -2,6 +2,7 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { AddressInfo, Socket, createServer } from 'net'
 import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
@@ -212,6 +213,33 @@ describe('runner', () => {
         },
         20_000
     )
+
+    it('stops seeding when the database accepts the connection and never answers its startup', async () => {
+        const sockets: Socket[] = []
+        const silent = createServer((socket) => void sockets.push(socket))
+        await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+        try {
+            const { port } = silent.address() as AddressInfo
+            const bounded = createRunner(
+                environment,
+                { ...process.env, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL },
+                { seedWithinMs: 1000 }
+            )
+
+            const result = await bounded.run(
+                withSettings({ DATABASE_URL: `postgres://scenario:scenario@127.0.0.1:${port}/scenario` }),
+                NEVER_ABORTED
+            )
+
+            expect(result).toMatchObject({
+                status: 'invalid',
+                statusReason: expect.stringMatching(/^the run stopped: seeding did not finish within 1000 ms/),
+            })
+        } finally {
+            sockets.forEach((socket) => socket.destroy())
+            await new Promise((resolve) => silent.close(resolve))
+        }
+    }, 20_000)
 
     it('produces with the Kafka settings the card profile names', async () => {
         const profile = path.join(cacheHome, 'profile.yaml')

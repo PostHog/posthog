@@ -13,7 +13,7 @@ import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
 import { RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
-import { DriveSummary, drive, seed } from '../generator/generator'
+import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
 import { createCyclotronProbe } from '../probe/cyclotron-probe'
 import { provenanceOf } from '../scorecard/provenance'
@@ -51,6 +51,7 @@ export interface Runner {
 const HEALTH_INTERVAL_MS = 5000
 const DELIVERY_TIMEOUT_MS = 10_000
 const SEED_STATEMENT_TIMEOUT_MS = 5000
+const SEED_WITHIN_MS = 60_000
 
 type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergence' | 'invariants'>
 
@@ -133,7 +134,34 @@ function withEvidenceError(result: RunResult, error: string | undefined): RunRes
           }
 }
 
-export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = process.env): Runner {
+async function seedWithin(
+    loaded: LoadedCard,
+    postgres: PostgresRouter,
+    signal: AbortSignal,
+    withinMs: number
+): Promise<SeedState> {
+    const deadline = AbortSignal.timeout(withinMs)
+    const stop = AbortSignal.any([signal, deadline])
+    let onStop = (): void => undefined
+    const stopped = new Promise<never>((_, reject) => {
+        onStop = () =>
+            reject(deadline.aborted ? new Error(`seeding did not finish within ${withinMs} ms`) : stop.reason)
+        stop.addEventListener('abort', onStop, { once: true })
+    })
+    try {
+        return await Promise.race([seed(loaded, postgres, stop), stopped])
+    } finally {
+        stop.removeEventListener('abort', onStop)
+    }
+}
+
+export type RunnerOptions = { seedWithinMs?: number }
+
+export function createRunner(
+    environment: Environment,
+    env: NodeJS.ProcessEnv = process.env,
+    { seedWithinMs = SEED_WITHIN_MS }: RunnerOptions = {}
+): Runner {
     const stateDir = defaultStateDir(env)
     let restartRequired: Error | undefined
 
@@ -175,7 +203,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                     { DATABASE_URL: seedingUrlOf(specs[0]), POSTGRES_CONNECTION_POOL_SIZE: 2 },
                     'posthog-scenarios'
                 )
-                const seeded = await seed(loaded, postgres, signal)
+                const seeded = await seedWithin(loaded, postgres, signal, seedWithinMs)
                 await judge.open(seeded)
                 stopHealth = watchHealth(environment)
                 const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, runId })
@@ -208,7 +236,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                         statusReason: outcome.status === 'passed' ? failed : `${outcome.statusReason}; ${failed}`,
                     }
                 } finally {
-                    await postgres?.end()
+                    await Promise.race([postgres?.end(), sleep(seedWithinMs, undefined, { ref: false })])
                 }
             }
             const base: RunResult = {
