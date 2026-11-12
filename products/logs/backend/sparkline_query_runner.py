@@ -77,12 +77,16 @@ class SparklineQueryRunner(LogsQueryRunner):
                 result_key: breakdown_value,
                 "count": result[2],
             }
-            if not self._use_rollup:
-                # The rollup has no byte column, and a zero would say that the logs have no bytes.
+            if self._ranks_by_bytes:
+                # Other callers get no byte sum, and a zero would say that the logs have no bytes.
                 row["bytes_uncompressed"] = result[3]
             results.append(row)
 
         return LogsQueryResponse(results=results)
+
+    @property
+    def _ranks_by_bytes(self) -> bool:
+        return (self.query.sparklineRankBy or DEFAULT_RANK_BY) == LogsSparklineRankBy.BYTES
 
     @cached_property
     def _use_rollup(self) -> bool:
@@ -94,7 +98,7 @@ class SparklineQueryRunner(LogsQueryRunner):
             return False
         query = self.query
         if (
-            (query.sparklineRankBy or DEFAULT_RANK_BY) == LogsSparklineRankBy.BYTES
+            self._ranks_by_bytes
             or query.searchTerm
             or query.resourceFingerprint
             or query.personId is not None
@@ -134,7 +138,7 @@ class SparklineQueryRunner(LogsQueryRunner):
                     toStartOfInterval({time_field}, {one_interval_period}) AS time,
                     {breakdown_field} AS breakdown_value,
                     count() AS event_count,
-                    sum(_bytes_uncompressed) AS bytes_uncompressed
+                    {bytes_uncompressed} AS bytes_uncompressed
                 FROM logs
                 WHERE {where} AND time >= {date_from_start_of_interval} AND time <= {date_to}
                 GROUP BY breakdown_value, time
@@ -149,6 +153,11 @@ class SparklineQueryRunner(LogsQueryRunner):
                 else ast.Field(chain=["timestamp"]),
                 "where": self.where(),
                 "breakdown_field": self._breakdown_field,
+                # The minute-aggregate projection holds only count(). A byte sum in the query makes
+                # ClickHouse read the raw rows, so only a caller that ranks by bytes gets one.
+                "bytes_uncompressed": parse_expr("sum(_bytes_uncompressed)")
+                if self._ranks_by_bytes
+                else ast.Constant(value=0),
             },
         )
         assert isinstance(query, ast.SelectQuery)

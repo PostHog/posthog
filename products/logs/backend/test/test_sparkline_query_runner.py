@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
@@ -26,6 +27,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
     HEAVY_SERVICE = "service-024"
     BYTES_PER_LOG = 1
     HEAVY_BYTES_PER_LOG = 1_000_000
+    LOGS_TABLE_ONLY_COUNT = 3
 
     @classmethod
     def setUpTestData(cls):
@@ -103,7 +105,6 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         from_rollup = self._make_sparkline_api_request(query_params)
         from_logs = self._make_sparkline_api_request({**query_params, "sparklineRankBy": "bytes"})
 
-        self.assertNotIn("bytes_uncompressed", from_rollup[0])
         self.assertEqual(
             [(r["time"], r["severity"], r["count"]) for r in from_rollup],
             [(r["time"], r["severity"], r["count"]) for r in from_logs],
@@ -116,34 +117,29 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {"dateRange": {"date_from": "2026-03-01T00:10:00.000000Z", "date_to": "2026-03-02T00:00:00.000000Z"}}
         )
 
-        self.assertNotIn("bytes_uncompressed", response[0])
         self.assertEqual(sum(r["count"] for r in response), self.SERVICE_COUNT * (self.BUCKET_COUNT - 1))
 
-    @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
-    def test_severity_filter_with_upper_case_reads_the_logs_table(self):
-        response = self._make_sparkline_api_request(
-            {
-                "dateRange": {"date_from": "2026-03-01T00:00:00.000000Z", "date_to": "2026-03-02T00:00:00.000000Z"},
-                "filterGroup": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"key": "severity_level", "type": "log", "operator": "exact", "value": ["ERROR"]}
-                            ],
-                        }
-                    ],
-                },
-            }
-        )
+    @parameterized.expand(
+        [
+            # The rollup stores severity in lower case, so it has no row for this filter.
+            ("upper_case_severity_filter", "2026-02-02T00:10:00Z", ["ERROR"]),
+            ("range_older_than_the_shortest_retention", "2026-02-20T00:10:00Z", []),
+        ]
+    )
+    def test_reads_the_logs_table(self, _name, now, severity_filter):
+        filters = [{"key": "severity_level", "type": "log", "operator": "exact", "value": severity_filter}]
+        with time_machine.travel(now, tick=False):
+            response = self._make_sparkline_api_request(
+                {
+                    "dateRange": {"date_from": "2026-02-01T00:00:00.000000Z", "date_to": "2026-02-02T00:00:00.000000Z"},
+                    "filterGroup": {
+                        "type": "AND",
+                        "values": [{"type": "AND", "values": filters if severity_filter else []}],
+                    },
+                }
+            )
 
-        self.assertIn("bytes_uncompressed", response[0])
-
-    @time_machine.travel("2026-03-20T00:10:00Z", tick=False)
-    def test_range_older_than_the_shortest_retention_reads_the_logs_table(self):
-        # Only logs table rows carry bytes, and the test logs table has no TTL.
-        self.assertIn("bytes_uncompressed", self._service_sparkline()[0])
+        self.assertEqual(sum(r["count"] for r in response), self.LOGS_TABLE_ONLY_COUNT)
 
     @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
     def test_body_search_reads_the_logs_table_not_the_rollup(self):
@@ -209,3 +205,14 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 rows.append(log_item)
         # The test `logs` table feeds no volume rollup, so the sparkline needs the rollup rows too.
         insert_logs_and_rollups(rows)
+
+        # These logs have no rollup rows, so only a read of the logs table counts them.
+        logs_table_only = ""
+        for hour in range(cls.LOGS_TABLE_ONLY_COUNT):
+            log_item = dict(template)
+            log_item["team_id"] = cls.team.id
+            log_item["uuid"] = str(uuid.uuid4())
+            log_item["severity_text"] = "ERROR"
+            log_item["timestamp"] = log_item["observed_timestamp"] = f"2026-02-01 0{hour + 1}:00:00.000000"
+            logs_table_only += json.dumps(log_item) + "\n"
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{logs_table_only}")
