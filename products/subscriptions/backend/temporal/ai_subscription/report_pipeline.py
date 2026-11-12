@@ -68,6 +68,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     WINDOW_START_PLACEHOLDER,
     ReportWindow,
     StoredPlanInvalidError,
+    ai_subscription_llm_tracing,
     build_enriched_prompt,
     build_frozen_prompt,
     get_ai_query_plan_status,
@@ -554,13 +555,10 @@ async def _synthesize(
     trace_correlation_id: Optional[Union[int, str]],
     source_urls: tuple[str, ...] = (),
 ) -> str:
-    posthog_properties: dict[str, Union[str, int]] = {
-        "feature": "ai_subscription",
-        "stage": "synthesis",
-        "trace_id": str(uuid.uuid4()),
-    }
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
+    posthog_properties, llm_config = ai_subscription_llm_tracing(
+        team=team, user=user, stage="synthesis", trace_correlation_id=trace_correlation_id
+    )
+    posthog_properties["trace_id"] = str(uuid.uuid4())
 
     report_schema = to_strict_json_schema(ReportDocument)
     allowed_urls: list[str] = []
@@ -613,6 +611,7 @@ Use custom_layout only when the user explicitly requests a fixed template; other
                 ("system", synthesis_prompt),
                 ("human", human_message),
             ],
+            config=llm_config,
         )
         result = ReportDocument.model_validate(response)
     except Exception as exc:
@@ -819,9 +818,9 @@ async def _arequest_hogql_fix(
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> Optional[str]:
-    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "query_fix"}
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
+    posthog_properties, llm_config = ai_subscription_llm_tracing(
+        team=team, user=user, stage="query_fix", trace_correlation_id=trace_correlation_id
+    )
 
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
@@ -846,7 +845,9 @@ async def _arequest_hogql_fix(
     rendered = f"{rendered}\n\n{_fix_project_context_block(context_blob)}"
 
     try:
-        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)([("system", rendered)])
+        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)(
+            [("system", rendered)], config=llm_config
+        )
     except Exception as exc:
         logger.warning(
             "ai_report.query_fix_llm_failed",

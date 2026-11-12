@@ -1,4 +1,5 @@
 import re
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
@@ -8,6 +9,8 @@ from django.db.models import BigIntegerField, F, IntegerField, Q
 from django.db.models.functions import Coalesce
 
 import structlog
+import posthoganalytics
+from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPromptMaxLength, TeamTaxonomyQuery
@@ -45,7 +48,7 @@ from products.subscriptions.backend.temporal.ai_subscription.schemas import (
     RelevantEvents,
 )
 
-from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.llm import MaxCallbackHandler, MaxChatOpenAI
 from ee.hogai.utils.feature_flags import is_core_memory_disabled
 
 logger = structlog.get_logger(__name__)
@@ -109,6 +112,31 @@ DEFAULT_PLANNER_MODEL = "gpt-4.1"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1"
 _PLANNER_LLM_TIMEOUT_SECONDS = 90.0
 _EVENT_SELECTION_LLM_TIMEOUT_SECONDS = 30.0
+AI_SUBSCRIPTION_AI_PRODUCT = "subscriptions"
+
+
+def ai_subscription_llm_tracing(
+    *, team: Team, user: User, stage: str, trace_correlation_id: Optional[Union[int, str]]
+) -> tuple[dict[str, Union[str, int]], RunnableConfig]:
+    properties: dict[str, Union[str, int]] = {
+        "ai_product": AI_SUBSCRIPTION_AI_PRODUCT,
+        "feature": "ai_subscription",
+        "stage": stage,
+    }
+    if trace_correlation_id is not None:
+        properties["subscription_id"] = trace_correlation_id
+    client = posthoganalytics.default_client
+    if client is None:
+        return properties, {}
+    # MaxChatOpenAI only puts these properties in langchain metadata. Without a PostHog callback
+    # handler no $ai_generation event is captured, so the call is neither reported nor billed.
+    handler = MaxCallbackHandler(
+        client,
+        distinct_id=str(user.distinct_id),
+        trace_id=str(uuid.uuid4()),
+        properties={**properties, "team_id": team.id},
+    )
+    return properties, {"callbacks": [handler]}
 
 
 class StoredPlanInvalidError(Exception):
@@ -517,9 +545,9 @@ def _llm_selected_events(
 ) -> list[str]:
     # The model picks relevant events from the project's vocabulary (vs lexical matching). Any failure
     # degrades to no picks rather than breaking generation — deterministic pins still survive.
-    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "event_selection"}
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
+    posthog_properties, llm_config = ai_subscription_llm_tracing(
+        team=team, user=user, stage="event_selection", trace_correlation_id=trace_correlation_id
+    )
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
         timeout=_EVENT_SELECTION_LLM_TIMEOUT_SECONDS,
@@ -535,7 +563,7 @@ def _llm_selected_events(
     )
 
     try:
-        result = llm.invoke([("system", rendered_prompt)])
+        result = llm.invoke([("system", rendered_prompt)], config=llm_config)
     except Exception:
         logger.warning("ai_subscription.event_selection_failed", team_id=team.id, exc_info=True)
         return []
@@ -716,9 +744,9 @@ def generate_query_plan(
 ) -> QueryPlan:
     # `user is None` is enforced at the public entry point (`generate_ai_report`)
     # which is the only caller path into here. Don't repeat the check.
-    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "plan"}
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
+    posthog_properties, llm_config = ai_subscription_llm_tracing(
+        team=team, user=user, stage="plan", trace_correlation_id=trace_correlation_id
+    )
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
         timeout=_PLANNER_LLM_TIMEOUT_SECONDS,
@@ -741,7 +769,7 @@ def generate_query_plan(
         },
     )
 
-    result = llm.invoke([("system", rendered_prompt)])
+    result = llm.invoke([("system", rendered_prompt)], config=llm_config)
     if not isinstance(result, QueryPlan):
         raise PromptRejectedError("Planner returned a malformed plan.")
     return result

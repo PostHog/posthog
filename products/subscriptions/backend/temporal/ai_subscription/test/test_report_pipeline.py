@@ -52,6 +52,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
 from products.subscriptions.backend.temporal.types import safe_error_message, safe_query_error_details
 
 from ee.hogai.context.insight.query_executor import FormattedQueryResult
+from ee.hogai.llm import MaxCallbackHandler
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 _RP = "products.subscriptions.backend.temporal.ai_subscription.report_pipeline"
@@ -388,6 +389,35 @@ async def test_request_hogql_fix_returns_none_on_wrong_type(mock_chat: MagicMock
         trace_correlation_id=None,
     )
     assert result is None
+
+
+@patch("products.subscriptions.backend.temporal.ai_subscription.spec_generator.posthoganalytics.default_client")
+@patch(f"{_RP}.MaxChatOpenAI")
+async def test_request_hogql_fix_traces_call_as_billable_subscriptions_usage(
+    mock_chat: MagicMock, _mock_client: MagicMock
+) -> None:
+    structured = mock_chat.return_value.with_structured_output.return_value
+    structured.invoke.return_value = HogQLFix(fixed_hogql="SELECT 2")
+    await _arequest_hogql_fix(
+        original_hogql="SELECT 1",
+        error_message="boom",
+        step_description="d",
+        context_blob="c",
+        team=MagicMock(id=7),
+        user=MagicMock(distinct_id="user-1"),
+        trace_correlation_id=42,
+    )
+
+    assert mock_chat.call_args.kwargs["posthog_properties"]["ai_product"] == "subscriptions"
+    (handler,) = structured.invoke.call_args.kwargs["config"]["callbacks"]
+    assert isinstance(handler, MaxCallbackHandler)
+    assert handler.properties == {
+        "ai_product": "subscriptions",
+        "feature": "ai_subscription",
+        "stage": "query_fix",
+        "subscription_id": 42,
+        "team_id": 7,
+    }
 
 
 @patch(f"{_RP}.resolve_prompt", return_value="Fix this query. Intent: {{{description}}} Error: {{{error}}}")
