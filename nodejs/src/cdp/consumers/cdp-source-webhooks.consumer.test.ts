@@ -1061,7 +1061,9 @@ describe('SourceWebhooksConsumer', () => {
                     })
 
                     expect(res.status).toEqual(422)
-                    expect(res.body.error).toContain('The project is over its workflow quota')
+                    expect(res.body.error).toEqual(
+                        'The trigger refused the run (429): The project is over its workflow quota'
+                    )
                     expect(getQueuedHogFlowIds()).toEqual([])
                 })
 

@@ -670,7 +670,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         // A refusal gets 422 so a template's own 401 or 405 is not mistaken for the route's auth check.
         const httpResponse = getCustomHttpResponse(outcome.result)
         if (httpResponse && httpResponse.status >= 400) {
-            const reason = typeof httpResponse.body === 'string' ? httpResponse.body : JSON.stringify(httpResponse.body)
+            const body = httpResponse.body
+            const reason =
+                typeof body === 'string' ? body : typeof body?.error === 'string' ? body.error : JSON.stringify(body)
             throw new SourceWebhookError(422, `The trigger refused the run (${httpResponse.status}): ${reason}`)
         }
         throw new SourceWebhookError(
