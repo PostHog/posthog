@@ -190,41 +190,20 @@ class TestEvents:
         assert result.params("end")[2:] == [str(int((midnight + timedelta(days=365)).timestamp()))] * 2
         assert result.params("expand_recurring")[2:] == ["false", "false"]
         assert result.params("show_cancelled")[2:] == ["true", "true"]
-        assert result.params("updated_after")[2:] == [None, None]
         assert result.response is not None
         assert result.response.primary_keys == ["grant_id", "calendar_id", "id"]
         assert result.committed_states[0].unit.startswith("team|")
 
-    @pytest.mark.parametrize(
-        ("provider", "expected_filter", "expected_requests"),
-        [
-            ("google", "99", 1),
-            # No `updated_after` support, so the range is read again.
-            ("nylas", None, 1),
-            # iCloud also needs ranges of six months or less: 30 + 365 days is three of them.
-            ("icloud", None, 3),
-        ],
-    )
-    def test_incremental_run_only_sends_the_filter_to_providers_that_support_it(
-        self, provider: str, expected_filter: str | None, expected_requests: int
-    ) -> None:
-        result = self._run(
-            provider,
-            ["primary"],
-            pages=expected_requests,
-            incremental_field="updated_at",
-            db_incremental_field_last_value=100,
-        )
+    def test_icloud_grants_get_ranges_of_six_months_or_less_and_no_cancelled_filter(self) -> None:
+        # 30 days back plus 365 days ahead is three ranges.
+        result = self._run("icloud", ["primary"], pages=3, should_use_incremental_field=False)
 
         assert result.raised is None
         event_requests = [request for request in result.requests if request.path == self.EVENTS]
-        assert len(event_requests) == expected_requests
-        assert {request.param("updated_after") for request in event_requests} == {expected_filter}
-        assert {request.param("show_cancelled") for request in event_requests} == (
-            {None} if provider == "icloud" else {"true"}
-        )
+        assert len(event_requests) == 3
+        assert {request.param("show_cancelled") for request in event_requests} == {None}
         spans = [int(request.param("end") or 0) - int(request.param("start") or 0) for request in event_requests]
-        assert all(span <= 180 * 86400 for span in spans) or provider != "icloud"
+        assert all(0 < span <= 180 * 86400 for span in spans)
 
     def test_resumes_inside_the_saved_calendar(self) -> None:
         first = self._run("google", ["primary", "team"], pages=2, should_use_incremental_field=False)
@@ -273,6 +252,7 @@ class TestGrantLevelFailures:
             route(
                 {
                     _messages("gone"): [ScriptedResponse(status=404, json={"error": {"type": "not_found_error"}})],
+                    "/v3/grants/gone": [ScriptedResponse(status=404, json={"error": {"type": "not_found_error"}})],
                     _messages("g2"): [_page([{"id": "m1", "grant_id": "g2"}])],
                     GRANTS: [_grants(_grant("gone"), _grant("g2"))],
                 }
@@ -282,6 +262,24 @@ class TestGrantLevelFailures:
 
         assert result.raised is None
         assert [row["grant_id"] for row in result.rows] == ["g2"]
+
+    def test_a_404_for_a_grant_that_still_exists_fails_the_sync(self) -> None:
+        # Nylas answered 404 to a list request it could not serve for a working grant. Skipping
+        # the grant there would end the sync with no rows and no error.
+        result = _driver().run(
+            "messages",
+            route(
+                {
+                    _messages("g1"): [ScriptedResponse(status=404, json={"error": {"message": "Not Found"}})],
+                    "/v3/grants/g1": [ScriptedResponse(json={"data": _grant("g1")})],
+                    GRANTS: [_grants(_grant("g1"))],
+                }
+            ),
+            should_use_incremental_field=False,
+        )
+
+        assert result.rows == []
+        assert "404 Client Error" in str(result.raised)
 
     def test_a_grant_whose_provider_has_no_such_data_is_skipped_but_another_400_fails(self) -> None:
         # Verbatim Nylas error for the messages of a virtual calendar grant.

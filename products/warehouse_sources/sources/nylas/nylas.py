@@ -17,7 +17,6 @@ from products.warehouse_sources.sources.nylas.settings import (
     DEFAULT_REGION,
     EVENT_FUTURE_DAYS,
     EVENT_NO_CANCELLED_PROVIDERS,
-    EVENT_UPDATED_FILTER_PROVIDERS,
     GRANTS_PAGE_SIZE,
     ICLOUD_MAX_EVENT_WINDOW_DAYS,
     ICLOUD_PROVIDER,
@@ -225,17 +224,28 @@ def _api_key_still_valid(session: requests.Session, connection: NylasConnection)
     return True
 
 
-def _is_grant_level_failure(error: requests.HTTPError, session: requests.Session, connection: NylasConnection) -> bool:
+def _grant_is_gone(session: requests.Session, connection: NylasConnection, grant_id: str) -> bool:
+    try:
+        response = session.get(f"{connection.base_url}/v3/grants/{grant_id}", timeout=REQUEST_TIMEOUT_SECONDS)
+    except requests.RequestException:
+        return False
+    return response.status_code == 404
+
+
+def _is_grant_level_failure(
+    error: requests.HTTPError, session: requests.Session, connection: NylasConnection, grant_id: str
+) -> bool:
     """True when only this grant is unreadable, so the sync can move on to the next one.
 
     A grant can be deleted or lose its provider authorization between the grants list and the
     read. Nylas answers both with a 4xx. A 401 or 403 is also what a revoked API key returns, and
     skipping every grant on that would end the sync with no rows and no error, so the key is
-    checked again before the grant is skipped.
+    checked again before the grant is skipped. Nylas also answers 404 to some requests it cannot
+    serve for a grant that exists, so a 404 only skips a grant that is really gone.
     """
     status = error.response.status_code if error.response is not None else None
     if status == 404:
-        return True
+        return _grant_is_gone(session, connection, grant_id)
     if status == 400:
         # A grant whose provider has no such data, such as email on a virtual calendar.
         return UNSUPPORTED_PROVIDER_ERROR in (_error_message(error.response) or "")
@@ -312,10 +322,6 @@ def _units_for_grant(
             params[config.incremental_param] = incremental_after
         return [_RequestUnit(key="", params=params)]
 
-    # A provider without the filter gets the whole time range again. The merge removes the
-    # rows read twice.
-    if incremental_after is not None and config.incremental_param and provider in EVENT_UPDATED_FILTER_PROVIDERS:
-        params[config.incremental_param] = incremental_after
     if provider not in EVENT_NO_CANCELLED_PROVIDERS:
         params["show_cancelled"] = "true"
 
@@ -337,7 +343,7 @@ class _GrantWalk:
     resumable_source_manager: ResumableSourceManager[NylasResumeConfig]
 
     def skip_or_raise(self, error: requests.HTTPError, grant_id: str) -> None:
-        if not _is_grant_level_failure(error, self.session, self.connection):
+        if not _is_grant_level_failure(error, self.session, self.connection, grant_id):
             raise error
         status = error.response.status_code if error.response is not None else None
         self.logger.warning(f"Nylas: skipping {self.config.name} for grant_id={grant_id}, status={status}")
