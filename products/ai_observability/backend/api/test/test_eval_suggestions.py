@@ -386,6 +386,27 @@ class TestEvalSuggestionsApi(APIBaseTest):
         assert replacement.status == EvalSuggestionStatus.DISMISSED
         assert self.client.get(f"{self.url}/").json()["results"] == []
 
+    @parameterized.expand(
+        [
+            ("read_without_query", "get", "", ["evaluation:read"], status.HTTP_403_FORBIDDEN),
+            ("read_with_query", "get", "", ["evaluation:read", "query:read"], status.HTTP_200_OK),
+            ("write_without_query", "post", "dismiss/", ["evaluation:write"], status.HTTP_403_FORBIDDEN),
+            ("write_with_query", "post", "dismiss/", ["evaluation:write", "query:read"], status.HTTP_200_OK),
+        ]
+    )
+    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    def test_api_key_needs_query_read_for_trace_evidence(
+        self, _name: str, method: str, path: str, scopes: list[str], expected: int, _flag: MagicMock
+    ) -> None:
+        suggestion = self._suggestion()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = getattr(self.client, method)(f"{self.url}/{suggestion.id}/{path}", format="json")
+
+        assert response.status_code == expected, response.json()
+
 
 class TestEvalSuggestionsAccessControl(APIBaseTest):
     def setUp(self) -> None:
@@ -467,6 +488,37 @@ class TestEvalSuggestionsAccessControl(APIBaseTest):
 
         assert self.client.get(f"{url}/").json()["results"] == []
         assert self.client.get(f"{url}/{suggestion.id}/").status_code == status.HTTP_404_NOT_FOUND
+
+    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    def test_dismissal_leaves_a_replacement_that_names_a_hidden_evaluation(self, _flag: MagicMock) -> None:
+        hidden = _evaluation(self.team, name="Hidden evaluation")
+        self._grant("editor")
+        self._grant("none", hidden)
+        newer_run = EvalSuggestionRun.objects.for_team(self.team.pk).create(
+            team=self.team, trigger="manual", status=EvalSuggestionRunStatus.COMPLETED, completed_at=timezone.now()
+        )
+        cards = [
+            EvalSuggestion.objects.for_team(self.team.pk).create(
+                team=self.team,
+                run=run,
+                kind=EvalSuggestionKind.NEW_HOG,
+                dedupe_key="same:card",
+                headline="Suggestion",
+                reason="Reason",
+                draft=CHECK_DRAFT,
+                similar_evaluation=similar,
+            )
+            for run, similar in ((self.suggestion_run, None), (newer_run, hidden))
+        ]
+        self.client.force_login(self.member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/evaluation_suggestions/{cards[0].id}/dismiss/", {}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        cards[1].refresh_from_db()
+        assert cards[1].status == EvalSuggestionStatus.PROPOSED
 
     @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
     def test_member_with_a_hidden_event_property_sees_no_suggestions(self, _flag: MagicMock) -> None:

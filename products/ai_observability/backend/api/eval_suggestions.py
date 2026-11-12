@@ -282,6 +282,11 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ]
         return super().get_throttles()
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Every response can carry evidence sampled from traces, which the query API guards with query:read.
+        level = "write" if self.action in self.scope_object_write_actions else "read"
+        return [f"evaluation:{level}", "query:read"]
+
     def _suggestions(self) -> QuerySet[EvalSuggestion]:
         """The team's suggestions, without those that name an evaluation the user cannot read."""
         suggestions = EvalSuggestion.objects.for_team(self.team_id)
@@ -400,7 +405,7 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self._suggestion(pk)
         body = EvalSuggestionDismissSerializer(data=request.data)
         body.is_valid(raise_exception=True)
-        suggestion = accept_logic.dismiss(pk, team=self.team, reason=body.validated_data.get("reason"))
+        suggestion = accept_logic.dismiss(pk, reason=body.validated_data.get("reason"), visible=self._suggestions())
         return Response(EvalSuggestionSerializer(suggestion).data)
 
     @extend_schema(request=None, responses={200: EvalSuggestionSerializer})
