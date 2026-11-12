@@ -21,6 +21,7 @@ import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSea
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
+import { ContentAutopilotTopicQuadrant } from './ContentAutopilotTopicQuadrant'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { ContentAutopilotVisibilityDashboardButton } from './ContentAutopilotVisibilityDashboardButton'
 import { POSITION_DESCRIPTION } from './promptReport'
@@ -35,6 +36,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
         hasChecks,
         chartMetric,
         visibilityChart,
+        topicQuadrantGroups,
         visibilityQuery,
         sourcesQuery,
     } = useValues(contentAutopilotPromptsOverviewLogic)
@@ -195,6 +197,26 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 </PagePerformanceCard>
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader
+                        title="Sites the engines cite most"
+                        actions={
+                            <ContentAutopilotOpenInsightButton
+                                query={sourcesQuery}
+                                data-attr="content-autopilot-prompts-overview-sources-tile-open-insight"
+                            />
+                        }
+                    />
+                    <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-sources-tile">
+                        <ContentAutopilotCitedSitesTable domains={overview.top_domains} />
+                    </div>
+                </PagePerformanceCard>
+            </div>
+
+            <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
+                {topicQuadrantGroups ? (
+                    <ContentAutopilotTopicQuadrant groups={topicQuadrantGroups} onSelectTopic={selectOverviewTopic} />
+                ) : null}
+                <PagePerformanceCard className="min-w-0">
+                    <PagePerformanceCardHeader
                         title="Mentions by topic"
                         description="Pick a topic to see its prompts."
                     />
@@ -208,34 +230,18 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 </PagePerformanceCard>
             </div>
 
-            <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
-                <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader
-                        title="Sites the engines cite most"
-                        actions={
-                            <ContentAutopilotOpenInsightButton
-                                query={sourcesQuery}
-                                data-attr="content-autopilot-prompts-overview-sources-tile-open-insight"
-                            />
-                        }
+            <PagePerformanceCard className="min-w-0">
+                <PagePerformanceCardHeader
+                    title="What the engines searched for"
+                    description="The web searches the engines ran while answering your prompts. Expand one to see its prompts."
+                />
+                <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
+                    <ContentAutopilotPromptsSearchTable
+                        rows={overview.top_searches}
+                        onOpenPrompt={openOverviewSearchPrompt}
                     />
-                    <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-sources-tile">
-                        <ContentAutopilotCitedSitesTable domains={overview.top_domains} />
-                    </div>
-                </PagePerformanceCard>
-                <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader
-                        title="What the engines searched for"
-                        description="The web searches the engines ran while answering your prompts. Expand one to see its prompts."
-                    />
-                    <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
-                        <ContentAutopilotPromptsSearchTable
-                            rows={overview.top_searches}
-                            onOpenPrompt={openOverviewSearchPrompt}
-                        />
-                    </div>
-                </PagePerformanceCard>
-            </div>
+                </div>
+            </PagePerformanceCard>
         </section>
     )
 }
