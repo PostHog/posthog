@@ -37,13 +37,24 @@ export function parseMessageTopHogMetrics<
 
 export interface ParsedKafkaMessage {
     event: IncomingEvent
+}
+
+export interface MeasuredEventBytes {
     eventBytes: number
 }
 
-export function createParseKafkaMessageStep<T extends { message: Message }>(): ProcessingStep<
-    T,
-    T & ParsedKafkaMessage
-> {
+export interface ParseKafkaMessageOptions {
+    measureEventBytes: true
+}
+
+// Measuring is opt-in so pipelines that never read the size skip a pass over every event body.
+export function createParseKafkaMessageStep<T extends { message: Message }>(
+    options: ParseKafkaMessageOptions
+): ProcessingStep<T, T & ParsedKafkaMessage & MeasuredEventBytes>
+export function createParseKafkaMessageStep<T extends { message: Message }>(): ProcessingStep<T, T & ParsedKafkaMessage>
+export function createParseKafkaMessageStep<T extends { message: Message }>(
+    options?: ParseKafkaMessageOptions
+): ProcessingStep<T, T & ParsedKafkaMessage & Partial<MeasuredEventBytes>> {
     return function parseKafkaMessageStep(input) {
         const { message } = input
 
@@ -66,7 +77,8 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
             // personInitialAndUTMProperties) happens after transformations in normalizeEventStep.
             const event: PipelineEvent = sanitizeEvent(parsePipelineEvent(combinedEvent))
 
-            return Promise.resolve(ok({ ...input, event: { event }, eventBytes: Buffer.byteLength(eventJson, 'utf8') }))
+            const measured = options?.measureEventBytes ? { eventBytes: Buffer.byteLength(eventJson, 'utf8') } : {}
+            return Promise.resolve(ok({ ...input, event: { event }, ...measured }))
         } catch (error) {
             logger.warn('Failed to parse Kafka message', { error })
             return Promise.resolve(

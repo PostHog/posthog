@@ -51,7 +51,6 @@ describe('createParseKafkaMessageStep', () => {
             expect(result).toEqual(
                 ok({
                     message: mockMessage,
-                    eventBytes: expect.any(Number),
                     event: {
                         event: {
                             event: 'test_event',
@@ -92,7 +91,6 @@ describe('createParseKafkaMessageStep', () => {
             expect(result).toEqual(
                 ok({
                     message: mockMessage,
-                    eventBytes: expect.any(Number),
                     event: {
                         event: {
                             event: 'minimal_event',
@@ -129,7 +127,6 @@ describe('createParseKafkaMessageStep', () => {
             expect(result).toEqual(
                 ok({
                     message: mockMessage,
-                    eventBytes: expect.any(Number),
                     event: {
                         event: {
                             event: 'test_event',
@@ -167,7 +164,6 @@ describe('createParseKafkaMessageStep', () => {
             expect(result).toEqual(
                 ok({
                     message: mockMessage,
-                    eventBytes: expect.any(Number),
                     event: {
                         event: {
                             event: 'test_event',
@@ -208,7 +204,6 @@ describe('createParseKafkaMessageStep', () => {
             expect(result).toEqual(
                 ok({
                     message: mockMessage,
-                    eventBytes: expect.any(Number),
                     event: {
                         event: {
                             event: 'test_event',
@@ -242,7 +237,7 @@ describe('createParseKafkaMessageStep', () => {
                 value: Buffer.from(JSON.stringify({ data, token: 'test_token', uuid: VALID_UUID })),
             })
 
-            const result = await step({ message })
+            const result = await createParseKafkaMessageStep({ measureEventBytes: true })({ message })
 
             expect(result).toEqual(ok(expect.objectContaining({ eventBytes: 98 })))
         })
