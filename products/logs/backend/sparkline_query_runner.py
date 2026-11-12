@@ -90,9 +90,7 @@ class SparklineQueryRunner(LogsQueryRunner):
         date_range = self.query_date_range
         if date_range.interval_name != "minute" or (date_range.interval_count * 60) % ROLLUP_BUCKET_SECONDS != 0:
             return False
-        # The rollup keeps a count longer than the logs table keeps the logs. No log gets a shorter
-        # retention than the default, so a range inside the default holds no expired log.
-        if date_range.date_from() < dt.datetime.now(dt.UTC) - dt.timedelta(days=DEFAULT_LOGS_RETENTION_DAYS):
+        if date_range.date_from() < self._rollup_cutoff:
             return False
         query = self.query
         if (
@@ -113,7 +111,21 @@ class SparklineQueryRunner(LogsQueryRunner):
             or filters.attribute_filter_groups
         ):
             return False
-        return all(log_filter.key in COLUMN_FILTER_FACET_FIELDS for log_filter in filters.log_filters)
+        if not all(log_filter.key in COLUMN_FILTER_FACET_FIELDS for log_filter in filters.log_filters):
+            return False
+        # The rollup stores severity in lower case, and the logs table keeps the case of each log.
+        severity_values: list[str] = []
+        for log_filter in filters.log_filters:
+            if log_filter.key == "severity_level" and log_filter.value is not None:
+                values = log_filter.value if isinstance(log_filter.value, list) else [log_filter.value]
+                severity_values.extend(str(value) for value in values)
+        return all(value == value.lower() for value in severity_values)
+
+    @cached_property
+    def _rollup_cutoff(self) -> dt.datetime:
+        # The rollup keeps a count longer than the logs table keeps the logs. No log gets a shorter
+        # retention than the default, so no log after this time is expired.
+        return dt.datetime.now(dt.UTC) - dt.timedelta(days=DEFAULT_LOGS_RETENTION_DAYS)
 
     def _logs_series_query(self) -> ast.SelectQuery:
         query = parse_select(
@@ -150,6 +162,8 @@ class SparklineQueryRunner(LogsQueryRunner):
                 " AND time_bucket < {date_to_start_of_interval} + {one_interval_period}",
                 placeholders=self.query_date_range.to_placeholders(),
             ),
+            # The first sparkline bucket can start before the range, and thus before the cutoff.
+            parse_expr("time_bucket >= {cutoff}", placeholders={"cutoff": ast.Constant(value=self._rollup_cutoff)}),
             *self.column_filter_exprs(),
         ]
         if self.query.serviceNames:

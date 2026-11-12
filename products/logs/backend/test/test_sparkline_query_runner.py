@@ -109,6 +109,37 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [(r["time"], r["severity"], r["count"]) for r in from_logs],
         )
 
+    @time_machine.travel("2026-03-15T00:10:00Z", tick=False)
+    def test_rollup_drops_the_part_of_the_first_bucket_older_than_the_shortest_retention(self):
+        # The range starts at the cutoff, so its first bucket starts 10 minutes before the cutoff.
+        response = self._make_sparkline_api_request(
+            {"dateRange": {"date_from": "2026-03-01T00:10:00.000000Z", "date_to": "2026-03-02T00:00:00.000000Z"}}
+        )
+
+        self.assertNotIn("bytes_uncompressed", response[0])
+        self.assertEqual(sum(r["count"] for r in response), self.SERVICE_COUNT * (self.BUCKET_COUNT - 1))
+
+    @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
+    def test_severity_filter_with_upper_case_reads_the_logs_table(self):
+        response = self._make_sparkline_api_request(
+            {
+                "dateRange": {"date_from": "2026-03-01T00:00:00.000000Z", "date_to": "2026-03-02T00:00:00.000000Z"},
+                "filterGroup": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "severity_level", "type": "log", "operator": "exact", "value": ["ERROR"]}
+                            ],
+                        }
+                    ],
+                },
+            }
+        )
+
+        self.assertIn("bytes_uncompressed", response[0])
+
     @time_machine.travel("2026-03-20T00:10:00Z", tick=False)
     def test_range_older_than_the_shortest_retention_reads_the_logs_table(self):
         # Only logs table rows carry bytes, and the test logs table has no TTL.
