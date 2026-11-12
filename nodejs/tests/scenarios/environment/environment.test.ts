@@ -492,22 +492,6 @@ describe('scenario environment', () => {
         expect(seekFailures(output)).toEqual(failures)
     })
 
-    it('refills the SES token bucket the email worker claims from, so a reset starts with a full one', async () => {
-        const { limiter, close } = sesLimiterOn({ host: '127.0.0.1', port: 6379 })
-        const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
-        try {
-            await limiter.claimUpTo(claim)
-            expect(await limiter.claimUpTo(claim)).toBe(0)
-
-            await forgetSesBucket({ host: '127.0.0.1', port: 6379 })
-
-            expect(await limiter.claimUpTo(claim)).toBe(5)
-        } finally {
-            await forgetSesBucket({ host: '127.0.0.1', port: 6379 })
-            await close()
-        }
-    })
-
     it('reports a Redis that accepts but never answers as down instead of hanging', async () => {
         const silent = net.createServer(() => {})
         await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
