@@ -5,7 +5,7 @@ import { internalFetch } from '~/common/utils/request'
 import { Leaf } from './certificates'
 import { SesMessage, addressesOf } from './ses'
 
-export const SIGNING_CERT_PATH = '/SimpleNotificationService-scenario-edge.pem'
+export const SIGNING_CERT_PATH = '/SimpleNotificationService-scenarioedge.pem'
 
 export type SnsSigner = { host: string; region: string; leaf: Leaf }
 
