@@ -65,7 +65,10 @@ from products.warehouse_sources.backend.models.external_data_source import (
     get_direct_external_data_source_for_connection,
     is_managed_warehouse_connection_ready,
 )
-from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
+from products.warehouse_sources.backend.models.pending_source_credential import (
+    PENDING_CREDENTIAL_TTL,
+    PendingSourceCredential,
+)
 from products.warehouse_sources.backend.models.table import (
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
     DataWarehouseTable,
@@ -107,6 +110,7 @@ __all__ = [
     "MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND",
     "MANAGED_WAREHOUSE_SOURCE_PREFIX",
     "MAX_FULL_REFRESH_INTERVAL_DAYS",
+    "PENDING_CREDENTIAL_TTL",
     "PendingSourceCredential",
     "SCHEMA_RESOURCE_ID_METADATA_KEY",
     "SCHEDULED_FULL_REFRESH_SYNC_TYPES",

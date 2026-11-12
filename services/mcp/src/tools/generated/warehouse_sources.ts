@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/warehouse_sources/api'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
-import { normalizeParamAliases } from '@/tools/cast-helpers'
+import { castSyncFrequency, normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -235,9 +235,13 @@ const ExternalDataSchemasPartialUpdateSchema = () => {
     const ExternalDataSchemasPartialUpdateParams = orvalSchemas.ExternalDataSchemasPartialUpdateParams()
     return z.preprocess(
         normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasPartialUpdateParams.omit({ project_id: true }).extend(
-            ExternalDataSchemasPartialUpdateBody.shape
-        )
+        ExternalDataSchemasPartialUpdateParams.omit({ project_id: true })
+            .extend(ExternalDataSchemasPartialUpdateBody.shape)
+            .extend({
+                sync_frequency: z
+                    .preprocess(castSyncFrequency, ExternalDataSchemasPartialUpdateBody.shape['sync_frequency'])
+                    .optional(),
+            })
     )
 }
 
@@ -410,8 +414,14 @@ const externalDataSourcesBulkUpdateSchemas = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = () =>
-    z.object({}).extend({ source_type: ExternalDataSourceTypeSchema })
+const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = () => {
+    const ExternalDataSourcesCheckCdcPrerequisitesCreateBody =
+        orvalSchemas.ExternalDataSourcesCheckCdcPrerequisitesCreateBody()
+    return ExternalDataSourcesCheckCdcPrerequisitesCreateBody.extend({
+        source_type: ExternalDataSourceTypeSchema,
+        payload: ExternalDataSourcePayloadSchema,
+    })
+}
 
 const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
     ReturnType<typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema>,
@@ -427,6 +437,21 @@ const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.source_type !== undefined) {
             body['source_type'] = params.source_type
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
+        if (params.cdc_management_mode !== undefined) {
+            body['cdc_management_mode'] = params.cdc_management_mode
+        }
+        if (params.tables !== undefined) {
+            body['tables'] = params.tables
+        }
+        if (params.cdc_slot_name !== undefined) {
+            body['cdc_slot_name'] = params.cdc_slot_name
+        }
+        if (params.cdc_publication_name !== undefined) {
+            body['cdc_publication_name'] = params.cdc_publication_name
         }
         const result = await context.api.request<Schemas.CdcPrerequisitesResponse>({
             method: 'POST',
@@ -721,6 +746,9 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
         }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
         }
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'PATCH',
