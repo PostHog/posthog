@@ -186,6 +186,9 @@ MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     # Outside every middleware that can swap the response, so the deferred work rides on the one sent.
     "posthog.after_response.AfterResponseMiddleware",
+    # Outside every middleware that can answer early (IP allowlist, CSRF, auth, IP restrictions),
+    # so the build skew counter sees the status of each API response the client receives.
+    "posthog.client_build_middleware.ClientBuildSkewMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
     # the request path. AllowIPMiddleware and axes read the IP at or after the view.
@@ -1485,8 +1488,8 @@ DEV_GATEWAY_MINT_KEY = get_from_env("DEV_GATEWAY_MINT_KEY", "")
 DEV_GATEWAY_TEAM_ID = get_from_env("DEV_GATEWAY_TEAM_ID", 0, type_cast=int)
 DEV_GATEWAY_TOKEN_CAP_USD = get_from_env("DEV_GATEWAY_TOKEN_CAP_USD", "25")
 DEV_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_TTL_SECONDS", 8 * 60 * 60, type_cast=int)
-# Caps minted in the trailing 24 hours count against this, so the gateway's reserved cap per token
-# makes it a hard ceiling on what one user can spend in a day.
+# Caps minted in the trailing 24 hours count against this until revoked, then only what the token
+# spent. The limit is approximate, because cost that settles after a revoke is not counted.
 DEV_GATEWAY_DAILY_CAP_USD = get_from_env("DEV_GATEWAY_DAILY_CAP_USD", "50")
 DEV_GATEWAY_MINTS_PER_HOUR = get_from_env("DEV_GATEWAY_MINTS_PER_HOUR", 20, type_cast=int)
 

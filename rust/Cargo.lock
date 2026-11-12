@@ -11210,6 +11210,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "replay-parquet-sink-v4"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
+ "aws-smithy-http-client",
+ "axum 0.7.9",
+ "bytes",
+ "chrono",
+ "common-kafka",
+ "envconfig",
+ "futures",
+ "lifecycle",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "parquet",
+ "rand 0.8.8",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "replay-recorder-v4"
 version = "0.1.0"
 dependencies = [
@@ -11241,6 +11268,7 @@ dependencies = [
  "rand 0.8.8",
  "rdkafka",
  "replay-core-v4",
+ "replay-parquet-sink-v4",
  "serde",
  "serde_json",
  "sqlx",

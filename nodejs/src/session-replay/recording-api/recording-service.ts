@@ -1,4 +1,4 @@
-import { GetObjectCommand, NoSuchKey, S3Client } from '@aws-sdk/client-s3'
+import { GetObjectCommand, NoSuchKey, S3Client, S3ServiceException } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
@@ -31,6 +31,8 @@ export interface GetBlockParams {
     decompress?: boolean
     // A caller that already read the session key passes it, so the block is decrypted without a second lookup.
     sessionKey?: SessionKey
+    // The public block route's role cannot list the bucket, so S3 answers a missing key with AccessDenied there.
+    accessDeniedMeansMissing?: boolean
 }
 
 export type RecordingDeletedResult = { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
@@ -206,6 +208,22 @@ export class RecordingService {
                 return { ok: false, error: 'not_found' }
             }
 
+            // Elsewhere AccessDenied is a real permission fault and stays an error. The separate metric result keeps a public
+            // role fault visible on the dashboard.
+            if (
+                params.accessDeniedMeansMissing &&
+                error instanceof S3ServiceException &&
+                error.name === 'AccessDenied'
+            ) {
+                logger.warn('[RecordingService] S3 denied the read, treating the block as missing', {
+                    key,
+                    teamId,
+                    sessionId,
+                })
+                RecordingApiMetrics.observeGetBlock('access_denied', (performance.now() - startTime) / 1000, 'unknown')
+                return { ok: false, error: 'not_found' }
+            }
+
             if (error instanceof SessionKeyDeletedError) {
                 logger.info('[RecordingService] Session key has been deleted', {
                     teamId,
@@ -292,7 +310,7 @@ export class RecordingService {
         if (!location || !this.validateS3Key(location.key)) {
             return { ok: false, error: 'not_found' }
         }
-        return this.getBlock({ sessionId, teamId, ...location, sessionKey })
+        return this.getBlock({ sessionId, teamId, ...location, sessionKey, accessDeniedMeansMissing: true })
     }
 
     async listBlocks(sessionId: string, teamId: number): Promise<RecordingBlock[]> {

@@ -10,11 +10,30 @@ import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { EmailLinksTable } from '../Workflows/EmailLinksTable'
 import { BroadcastPerformanceLogicProps, broadcastPerformanceLogic } from './broadcastPerformanceLogic'
+import { describeRunAudience } from './broadcastRunAudience'
 import { BroadcastSendActivity } from './BroadcastSendActivity'
 import { BroadcastSendErrorAction, BroadcastSendErrorBanner } from './BroadcastSendErrorBanner'
 
 function share(part: number, whole: number): string {
     return whole > 0 ? percentage(Math.min(part / whole, 1), 1) : '-'
+}
+
+export function BroadcastRunAudience(props: BroadcastPerformanceLogicProps): JSX.Element | null {
+    const { audience, capHoldHours } = useValues(broadcastPerformanceLogic(props))
+    if (!audience) {
+        return null
+    }
+    return (
+        <div className="flex flex-col gap-0.5 text-sm" data-attr="broadcast-run-audience">
+            <span>{describeRunAudience(audience)}</span>
+            {audience.waitingOnCap > 0 && audience.stillSending ? (
+                <span className="text-xs text-muted">
+                    Each email goes out when that person's frequency cap clears
+                    {capHoldHours ? `, at most ${capHoldHours} hours after it was held` : ''}.
+                </span>
+            ) : null}
+        </div>
+    )
 }
 
 export function BroadcastPerformance({

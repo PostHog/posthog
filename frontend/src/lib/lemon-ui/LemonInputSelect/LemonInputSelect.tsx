@@ -9,14 +9,15 @@ import { CSSProperties, MouseEvent, useCallback, useEffect, useMemo, useRef, use
 import { List } from 'react-window'
 
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils/arrays'
 import { createFuse } from 'lib/utils/fuseSearch'
 
@@ -595,6 +596,23 @@ export function LemonInputSelect<T = string>({
         }
     }
 
+    const _onBackspace = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+        if (!inputValue) {
+            e.preventDefault()
+            const newValues = [...values]
+            newValues.pop()
+            onChange?.(newValues)
+        } else if (mode === 'single') {
+            // In single mode, "selected all + backspace" should clear the selection
+            const input = e.currentTarget
+            if (input.selectionStart === 0 && input.selectionEnd === input.value.length) {
+                e.preventDefault()
+                setInputValue('')
+                onChange?.([])
+            }
+        }
+    }
+
     const _onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
         if (e.key === 'Enter') {
             e.preventDefault()
@@ -605,26 +623,17 @@ export function LemonInputSelect<T = string>({
             }
             e.currentTarget.blur()
         } else if (e.key === 'Backspace') {
-            if (!inputValue) {
-                e.preventDefault()
-                const newValues = [...values]
-                newValues.pop()
-                onChange?.(newValues)
-            } else if (mode === 'single') {
-                // In single mode, "selected all + backspace" should clear the selection
-                const input = e.currentTarget
-                if (input.selectionStart === 0 && input.selectionEnd === input.value.length) {
-                    e.preventDefault()
-                    setInputValue('')
-                    onChange?.([])
-                }
-            }
+            _onBackspace(e)
         } else if (e.key === 'ArrowDown') {
             e.preventDefault()
             setSelectedIndex(Math.min(selectedIndex + 1, displayOptions.length - 1))
         } else if (e.key === 'ArrowUp') {
             e.preventDefault()
             setSelectedIndex(Math.max(selectedIndex - 1, 0))
+        } else if (e.key === 'Escape' && showPopover) {
+            e.stopPropagation()
+            popoverFocusRef.current = false
+            setShowPopover(false)
         }
     }
 
