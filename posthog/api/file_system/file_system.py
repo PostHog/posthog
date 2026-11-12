@@ -159,7 +159,7 @@ class FileSystemListQuerySerializer(serializers.Serializer):
         ),
     )
     path = serializers.CharField(required=False, allow_blank=True, help_text="Only the entry at exactly this path.")
-    parent = serializers.CharField(
+    parent = serializers.CharField(  # type: ignore[assignment]
         required=False,
         allow_blank=True,
         help_text="Only entries under this folder path, at any depth, such as 'Experiments/Q4'.",
