@@ -143,12 +143,6 @@ describe('workflowLogic auto-save', () => {
             ...workflow.actions[0],
             config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
         } as HogFlow['actions'][number]
-        const liveWithDraft = (actions: HogFlow['actions']): HogFlow =>
-            makeWorkflow({
-                status: 'active',
-                draft: { name: 'Autosave test', actions, edges: workflow.edges },
-                draft_updated_at: '2026-05-01T00:01:00.000Z',
-            })
         it.each([
             {
                 case: 'a clean workflow',
@@ -172,14 +166,6 @@ describe('workflowLogic auto-save', () => {
                 editedWhileSaving: [validTrigger, workflow.actions[1]],
                 respond: (actions: HogFlow['actions']) => makeWorkflow({ actions }),
                 message: 'Workflow saved. These steps still need work: Trigger',
-                kind: 'warning-toast',
-            },
-            {
-                case: 'a live workflow whose staged draft has a step error',
-                actions: workflow.actions,
-                editedWhileSaving: null,
-                respond: liveWithDraft,
-                message: 'Draft saved. Fix these steps before you publish: Trigger',
                 kind: 'warning-toast',
             },
         ])(
@@ -1309,9 +1295,10 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.discardDisabledReason).toBeUndefined()
         })
 
-        it('blocks publish while a staged step has errors, and still allows discarding it', async () => {
+        it('refuses to publish a staged step with errors and reveals its field messages', async () => {
             // The default trigger has no event, which the trigger panel shows as an error.
             const invalidSteps = makeWorkflow().actions
+            let publishRequests = 0
             useMocks({
                 get: {
                     '/api/environments/:team_id/hog_flows/:id/': {
@@ -1319,16 +1306,6 @@ describe('workflowLogic auto-save', () => {
                         draft: { ...staged.draft, actions: invalidSteps },
                     },
                 },
-            })
-            logic.actions.loadWorkflow()
-            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
-
-            expect(logic.values.hasUnsavedChanges).toBe(false)
-            expect(logic.values.publishDisabledReason).toBe('Fix the steps with errors first')
-            expect(logic.values.discardDisabledReason).toBeUndefined()
-
-            let publishRequests = 0
-            useMocks({
                 post: {
                     '/api/environments/:team_id/hog_flows/:id/publish/': () => {
                         publishRequests += 1
@@ -1336,8 +1313,49 @@ describe('workflowLogic auto-save', () => {
                     },
                 },
             })
+            logic.actions.loadWorkflow()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            showToasts()
+
             await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+
             expect(publishRequests).toBe(0)
+            expect(await toastShown('Fix all errors before publishing')).toBe('error-toast')
+            expect(logic.values.saveAttemptedActionIds).toEqual(invalidSteps.map((action) => action.id))
+            cleanup()
+        })
+
+        it('keeps the plain save toast when disabling sends the stored copy, not the broken form', async () => {
+            const [trigger, exit] = makeWorkflow().actions
+            const validTrigger = {
+                ...trigger,
+                config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
+            } as HogFlow['actions'][number]
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': {
+                        ...staged,
+                        draft: { ...staged.draft, actions: [validTrigger, exit] },
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => [
+                        200,
+                        makeWorkflow({ status: 'draft', draft: null, draft_updated_at: null }),
+                    ],
+                },
+            })
+            logic.actions.loadWorkflow()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            showToasts()
+            logic.actions.setWorkflowValues({ actions: [trigger, exit] })
+
+            await expectLogic(logic, () => logic.actions.saveWorkflowPartial({ status: 'draft' }))
+                .toDispatchActions(['saveWorkflowSuccess'])
+                .toFinishAllListeners()
+
+            expect(await toastShown('Workflow saved')).toBe('success-toast')
+            cleanup()
         })
 
         it('still stages content when a queued save undoes the edit the previous save wrote', async () => {

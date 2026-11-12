@@ -3382,8 +3382,7 @@ export interface workflowLogicMeta {
         publishDisabledReason: (
             hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
-            draftActionPending: 'discard' | 'publish' | null,
-            workflowHasActionErrors: boolean
+            draftActionPending: 'discard' | 'publish' | null
         ) => string | undefined
         discardDisabledReason: (
             hasStagedDraft: boolean,
@@ -3594,9 +3593,12 @@ export const workflowLogic = kea<workflowLogicType>([
                         moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
                         keepsFormEdits,
                         editVersion: values.workflowEditVersion,
-                        stepsNeedingWork: updates.actions
-                            .filter((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
-                            .map((action) => action.name),
+                        // The validation results describe the form, which this save does not send.
+                        stepsNeedingWork: keepsFormEdits
+                            ? []
+                            : updates.actions
+                                  .filter((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
+                                  .map((action) => action.name),
                     }
                     saveContexts.push(saveContext)
                     cache.nextSaveMovesWorkflowIds = []
@@ -4417,12 +4419,11 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         publishDisabledReason: [
-            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending, s.workflowHasActionErrors],
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending],
             (
                 hasStagedDraft: boolean,
                 hasUnsavedChanges: boolean,
-                draftActionPending: 'publish' | 'discard' | null,
-                workflowHasActionErrors: boolean
+                draftActionPending: 'publish' | 'discard' | null
             ): string | undefined => {
                 if (draftActionPending === 'discard') {
                     return 'Discarding is in progress'
@@ -4432,11 +4433,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 if (hasUnsavedChanges) {
                     return 'Save your changes first'
                 }
-                if (!hasStagedDraft) {
-                    return 'No changes staged to publish'
-                }
-                // With the form saved it holds the staged draft, so its step errors are the draft's.
-                return workflowHasActionErrors ? 'Fix the steps with errors first' : undefined
+                return hasStagedDraft ? undefined : 'No changes staged to publish'
             },
         ],
 
@@ -4551,9 +4548,11 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
             }
-            // The "Draft saved" toast offers Publish too, and it can outlive the edit that broke a step.
-            if (values.publishDisabledReason) {
-                lemonToast.warning(values.publishDisabledReason)
+            // Publish stays clickable with step errors, like enabling: the attempt is what reveals the
+            // per-field messages, which stay hidden until then.
+            if (values.workflowHasActionErrors) {
+                actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
+                lemonToast.error('Fix all errors before publishing')
                 return
             }
             actions.setDraftActionPending('publish')
@@ -4826,9 +4825,7 @@ export const workflowLogic = kea<workflowLogicType>([
 
                 const stepsNeedingWork = (saveContext?.stepsNeedingWork ?? []).join(', ')
 
-                if (originalWorkflow.draft && stepsNeedingWork) {
-                    lemonToast.warning(`Draft saved. Fix these steps before you publish: ${stepsNeedingWork}`)
-                } else if (originalWorkflow.draft) {
+                if (originalWorkflow.draft) {
                     // Saving used to deploy immediately, so the changed contract needs a loud cue at
                     // the moment of saving, not only the status bar.
                     lemonToast.success('Draft saved. The live version keeps running until you publish.', {

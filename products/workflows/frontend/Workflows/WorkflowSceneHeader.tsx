@@ -32,14 +32,8 @@ import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 import { WorkflowScenePanel } from './WorkflowScenePanel'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
-    const {
-        workflow,
-        hasUnsavedChanges,
-        hasStagedDraft,
-        publishDisabledReason,
-        workflowLoading,
-        workflowUserAccessLevel,
-    } = useValues(workflowLogic)
+    const { workflow, hasUnsavedChanges, hasStagedDraft, workflowLoading, workflowUserAccessLevel } =
+        useValues(workflowLogic)
     const { setWorkflowValue, duplicate, archiveWorkflow, publishDraft, discardDraft } = useActions(workflowLogic)
     const { searchParams } = useValues(router)
     const editTemplateId = searchParams.editTemplateId as string | undefined
@@ -104,8 +98,13 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             opensFloatingUi
                                             onClick={() => publishDraft()}
                                             data-attr="workflow-menubar-publish-draft"
-                                            disabled={!!(disabledReason ?? publishDisabledReason)}
-                                            tooltip={disabledReason ?? publishDisabledReason}
+                                            disabled={!!disabledReason || hasUnsavedChanges}
+                                            tooltip={
+                                                disabledReason ??
+                                                (hasUnsavedChanges
+                                                    ? 'Save or clear your in-progress edits first'
+                                                    : undefined)
+                                            }
                                         >
                                             <IconUpload />
                                             Publish draft
