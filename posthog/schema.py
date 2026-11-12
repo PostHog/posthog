@@ -7624,6 +7624,10 @@ class MetricsDisplaySettings(BaseModel):
         default=MetricsReducer.LAST,
         description=("How scalar panels and legend calcs collapse a series to one number."),
     )
+    statSparkline: bool | None = Field(
+        default=True,
+        description=("`stat` display only: whether a graph of the series shows under the value."),
+    )
     statSummary: MetricsStatSummary | None = Field(
         default=MetricsStatSummary.LATEST,
         description="`stat` display only: which summary the headline value shows.",
