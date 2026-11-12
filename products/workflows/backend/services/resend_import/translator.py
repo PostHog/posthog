@@ -9,6 +9,7 @@ import re
 import json
 from collections.abc import Mapping
 from dataclasses import field as dataclass_field
+from itertools import islice
 from typing import Any
 
 from posthog.hogql.escape_sql import escape_hogql_identifier
@@ -500,17 +501,21 @@ class _Builder:
         if kind == "rule":
             return self._rule_groups(key, config, in_wait)
         rules = [rule for rule in config.get("rules") or [] if isinstance(rule, dict)]
+        # One group past the limit is enough to know the caller must cut, and keeps nested rules from growing.
+        limit = _MAX_CONDITION_PATHS + 1
         if kind == "or":
-            return [group for rule in rules for group in self._groups(key, rule, in_wait)]
+            alternatives: list[list[dict[str, Any]]] = []
+            for rule in rules:
+                alternatives.extend(self._groups(key, rule, in_wait))
+                if len(alternatives) >= limit:
+                    break
+            return alternatives[:limit]
         if kind == "and":
             combined: list[list[dict[str, Any]]] = [[]]
             for rule in rules:
                 groups = self._groups(key, rule, in_wait)
                 if groups:
-                    combined = [[*left, *right] for left in combined for right in groups]
-                # Multiplying further is pointless once this is past the limit, and the size could get out of hand.
-                if len(combined) > _MAX_CONDITION_PATHS:
-                    break
+                    combined = list(islice(([*left, *right] for left in combined for right in groups), limit))
             return [group for group in combined if group]
         return []
 
@@ -688,9 +693,22 @@ class _Builder:
         ]
 
 
+_LIQUID_TAG = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
+_LIQUID_STRING = re.compile(r"(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*')")
+
+
 def _fill_variable(text: str, name: str, replacement: str) -> str:
-    # A callable keeps a backslash in the replacement from reading as a regex escape.
-    return re.sub(rf"\bvariables\.{re.escape(name)}\b", lambda _: replacement, text)
+    """Replaces references to `variables.NAME` inside Liquid tags, leaving body copy and quoted strings alone."""
+    reference = re.compile(rf"\bvariables\.{re.escape(name)}\b")
+
+    def fill_tag(tag: re.Match[str]) -> str:
+        # Odd parts are string literals. A callable keeps a backslash in the replacement from reading as an escape.
+        parts = _LIQUID_STRING.split(tag.group(0))
+        return "".join(
+            part if index % 2 else reference.sub(lambda _: replacement, part) for index, part in enumerate(parts)
+        )
+
+    return _LIQUID_TAG.sub(fill_tag, text)
 
 
 def _rename_reserved_keys(steps: Mapping[str, Any]) -> dict[str, str]:

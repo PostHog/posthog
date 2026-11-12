@@ -55,6 +55,22 @@ class TestResendAutomationTranslation(SimpleTestCase):
         assert action["config"]["inputs"]["email"]["value"]["subject"] == subject
         assert sum("can't keep the value of NAME" in note.message for note in translated.notes) == int(noted)
 
+    def test_a_static_value_fills_only_liquid_references(self) -> None:
+        step = {
+            "key": "send",
+            "type": "send_email",
+            "config": {"template": {"id": "t1", "variables": {"NAME": "Alice"}}},
+        }
+        subject = 'Read variables.NAME: {{ variables.NAME | default: "variables.NAME" }}'
+        translated = translate_automation(
+            _automation([step], [{"from": "start", "to": "send"}]), {"t1": _email(subject)}
+        )
+
+        action = next(action for action in translated.workflow["actions"] if action["id"] == "send")
+        assert action["config"]["inputs"]["email"]["value"]["subject"] == (
+            'Read variables.NAME: {{ "Alice" | default: "variables.NAME" }}'
+        )
+
     def test_custom_contact_properties_lose_the_properties_prefix(self) -> None:
         send = {
             "key": "send",
@@ -336,13 +352,25 @@ class TestResendAutomationTranslation(SimpleTestCase):
         ]
         assert [edge["index"] for edge in branch_edges] == list(range(len(expected)))
 
-    def test_too_many_combinations_keep_a_note_instead_of_growing_without_limit(self) -> None:
-        either = {"type": "or", "rules": [_rule("a", "eq", 1), _rule("b", "eq", 2), _rule("c", "eq", 3)]}
-        check = {"key": "check", "type": "condition", "config": {"type": "and", "rules": [either] * 30}}
+    @parameterized.expand([("many_small_alternatives", 3, 30, False), ("nested_wide_alternatives", 20, 4, True)])
+    def test_too_many_combinations_keep_a_note_and_every_required_rule(
+        self, _name: str, width: int, depth: int, nested: bool
+    ) -> None:
+        either = {"type": "or", "rules": [_rule(f"a{index}", "eq", index) for index in range(width)]}
+        paid = _rule("paid", "eq", True)
+        if nested:
+            config: dict[str, Any] = paid
+            for _ in range(depth):
+                config = {"type": "and", "rules": [either, config]}
+        else:
+            config = {"type": "and", "rules": [*[either] * depth, paid]}
+        check = {"key": "check", "type": "condition", "config": config}
         translated = translate_automation(_automation([check], [{"from": "start", "to": "check"}]), {})
 
         action = next(action for action in translated.workflow["actions"] if action["id"] == "check")
-        assert len(action["config"]["conditions"]) == 20
+        conditions = action["config"]["conditions"]
+        assert len(conditions) == 20
+        assert all(any(item["key"] == "paid" for item in c["filters"]["properties"]) for c in conditions)
         assert any("more than 20 paths" in note.message for note in translated.notes)
 
     @parameterized.expand(

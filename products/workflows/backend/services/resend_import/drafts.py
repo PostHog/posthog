@@ -45,11 +45,13 @@ def import_resend_automation(
     if user is not None and previous_import(team, source_id, WorkflowImportSource.RESEND).record_id is None:
         access = UserAccessControl(user=user, team=team)
         step_types = {step.get("type") for step in automation.get("steps") or [] if isinstance(step, dict)}
+        referenced_segments = _segment_ids(automation)
         context = TranslationContext(
             step_emails=step_emails or {},
             segment_cohorts={
                 segment_id: _segment_cohort(team_id, user, access, segment_id, name)
                 for segment_id, name in (segments or {}).items()
+                if segment_id in referenced_segments
             },
             can_opt_out=access.check_access_level_for_resource("hog_flow", "editor"),
             unavailable_templates=frozenset(hidden_gated_template_ids(team))
@@ -93,3 +95,11 @@ def _reused_cohort(existing: CohortRef, access: UserAccessControl, name: str) ->
     if not access.check_access_level_for_ref(ref, "editor"):
         return SegmentCohort(problem=f'Adding people to the cohort for the Resend segment "{name}" needs edit access.')
     return SegmentCohort(name=f"{name} (from Resend)", cohort_id=existing.id)
+
+
+def _segment_ids(automation: Mapping[str, Any]) -> set[str]:
+    return {
+        str(step["config"]["segment_id"])
+        for step in automation.get("steps") or []
+        if isinstance(step, dict) and isinstance(step.get("config"), dict) and step["config"].get("segment_id")
+    }

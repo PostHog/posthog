@@ -65,6 +65,7 @@ from products.messaging.backend.services.resend_client import (
 )
 from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail
 from products.workflows.backend.facade.workflow_imports import import_resend_automation
+from products.workflows.backend.facade.writes import defer_hog_flow_reloads
 
 # The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit or retry.
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
@@ -660,28 +661,29 @@ def _save_automations(
     }
     items: list[ImportItem] = []
     counts: Counter[str] = Counter()
-    for automation in automations:
-        result = import_resend_automation(
-            context.team_id,
-            context.created_by_id,
-            automation,
-            emails,
-            step_emails=_step_emails(automation, senders),
-            segments=segments,
-        )
-        counts[{"created": "created", "skipped": "already_present"}.get(result.status, "failed")] += 1
-        items.append(
-            ImportItem(
-                label=str(automation.get("name") or automation.get("id")),
-                status="created"
-                if result.status == "created"
-                else "skipped"
-                if result.status == "skipped"
-                else "failed",
-                url=f"/workflows/{result.workflow_id}/workflow" if result.workflow_id else None,
-                notes=result.notes,
+    with defer_hog_flow_reloads():
+        for automation in automations:
+            result = import_resend_automation(
+                context.team_id,
+                context.created_by_id,
+                automation,
+                emails,
+                step_emails=_step_emails(automation, senders),
+                segments=segments,
             )
-        )
+            counts[{"created": "created", "skipped": "already_present"}.get(result.status, "failed")] += 1
+            items.append(
+                ImportItem(
+                    label=str(automation.get("name") or automation.get("id")),
+                    status="created"
+                    if result.status == "created"
+                    else "skipped"
+                    if result.status == "skipped"
+                    else "failed",
+                    url=f"/workflows/{result.workflow_id}/workflow" if result.workflow_id else None,
+                    notes=result.notes,
+                )
+            )
     return SavedPage(imported=counts["created"], counts=dict(counts), items=tuple(items))
 
 
