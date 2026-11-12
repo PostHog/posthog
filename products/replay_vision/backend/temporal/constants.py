@@ -133,6 +133,9 @@ RECONCILER_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
 LIST_ENABLED_SCANNERS_TIMEOUT = dt.timedelta(seconds=60)
 LIST_SCANNER_SCHEDULES_TIMEOUT = dt.timedelta(seconds=120)
 RECONCILE_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
+# Caps each of the upsert and delete fan-outs per reconciler tick, so a fleet-wide fingerprint change rolls
+# out over several ticks instead of one workflow scheduling an activity per scanner past the history limit.
+RECONCILE_MAX_SCHEDULE_OPS_PER_TICK = 1000
 
 # Short attempts so one stranded on a dying worker reruns on a live one instead of holding the tick.
 REAPER_OP_TIMEOUT = dt.timedelta(seconds=45)

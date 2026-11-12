@@ -18,14 +18,15 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import (
-    SETTLE_INTERVAL,
     ReplayScanner,
     ScannerDisabledReason,
     ScannerType,
+    SweepPauseReason,
     initial_watermark,
 )
 from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.filter_errors import (
+    FILTER_ERROR_RECHECK,
     clear_filter_error,
     filter_error_message,
     filter_error_pending,
@@ -51,7 +52,6 @@ from products.replay_vision.backend.temporal.constants import (
     PRIMING_LOOKBACK,
     PRIMING_MAX_EXECUTION_SECONDS,
     PRIMING_SCAN_SESSIONS,
-    SCANNER_SCHEDULE_INTERVAL,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import (
@@ -62,10 +62,15 @@ from products.replay_vision.backend.temporal.metrics import (
 )
 from products.replay_vision.backend.temporal.read_meter_types import (
     buckets_or_pre_split,
-    current_sweep_throttle_factor,
     deep_spend_bytes_per_day,
     deep_sweep_throttle_factor,
 )
+from products.replay_vision.backend.temporal.sweep_cadence import (
+    SWEEP_PAUSE_RECHECK,
+    SWEEP_PAUSE_RECHECK_EXPERIMENT_PAUSED,
+    SWEEP_PAUSE_RECHECK_SOON,
+)
+from products.replay_vision.backend.temporal.sweep_pause import pause_sweep, resume_after_pause
 from products.replay_vision.backend.temporal.sweep_types import (
     CandidateSessionPayload,
     FindScannerCandidatesInputs,
@@ -190,6 +195,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     if reason := unrunnable_reason(scanner):
         return _turn_off_unrunnable_scanner(scanner, reason)
 
+    resume_after_pause(scanner)
+
     lifecycle_block = _experiment_lifecycle_block(scanner)
     sweep_until: dt.datetime | None = None
     if lifecycle_block is not None and lifecycle_block.kind == "deleted":
@@ -202,12 +209,16 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
             # relaunch, but a disabled scanner has no schedule left to notice either. So skip the
             # tick instead, before any ClickHouse read. Both watermarks move to now, as a re-enable
             # does, so the sweep picks up from the resume or relaunch and never bills the gap.
-            if lifecycle_block.kind != "paused":
-                # A pause resumes, and the scout can sit it out. An ended or archived experiment's
-                # data stops changing, so its scout would only re-read the same summaries on the
-                # customer's bill.
-                stop_variant_analysis(scanner)
+            if lifecycle_block.kind == "paused":
+                # A pause resumes, and the scout can sit it out.
+                recheck = SWEEP_PAUSE_RECHECK_EXPERIMENT_PAUSED
+            else:
+                # An ended or archived experiment's data stops changing, so its scout would only re-read
+                # the same summaries on the customer's bill. A failed shutdown is retried by the next
+                # recheck, so that comes sooner.
+                recheck = SWEEP_PAUSE_RECHECK if stop_variant_analysis(scanner) else SWEEP_PAUSE_RECHECK_SOON
             record_sweep_outcome("experiment_over")
+            pause_sweep(scanner, SweepPauseReason.EXPERIMENT_NOT_RUNNING, timezone.now() + recheck)
             horizon = initial_watermark()
             return FindScannerCandidatesOutput(
                 candidates=[], saturated=False, swept_through=horizon, deep_swept_through=horizon
@@ -221,12 +232,15 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # variant lookup does. Skip before any read instead of building a query that can only be
         # refused. The watermark holds, like any other skipped tick.
         record_sweep_outcome("no_principal")
+        pause_sweep(scanner, SweepPauseReason.NO_PRINCIPAL, timezone.now() + SWEEP_PAUSE_RECHECK)
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     if filter_error_pending(scanner):
         # The filter failed recently and fails the same way until someone edits it, so skip the
         # query. The watermark holds, like any other skipped tick.
         record_sweep_outcome("filter_error")
+        assert scanner.filter_error_at is not None
+        pause_sweep(scanner, SweepPauseReason.FILTER_ERROR, scanner.filter_error_at + FILTER_ERROR_RECHECK)
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     try:
@@ -236,11 +250,6 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         raise ApplicationError(
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
         ) from exc
-
-    if _throttled(scanner):
-        record_sweep_outcome("throttled")
-        # No watermark advance, so the next executed sweep covers the skipped range in one query.
-        return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     started_at = time.monotonic()
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
@@ -307,7 +316,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         _fail_on_filter_error(scanner, exc)
         raise
     clear_filter_error(scanner)
-    candidates = [c for c in fetched if c.session_id not in excluded]
+    candidates = _drop_observed(scanner, [c for c in fetched if c.session_id not in excluded])
 
     # Deep candidates dispatch alongside fast ones, so the two share one in-flight budget: the deep
     # pass gets whatever headroom the fast pass left. At zero there is nothing left to dispatch, which
@@ -364,8 +373,12 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
 
     if deep_candidates:
         record_deep_candidates(len(deep_candidates))
+    # A full page counts even when every row was filtered out, because more matching recordings are waiting.
+    found = bool(candidates or deep_candidates or priming_candidates or batch.saturated)
+    if found:
+        ReplayScanner.objects.filter(pk=scanner.pk).update(last_found_candidates_at=timezone.now())
     record_sweep_outcome(
-        "candidates_found" if candidates or deep_candidates or priming_candidates else "no_candidates",
+        "candidates_found" if found else "no_candidates",
         candidates=len(candidates) + len(deep_candidates) + len(priming_candidates),
     )
     return FindScannerCandidatesOutput(
@@ -390,25 +403,6 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
 # Ceiling on the ids inlined into the deep query; past it the walk re-fetches observed sessions,
 # which the post-query filter below then drops.
 _DEEP_SWEEP_MAX_EXCLUSIONS = 20_000
-
-
-def _throttled(scanner: ReplayScanner) -> bool:
-    """True when this tick should be skipped to keep the scanner inside its 24h read budget.
-
-    The factor stretches the effective cadence: factor N means one executed sweep per N schedule
-    intervals. Distance is measured watermark-to-settle-horizon, so a saturated keyset walk (watermark
-    lagging behind the horizon) is never throttled harder while it drains its backlog.
-    """
-    now = dt.datetime.now(dt.UTC)
-    factor = current_sweep_throttle_factor(
-        scanner.fast_read_bytes_by_hour,
-        scanner.sweep_read_bytes_by_hour,
-        scanner.sweep_throttle_factor_override,
-        now,
-    )
-    if factor <= 1:
-        return False
-    return (now - SETTLE_INTERVAL) - scanner.last_swept_at < SCANNER_SCHEDULE_INTERVAL * factor
 
 
 def _priming_pass(scanner: ReplayScanner, query: RecordingsQuery, limit: int) -> list[CandidateSession]:
@@ -554,15 +548,24 @@ def _deep_sweep(
         progress = _DeepProgress(swept_through=last.session_end, seen_session_id=last.session_id)
     else:
         progress = _DeepProgress(swept_through=window_end)
-    if deep_candidates:
-        # The in-query exclusion is a bounded cost optimization; this filter is what guarantees an
-        # already-observed session never burns dispatch headroom, however far past the cap the backlog is.
-        already_observed = set(
-            ReplayObservation.objects.filter(
-                team_id=scanner.team_id,
-                scanner_id=scanner.id,
-                session_id__in=[c.session_id for c in deep_candidates],
-            ).values_list("session_id", flat=True)
-        )
-        deep_candidates = [c for c in deep_candidates if c.session_id not in already_observed]
-    return deep_candidates, progress
+    # The in-query exclusion is a bounded cost optimization; this filter is what guarantees an
+    # already-observed session never burns dispatch headroom, however far past the cap the backlog is.
+    return _drop_observed(scanner, deep_candidates), progress
+
+
+def _drop_observed(scanner: ReplayScanner, candidates: list[CandidateSession]) -> list[CandidateSession]:
+    """Drop sessions this scanner already has an observation row for.
+
+    A recording that is still growing matches the fast walk again after it was observed, and admission
+    refuses it. Filtering here saves starting an apply workflow that exits at its first activity.
+    """
+    if not candidates:
+        return candidates
+    observed = set(
+        ReplayObservation.objects.filter(
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
+            session_id__in=[c.session_id for c in candidates],
+        ).values_list("session_id", flat=True)
+    )
+    return [c for c in candidates if c.session_id not in observed]
