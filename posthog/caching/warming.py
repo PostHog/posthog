@@ -23,7 +23,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
-from posthog.query_cache.freshness_index import clean_up_stale_insights, get_stale_insights
+from posthog.query_cache import clean_up_stale_insights, days_read_at_this_time, get_stale_insights
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.scheduling.jitter import deterministic_offset
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -53,6 +53,11 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
 
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
+STALE_INSIGHTS_LIMIT = 500
+# With the time-of-day rule on, an insight is warmed only if it was read at this time of day on
+# this many of the last 7 days.
+READ_DAYS_REQUIRED = 2
+TIME_OF_DAY_FLAG = "cache-warming-time-of-day"
 
 # Each team's chain starts at its own offset inside this window, so the largest teams do not all
 # send their insight queries to ClickHouse in the same minute.
@@ -66,16 +71,10 @@ WARMING_CHAIN_LIFETIME = timedelta(minutes=50)
 RETRIABLE_WARMING_ERRORS = (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded)
 
 
-def teams_enabled_for_cache_warming() -> list[int]:
-    enabled_team_ids = []
-
-    for team_id, organization_id, uuid in Team.objects.values_list(
-        "id",
-        "organization_id",
-        "uuid",
-    ).iterator(chunk_size=1000):
-        enabled = posthoganalytics.feature_enabled(
-            "cache-warming",
+def _flag_enabled_for_team(flag: str, *, team_id: int, organization_id: object, uuid: object) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
             str(uuid),
             groups={
                 "organization": str(organization_id),
@@ -92,14 +91,33 @@ def teams_enabled_for_cache_warming() -> list[int]:
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
-
-        if enabled:
-            enabled_team_ids.append(team_id)
-
-    return enabled_team_ids
+    )
 
 
-def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]]]:
+def teams_enabled_for_cache_warming() -> list[int]:
+    return [
+        team_id
+        for team_id, organization_id, uuid in Team.objects.values_list(
+            "id",
+            "organization_id",
+            "uuid",
+        ).iterator(chunk_size=1000)
+        if _flag_enabled_for_team("cache-warming", team_id=team_id, organization_id=organization_id, uuid=uuid)
+    ]
+
+
+def _stale_combos(team_id: int, *, read_at_this_time_only: bool) -> list[str]:
+    if not read_at_this_time_only:
+        return get_stale_insights(team_id=team_id, limit=STALE_INSIGHTS_LIMIT)
+    # The rule keeps a minority of the stale combos, so it must see all of them before the limit applies.
+    combos = get_stale_insights(team_id=team_id)
+    days_read = days_read_at_this_time(team_id=team_id, identifiers=combos, now=datetime.now(UTC))
+    return [combo for combo in combos if days_read[combo] >= READ_DAYS_REQUIRED][:STALE_INSIGHTS_LIMIT]
+
+
+def insights_to_keep_fresh(
+    team: Team, shared_only: bool = False, read_at_this_time_only: bool = False
+) -> Generator[tuple[int, Optional[int]]]:
     """
     This is the place to decide which insights should be kept warm for the provided team.
     The reasoning is that this will be a yes or no decision. If we need to keep it warm, we try our best
@@ -114,7 +132,7 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
     clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
     # get all insights currently in the cache for the team
-    combos = get_stale_insights(team_id=team.pk, limit=500)
+    combos = _stale_combos(team.pk, read_at_this_time_only=read_at_this_time_only)
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 
@@ -193,7 +211,12 @@ def schedule_warming_for_teams_task():
 
     with ph_scoped_capture() as capture_ph_event:
         for team, shared_only in all_teams:
-            insight_tuples = list(insights_to_keep_fresh(team, shared_only=shared_only))
+            read_at_this_time_only = _flag_enabled_for_team(
+                TIME_OF_DAY_FLAG, team_id=team.pk, organization_id=team.organization_id, uuid=team.uuid
+            )
+            insight_tuples = list(
+                insights_to_keep_fresh(team, shared_only=shared_only, read_at_this_time_only=read_at_this_time_only)
+            )
 
             capture_ph_event(
                 distinct_id=str(team.uuid),
@@ -205,6 +228,7 @@ def schedule_warming_for_teams_task():
                     "team_id": team.id,
                     "organization_id": team.organization_id,
                     "shared_only": shared_only,
+                    "read_at_this_time_only": read_at_this_time_only,
                 },
             )
 

@@ -112,6 +112,7 @@ from posthog.query_cache.failures import (
     QueryFailureCache,
     WarmingQueryFailureCache,
 )
+from posthog.query_cache.read_history import days_read_at_this_time
 from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_FLAG,
     FlightWait,
@@ -533,6 +534,21 @@ class TestQueryRunner(BaseTest):
         assert consumed["calculation_trigger"] == "warmingV2"
         assert consumed["request_trigger"] is None
         assert warmer_hit["request_trigger"] == "warmingV2"
+
+    @parameterized.expand([("warming_run", "warmingV2", 0), ("user_read", None, 1)])
+    def test_only_reads_outside_warming_enter_the_read_history(
+        self, _name: str, trigger: Optional[str], expected_days: int
+    ) -> None:
+        Runner = self.setup_test_query_runner_class()
+        runner = Runner(query={"some_attr": f"read-history-{_name}"}, team=self.team)
+        with mock.patch("posthog.hogql_queries.query_runner.get_query_tag_value", return_value=trigger):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, insight_id=4242)
+
+        days = days_read_at_this_time(
+            team_id=self.team.pk, identifiers=["4242:"], now=datetime.now(UTC) + timedelta(days=1)
+        )
+
+        assert days == {"4242:": expected_days}
 
     @parameterized.expand([("failed_write", LimitContext.QUERY), ("uncached_export", LimitContext.EXPORT)])
     def test_failed_cache_write_is_not_reported_as_a_warmed_version(

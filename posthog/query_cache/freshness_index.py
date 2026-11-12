@@ -10,7 +10,7 @@ def _redis_key(team_id: int) -> str:
     return f"{_REDIS_KEY_PREFIX}:{team_id}"
 
 
-def _identifier(insight_id: int, dashboard_id: Optional[int]) -> str:
+def insight_identifier(insight_id: int, dashboard_id: Optional[int]) -> str:
     return f"{insight_id}:{dashboard_id or ''}"
 
 
@@ -53,11 +53,11 @@ def update_target_age(
     """Update the target age for insight freshness tracking using Redis sorted sets."""
     if not insight_id:
         return
-    redis.get_client().zadd(_redis_key(team_id), {_identifier(insight_id, dashboard_id): target_age.timestamp()})
+    redis.get_client().zadd(_redis_key(team_id), {insight_identifier(insight_id, dashboard_id): target_age.timestamp()})
 
 
 def remove_last_refresh(*, team_id: int, insight_id: Optional[int], dashboard_id: Optional[int]) -> None:
     """Remove insight from freshness tracking using Redis sorted sets."""
     if not insight_id:
         return
-    redis.get_client().zrem(_redis_key(team_id), _identifier(insight_id, dashboard_id))
+    redis.get_client().zrem(_redis_key(team_id), insight_identifier(insight_id, dashboard_id))
