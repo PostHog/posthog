@@ -40,6 +40,8 @@ export type ProviderEdge = {
     caCertPath?: string
     sent: readonly SesMessage[]
     addFault(rule: FaultRule): string
+    removeFault(id: string): void
+    faultApplied(id: string): number
     clearFaults(): void
     close(): Promise<void>
 }
@@ -225,6 +227,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         caCertPath: certificates?.caCertPath,
         sent,
         addFault: (rule) => faults.add(rule),
+        removeFault: (id) => void faults.remove(id),
+        faultApplied: (id) => faults.applied(id),
         clearFaults: () => faults.clear(),
         close: async () => {
             proxy?.close()

@@ -36,6 +36,8 @@ function stackOf({
     const everFrozen: number[] = []
     let roleSessions = 4
     let droppedSessions = 0
+    const edgeFaults: { host?: string; answer: unknown; dose: unknown }[] = []
+    let activeFaults = 0
     const goneAfterRelease: number[] = []
     let releaseBegan = false
     const jobs: Job[] = []
@@ -48,6 +50,18 @@ function stackOf({
             actuate: (action): Promise<Actuation> => {
                 if (finishesJobsFirst) {
                     jobs.splice(0)
+                }
+                if (action.kind === 'edge.fault') {
+                    const { match, answer, dose } = action.rule
+                    edgeFaults.push({ host: match?.host, answer, dose })
+                    activeFaults += 1
+                    return Promise.resolve({
+                        observed: () => Promise.resolve(true),
+                        release: () => {
+                            activeFaults -= 1
+                            return Promise.resolve()
+                        },
+                    })
                 }
                 if (action.kind === 'pg.terminate') {
                     const dropped = Math.ceil(action.share * roleSessions)
@@ -111,7 +125,14 @@ function stackOf({
     return {
         context,
         gone: () => [...gone],
-        effects: () => ({ gone: [...gone], frozen: [...frozen], everFrozen: [...everFrozen], droppedSessions }),
+        effects: () => ({
+            gone: [...gone],
+            frozen: [...frozen],
+            everFrozen: [...everFrozen],
+            droppedSessions,
+            edgeFaults: [...edgeFaults],
+            activeFaults,
+        }),
         goneAfterRelease: () => [...goneAfterRelease],
         releasing: (release: () => Promise<void>) => {
             releaseBegan = true
@@ -145,6 +166,14 @@ const dropConnections = (schedule: Pick<ValveEntry, 'at' | 'when'>): ValveEntry 
     dose: { share: 0.5 },
     for: '10ms',
     ...schedule,
+})
+
+const answerWith = (code: number, dose: Record<string, number>): ValveEntry => ({
+    valve: 'dest.status',
+    target: 'hooks.example.com',
+    dose: { code, ...dose },
+    for: '10ms',
+    at: '0ms',
 })
 
 const RUNNING_ON_EMAIL = { name: 'running_on_queue' as const, params: { queue: 'email' as const, atLeast: 2 } }
@@ -190,7 +219,14 @@ describe('valves', () => {
         expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
     })
 
-    const UNTOUCHED: Effects = { gone: [], frozen: [], everFrozen: [], droppedSessions: 0 }
+    const UNTOUCHED: Effects = {
+        gone: [],
+        frozen: [],
+        everFrozen: [],
+        droppedSessions: 0,
+        edgeFaults: [],
+        activeFaults: 0,
+    }
 
     it.each<[string, ValveEntry, StackSetup, Partial<Effects>]>([
         ['a kill, which replaces the process', kill({ at: '0ms' }), {}, { gone: [1] }],
@@ -200,6 +236,20 @@ describe('valves', () => {
             dropConnections({ when: RUNNING_ON_EMAIL }),
             { runningJobs: 2, finishesJobsFirst: true },
             { droppedSessions: 2 },
+        ],
+        [
+            'a destination status, which the edge stops answering on release',
+            answerWith(503, { share: 0.5 }),
+            {},
+            {
+                edgeFaults: [
+                    {
+                        host: 'hooks.example.com',
+                        answer: { kind: 'webhook-status', status: 503 },
+                        dose: { share: 0.5 },
+                    },
+                ],
+            },
         ],
     ])('applies and observes %s', async (_story, entry, stackSetup, effects) => {
         const valves = createValves({ pollMs: 5 })

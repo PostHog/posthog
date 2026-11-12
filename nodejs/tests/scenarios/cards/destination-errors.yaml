@@ -1,0 +1,45 @@
+id: destination-errors
+version: 1
+clock: real
+profile: synthetic
+seed: 5
+setup:
+    teams: 1
+drive:
+    for: 60s
+    traffic:
+        - name: event_webhook
+valves:
+    - valve: dest.status
+      target: hooks.example.com
+      dose:
+          code: 503
+          share: 0.5
+      at: 5s
+      for: 15s
+    - valve: dest.status
+      target: hooks.example.com
+      dose:
+          code: 429
+          share: 0.5
+      at: 25s
+      for: 15s
+    - valve: dest.status
+      target: hooks.example.com
+      dose:
+          code: 400
+          count: 5
+      at: 45s
+      for: 10s
+convergeWithin: 2m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
+    - name: delivery_latency_ms

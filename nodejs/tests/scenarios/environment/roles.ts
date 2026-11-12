@@ -77,6 +77,11 @@ export function roleSpecs(
     }))
 }
 
+export function fetchRetriesOf({ env }: RoleSpec): number {
+    const configured = env.CDP_FETCH_RETRIES
+    return configured === undefined ? getDefaultCdpConfig().CDP_FETCH_RETRIES : parseFloat(configured)
+}
+
 export function consumerGroupsOf(specs: RoleSpec[]): ConsumerGroup[] {
     const defaults = getDefaultCdpConfig()
     return specs

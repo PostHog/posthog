@@ -7,7 +7,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
 import { Profile, ROLE_RESTART_BACKOFF_MS } from '../cards'
-import { ProviderEdge, startProviderEdge } from '../provider-edge'
+import { FaultRule, ProviderEdge, startProviderEdge } from '../provider-edge'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import {
@@ -47,6 +47,7 @@ export type Action =
     | { kind: 'kill'; role: Role }
     | { kind: 'freeze'; role: Role }
     | { kind: 'pg.terminate'; share: number }
+    | { kind: 'edge.fault'; rule: FaultRule }
 
 export type Actuation = { observed(): Promise<boolean>; release(): Promise<void> }
 
@@ -63,6 +64,8 @@ const STOP_GRACE_MS = 10_000
 const PROBE_INTERVAL_MS = 1000
 const KILL_OBSERVED_WITHIN_MS = 10_000
 const FREEZE_OBSERVED_WITHIN_MS = 10_000
+const FAULT_OBSERVED_WITHIN_MS = 10_000
+const FAULT_POLL_MS = 100
 
 const portsOf = (specs: RoleSpec[]): { port: number; owner: string }[] =>
     specs.map(({ role }) => ({ port: ROLE_PORTS[role], owner: role }))
@@ -160,6 +163,26 @@ export function createEnvironment({
                         terminated += await terminateRoleConnections(server, action.share)
                     }
                     return { observed: () => Promise.resolve(terminated > 0), release: () => Promise.resolve() }
+                }
+                case 'edge.fault': {
+                    const faulting = startedEdge('actuate')
+                    const id = faulting.addFault(action.rule)
+                    return {
+                        observed: async () => {
+                            const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
+                            while (faulting.faultApplied(id) === 0) {
+                                if (Date.now() > deadline) {
+                                    return false
+                                }
+                                await sleep(FAULT_POLL_MS)
+                            }
+                            return true
+                        },
+                        release: () => {
+                            faulting.removeFault(id)
+                            return Promise.resolve()
+                        },
+                    }
                 }
             }
         },

@@ -6,6 +6,7 @@ import { CdpRole, ValveEntry } from '../cards/schema'
 import { durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
+import { ruleOf } from '../provider-edge/faults'
 
 export type ValveContext = {
     environment: Pick<Environment, 'actuate'>
@@ -62,7 +63,25 @@ export const pgDropConnections: ValveDefinition = {
         environment.actuate({ kind: 'pg.terminate', share: ConnectionShare.parse(dose).share }),
 }
 
-export const VALVES: ValveDefinition[] = [roleKill, roleFreeze, pgDropConnections]
+const StatusCode = z.number().int().min(400).max(599)
+const DestinationStatus = z.union([
+    z.object({ code: StatusCode, count: z.number().int().min(1) }).strict(),
+    z.object({ code: StatusCode, share: z.number().gt(0).max(1) }).strict(),
+])
+
+export const destStatus: ValveDefinition = {
+    name: 'dest.status',
+    params: DestinationStatus,
+    target: z.string().min(1),
+    strandsRunningJobs: false,
+    apply: ({ environment }, target, dose) => {
+        const { code, ...amount } = DestinationStatus.parse(dose)
+        const rule = ruleOf({ name: 'dest.status', params: { code }, match: { host: target }, dose: amount })
+        return environment.actuate({ kind: 'edge.fault', rule })
+    },
+}
+
+export const VALVES: ValveDefinition[] = [roleKill, roleFreeze, pgDropConnections, destStatus]
 
 const POLL_MS = 1000
 

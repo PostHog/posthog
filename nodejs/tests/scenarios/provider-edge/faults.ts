@@ -106,6 +106,10 @@ export class FaultList {
         this.faults = []
     }
 
+    applied(id: string): number {
+        return this.faults.find((fault) => fault.id === id)?.applied ?? 0
+    }
+
     takeSes(recipients: string[]): { name: string; answer: SesAnswer } | undefined {
         const rule = this.take({ channel: 'ses', recipients })
         return rule && rule.answer.kind !== 'webhook-status' ? { name: rule.name, answer: rule.answer } : undefined
