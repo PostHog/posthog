@@ -18,6 +18,7 @@ from rest_framework.throttling import BaseThrottle
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups
+from posthog.models import Team
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 
 from products.messaging.backend.facade.transactional_email import (
@@ -138,7 +139,7 @@ class _ScheduledSendsOff(serializers.ValidationError):
     pass
 
 
-def _require_scheduled_moves(team: Any) -> None:
+def _require_scheduled_moves(team: Team) -> None:
     try:
         require_scheduled_sends(
             team,
