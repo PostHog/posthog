@@ -2,7 +2,7 @@
 
 An internal tool for now: it opens posthog.com docs pull requests for changes merged into PostHog repositories, and runs in one PostHog project per deployment.
 
-- `KNOWLEDGE_WRITER_TEAM_ID`, `KNOWLEDGE_WRITER_USER_ID` and `KNOWLEDGE_WRITER_DOCS_REPOSITORY` configure the one writer. `writer_settings()` in `backend/settings.py` is their only reader, and nothing runs while any of them is unset.
+- `KNOWLEDGE_WRITER_TEAM_ID`, `KNOWLEDGE_WRITER_USER_ID` and `KNOWLEDGE_WRITER_DOCS_REPOSITORY` configure the one writer. `writer_settings()` in `backend/settings.py` reads them, and nothing runs while any of them is unset. The merge check also reads `KNOWLEDGE_WRITER_DOCS_REPOSITORY` through `docs_source()`, with `KNOWLEDGE_WRITER_DOCS_SITEMAP_URL` and `KNOWLEDGE_WRITER_DOCS_URL_PREFIX` for the published pages.
 - `KNOWLEDGE_WRITER_DOCS_PATHS` lists the folders of the docs repository a writer branch may change, comma-separated, and defaults to `contents/docs/`. Set it when the docs live elsewhere, because publish refuses a branch that changes any other path.
 - Turning it into a customer feature means replacing `writer_settings()` with a team-scoped model and triggering from the GitHub App webhook, since a customer can't add a workflow and a secret to every repository.
 
