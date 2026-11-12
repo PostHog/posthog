@@ -9,7 +9,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
-import { SidebarDragSource, SidebarDropZone } from '~/layout/today/sidebar/SidebarRowDrag'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { SortableSidebarList } from '~/layout/today/sidebar/SortableSidebarList'
 
@@ -53,10 +52,6 @@ export interface CustomizedSidebarProps {
         lists: Partial<Record<AnalyticsListSourceApi, SidebarNavigationItem[]>>
         /** Lists whose rows can be dragged into a new order. Indexes refer to the list as given. */
         reorder?: Partial<Record<AnalyticsListSourceApi, (fromIndex: number, toIndex: number) => void>>
-        /** Lists that take rows dragged from another list. `onDrop` gets the dropped row's value. */
-        drop?: Partial<
-            Record<AnalyticsListSourceApi, { from: AnalyticsListSourceApi; onDrop: (value: string) => void }>
-        >
         metric: (item: AnalyticsFragmentMetricApi, value: string) => JSX.Element
     }
     customization: { prompt: string; event: string }
@@ -83,28 +78,11 @@ export function CustomizedSidebar(props: CustomizedSidebarProps): JSX.Element {
     const renderList = (source: AnalyticsListSourceApi, key: string): JSX.Element[] => {
         const rows = props.navigation.lists[source] ?? []
         const onReorder = props.navigation.reorder?.[source]
-        const drop = props.navigation.drop?.[source]
-        const draggable = Object.values(props.navigation.drop ?? {}).some((target) => target?.from === source)
-        const renderListRow = (item: SidebarNavigationItem): JSX.Element =>
-            draggable ? (
-                <SidebarDragSource key={item.value} value={item.value}>
-                    {renderRow(item)}
-                </SidebarDragSource>
-            ) : (
-                renderRow(item)
-            )
         // A filtered list hides rows, so a drop there has no clear place in the full order.
-        const list =
-            onReorder && rows.length > 1 && !props.search.query.trim()
-                ? [<SortableSidebarList key={key} rows={rows} renderRow={renderRow} onReorder={onReorder} />]
-                : rows.filter((row) => matches(row.label)).map(renderListRow)
-        return drop && list.length > 0
-            ? [
-                  <SidebarDropZone key={key} onDrop={drop.onDrop}>
-                      {list}
-                  </SidebarDropZone>,
-              ]
-            : list
+        if (onReorder && rows.length > 1 && !props.search.query.trim()) {
+            return [<SortableSidebarList key={key} rows={rows} renderRow={renderRow} onReorder={onReorder} />]
+        }
+        return rows.filter((row) => matches(row.label)).map(renderRow)
     }
     return (
         <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>

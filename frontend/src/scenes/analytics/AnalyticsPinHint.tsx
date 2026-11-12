@@ -21,8 +21,13 @@ export function AnalyticsPinHint({ anchor }: { anchor: Element }): JSX.Element {
     const { hidePinHint } = useActions(analyticsPinnedLogic)
     const [open, setOpen] = useState(false)
 
-    // A popover that mounts open skips its entrance, so it mounts closed and opens straight after.
-    useEffect(() => setOpen(true), [])
+    useEffect(() => {
+        // The menu column sits at the table's far edge, off screen in a narrow scene.
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        anchor.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
+        // A popover that mounts open skips its entrance, so it mounts closed and opens straight after.
+        setOpen(true)
+    }, [anchor])
 
     return (
         <Popover open={open} onOpenChange={(nextOpen) => !nextOpen && hidePinHint()}>
@@ -43,8 +48,7 @@ export function AnalyticsPinHint({ anchor }: { anchor: Element }): JSX.Element {
                     <CardHeader>
                         <CardTitle id="analytics-pin-hint-title">Pin items to your sidebar</CardTitle>
                         <CardDescription id="analytics-pin-hint-description">
-                            Open this menu on an item, then select Pin to sidebar. You can also drag an item from
-                            Recents to Pinned.
+                            Open this menu on an item, then select Pin to sidebar.
                         </CardDescription>
                         <CardAction>
                             <Button

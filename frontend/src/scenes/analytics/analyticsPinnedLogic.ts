@@ -1,11 +1,18 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
+
+import api from 'lib/api'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { fileSystemTypeParams } from './analyticsFeed'
 import {
+    ANALYTICS_TYPES,
     AnalyticsItem,
     fileSystemBaseType,
     fileSystemEntryName,
@@ -33,6 +40,8 @@ export function pinKey(type: string, ref: string): string {
 export interface analyticsPinnedLogicValues {
     shortcutData: FileSystemEntry[] // projectTreeDataLogic
     shortcutDataLoading: boolean // projectTreeDataLogic
+    hasAnalyticsItems: boolean | null
+    hasAnalyticsItemsLoading: boolean
     pinnedAnalytics: PinnedAnalytics[]
     pinHintVisible: boolean
     pinnedCollectionPaths: Set<string>
@@ -58,8 +67,44 @@ export interface analyticsPinnedLogicActions {
     reorderShortcuts: (orderedIds: string[]) => {
         orderedIds: string[]
     } // projectTreeDataLogic
+    locationChanged: ({
+        method,
+        pathname,
+        search,
+        searchParams,
+        hash,
+        hashParams,
+        initial,
+        url,
+        routerState,
+    }: LocationChangedPayload) => {
+        hash: string
+        hashParams: Record<string, any>
+        initial: boolean
+        method: 'POP' | 'PUSH' | 'REPLACE'
+        pathname: string
+        routerState: Record<string, any>
+        search: string
+        searchParams: Record<string, any>
+        url: string
+    } // router
     hidePinHint: () => {
         value: true
+    }
+    loadHasAnalyticsItems: () => void
+    loadHasAnalyticsItemsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadHasAnalyticsItemsSuccess: (
+        hasAnalyticsItems: boolean | null,
+        payload?: any
+    ) => {
+        hasAnalyticsItems: boolean | null
+        payload?: any
     }
     movePinned: (
         shortcutId: string,
@@ -100,13 +145,34 @@ export const analyticsPinnedLogic = kea<analyticsPinnedLogicType>([
     path(['scenes', 'analytics', 'analyticsPinnedLogic']),
     connect(() => ({
         values: [projectTreeDataLogic, ['shortcutData', 'shortcutDataLoading']],
-        actions: [projectTreeDataLogic, ['addShortcutItem', 'deleteShortcut', 'reorderShortcuts']],
+        actions: [
+            projectTreeDataLogic,
+            ['addShortcutItem', 'deleteShortcut', 'reorderShortcuts'],
+            router,
+            ['locationChanged'],
+        ],
     })),
     actions({
         movePinned: (shortcutId: string, overShortcutId: string) => ({ shortcutId, overShortcutId }),
         togglePinned: (target: PinTarget) => ({ target }),
         showPinHint: true,
         hidePinHint: true,
+    }),
+    loaders({
+        hasAnalyticsItems: [
+            null as boolean | null,
+            {
+                loadHasAnalyticsItems: async (_: void, breakpoint) => {
+                    const pages = await Promise.all(
+                        ANALYTICS_TYPES.map(({ type }) =>
+                            api.fileSystem.list({ ...fileSystemTypeParams(type), limit: 1 })
+                        )
+                    )
+                    breakpoint()
+                    return pages.some((page) => page.results.length > 0)
+                },
+            },
+        ],
     }),
     reducers({
         // The hint on the list's first row menu, which shows where to pin an item from.
@@ -159,6 +225,12 @@ export const analyticsPinnedLogic = kea<analyticsPinnedLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        // Creating a first item navigates to it. Once there is one, the answer stays yes for the visit.
+        locationChanged: () => {
+            if (values.hasAnalyticsItems === false && !values.hasAnalyticsItemsLoading) {
+                actions.loadHasAnalyticsItems()
+            }
+        },
         showPinHint: () => {
             // pinned: analytics event name. Renaming it breaks dashboards.
             posthog.capture('analytics pin hint shown')
@@ -198,4 +270,7 @@ export const analyticsPinnedLogic = kea<analyticsPinnedLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadHasAnalyticsItems()
+    }),
 ])
