@@ -51,10 +51,12 @@ describe('contentAutopilotSetupLogic', () => {
     it.each([
         ['configure only', false],
         ['set up and run once', true],
-    ])('%s sends the best site, the available chosen engines and the run choice', async (_name, runFirstCheck) => {
+    ])('%s sends the best site, the chosen engines and the run choice', async (_name, runFirstCheck) => {
         await expectLogic(logic).toDispatchActions(['loadSetupContextSuccess'])
-        // Perplexity is on by default but cannot run here, so it is never sent.
-        expect(logic.values.selectedEngines).toEqual(['claude-web-search'])
+        // Perplexity is on but cannot run yet: it stays chosen and is sent, but only runnable engines are counted.
+        expect(logic.values.selectedEngines).toEqual(['claude-web-search', 'perplexity-web-search'])
+        expect(logic.values.runnableEngines).toEqual(['claude-web-search'])
+        expect(logic.values.pendingEngines).toEqual(['perplexity-web-search'])
 
         logic.actions.toggleEngine('exa-answer', true)
         logic.actions.startSetup(runFirstCheck)
@@ -62,7 +64,7 @@ describe('contentAutopilotSetupLogic', () => {
         await expectLogic(logic).toDispatchActions(['setJob'])
         expect(aeoSetupCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             domain: 'example.com',
-            engines: ['claude-web-search', 'exa-answer'],
+            engines: ['claude-web-search', 'perplexity-web-search', 'exa-answer'],
             run_first_check: runFirstCheck,
         })
     })

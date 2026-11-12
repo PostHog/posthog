@@ -11,7 +11,7 @@ import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSug
 import { ContentAutopilotSetupCostNote } from './ContentAutopilotSetupCostNote'
 import { ContentAutopilotSetupJobCard } from './ContentAutopilotSetupJobCard'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
-import { unavailableEngineReason } from './utils'
+import { engineLabel } from './utils'
 
 const CONSENT_REASON = 'Needs AI data processing approved for your organization'
 
@@ -24,6 +24,8 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
         domain,
         websiteHint,
         selectedEngines,
+        runnableEngines,
+        pendingEngines,
         startDisabledReason,
         consentMissing,
         starting,
@@ -53,7 +55,11 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
 
     const runDisabledReason =
         startDisabledReason ??
-        (setupContext.first_run_available ? undefined : "Checks aren't available for this project yet")
+        (!setupContext.first_run_available
+            ? "Checks aren't available for this project yet"
+            : runnableEngines.length === 0
+              ? 'None of the chosen engines can run yet'
+              : undefined)
 
     return (
         <LemonCard
@@ -92,17 +98,16 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
                         {setupContext.engines.map((setting) => (
                             <LemonCheckbox
                                 key={setting.engine}
-                                checked={setting.available && selectedEngines.includes(setting.engine)}
+                                checked={selectedEngines.includes(setting.engine)}
                                 onChange={(checked) => toggleEngine(setting.engine, checked)}
-                                disabledReason={
-                                    unavailableEngineReason(setting) ?? (consentMissing ? CONSENT_REASON : undefined)
-                                }
+                                disabledReason={consentMissing ? CONSENT_REASON : undefined}
                                 label={
                                     <span className="flex flex-col">
                                         <ContentAutopilotEngineLabel engine={setting.engine} />
                                         {setting.available ? null : (
                                             <span className="text-xs text-muted">
-                                                {unavailableEngineReason(setting)}
+                                                PostHog starts checking with {engineLabel(setting.engine)} once it's
+                                                available for your project.
                                             </span>
                                         )}
                                     </span>
@@ -113,7 +118,11 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
                     </div>
                 </LemonField.Pure>
 
-                <ContentAutopilotSetupCostNote prompts={setupContext.prompt_target} engines={selectedEngines.length} />
+                <ContentAutopilotSetupCostNote
+                    prompts={setupContext.prompt_target}
+                    engines={runnableEngines.length}
+                    pendingEngines={pendingEngines}
+                />
             </div>
 
             {startError ? (

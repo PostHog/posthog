@@ -28,7 +28,7 @@ const CONTEXT: AEOSetupContextApi = {
     engines: [
         { engine: 'claude-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
         { engine: 'openai-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
-        { engine: 'perplexity-web-search', mode: 'web_search', available: false, enabled: true, frequency: 'daily' },
+        { engine: 'perplexity-web-search', mode: 'web_search', available: false, enabled: false, frequency: 'daily' },
         { engine: 'exa-answer', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
         { engine: 'claude-no-search', mode: 'no_search', available: true, enabled: false, frequency: 'daily' },
         { engine: 'openai-no-search', mode: 'no_search', available: true, enabled: false, frequency: 'daily' },
@@ -200,3 +200,20 @@ export const PromptsSavedPaused: StoryFn = () => (
 )
 PromptsSavedPaused.decorators = [mocks({ ...CONFIGURED_CONTEXT, active_prompts: 0, paused_prompts: 20 })]
 PromptsSavedPaused.parameters = { testOptions: { waitForSelector: COUNTED } }
+
+export const UnavailableEngineChosen: StoryFn = () => (
+    <Frame>
+        <ContentAutopilotSetupCard />
+    </Frame>
+)
+UnavailableEngineChosen.decorators = [
+    mocks({
+        ...CONTEXT,
+        engines: CONTEXT.engines.map((setting) =>
+            setting.engine === 'perplexity-web-search' ? { ...setting, enabled: true } : setting
+        ),
+    }),
+]
+UnavailableEngineChosen.parameters = {
+    testOptions: { waitForSelector: '[data-attr="content-autopilot-setup-pending-engines"]' },
+}

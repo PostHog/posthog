@@ -53,7 +53,10 @@ export const websiteSourceHint = (source: AEOWebsiteCandidateApi['source'], days
     })[source]
 
 export const defaultEngines = (engines: AEOEngineSettingApi[]): string[] =>
-    engines.filter((engine) => engine.enabled && engine.available).map(({ engine }) => engine)
+    engines.filter((engine) => engine.enabled).map(({ engine }) => engine)
+
+const runnableEngineCount = (engines: AEOEngineSettingApi[]): number =>
+    engines.filter((engine) => engine.enabled && engine.available).length
 
 const stepOf = (job: AEOSetupJobApi | null, step: AEOSetupStepApi['step']): AEOSetupStepApi | null =>
     job?.steps.find((item) => item.step === step) ?? null
@@ -73,7 +76,9 @@ export interface contentAutopilotSetupLogicValues {
     job: AEOSetupJobApi | null
     jobRef: SetupJobRef | null
     jobRunning: boolean
+    pendingEngines: string[]
     pollError: string | null
+    runnableEngines: string[]
     selectedEngines: string[]
     setupContext: AEOSetupContextApi | null
     setupContextError: boolean
@@ -161,6 +166,8 @@ export interface contentAutopilotSetupLogicMeta {
             setupContext: AEOSetupContextApi | null
         ) => string | null
         selectedEngines: (engineChoices: string[] | null, setupContext: AEOSetupContextApi | null) => string[]
+        runnableEngines: (selectedEngines: string[], setupContext: AEOSetupContextApi | null) => string[]
+        pendingEngines: (selectedEngines: string[], runnableEngines: string[]) => string[]
         activeEngineCount: (setupContext: AEOSetupContextApi | null) => number
         consentMissing: (setupContext: AEOSetupContextApi | null) => boolean
         startDisabledReason: (
@@ -289,13 +296,22 @@ export const contentAutopilotSetupLogic = kea<contentAutopilotSetupLogicType>([
         selectedEngines: [
             (s) => [s.engineChoices, s.setupContext],
             (choices: string[] | null, context: AEOSetupContextApi | null): string[] =>
-                (choices ?? []).filter((engine) =>
-                    context?.engines.some((setting) => setting.engine === engine && setting.available)
-                ),
+                (choices ?? []).filter((engine) => context?.engines.some((setting) => setting.engine === engine)),
+        ],
+        /** Chosen engines that can run today. Only these count toward the checks one run makes. */
+        runnableEngines: [
+            (s) => [s.selectedEngines, s.setupContext],
+            (engines: string[], context: AEOSetupContextApi | null): string[] =>
+                engines.filter((engine) => context?.engines.some((s) => s.engine === engine && s.available)),
+        ],
+        /** Chosen engines that start checking, and costing, once they become available. */
+        pendingEngines: [
+            (s) => [s.selectedEngines, s.runnableEngines],
+            (engines: string[], runnable: string[]): string[] => engines.filter((e) => !runnable.includes(e)),
         ],
         activeEngineCount: [
             (s) => [s.setupContext],
-            (context: AEOSetupContextApi | null): number => (context ? defaultEngines(context.engines).length : 0),
+            (context: AEOSetupContextApi | null): number => (context ? runnableEngineCount(context.engines) : 0),
         ],
         consentMissing: [
             (s) => [s.setupContext],
