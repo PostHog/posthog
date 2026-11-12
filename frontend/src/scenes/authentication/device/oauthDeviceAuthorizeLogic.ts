@@ -104,6 +104,7 @@ export interface oauthDeviceAuthorizeLogicValues {
     adjustableScopeRows: OAuthScopeRow[]
     allScopesRequired: boolean
     consentResourceScopes: string[]
+    createdProjects: DeviceProject[]
     creatingProject: boolean
     decision: DeviceDecisionEnumApi | null
     decisionLoading: boolean
@@ -116,6 +117,7 @@ export interface oauthDeviceAuthorizeLogicValues {
     keptScopes: string[]
     organizationId: string | null
     organizations: OrganizationBasicType[]
+    projectChoices: DeviceProject[]
     projectId: number | null
     projects: DeviceProject[]
     projectsError: string | null
@@ -237,6 +239,7 @@ export interface oauthDeviceAuthorizeLogicActions {
 export interface oauthDeviceAuthorizeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         organizations: (user: UserType | null) => OrganizationBasicType[]
+        projectChoices: (projects: DeviceProject[], createdProjects: DeviceProject[]) => DeviceProject[]
         isStepUp: (
             deviceGrant: DeviceGrantDetailsApi | null,
             projectId: number | null,
@@ -331,6 +334,14 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
             },
         ],
         creatingProject: [false, { createProject: () => true, createProjectDone: () => false }],
+        // Kept apart from the loaded list, so a list request that started before the project existed can't drop it.
+        createdProjects: [
+            [] as DeviceProject[],
+            {
+                createProjectDone: (state, { project }) => (project ? [...state, project] : state),
+                setOrganizationId: () => [],
+            },
+        ],
         projectsError: [
             null as string | null,
             {
@@ -409,7 +420,6 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
         projects: {
             setOrganizationId: () => [],
             loadProjectsFailure: () => [],
-            createProjectDone: (state, { project }) => (project ? [...state, project] : state),
         },
         // A code that expired during review goes back to code entry, so the person can type the new one.
         deviceGrant: {
@@ -419,6 +429,13 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
     }),
     selectors({
         organizations: [(s) => [s.user], (user: UserType | null) => user?.organizations ?? []],
+        projectChoices: [
+            (s) => [s.projects, s.createdProjects],
+            (projects: DeviceProject[], createdProjects: DeviceProject[]): DeviceProject[] => [
+                ...projects,
+                ...createdProjects.filter((created) => !projects.some((project) => project.id === created.id)),
+            ],
+        ],
         isStepUp: [
             (s) => [s.deviceGrant, s.projectId, s.organizationId],
             // A login that adds nothing, such as logging in again for the same project, lists every scope.

@@ -22,7 +22,7 @@ export function DeviceProjectPicker(): JSX.Element {
         organizationId,
         organizations,
         projectId,
-        projects,
+        projectChoices,
         projectsLoading,
         projectsError,
         showCreateProject,
@@ -83,8 +83,8 @@ export function DeviceProjectPicker(): JSX.Element {
                                 onChange={([key]) => setProjectId(key ? Number(key) : null)}
                                 disabled={!organizationId}
                                 loading={projectsLoading}
-                                virtualized={projects.length > 100}
-                                options={[...projects].sort(byName).map((project) => ({
+                                virtualized={projectChoices.length > 100}
+                                options={[...projectChoices].sort(byName).map((project) => ({
                                     key: String(project.id),
                                     label: project.name,
                                 }))}

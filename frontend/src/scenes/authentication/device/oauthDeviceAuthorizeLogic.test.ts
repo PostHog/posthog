@@ -137,7 +137,7 @@ describe('oauthDeviceAuthorizeLogic', () => {
         await expectLogic(logic).toMatchValues({ projects: [], projectsError: expect.any(String) })
     })
 
-    it('picks a project the person creates in the picker', async () => {
+    it('picks a project the person creates in the picker, and keeps it through a list loaded without it', async () => {
         const created: unknown[] = []
         useMocks({
             get: {
@@ -163,14 +163,17 @@ describe('oauthDeviceAuthorizeLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(created).toEqual([{ name: 'My app' }])
+        await expectLogic(logic).toMatchValues({ projectId: 7, showCreateProject: false, creatingProject: false })
+
+        logic.actions.loadProjects('org-a')
+        await expectLogic(logic).toFinishAllListeners()
+
         await expectLogic(logic).toMatchValues({
-            projects: [
+            projectChoices: [
                 { id: 1, name: 'A project' },
                 { id: 7, name: 'My app' },
             ],
             projectId: 7,
-            showCreateProject: false,
-            creatingProject: false,
         })
     })
 
