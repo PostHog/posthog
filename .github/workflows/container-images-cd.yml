@@ -402,6 +402,9 @@ jobs:
             #
             # Only files named Name-HASH.ext, with an uppercase content hash after the last hyphen, are
             # published: a new hash is a new key, so an older run finishing late changes nothing. The
+            # pattern accepts the two hash shapes the build emits, 8 characters from esbuild and S plus
+            # 10 hex digits from the stable chunk names. A looser pattern also takes fixed-name files such
+            # as terminal/jq-COPYING.txt, and the upload below never updates a name that exists. The
             # fixed-name files (SDK bundles, the toolbar, index.html) are fetched by name, so the Argo
             # upload hook keeps writing those as the pods roll, never ahead of them.
             - name: Extract the frontend build from the image
@@ -417,7 +420,7 @@ jobs:
                   mkdir -p "$staging"
                   cd "$RUNNER_TEMP/frontend-dist"
                   find . -type f -regextype posix-extended \
-                      -regex '.*/[A-Za-z0-9][A-Za-z0-9._-]*-[A-Z0-9]{6,}\.[a-z0-9]+$' \
+                      -regex '.*/[A-Za-z0-9][A-Za-z0-9._-]*-([A-Z0-9]{8}|S[0-9A-F]{10})\.[a-z0-9]+$' \
                       ! -name '*.map' > "$RUNNER_TEMP/hashed.txt"
                   while IFS= read -r f; do
                       rel="${f#./}"
@@ -435,6 +438,9 @@ jobs:
                   aws configure set default.s3.max_concurrent_requests 50
 
             # The extract step leaves out every .map file, so a retained sourcemap stays private.
+            # The upload never replaces an object that exists. The name of a content-hashed file comes from
+            # its content, so an existing object needs no update. The upload role can then be denied every
+            # overwrite, and these credentials cannot change a file that browsers already load.
             # The build marker is written last: a pod-start gate reads it as proof that every file above
             # is in the bucket.
             #
@@ -454,7 +460,7 @@ jobs:
                   BUCKET: posthog-cloud-dev-us-east-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-us static-assets role
@@ -470,7 +476,7 @@ jobs:
                   BUCKET: posthog-cloud-prod-us-east-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-eu static-assets role
@@ -486,7 +492,7 @@ jobs:
                   BUCKET: posthog-cloud-prod-eu-central-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             # The role action exports its session keys to the job environment, where they stay until the
