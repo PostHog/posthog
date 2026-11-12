@@ -281,9 +281,14 @@ export class HogInputsService {
             return markServerResolvedIntegration({ $integration_id: integration.id, ...integration.config })
         }
         // The kind decides, because a schema edit can drop `auth` or add a second input on the same connection.
+        // A transformation can't fetch, so it never needs the token, only a way to copy it into an event.
         if (appliesIntegrationCredential(integration.kind)) {
             const declaresAuth = allInputSchemas(hogFunction).some((schema) => schema.key === inputKey && schema.auth)
-            if (declaresAuth || this.credentialAuthEnforced(hogFunction.team_id)) {
+            if (
+                declaresAuth ||
+                hogFunction.type === 'transformation' ||
+                this.credentialAuthEnforced(hogFunction.team_id)
+            ) {
                 return markServerResolvedIntegration({
                     $integration_id: integration.id,
                     ...publicIntegrationConfig(integration.config, integration.sensitive_config),

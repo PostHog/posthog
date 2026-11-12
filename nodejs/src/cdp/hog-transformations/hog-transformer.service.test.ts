@@ -81,7 +81,6 @@ describe('HogTransformer', () => {
             // Deliberately not the default, so the assertion below proves the value is plumbed
             // through rather than hardcoded in the factory.
             TRANSFORMATIONS_HOG_TIMEOUT_MS: 123,
-            CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS: '',
             CDP_INTERNAL_LOGS_SOURCES: '',
             LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
             LOGS_INTERNAL_PRODUCER_URL: '',
@@ -975,7 +974,7 @@ describe('HogTransformer', () => {
             ])
         })
 
-        it('keeps a Slack token out of a transformation for a team the enforce list names', async () => {
+        it('keeps a Slack token out of a transformation, which never needs it', async () => {
             const slack = await insertIntegration(hub.postgres, teamId, {
                 kind: 'slack',
                 config: { team: 'workspace' },
@@ -996,18 +995,14 @@ describe('HogTransformer', () => {
                 execution_order: 1,
             })
             await insertHogFunction(hub.postgres, teamId, hogFunction)
-            const transformer = createHogTransformerService(
-                { ...hub, CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS: String(teamId) },
-                { ...hub, monitoringOutputs: createTestMonitoringOutputs(mockProducer) }
-            )
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
-            const result = await transformer.transformEventAndProduceMessages(
+            const result = await hogTransformer.transformEventAndProduceMessages(
                 createPluginEvent({ event: 'test', properties: {} }, teamId)
             )
 
             expect(result.event?.properties?.copied).toMatchObject({ $integration_id: slack.id })
             expect(JSON.stringify(result.event?.properties)).not.toContain('xoxb-secret')
-            await transformer.stop()
         })
 
         it('should apply a matching transformation and skip a filtered one in sequence', async () => {

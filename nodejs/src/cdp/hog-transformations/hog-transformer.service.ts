@@ -18,7 +18,6 @@ import {
 } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
-import type { CdpConfig } from '../config'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
@@ -426,7 +425,6 @@ export type HogTransformerServiceConfig = Pick<
     | 'MMDB_FILE_LOCATION'
     | 'TRANSFORMATIONS_HOG_TIMEOUT_MS'
 > &
-    Pick<CdpConfig, 'CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS'> &
     TransformationsMonitoringConfig
 
 export interface HogTransformerServiceDeps {
@@ -449,12 +447,7 @@ export function createHogTransformerService(
     deps: HogTransformerServiceDeps
 ): HogTransformerService {
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
-    const hogInputsService = new HogInputsService(
-        deps.integrationManager,
-        undefined,
-        deps.encryptedFields,
-        config.CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS
-    )
+    const hogInputsService = new HogInputsService(deps.integrationManager, undefined, deps.encryptedFields)
     const hogExecutor = new HogExecutorService(
         { executionTimeoutMs: config.TRANSFORMATIONS_HOG_TIMEOUT_MS },
         hogInputsService
