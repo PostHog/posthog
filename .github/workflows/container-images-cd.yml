@@ -438,9 +438,16 @@ jobs:
                   aws configure set default.s3.max_concurrent_requests 50
 
             # The extract step leaves out every .map file, so a retained sourcemap stays private.
-            # The upload never replaces an object that exists. The name of a content-hashed file comes from
-            # its content, so an existing object needs no update. The upload role can then be denied every
-            # overwrite, and these credentials cannot change a file that browsers already load.
+            # The upload never replaces an object that exists, so that these credentials cannot change a
+            # file that browsers already load. This has two limits:
+            # - A skipped object can hold bytes that differ from the file in this image. Only the stable
+            #   chunk names (-S plus 10 hex digits) and the hashed assets come from the final bytes. The
+            #   build minifies a default chunk after esbuild names it, and the sourcemap stage writes the
+            #   release id of the commit into it, under the same name.
+            # - The upload does not compare a skipped object with the local file.
+            # The deploy hook in the charts repository copies every file with overwrite before the pods
+            # roll, which corrects both. That hook must stay until every published name comes from its
+            # final bytes and the publish checks each skipped object against the local file.
             # The build marker is written last: a pod-start gate reads it as proof that every file above
             # is in the bucket.
             #
