@@ -6559,7 +6559,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "warehouse-multi-destination"
     },
     "external-data-destinations-list": {
         "description": "List the places this project's warehouse sources can write synced rows to. The PostHog warehouse is one of them, and it is where a source writes when nothing else is configured.",
@@ -7036,7 +7037,7 @@
         }
     },
     "external-data-sources-revenue-config-update": {
-        "description": "Change whether one data warehouse source feeds revenue analytics, and whether charges without an invoice count as revenue. Use it when the user wants to turn revenue analytics on or off for a source such as Stripe, or to count only invoiced revenue. Send only the fields to change: enabled, include_invoiceless_charges. The call also rebuilds the project's managed revenue analytics views, so it can take a few seconds, and turning enabled off removes those views until a source is enabled again. The source's synced warehouse tables are not changed. Get the source id from external-data-sources-list. The current values are in revenue_analytics_config on external-data-sources-retrieve and external-data-sources-list. Returns the full updated source.",
+        "description": "Change whether one data warehouse source feeds revenue analytics, and whether charges without an invoice count as revenue. Use it when the user wants to turn revenue analytics on or off for a source such as Stripe, or to count only invoiced revenue. Send only the fields to change: enabled, include_invoiceless_charges. The call also rebuilds the project's managed revenue analytics views, so it can take a few seconds, and turning enabled off removes those views until a source is enabled again. The source's synced warehouse tables are not changed. Get the source id from external-data-sources-list. The current values are in revenue_analytics_config on external-data-sources-retrieve and external-data-sources-list. Returns the source id, type, prefix and the updated revenue_analytics_config.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Update a source's revenue analytics settings",
@@ -7044,7 +7045,7 @@
         "required_scopes": ["external_data_source:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/external_data_sources/{id}/revenue_analytics_config/"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

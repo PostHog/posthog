@@ -982,7 +982,13 @@ const externalDataSourcesRevenueConfigUpdate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/revenue_analytics_config/`,
             body,
         })
-        return result
+        const filtered = pickResponseFields(result, [
+            'id',
+            'source_type',
+            'prefix',
+            'revenue_analytics_config',
+        ]) as typeof result
+        return filtered
     },
 })
 

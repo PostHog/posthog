@@ -1175,6 +1175,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'warehouse-migration-import',
             'mcp-feature-flag-restore-version',
             'platform-alerts-source-warehouse',
+            'dwh-custom-source-ai-builder',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1212,7 +1213,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'data-warehouse-scene',
                 'context-layer',
                 'warehouse-multi-destination',
-                'dwh-custom-source-ai-builder',
                 'autoresearch',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',

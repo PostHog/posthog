@@ -124,6 +124,7 @@ tools:
             confirmation. If a source would then have no destination, it falls back to the PostHog warehouse, so check
             that this is what the user wants. The call needs editor access to every table wired to the destination. Get
             the id from external-data-destinations-list. Returns nothing on success.
+        feature_flag: warehouse-multi-destination
     external-data-destinations-list:
         operation: external_data_destinations_list
         enabled: true

@@ -718,7 +718,7 @@ tools:
             - external_data_source:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Update a source's revenue analytics settings
         description: >
@@ -729,12 +729,19 @@ tools:
             take a few seconds, and turning enabled off removes those views until a source is enabled again. The
             source's synced warehouse tables are not changed. Get the source id from external-data-sources-list. The
             current values are in revenue_analytics_config on external-data-sources-retrieve and
-            external-data-sources-list. Returns the full updated source.
+            external-data-sources-list. Returns the source id, type, prefix and the updated
+            revenue_analytics_config.
         param_overrides:
             id:
                 aliases:
                     - source_id
                     - sourceId
+        response:
+            include:
+                - id
+                - source_type
+                - prefix
+                - revenue_analytics_config
     external-data-sources-update-webhook-inputs-create:
         operation: external_data_sources_update_webhook_inputs_create
         enabled: true
