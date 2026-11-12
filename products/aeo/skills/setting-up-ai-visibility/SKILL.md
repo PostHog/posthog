@@ -106,8 +106,8 @@ the answers. A project tracks at most 200.
    Run it after step 4, because Claude ranks keywords from the tracked prompts and, once checks exist,
    from the web searches the engines ran.
 2. Poll `aeo-keywords-suggestion-get` until `status` is `completed` or `failed`.
-3. Show the keywords in order with each `reason`. `searches` counts the recent engine web searches that
-   contain the keyword. It is not search volume, and it is 0 for a new project.
+3. Show the keywords in order with each `reason`. `searched_checks` counts the recent answers whose web
+   searches contain the keyword, as the keyword report does. It is not search volume, and it is 0 for a new project.
 4. Add the keywords the user confirms with `aeo-keywords-create`. A 400 means the list would pass its cap.
 
 ## Step 6: point to the results
