@@ -1,19 +1,20 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { adaptiveIngestionLogic } from './adaptiveIngestionLogic'
 
 export function AdaptiveIngestionSetting(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { settings, settingsLoading, settingsError } = useValues(
-        adaptiveIngestionLogic({ projectId: currentTeamId ? String(currentTeamId) : '' })
-    )
+    const logic = adaptiveIngestionLogic({ projectId: currentTeamId ? String(currentTeamId) : '' })
+    const { settings, settingsLoading, settingsError } = useValues(logic)
+    const { setAdaptiveIngestionEnabled } = useActions(logic)
 
-    if (!currentTeamId || settingsLoading || (!settings && !settingsError)) {
+    if (!currentTeamId || (!settings && !settingsError)) {
         return <LemonSkeleton className="w-full h-10" />
     }
 
@@ -24,7 +25,9 @@ export function AdaptiveIngestionSetting(): JSX.Element {
     return (
         <LemonSwitch
             checked={Boolean(settings?.adaptive_ingestion_enabled)}
-            disabled
+            onChange={setAdaptiveIngestionEnabled}
+            loading={settingsLoading}
+            disabledReason={errorTrackingEditAccessDisabledReason()}
             label="Adaptive ingestion"
             aria-label="Adaptive ingestion"
             bordered
