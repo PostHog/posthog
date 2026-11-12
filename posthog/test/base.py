@@ -276,6 +276,8 @@ def clean_varying_query_parts(query, replace_all_numbers):
             r""""uuid" \1 ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
             query,
         )
+        # A JSON containment filter on an id, such as '{"insight_id": 4}'::jsonb.
+        query = re.sub(r"('\{\"\w+_id\": )\d+(\}'::jsonb)", r"\g<1>99999\2", query)
         query = re.sub(r"'[0-9a-f]{32}'::uuid", r"'00000000000000000000000000000000'::uuid", query)
         query = re.sub(r"'[0-9a-f-]{36}'::uuid", r"'00000000-0000-0000-0000-000000000000'::uuid", query)
         query = re.sub(

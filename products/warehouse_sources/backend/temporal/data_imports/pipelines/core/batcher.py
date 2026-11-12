@@ -128,7 +128,7 @@ class Batcher:
         self._team_id = team_id
         self._schema_name = schema_name
         # Off by default because coalescing delays when a yielded table becomes a durable batch:
-        # the webhook S3 path deletes its staged files right after yielding, and the pipeline
+        # the webhook S3 path records its files as consumed right after yielding, and the pipeline
         # commits the resume cursor after a write on the assumption that the write drained every
         # table yielded so far. Only enable for sources with no such dependency.
         self._coalesce_tables = coalesce_tables
