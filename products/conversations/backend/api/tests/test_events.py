@@ -317,15 +317,43 @@ class TestConversationEvents(BaseTest):
 
     @parameterized.expand(
         [
-            ("authenticated_email", "email", True, "customer@example.com", "customer@example.com", True),
-            ("outbound_email_verified_by_reply", "email", True, "recipient-analytics-id", "customer@example.com", True),
-            ("non_string_trait_email", "email", True, "customer@example.com", 42, True),
-            ("widget_form_email", "widget", True, "customer-123", "customer@example.com", False),
-            ("unauthenticated_email", "email", False, "customer@example.com", "customer@example.com", False),
+            ("authenticated_email", "email", True, "customer@example.com", "customer@example.com", None, True),
+            (
+                "outbound_email_verified_by_reply",
+                "email",
+                True,
+                "recipient-analytics-id",
+                "customer@example.com",
+                None,
+                True,
+            ),
+            ("non_string_trait_email", "email", True, "customer@example.com", 42, None, True),
+            ("widget_form_email", "widget", True, "customer-123", "customer@example.com", None, False),
+            ("unauthenticated_email", "email", False, "customer@example.com", "customer@example.com", None, False),
+            ("widget_signed_email_claim", "widget", True, "customer-123", None, "customer@example.com", True),
+            (
+                "widget_signed_claim_outranks_form_email",
+                "widget",
+                True,
+                "customer-123",
+                "someone-else@example.com",
+                "customer@example.com",
+                True,
+            ),
+            (
+                "widget_claim_on_unverified_ticket",
+                "widget",
+                False,
+                "customer-123",
+                "customer@example.com",
+                "customer@example.com",
+                False,
+            ),
+            ("claim_ignored_off_widget", "slack", True, "customer-123", None, "customer@example.com", False),
         ]
     )
     def test_customer_email_verified_requires_attested_email(
-        self, _name, channel_source, identity_verified, distinct_id, trait_email, expected
+        self, _name, channel_source, identity_verified, distinct_id, trait_email, verified_email, expected
     ):
         ticket = Ticket(
             team=self.team,
@@ -334,9 +362,13 @@ class TestConversationEvents(BaseTest):
             distinct_id=distinct_id,
             anonymous_traits={"email": trait_email},
             email_from="customer@example.com",
+            verified_email=verified_email,
         )
 
-        assert _get_customer_properties(ticket)["customer_email_verified"] is expected
+        properties = _get_customer_properties(ticket)
+
+        assert properties["customer_email_verified"] is expected
+        assert properties["customer_email"] == "customer@example.com"
 
     @parameterized.expand(
         [
@@ -344,39 +376,65 @@ class TestConversationEvents(BaseTest):
                 "email_authenticated_customer",
                 "email",
                 {"email_from": "customer@example.com", "email_sender_authenticated": True},
+                None,
                 True,
             ),
             (
                 "email_unauthenticated_customer_address",
                 "email",
                 {"email_from": "customer@example.com", "email_sender_authenticated": False},
+                None,
                 False,
             ),
             (
                 "email_other_participant",
                 "email",
                 {"email_from": "colleague@example.com", "email_sender_authenticated": True},
+                None,
                 False,
             ),
-            ("slack_ticket_customer", "slack", {"slack_author_email": "Customer@example.com"}, True),
-            ("slack_other_thread_member", "slack", {"slack_author_email": "other@example.com"}, False),
-            ("teams_other_thread_member", "teams", {"teams_author_email": "other@example.com"}, False),
+            ("slack_ticket_customer", "slack", {"slack_author_email": "Customer@example.com"}, None, True),
+            ("slack_other_thread_member", "slack", {"slack_author_email": "other@example.com"}, None, False),
+            ("teams_other_thread_member", "teams", {"teams_author_email": "other@example.com"}, None, False),
             (
                 "widget_signed_customer",
                 "widget",
                 {"distinct_id": "customer@example.com", "distinct_id_verified": True},
+                None,
                 True,
             ),
-            ("widget_unsigned_customer_id", "widget", {"distinct_id": "customer@example.com"}, False),
+            ("widget_unsigned_customer_id", "widget", {"distinct_id": "customer@example.com"}, None, False),
+            (
+                "widget_email_claim_owner",
+                "widget",
+                {"distinct_id": "customer-123", "distinct_id_verified": True},
+                "customer@example.com",
+                True,
+            ),
+            (
+                "widget_email_claim_other_signed_viewer",
+                "widget",
+                {"distinct_id": "other-456", "distinct_id_verified": True},
+                "customer@example.com",
+                False,
+            ),
+            (
+                "widget_email_claim_unsigned_owner_id",
+                "widget",
+                {"distinct_id": "customer-123"},
+                "customer@example.com",
+                False,
+            ),
         ]
     )
     @patch("products.conversations.backend.events.capture_internal")
     def test_message_received_verifies_email_only_for_the_ticket_customer(
-        self, _name, channel_source, item_context, expected, mock_capture
+        self, _name, channel_source, item_context, verified_email, expected, mock_capture
     ):
         self.ticket.channel_source = channel_source
         self.ticket.identity_verified = True
-        self.ticket.distinct_id = "customer@example.com"
+        self.ticket.distinct_id = "customer-123" if verified_email else "customer@example.com"
+        self.ticket.verified_email = verified_email
         self.ticket.email_from = "customer@example.com"
         self.ticket.anonymous_traits = {"email": "customer@example.com"}
 

@@ -122,6 +122,10 @@ class Ticket(Taggable, UUIDTModel):
     #   None  — unknown; we never assessed it (e.g. predates this signal and the
     #           channel doesn't structurally guarantee verification).
     identity_verified = models.BooleanField(null=True)
+    # Widget only: the email from a signed identity claim, bound to the HMAC-verified distinct_id.
+    # Set only from a verified claim, never from client traits, so workflows can email the customer
+    # when their distinct_id is not an email address.
+    verified_email = models.EmailField(null=True, blank=True)
     ai_resolved = models.BooleanField(default=False)
     escalation_reason = models.TextField(null=True, blank=True)
     ai_triage = models.JSONField(default=dict, blank=True)

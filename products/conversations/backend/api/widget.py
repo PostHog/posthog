@@ -18,6 +18,7 @@ from dataclasses import field as dataclass_field
 from typing import Literal
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import F, Q
 
 from prometheus_client import Counter
@@ -274,7 +275,12 @@ def _viewer_ticket_match(
     team: Team, verified_distinct_id: str, ticket: Ticket, verified_email: str | None
 ) -> TicketOwnershipMatch | None:
     """Return how the verified viewer owns this ticket, mirroring _identity_ticket_filter."""
-    allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+    return _ticket_ownership_match(get_person_distinct_ids(team.id, verified_distinct_id), ticket, verified_email)
+
+
+def _ticket_ownership_match(
+    allowed_ids: list[str], ticket: Ticket, verified_email: str | None
+) -> TicketOwnershipMatch | None:
     if ticket.distinct_id in allowed_ids:
         return "distinct_id"
     if not verified_email or not ticket.distinct_id:
@@ -476,10 +482,14 @@ class WidgetMessageView(APIView):
         except IdentityVerificationFailed as e:
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
+        verified_email: str | None = None
         if verified_distinct_id is not None:
             distinct_id = verified_distinct_id
             # Deterministic widget_session_id from the HMAC (for DB storage)
             widget_session_id = str(uuid.UUID(serializer.validated_data["identity_hash"][:32]))
+            verified_email = _verify_identity_claim(
+                serializer.validated_data, team, verified_distinct_id, secrets=identity_secrets
+            )
         elif "widget_session_id" in serializer.validated_data:
             widget_session_id = str(serializer.validated_data["widget_session_id"])
             distinct_id = serializer.validated_data["distinct_id"]
@@ -504,55 +514,67 @@ class WidgetMessageView(APIView):
         if ticket_id:
             # Adding to existing ticket
             try:
-                ticket = Ticket.objects.get(id=ticket_id, team=team)
-
-                ownership_match: TicketOwnershipMatch | None = None
-                if verified_distinct_id is not None:
-                    verified_email = _verify_identity_claim(
-                        serializer.validated_data, team, verified_distinct_id, secrets=identity_secrets
-                    )
-                    ownership_match = _viewer_ticket_match(team, verified_distinct_id, ticket, verified_email)
-                    if ownership_match is None:
-                        return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
-                else:
-                    # CRITICAL: Verify ticket belongs to this widget_session_id (NOT distinct_id)
-                    if ticket.widget_session_id != widget_session_id:
-                        return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
-
-                # Only HMAC-verified requests may (re)bind a ticket's distinct_id.
-                # Anonymous → identified continuity is still handled by person merging.
-                if ownership_match == "distinct_id" and ticket.distinct_id != distinct_id:
-                    ticket.distinct_id = distinct_id
-
-                # Other channels set traits from the attested sender, and the email bridge lets a
-                # viewer post to those tickets, so only a widget ticket takes traits from the request.
-                if traits and ticket.channel_source == Channel.WIDGET:
-                    ticket.anonymous_traits.update(traits)
-
-                # Update session data if provided
-                if session_id:
-                    ticket.session_id = session_id
-                if session_context:
-                    ticket.session_context.update(session_context)
-
-                # The HMAC attests only the distinct ID. On other channels identity_verified attests the
-                # sender's address or platform account, and this request proves neither.
-                if ownership_match == "distinct_id" and ticket.channel_source == Channel.WIDGET:
-                    ticket.identity_verified = True
-
-                # Increment unread count for team (customer sent a message)
-                ticket.unread_team_count = F("unread_team_count") + 1
-                ticket.save(
-                    update_fields=[
-                        "distinct_id",
-                        "anonymous_traits",
-                        "session_id",
-                        "session_context",
-                        "unread_team_count",
-                        "identity_verified",
-                        "updated_at",
-                    ]
+                viewer_distinct_ids = (
+                    get_person_distinct_ids(team.id, verified_distinct_id) if verified_distinct_id is not None else []
                 )
+                # Concurrent messages can rebind distinct_id and store an email claim. The row lock
+                # makes each request read the values the previous one wrote, so a claim never stays
+                # attached to a distinct_id it was not signed for. Resolve person distinct_ids before
+                # the lock, because a personhog call inside it would block every write to the ticket.
+                with transaction.atomic():
+                    ticket = Ticket.objects.select_for_update().get(id=ticket_id, team=team)
+
+                    ownership_match: TicketOwnershipMatch | None = None
+                    if verified_distinct_id is not None:
+                        ownership_match = _ticket_ownership_match(viewer_distinct_ids, ticket, verified_email)
+                        if ownership_match is None:
+                            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+                    else:
+                        # CRITICAL: Verify ticket belongs to this widget_session_id (NOT distinct_id)
+                        if ticket.widget_session_id != widget_session_id:
+                            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+                    # Only HMAC-verified requests may (re)bind a ticket's distinct_id.
+                    # Anonymous → identified continuity is still handled by person merging.
+                    if ownership_match == "distinct_id" and ticket.distinct_id != distinct_id:
+                        ticket.distinct_id = distinct_id
+                        # The stored claim was signed for the previous distinct_id.
+                        ticket.verified_email = None
+
+                    # Other channels set traits from the attested sender, and the email bridge lets a
+                    # viewer post to those tickets, so only a widget ticket takes traits from the request.
+                    if traits and ticket.channel_source == Channel.WIDGET:
+                        ticket.anonymous_traits.update(traits)
+
+                    # Update session data if provided
+                    if session_id:
+                        ticket.session_id = session_id
+                    if session_context:
+                        ticket.session_context.update(session_context)
+
+                    # The HMAC attests only the distinct ID. On other channels identity_verified attests the
+                    # sender's address or platform account, and this request proves neither.
+                    if ownership_match == "distinct_id" and ticket.channel_source == Channel.WIDGET:
+                        ticket.identity_verified = True
+                        # The claim is bound to the distinct ID this ticket now carries. A viewer matched
+                        # only by email must not change where replies are sent.
+                        if verified_email:
+                            ticket.verified_email = verified_email
+
+                    # Increment unread count for team (customer sent a message)
+                    ticket.unread_team_count = F("unread_team_count") + 1
+                    ticket.save(
+                        update_fields=[
+                            "distinct_id",
+                            "anonymous_traits",
+                            "session_id",
+                            "session_context",
+                            "unread_team_count",
+                            "identity_verified",
+                            "verified_email",
+                            "updated_at",
+                        ]
+                    )
                 ticket.refresh_from_db()
 
             except Ticket.DoesNotExist:
@@ -577,6 +599,7 @@ class WidgetMessageView(APIView):
                 session_id=session_id,
                 session_context=session_context,
                 identity_verified=verified_distinct_id is not None,
+                verified_email=verified_email,
             )
             set_cached_session_has_tickets(team.id, widget_session_id)
 
