@@ -44,6 +44,17 @@ def transactional_push_actions(content: TransactionalPushContent) -> list[dict]:
         inputs["link"] = _liquid(content.link)
     if content.data:
         inputs["data"] = _liquid(dict(content.data))
+    push_config: dict = {
+        "template_id": "template-native-push",
+        "template_uuid": str(content.message_template_id),
+        "sensitive": content.sensitive,
+        # Skips marketing opt-outs and frequency caps.
+        "message_category_type": "transactional",
+        "inputs": inputs,
+    }
+    # The workflow editor rejects a null category on a push step, which blocks turning the workflow back on.
+    if content.message_category_id:
+        push_config["message_category_id"] = str(content.message_category_id)
     return [
         {
             "id": TRIGGER_ACTION_ID,
@@ -59,15 +70,7 @@ def transactional_push_actions(content: TransactionalPushContent) -> list[dict]:
             "type": "function_push",
             # Nothing comes after the push, so a failed send must fail the run.
             "on_error": "abort",
-            "config": {
-                "template_id": "template-native-push",
-                "template_uuid": str(content.message_template_id),
-                "message_category_id": str(content.message_category_id) if content.message_category_id else None,
-                "sensitive": content.sensitive,
-                # Skips marketing opt-outs and frequency caps.
-                "message_category_type": "transactional",
-                "inputs": inputs,
-            },
+            "config": push_config,
         },
         {
             "id": EXIT_ACTION_ID,

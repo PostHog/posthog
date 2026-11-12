@@ -70,6 +70,7 @@ class TestTransactionalPushWorkflows(BaseTest):
         push = flow.actions[1]
         assert push["type"] == "function_push"
         assert push["config"]["message_category_type"] == "transactional"
+        assert "message_category_id" not in push["config"]
         inputs = push["config"]["inputs"]
         assert inputs["distinctId"] == {"value": "{{ event.distinct_id }}", "templating": "liquid"}
         assert inputs["channels"] == {"value": [self.firebase.id, self.apns.id]}
