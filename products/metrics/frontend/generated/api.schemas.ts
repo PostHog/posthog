@@ -282,6 +282,11 @@ export interface _MetricAnomalyReportApi {
      * @nullable
      */
     onset_time: string | null
+    /**
+     * Start of the last bucket when it ends after anomalyTo or now, so it holds only part of its samples. It stays in series but is left out of every statistic, the onset and the movers. Null when every bucket is complete.
+     * @nullable
+     */
+    partial_bucket_time?: string | null
     /** Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels. */
     top_movers: _MetricAnomalyDimensionApi[]
     /** The metric across baseline + anomaly windows on one grid, for plotting or further inspection. */

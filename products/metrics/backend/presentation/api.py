@@ -549,6 +549,11 @@ class _MetricAnomalyReportSerializer(serializers.Serializer):
         allow_null=True,
         help_text="First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.",
     )
+    partial_bucket_time = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Start of the last bucket when it ends after anomalyTo or now, so it holds only part of its samples. It stays in series but is left out of every statistic, the onset and the movers. Null when every bucket is complete.",
+    )
     top_movers = _MetricAnomalyDimensionSerializer(
         many=True,
         help_text="Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels.",

@@ -157,6 +157,32 @@ class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
         report = self._characterize(metric_name="reqs_total")
         self.assertEqual(report.aggregation, "rate")
 
+    def test_trailing_partial_bucket_is_left_out_of_the_stats(self):
+        # A counter rising 1/s, sampled every 15 s. The 40.5-minute anomaly window picks minute buckets
+        # and ends 30 s into its last one, so that bucket holds half a minute of increase.
+        start = self.start - dt.timedelta(minutes=45)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="steady_total",
+            metric_type="sum",
+            is_monotonic=True,
+            points=[(start + dt.timedelta(seconds=15 * i), 15.0 * i) for i in range(4 * 90)],
+        )
+        anomaly_from = start + dt.timedelta(minutes=45)
+        anomaly_to = anomaly_from + dt.timedelta(minutes=40, seconds=30)
+
+        report = self._characterize(
+            metric_name="steady_total", aggregation="increase", anomaly_from=anomaly_from, anomaly_to=anomaly_to
+        )
+
+        self.assertEqual(report.interval, "minute")
+        partial_start = anomaly_from + dt.timedelta(minutes=40)
+        assert report.partial_bucket_time is not None
+        self.assertEqual(dt.datetime.fromisoformat(report.partial_bucket_time), partial_start)
+        self.assertEqual(dt.datetime.fromisoformat(report.series.points[-1].time), partial_start)
+        self.assertAlmostEqual(report.anomaly_mean, 60.0)
+        self.assertEqual(report.direction, "flat")
+
     def test_characterize_via_api(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/metrics/characterize",

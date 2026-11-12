@@ -253,6 +253,8 @@ class MetricAnomalyReport:
     onset_time: str | None
     top_movers: tuple[MetricAnomalyDimension, ...]
     series: MetricSeries
+    # Start of the trailing bucket that was still filling: plotted in `series`, left out of the stats.
+    partial_bucket_time: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
