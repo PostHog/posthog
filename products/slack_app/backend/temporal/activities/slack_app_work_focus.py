@@ -23,7 +23,10 @@ def find_slack_app_work_focus_activity(inputs: SlackAppWorkFocusInputs) -> str:
         if inputs.since is not None:
             stop_daily_focus_without_installation(inputs.slack_team_id, inputs.slack_user_id, inputs.integration_id)
         return "integration_gone"
-    if inputs.since is not None and inputs.run_at is not None:
+    if inputs.since is not None:
+        # A daily run queued before runs carried their claimed time cannot bind its send claim, so it sends nothing.
+        if inputs.run_at is None:
+            return "superseded"
         return find_and_send_daily_focus(
             integration,
             inputs.slack_user_id,
