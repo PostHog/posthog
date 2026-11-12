@@ -1273,6 +1273,23 @@ class TestEvaluationBackfillActivities:
         )
         assert result.exhausted
 
+    @pytest.mark.parametrize("dispatched,limit", [(0, 5), (48, 2), (50, 0)])
+    def test_find_stops_a_capped_backfill_at_its_cap(self, backfill_data, dispatched: int, limit: int) -> None:
+        _update_backfill(backfill_data, max_units=50, dispatched_count=dispatched)
+        page = CandidatePage(candidates=[], next_cursor_timestamp=None, next_cursor_unit_id="", exhausted=False)
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_backfill.fetch_backfill_candidates", return_value=page
+        ) as fetch:
+            result = async_to_sync(find_evaluation_backfill_candidates_activity)(
+                FindCandidatesInputs(
+                    backfill_id=str(backfill_data["backfill"].id), team_id=backfill_data["team"].id, limit=5
+                )
+            )
+
+        assert (fetch.call_args.kwargs["limit"] if fetch.called else 0) == limit
+        assert result.exhausted is (limit == 0)
+
     @pytest.mark.parametrize("stop_reason", [None, "execution_failed"])
     def test_advance_is_idempotent_on_retry(self, backfill_data, stop_reason: str | None) -> None:
         advance = _advance(

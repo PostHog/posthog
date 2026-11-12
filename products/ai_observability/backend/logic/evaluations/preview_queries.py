@@ -10,9 +10,9 @@ from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties, with_global_in_subqueries
 from posthog.models import Team, User
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
-from posthog.temporal.ai_observability.message_utils import last_message_text
 
+from products.ai_observability.backend.logic.evaluations.event_io import extract_event_io
+from products.ai_observability.backend.logic.message_utils import last_message_text
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock
 
 from ...backfill_candidates import ai_events_unit_key

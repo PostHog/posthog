@@ -393,13 +393,15 @@ export function EvaluationBackfillsTab({
                             disabledReason={
                                 backfill.rerun_existing
                                     ? "Retry isn't available for a backfill that re-ran existing results. Start a new backfill instead."
-                                    : evaluation && backfill.target !== evaluation.target
-                                      ? `This backfill ran on ${backfillUnitPlural(backfill)}, but the evaluation now runs on ${pluralize(2, evaluation.target, undefined, false)}. Start a new backfill instead.`
-                                      : !evaluation?.enabled
-                                        ? 'Re-enable the evaluation before retrying.'
-                                        : hasActiveBackfill || creatingBackfill || transitioningIds.length > 0
-                                          ? 'Wait for the active backfill operation to finish.'
-                                          : undefined
+                                    : backfill.max_units != null
+                                      ? "Retry isn't available for a capped preview of recent traffic. Start a new backfill to evaluate more."
+                                      : evaluation && backfill.target !== evaluation.target
+                                        ? `This backfill ran on ${backfillUnitPlural(backfill)}, but the evaluation now runs on ${pluralize(2, evaluation.target, undefined, false)}. Start a new backfill instead.`
+                                        : !evaluation?.enabled
+                                          ? 'Re-enable the evaluation before retrying.'
+                                          : hasActiveBackfill || creatingBackfill || transitioningIds.length > 0
+                                            ? 'Wait for the active backfill operation to finish.'
+                                            : undefined
                             }
                             onClick={() =>
                                 LemonDialog.open({

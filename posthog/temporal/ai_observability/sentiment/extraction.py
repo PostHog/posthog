@@ -1,6 +1,5 @@
 """Extract user messages from $ai_input for sentiment classification."""
 
-from posthog.temporal.ai_observability.message_utils import _extract_content_text
 from posthog.temporal.ai_observability.sentiment.constants import (
     MAX_MESSAGE_CHARS,
     MAX_USER_MESSAGES,
@@ -8,6 +7,8 @@ from posthog.temporal.ai_observability.sentiment.constants import (
     SENTIMENT_EVAL_MAX_USER_MESSAGES,
     SENTIMENT_EVAL_MESSAGE_HEAD_CHARS,
 )
+
+from products.ai_observability.backend.facade.evaluation_runtime import extract_content_text
 
 HEAD_TAIL_SEPARATOR = "\n...\n"
 
@@ -43,7 +44,7 @@ def extract_user_messages_individually(ai_input: object) -> list[tuple[int, str]
 
     if isinstance(ai_input, dict):
         if ai_input.get("role") == "user":
-            text = _extract_content_text(ai_input.get("content", ""))
+            text = extract_content_text(ai_input.get("content", ""))
             return [(0, text)] if text else []
         return []
 
@@ -55,7 +56,7 @@ def extract_user_messages_individually(ai_input: object) -> list[tuple[int, str]
         if isinstance(msg, dict) and msg.get("role") == "user":
             if _is_tool_result_message(msg.get("content")):
                 continue
-            text = _extract_content_text(msg.get("content", ""))
+            text = extract_content_text(msg.get("content", ""))
             if text:
                 result.append((i, text))
     return result[-MAX_USER_MESSAGES:]

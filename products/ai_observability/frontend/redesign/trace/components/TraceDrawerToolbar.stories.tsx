@@ -27,3 +27,4 @@ export const SingleTrace: Story = {
     args: { showNavigation: false, position: null, onPrevious: null, onNext: null },
 }
 export const Narrow: Story = { decorators: [withWidth(480)] }
+export const WithRowLabel: Story = { args: { label: 'Turn ended on search_docs: TimeoutError after 30s' } }

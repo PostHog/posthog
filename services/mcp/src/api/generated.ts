@@ -43710,6 +43710,280 @@ export namespace Schemas {
     }
 
     /**
+     * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix.
+     */
+    export type EvalSuggestionDraft = { [key: string]: unknown };
+
+    /**
+     * * `new_hog` - New Hog eval
+     * * `new_llm_judge` - New LLM judge
+     * * `fix_eval` - Fix an evaluation
+     */
+    export type EvalSuggestionKindEnum = typeof EvalSuggestionKindEnum[keyof typeof EvalSuggestionKindEnum];
+
+
+    export const EvalSuggestionKindEnum = {
+      NewHog: 'new_hog',
+      NewLlmJudge: 'new_llm_judge',
+      FixEval: 'fix_eval',
+    } as const;
+
+    /**
+     * * `proposed` - Proposed
+     * * `accepted` - Accepted
+     * * `dismissed` - Dismissed
+     * * `expired` - Expired
+     */
+    export type EvalSuggestionStatusEnum = typeof EvalSuggestionStatusEnum[keyof typeof EvalSuggestionStatusEnum];
+
+
+    export const EvalSuggestionStatusEnum = {
+      Proposed: 'proposed',
+      Accepted: 'accepted',
+      Dismissed: 'dismissed',
+      Expired: 'expired',
+    } as const;
+
+    export interface EvalSuggestionFilter {
+      /** Event property the suggested evaluation filters on. */
+      key: string;
+      /** Values that match. Any of them matches. */
+      value: string[];
+      /** Property filter operator, such as 'exact'. */
+      operator: string;
+      /** Property filter type, such as 'event'. */
+      type: string;
+    }
+
+    export interface EvalSuggestionEvidence {
+      /** Trace that shows the problem. Open it to read the example. */
+      trace_id: string;
+      /** One line on what this trace shows. */
+      reason: string;
+    }
+
+    /**
+     * * `not_relevant` - Not relevant
+     * * `already_covered` - Already covered
+     * * `too_noisy` - Too noisy
+     * * `fixed_cause` - Fixed the cause
+     */
+    export type EvalSuggestionDismissReasonEnum = typeof EvalSuggestionDismissReasonEnum[keyof typeof EvalSuggestionDismissReasonEnum];
+
+
+    export const EvalSuggestionDismissReasonEnum = {
+      NotRelevant: 'not_relevant',
+      AlreadyCovered: 'already_covered',
+      TooNoisy: 'too_noisy',
+      FixedCause: 'fixed_cause',
+    } as const;
+
+    export interface EvalSuggestion {
+      /** Suggestion identifier. */
+      readonly id: string;
+      /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results.
+       *
+       * * `new_hog` - New Hog eval
+       * * `new_llm_judge` - New LLM judge
+       * * `fix_eval` - Fix an evaluation */
+      readonly kind: EvalSuggestionKindEnum;
+      /** proposed until someone accepts or dismisses it.
+       *
+       * * `proposed` - Proposed
+       * * `accepted` - Accepted
+       * * `dismissed` - Dismissed
+       * * `expired` - Expired */
+      readonly status: EvalSuggestionStatusEnum;
+      /** False for a fix_eval whose evaluation is gone or changed after the run, so its patch would undo that change. Always true for other kinds. */
+      readonly applies: boolean;
+      /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
+      readonly template_key: string;
+      /** The problem in the project's own terms, with the number that makes it concrete, such as '1 in 125 traces ends on a failed call'. Judges carry no rate, because only Hog checks are measured. */
+      readonly headline: string;
+      /** What adding the evaluation does and what it costs, in one or two plain sentences. */
+      readonly outcome: string;
+      /** How the problem was measured or found, for people who want the detail. */
+      readonly reason: string;
+      /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. */
+      readonly draft: EvalSuggestionDraft;
+      /** Property filters the suggested evaluation runs on. Empty means all AI traffic. */
+      readonly filters: readonly EvalSuggestionFilter[];
+      /** Percentage (0-100) of matching units the evaluation runs on. */
+      readonly rollout_percentage: number;
+      /**
+         * Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.
+         * @nullable
+         */
+      readonly measured_failure_rate: number | null;
+      /**
+         * Traces the failure rate was measured on. Null when there is no rate.
+         * @nullable
+         */
+      readonly sample_size: number | null;
+      /** Up to 5 example traces, each with a one-line reason. */
+      readonly evidence: readonly EvalSuggestionEvidence[];
+      /**
+         * Runs a week at the suggested rollout, for judges.
+         * @nullable
+         */
+      readonly estimated_weekly_runs: number | null;
+      /**
+         * Estimated weekly cost in USD on the project's own provider key, for judges. Null when unknown.
+         * @nullable
+         */
+      readonly estimated_weekly_cost_usd: number | null;
+      /** Model the weekly cost assumes, for LLM judges. Empty for Hog checks and fixes. */
+      readonly judge_model: string;
+      /**
+         * Evaluation that accepting this suggestion created.
+         * @nullable
+         */
+      readonly created_evaluation: string | null;
+      /**
+         * Evaluation a fix_eval suggestion repairs.
+         * @nullable
+         */
+      readonly target_evaluation: string | null;
+      /**
+         * Name of the evaluation a fix_eval suggestion repairs.
+         * @nullable
+         */
+      readonly target_evaluation_name: string | null;
+      /**
+         * Existing evaluation that may already cover this suggestion.
+         * @nullable
+         */
+      readonly similar_evaluation: string | null;
+      /**
+         * Name of an existing evaluation that may already cover this suggestion.
+         * @nullable
+         */
+      readonly similar_evaluation_name: string | null;
+      /** Reason given when the suggestion was dismissed, if any.
+       *
+       * * `not_relevant` - Not relevant
+       * * `already_covered` - Already covered
+       * * `too_noisy` - Too noisy
+       * * `fixed_cause` - Fixed the cause */
+      readonly dismiss_reason: EvalSuggestionDismissReasonEnum | null;
+      /** When the run that produced the suggestion published it. */
+      readonly created_at: string;
+    }
+
+    export interface EvalSuggestionAccept {
+      /** The accepted suggestion. */
+      suggestion: EvalSuggestion;
+      /** The evaluation the suggestion created, enabled. */
+      evaluation_id: string;
+      /**
+         * Backfill that runs the new evaluation on recent data. Null when recent data holds no matching unit.
+         * @nullable
+         */
+      backfill_id: string | null;
+      /**
+         * Units the backfill evaluates: at most 500 for a Hog check and 50 for a judge.
+         * @nullable
+         */
+      backfill_units: number | null;
+    }
+
+    export interface EvalSuggestionDismiss {
+      /** Optional reason: not_relevant, already_covered, too_noisy, or fixed_cause.
+       *
+       * * `not_relevant` - Not relevant
+       * * `already_covered` - Already covered
+       * * `too_noisy` - Too noisy
+       * * `fixed_cause` - Fixed the cause */
+      reason?: EvalSuggestionDismissReasonEnum | null;
+    }
+
+    /**
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session
+     */
+    export type EvaluationTargetEnum = typeof EvaluationTargetEnum[keyof typeof EvaluationTargetEnum];
+
+
+    export const EvaluationTargetEnum = {
+      Generation: 'generation',
+      Trace: 'trace',
+      Session: 'session',
+    } as const;
+
+    export interface EvalSuggestionEstimate {
+      /** What one unit is: a generation, a trace, or a session.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace
+       * * `session` - Session */
+      target: EvaluationTargetEnum;
+      /** Units accept would evaluate on recent data. */
+      units: number;
+      /**
+         * Start of the recent window accept covers.
+         * @nullable
+         */
+      window_start: string | null;
+      /**
+         * End of the recent window accept covers.
+         * @nullable
+         */
+      window_end: string | null;
+      /**
+         * Model a judge runs on: the default for the project's active key. Null for Hog checks.
+         * @nullable
+         */
+      judge_model: string | null;
+      /**
+         * units x input tokens one judge run reads x the input price of the model accept uses, in USD. 0 for Hog checks, null when the price or token count is unknown.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+    }
+
+    /**
+     * * `scheduled` - Scheduled
+     * * `first_visit` - First visit
+     * * `manual` - Manual
+     */
+    export type EvalSuggestionRunTriggerEnum = typeof EvalSuggestionRunTriggerEnum[keyof typeof EvalSuggestionRunTriggerEnum];
+
+
+    export const EvalSuggestionRunTriggerEnum = {
+      Scheduled: 'scheduled',
+      FirstVisit: 'first_visit',
+      Manual: 'manual',
+    } as const;
+
+    export interface EvalSuggestionRun {
+      /** Run identifier. */
+      readonly id: string;
+      /** scheduled (weekly), first_visit, or manual.
+       *
+       * * `scheduled` - Scheduled
+       * * `first_visit` - First visit
+       * * `manual` - Manual */
+      readonly trigger: EvalSuggestionRunTriggerEnum;
+      /** When the run started. */
+      readonly created_at: string;
+      /**
+         * When the run published its suggestions.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+    }
+
+    export interface EvalSuggestionList {
+      /** The latest completed run, which the suggestions come from. Null before the first one. */
+      run: EvalSuggestionRun | null;
+      /** True while a run for this project is in progress. */
+      pending: boolean;
+      /** Open suggestions of the latest run, best first. At most 3. */
+      results: EvalSuggestion[];
+    }
+
+    /**
      * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
     export type EvaluationEvaluationConfig = {
@@ -43956,20 +44230,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `generation` - Generation
-     * * `trace` - Trace
-     * * `session` - Session
-     */
-    export type EvaluationTargetEnum = typeof EvaluationTargetEnum[keyof typeof EvaluationTargetEnum];
-
-
-    export const EvaluationTargetEnum = {
-      Generation: 'generation',
-      Trace: 'trace',
-      Session: 'session',
-    } as const;
-
-    /**
      * * `openai` - Openai
      * * `anthropic` - Anthropic
      * * `gemini` - Gemini
@@ -44135,6 +44395,11 @@ export namespace Schemas {
       readonly conditions: readonly EvaluationBackfillCondition[];
       /** Whether units with an existing result are evaluated again. */
       readonly rerun_existing: boolean;
+      /**
+         * Most units this backfill evaluates, for a capped preview such as an accepted eval suggestion. Null means no cap.
+         * @nullable
+         */
+      readonly max_units: number | null;
       /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
       readonly total_count: number;
       /** Units the backfill has started an evaluation for so far. */

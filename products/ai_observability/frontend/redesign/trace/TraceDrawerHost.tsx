@@ -20,7 +20,7 @@ export interface TraceDrawerHostProps {
 
 export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element | null {
     const logic = traceDrawerLogic({ listId })
-    const { hostId, isEnabled, openRef, position, previousTrace, nextTrace, fullPageHref } = useValues(logic)
+    const { hostId, isEnabled, openRef, openLabel, position, previousTrace, nextTrace, fullPageHref } = useValues(logic)
     const { stepTo, close } = useActions(logic)
     const showNavigation = TRACE_DRAWER_LISTS[listId].showNavigation !== false
     const { mainContentRect } = useValues(panelLayoutLogic)
@@ -74,6 +74,7 @@ export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element |
                 <TraceDrawerToolbar
                     showNavigation={showNavigation}
                     position={position}
+                    label={openLabel}
                     onPrevious={previousTrace ? () => stepTo('previous') : null}
                     onNext={nextTrace ? () => stepTo('next') : null}
                     fullPageHref={fullPageHref}
