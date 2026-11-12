@@ -84,7 +84,14 @@ class RestoreContext:
     organization: Any | None
 
 
+@dataclass(frozen=True)
+class FileChangeContext:
+    user: Any | None
+    request: Any | None
+
+
 PrepareDeleteHook = Callable[[Any | None, int, Any], None]
+FileChangeCheck = Callable[[FileChangeContext, Any], None]
 PreDeleteHook = Callable[[DeletionContext, Any], None]
 PostDeleteHook = Callable[[DeletionContext, Any], None]
 PreRestoreHook = Callable[[RestoreContext, Any], None]
@@ -93,6 +100,7 @@ PostRestoreHook = Callable[[RestoreContext, Any], None]
 _MODEL_REGISTRY: dict[str, ModelRegistration] = {}
 _PREPARE_DELETE_HOOKS: dict[str, PrepareDeleteHook] = {}
 _PRE_DELETE_HOOKS: dict[str, PreDeleteHook] = {}
+_FILE_CHANGE_CHECKS: dict[str, FileChangeCheck] = {}
 _POST_DELETE_HOOKS: dict[str, PostDeleteHook] = {}
 _PRE_RESTORE_HOOKS: dict[str, PreRestoreHook] = {}
 _POST_RESTORE_HOOKS: dict[str, PostRestoreHook] = {}
@@ -149,6 +157,11 @@ def register_pre_delete_hook(type_string: str, hook: PreDeleteHook) -> None:
     _PRE_DELETE_HOOKS[type_string] = hook
 
 
+# Runs for every file a request places, changes or unlinks, including files whose object stays.
+def register_file_change_check(type_string: str, check: FileChangeCheck) -> None:
+    _FILE_CHANGE_CHECKS[type_string] = check
+
+
 def register_post_delete_hook(type_string: str, hook: PostDeleteHook) -> None:
     _POST_DELETE_HOOKS[type_string] = hook
 
@@ -161,6 +174,23 @@ def register_post_restore_hook(type_string: str, hook: PostRestoreHook) -> None:
     _POST_RESTORE_HOOKS[type_string] = hook
 
 
+def _registered_objects(registration: ModelRegistration, team_id: int, refs: Iterable[str]) -> Any | None:
+    lookup_field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(
+        registration.lookup_field
+    )
+    lookup_values = []
+    for ref in sorted(refs):
+        try:
+            lookup_values.append(lookup_field.to_python(ref))
+        except (ValueError, TypeError, DjangoValidationError):
+            continue
+    if not lookup_values:
+        return None
+    return _get_queryset(registration).filter(
+        **{f"{registration.team_field}_id": team_id, f"{registration.lookup_field}__in": lookup_values}
+    )
+
+
 # Runs before any pre-delete or pre-restore hook locks an object, so a type can load its checks' data in one query.
 def prepare_file_system_objects(request: Any | None, refs_by_type: Mapping[tuple[int, str], Iterable[str]]) -> None:
     for (team_id, type_string), refs in sorted(refs_by_type.items()):
@@ -168,21 +198,23 @@ def prepare_file_system_objects(request: Any | None, refs_by_type: Mapping[tuple
         registration = _MODEL_REGISTRY.get(type_string)
         if hook is None or registration is None:
             continue
-        lookup_field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(
-            registration.lookup_field
-        )
-        lookup_values = []
-        for ref in sorted(refs):
-            try:
-                lookup_values.append(lookup_field.to_python(ref))
-            except (ValueError, TypeError, DjangoValidationError):
-                continue
-        if not lookup_values:
+        objects = _registered_objects(registration, team_id, refs)
+        if objects is not None:
+            hook(request, team_id, objects)
+
+
+def check_file_system_object_changes(
+    context: FileChangeContext, refs_by_type: Mapping[tuple[int, str], Iterable[str]]
+) -> None:
+    checked = {key: refs for key, refs in refs_by_type.items() if key[1] in _FILE_CHANGE_CHECKS}
+    prepare_file_system_objects(context.request, checked)
+    for (team_id, type_string), refs in sorted(checked.items()):
+        registration = _MODEL_REGISTRY.get(type_string)
+        if registration is None:
             continue
-        objects = _get_queryset(registration).filter(
-            **{f"{registration.team_field}_id": team_id, f"{registration.lookup_field}__in": lookup_values}
-        )
-        hook(request, team_id, objects)
+        objects = _registered_objects(registration, team_id, refs)
+        for obj in objects if objects is not None else []:
+            _FILE_CHANGE_CHECKS[type_string](context, obj)
 
 
 def is_file_system_type_registered(type_string: str) -> bool:

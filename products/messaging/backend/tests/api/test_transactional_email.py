@@ -2037,6 +2037,38 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         self.template.refresh_from_db()
         assert self.template.deleted
 
+    @parameterized.expand([("denied", "none"), ("viewer", "viewer")])
+    def test_a_member_without_workflow_edit_access_cannot_place_or_unlink_a_template_file_beside_another(
+        self, mock_post, _flag, _name, workflow_level
+    ):
+        if workflow_level != "none":
+            self._login_member(f"{workflow_level}@example.com", {str(self.hog_flow_id): workflow_level})
+        self.template.refresh_from_db()
+        self.template.save()
+        entry = FileSystem.objects.get(team=self.team, type="message_template", ref=str(self.template.id))
+        FileSystem.objects.create(
+            team=self.team,
+            path="Copies/Password reset",
+            depth=2,
+            type="message_template",
+            ref=str(self.template.id),
+            shortcut=False,
+        )
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+
+        placed = self.client.post(
+            files_url,
+            {"path": "More copies/Password reset", "type": "message_template", "ref": str(self.template.id)},
+            format="json",
+        )
+        unlinked = self.client.delete(f"{files_url}{entry.id}/")
+
+        assert (placed.status_code, unlinked.status_code) == (
+            status.HTTP_403_FORBIDDEN,
+            status.HTTP_403_FORBIDDEN,
+        ), (placed.content, unlinked.content)
+        assert FileSystem.objects.filter(pk=entry.pk).exists()
+
     def test_restoring_transactional_templates_reads_their_workflows_once_per_batch(self, mock_post, _flag):
         self.client.force_login(self.user)
 

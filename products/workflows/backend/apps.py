@@ -5,7 +5,7 @@ from django.apps import AppConfig
 if TYPE_CHECKING:
     from django.db.models import Model, QuerySet
 
-    from posthog.api.file_system.deletion import DeletionContext, RestoreContext
+    from posthog.api.file_system.deletion import DeletionContext, FileChangeContext, RestoreContext
 
     from products.workflows.backend.services.template_file_guard import LinkedTemplate
 
@@ -17,6 +17,7 @@ class WorkflowsConfig(AppConfig):
 
     def ready(self) -> None:
         from posthog.api.file_system.deletion import (  # noqa: PLC0415
+            register_file_change_check,
             register_pre_delete_hook,
             register_pre_restore_hook,
             register_prepare_delete_hook,
@@ -30,7 +31,7 @@ class WorkflowsConfig(AppConfig):
         on_action_saved(action_saved_for_hog_flows, dispatch_uid="workflows.hog_flows.action_saved")
 
         def require_linked_workflow_editor(
-            context: "DeletionContext | RestoreContext", template: "LinkedTemplate"
+            context: "DeletionContext | RestoreContext | FileChangeContext", template: "LinkedTemplate"
         ) -> None:
             from products.workflows.backend.services.template_file_guard import (  # noqa: PLC0415 — keeps access control dependencies off startup
                 require_linked_workflow_editor,
@@ -56,3 +57,4 @@ class WorkflowsConfig(AppConfig):
         register_prepare_delete_hook("message_template", prepare_linked_workflows)
         register_pre_delete_hook("message_template", lock_then_require_linked_workflow_editor)
         register_pre_restore_hook("message_template", require_linked_workflow_editor)
+        register_file_change_check("message_template", require_linked_workflow_editor)

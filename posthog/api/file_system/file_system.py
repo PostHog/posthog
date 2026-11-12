@@ -48,6 +48,8 @@ from posthog.api.file_system.access_levels import (
 )
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
+    FileChangeContext,
+    check_file_system_object_changes,
     delete_file_system_object,
     get_restorable_object,
     is_file_system_type_registered,
@@ -555,6 +557,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         denied = entries_missing_access_level(objects, self.user_access_control, self.team.project_id, "editor")
         if denied:
             raise PermissionDenied("You need editor access to change this. Ask a project admin to grant it.")
+        refs_by_type: dict[tuple[int, str], set[str]] = {}
+        for entry_type, ref, team_id in objects:
+            if ref:
+                refs_by_type.setdefault((team_id, entry_type), set()).add(ref)
+        check_file_system_object_changes(FileChangeContext(user=self.request.user, request=self.request), refs_by_type)
 
     def _ensure_can_change_workflow_files(self, files: QuerySet) -> None:
         # Checks every row the caller is about to write, without the visibility filter. A row can
