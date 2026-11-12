@@ -21,8 +21,11 @@ function range(step: RolloutStep, start: dayjs.Dayjs, today: dayjs.Dayjs): strin
         return `Scheduled for ${from.format('D MMM')}`
     }
     const to = dayjs(step.to)
-    const until = to.isSame(today, 'day') || to.isAfter(today) ? 'now' : to.format('D MMM')
-    return `${from.isBefore(start) ? `Before ${start.format('D MMM')}` : from.format('D MMM')} – ${until}`
+    const since = from.isBefore(start) ? `before ${start.format('D MMM')}` : from.format('D MMM')
+    if (to.isSame(today, 'day') || to.isAfter(today)) {
+        return `Since ${since}`
+    }
+    return `${since.charAt(0).toUpperCase()}${since.slice(1)} to ${to.format('D MMM')}`
 }
 
 export function ReleaseRolloutChart({
