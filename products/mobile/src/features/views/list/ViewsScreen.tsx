@@ -194,10 +194,13 @@ function ViewsBody(): ReactElement {
     const { hideToast: hidePinToast } = flows
     const { show: showToast } = navToasts
     const navPins = useNavPinStore((state) => state.pins)
-    const { errors, replay } = useMobileProductFlags()
+    const { errors, replay, experiments } = useMobileProductFlags()
     const browseEntries = useMemo(
-        () => BROWSE_ENTRIES.filter((entry) => (entry === 'errors' ? errors : entry === 'replay' ? replay : true)),
-        [errors, replay]
+        () =>
+            BROWSE_ENTRIES.filter((entry) =>
+                entry === 'errors' ? errors : entry === 'replay' ? replay : entry === 'experiments' ? experiments : true
+            ),
+        [errors, replay, experiments]
     )
     const [text, setText] = useState('')
     const [menu, setMenu] = useState<MenuState | null>(null)
@@ -346,6 +349,11 @@ function ViewsBody(): ReactElement {
         if (entry === 'web' || entry === 'live') {
             const pin = entry === 'web' ? 'web_analytics' : 'live'
             openNavTarget(nav, pin, isNavPinned(pin), 'browse')
+            return
+        }
+        // The Experiments list sends `mobile_experiments_opened` itself.
+        if (entry === 'experiments') {
+            openNavTarget(nav, 'experiments', isNavPinned('experiments'))
             return
         }
         trackBrowseListOpened({ section: entry, from: latest.current.searching ? 'search' : 'browse' })

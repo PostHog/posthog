@@ -3,12 +3,13 @@ import { Text, View } from 'react-native'
 
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { ErrorTriangleIcon } from '@/ui/icons/ErrorTriangleIcon'
+import { FlaskIcon } from '@/ui/icons/FlaskIcon'
 import { RecordingIcon } from '@/ui/icons/RecordingIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii } from '@/ui/tokens'
 
-import { type ChatObjectContext, ISSUE_OBJECT_TYPE } from './objectContext'
+import { type ChatObjectContext, EXPERIMENT_OBJECT_TYPE, ISSUE_OBJECT_TYPE } from './objectContext'
 
 interface ObjectContextChipProps {
     object: ChatObjectContext
@@ -18,7 +19,12 @@ interface ObjectContextChipProps {
 export function ObjectContextChip({ object, onRemove }: ObjectContextChipProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const Icon = object.type === ISSUE_OBJECT_TYPE ? ErrorTriangleIcon : RecordingIcon
+    const Icon =
+        object.type === ISSUE_OBJECT_TYPE
+            ? ErrorTriangleIcon
+            : object.type === EXPERIMENT_OBJECT_TYPE
+              ? FlaskIcon
+              : RecordingIcon
     return (
         <View style={styles.chip} testID="chat-object-chip">
             <Icon size={iconSizes.small} color={colors.muted} strokeWidth={2.2} />

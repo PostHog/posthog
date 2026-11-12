@@ -85,6 +85,7 @@ function CustomTabsLayout(): ReactElement {
                         <Tabs.Screen name="replay" />
                         <Tabs.Screen name="web-analytics" />
                         <Tabs.Screen name="live" />
+                        <Tabs.Screen name="experiments" />
                     </Tabs>
                     <TabsChrome />
                 </SceneFrame>

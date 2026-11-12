@@ -11,6 +11,7 @@ const icons = {
     replay: ['RecordingIcon', 24, 2],
     'web-analytics': ['GlobeIcon', 24, 2],
     live: ['LiveIcon', 24, 2],
+    experiments: ['FlaskIcon', 24, 2],
     compose: ['ComposeIcon', 24, 2],
     filter: ['FilterIcon', 22, 2],
     more: ['MoreIcon', 22, 0],

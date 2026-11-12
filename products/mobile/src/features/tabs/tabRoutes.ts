@@ -9,6 +9,7 @@ const ROUTES: Record<TabKey, string> = {
     replay: 'replay',
     web_analytics: 'web-analytics',
     live: 'live',
+    experiments: 'experiments',
 }
 
 const TABS = Object.keys(ROUTES) as TabKey[]

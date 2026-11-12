@@ -359,6 +359,9 @@ An off flag hides the corresponding Browse and search entry and navigation pin. 
 the device, so enabling the flag restores the slot. Both tab and pushed list/detail routes also check the flag;
 a disabled route returns to the person's start page before mounting the feature screen.
 
+`mobile-experiments` controls Experiments the same way. Unlike Sessions and Errors, its Browse row stays enabled in
+the demo, which answers from `src/demo/experiments.ts`.
+
 For local UI checks, development bundles accept comma-separated keys in `EXPO_PUBLIC_FEATURE_FLAGS`.
 Release bundles ignore that override and use the remote release conditions.
 

@@ -9,6 +9,7 @@ export type DeepLinkKind =
     | 'callback'
     | 'error_tracking'
     | 'replay'
+    | 'experiments'
     | 'other'
 
 const KINDS: Record<string, DeepLinkKind> = {
@@ -24,6 +25,7 @@ const KINDS: Record<string, DeepLinkKind> = {
     error_tracking: 'error_tracking',
     'error-tracking': 'error_tracking',
     replay: 'replay',
+    experiments: 'experiments',
 }
 
 const PROJECT_KINDS: Record<string, DeepLinkKind> = {
@@ -31,6 +33,7 @@ const PROJECT_KINDS: Record<string, DeepLinkKind> = {
     error_tracking: 'error_tracking',
     'error-tracking': 'error_tracking',
     replay: 'replay',
+    experiments: 'experiments',
 }
 
 // `posthog://inbox` puts the screen where a host would be. An http(s) link has a real host, which is dropped.
@@ -102,6 +105,8 @@ const ERROR_TRACKING_PAGES = new Set([
 ])
 const REPLAY_PAGES = new Set(['home', 'playlists', 'settings', 'file-playback', 'kiosk'])
 const REPORT_PAGES = new Set(['triage'])
+// The web's experiment ids are numbers; other segments are pages such as `shared-metrics` or `new`.
+const EXPERIMENT_ID = /^\d+$/
 // The scout harness posts its own Slack messages, see ReportLinkSource in products/signals/backend/report_urls.py.
 const SLACK_LINK_SOURCES = new Set(['slack', 'slack_scout'])
 const SAFE_ID = /^[\w-]+$/
@@ -133,6 +138,12 @@ export function webLinkTarget(path: string): string | null {
         return `/report/${reportId}?${params.toString()}`
     }
     const [section, id, ...more] = segments
+    if (section === 'experiments' && more.length === 0) {
+        if (id === undefined) {
+            return web ? '/(stack)/experiments' : null
+        }
+        return EXPERIMENT_ID.test(id) ? `/experiments/${id}?source=link` : null
+    }
     if (!web || more.length > 0 || (id !== undefined && !SAFE_ID.test(id))) {
         return null
     }

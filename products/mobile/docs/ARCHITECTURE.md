@@ -17,6 +17,7 @@ products/mobile/
       chats.tsx           -> src/features/chats/ChatsScreen
       errors/             -> src/features/errors/ErrorsListScreen chrome="tab" (a slot only while pinned)
       replay/             -> src/features/replay/ReplayListScreen chrome="tab" (a slot only while pinned)
+      experiments/        -> src/features/experiments/ExperimentsListScreen chrome="tab" (a slot only while pinned)
       web-analytics/      -> src/features/views/webAnalytics/WebAnalyticsScreen chrome="tab" (a slot while pinned
                           or focused; `/web-analytics` is also a start page)
       live/               -> src/features/live/LiveScreen chrome="tab" (a slot while pinned or focused; `/live` is
@@ -27,6 +28,10 @@ products/mobile/
     errors/[id].tsx       -> src/features/errors/IssueScreen (`/errors/<id>`, `from` names the source for analytics)
     (stack)/replay/index.tsx -> src/features/replay/ReplayListScreen chrome="stack" (pushed from the Views Browse row)
     replay/[sessionId].tsx -> src/features/replay/SessionScreen (`/replay/<id>?t=<seconds>&source=<entry>`)
+    (stack)/experiments/index.tsx -> src/features/experiments/ExperimentsListScreen chrome="stack" (pushed from the
+                          Views Browse row; web `/project/<id>/experiments` links open it)
+    experiments/[id].tsx  -> src/features/experiments/ExperimentScreen (`/experiments/<id>?source=<entry>`, behind the
+                          `mobile-experiments` flag)
     views/web-analytics/  -> src/features/views/webAnalytics/WebAnalyticsScreen chrome="stack", and its full list
     views/live.tsx        -> src/features/live/LiveScreen chrome="stack" (Browse row, Live chip, deep link)
     chat.tsx              -> src/features/chat/ChatSheet (transparent modal, draws its own sheet;
@@ -41,6 +46,8 @@ products/mobile/
                           errorTracking.ts holds the error tracking reads and writes ([API.md](API.md#error-tracking)).
                           recordings.ts and replayVision.ts hold the session replay reads and Summarize
                           ([API.md](API.md#session-replay)).
+                          experiments.ts holds every experiments read and write behind `ExperimentsSource`
+                          ([API.md](API.md#experiments-list-and-reads)).
                           live.ts holds the Live screen's queries, project read and live events stats read
                           ([LIVE.md](LIVE.md)).
     auth/                 oauth.ts (PKCE flow, refresh, revoke), tokens.ts (secure store),
@@ -50,7 +57,8 @@ products/mobile/
                           live.ts (Live view models), adapters/ (Today, signals and Live responses -> view models)
     demo/                 briefings.ts (raw prototype data), fixtures.ts (view models), derive.ts,
                           demoMode.ts (zustand store), hooks.ts (demo query hooks),
-                          sessionThreads.ts (demo session run logs), live.ts (seeded Live traffic)
+                          sessionThreads.ts (demo session run logs), live.ts (seeded Live traffic),
+                          experiments.ts (API-shaped experiments and a store the demo writes change)
     features/
       tabs/               TabsLayout (Inbox, Chats and Views tab navigator), BottomBar and TabsHeader (each
                           rendered once), tabHeaderStore (each tab's header state), NavMenu (the More menu),
@@ -86,6 +94,26 @@ products/mobile/
                           SuppressSheet, IssueBadges, AssigneeAvatar,
                           hooks (react-query reads, optimistic status and assign), issueModel (pure adapters: rows,
                           badges, frames, sessions, breakdowns, web links, empty copy), analytics
+      experiments/        List: ExperimentsListScreen (search, Running, Done and Drafts, lazy row results),
+                          ExperimentListRow, listCopy (pure row lines, badges, status line, empty copy),
+                          experimentModel (pure: status, primary result, headline, suggested conclusion, sort orders,
+                          freshness, web URLs), hooks (context and source by data mode, list with server search, lazy
+                          row reads two at a time, detail and stored results, device-local last-seen headlines),
+                          analytics (list events and `mobile_experiment_opened`).
+                          Actions: ExperimentActionBar (verbs per status, PendingApprovalBanner), FinishSheet and
+                          FinishSheetSections (Ship and End), RepositoryPicker, LaunchSheet, PauseResumeSheet (also
+                          Archive), EditConclusionSheet, experimentMenu (More rows), actionHooks (sheet controller,
+                          launch, finish, pause, resume, archive and conclusion writes, cleanup target, pending
+                          approvals), finishModel (pure: presets, disabled reasons, request bodies, copy),
+                          conclusionCopy
+                          Detail: ExperimentScreen (gates, pull to refresh, sections per status), ExperimentHeader,
+                          HypothesisCard, ResultsStatusCard, ProgressCard, MetricCard and IntervalBar, AboutNumberSheet,
+                          ExposuresCard, HealthCard, RolloutRow (and OpenOnWebRow), WatchingCard, ConclusionCard,
+                          DraftSections, DetailSection, ExperimentSkeleton, detailHooks (target, health, exposures,
+                          watching reads, the recalculation flow with polling), detailModel (pure: stats settings,
+                          metric cards, byline, status card, progress, exposures and the split test, health, flag,
+                          draft and conclusion), aboutCopy (the "About this number" copy per method and goal),
+                          detailAnalytics
       replay/             ReplayListScreen, SessionListRow, SessionScreen, SessionChrome (Back, Open full replay, More),
                           SummaryCard, ChapterList, FrameSheet, FrameImage (signed frame URLs),
                           SessionTimelineSection, SessionSkeleton, hooks (recording, timeline, summary flow with

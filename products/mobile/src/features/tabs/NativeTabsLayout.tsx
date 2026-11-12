@@ -21,6 +21,7 @@ const LABELS: Record<TabKey, string> = {
     replay: 'Sessions',
     web_analytics: 'Web analytics',
     live: 'Live',
+    experiments: 'Experiments',
 }
 const ICONS = {
     inbox: nativeIcons.home,
@@ -30,6 +31,7 @@ const ICONS = {
     replay: nativeIcons.replay,
     web_analytics: nativeIcons.webAnalytics,
     live: nativeIcons.live,
+    experiments: nativeIcons.experiments,
 } satisfies Record<TabKey, unknown>
 const TEST_IDS: Record<TabKey, string> = {
     inbox: 'inbox-nav-home',
@@ -39,6 +41,7 @@ const TEST_IDS: Record<TabKey, string> = {
     replay: 'nav-pin-replay',
     web_analytics: 'nav-pin-web_analytics',
     live: 'nav-pin-live',
+    experiments: 'nav-pin-experiments',
 }
 
 export function NativeTabsLayout(): ReactElement {

@@ -18,6 +18,8 @@ describe('deepLinkKind', () => {
         ['posthog://errors/0192-abc', 'error_tracking'],
         ['https://us.posthog.com/project/2/views', 'other'],
         ['https://us.posthog.com/project/2/inbox/reports/0192-abc?link_source=slack', 'inbox'],
+        ['https://us.posthog.com/project/2/experiments/42', 'experiments'],
+        ['posthog://experiments/42', 'experiments'],
     ])('%s', (path, expected) => {
         expect(deepLinkKind(path)).toBe(expected)
     })
@@ -54,6 +56,11 @@ describe('deepLinkKind', () => {
         ['https://us.posthog.com/project/2/inbox/reports/triage', null],
         ['https://us.posthog.com/project/2/inbox/reports/0192-abc/details', null],
         ['https://us.posthog.com/project/2/inbox/reports/..%2Fsettings', null],
+        ['https://us.posthog.com/project/2/experiments', '/(stack)/experiments'],
+        ['https://eu.posthog.com/project/2/experiments/42?tab=metrics', '/experiments/42?source=link'],
+        ['posthog://experiments/42', '/experiments/42?source=link'],
+        ['https://us.posthog.com/project/2/experiments/shared-metrics', null],
+        ['https://us.posthog.com/project/2/experiments/42/edit', null],
     ])('opens %s in the app at %s', (path, expected) => {
         expect(webLinkTarget(path)).toBe(expected)
     })

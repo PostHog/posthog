@@ -252,3 +252,45 @@ by the mobile footer change:
 - **A filtered overview is cached on the device,** like the unfiltered one, so its cache key holds the filter values.
 - **A pinned tab keeps its trend canvas while another tab is focused.** The Views tab gives its canvases back through
   `ChartCanvasBudget`; the Web analytics and Live charts take no canvas slot, so each keeps one Skia canvas mounted.
+
+## Experiments
+
+### Experiments list
+
+- **No "daily run" or "your refresh" label from the server.** The run's `trigger` is not serialized, so the app can
+  tell only the daily placeholder (`result_source: timeseries_fallback`) from a recalculation. Backend ask: `trigger`
+  on the latest and run serializers.
+- **A row costs two reads.** The list endpoint has no headline result. Backend ask: a compact `latest_headline` (leader,
+  change, significance, exposures, `query_to`) on `ExperimentBasicSerializer`, so the list is one call.
+- **Running is three requests a page.** `status=` takes one value. Backend ask: accept a comma-separated list.
+- **"Days to target" in a row is an estimate** from the saved running-time calculation, not `running_time_target/`.
+- **No create, tags, created-by filter, sort or archived list** on the phone.
+- **Experiments is not a start page.** Like Errors and Sessions, it can be pinned but not chosen in Settings.
+
+### Experiment screen
+
+- **No "Notify me when significant".** The Watching card has no toggle: `$experiment_metric_significant` reaches Slack
+  and webhooks only. Backend ask: a mobile push for it with `{ type: 'experiment', experiment_id, project_id }`.
+- **The conclusion note has no author or date.** `conclusion_comment` is stored alone. Backend ask: who wrote it and
+  when, on the experiment serializer.
+- **How a variant shipped is read from the flag.** The experiment does not store "experiment population" or "all
+  users", so the card infers it from the first release condition.
+- **Recalculation progress is per metric only.** `rows_read` and `estimated_rows_total` arrive on the run but the card
+  counts metrics, which reads better on a phone and never moves backwards.
+- **Not on the phone:** timeseries charts, breakdowns, recordings, variant screenshots, the health drill-down and
+  `checks`, holdouts, shared metric editing, the running time calculator, and editing the hypothesis or metrics.
+- **A Bayesian "ABSOLUTE" difference type reads as a relative change**, as on the web, which formats every interval as
+  a percentage.
+
+### Experiment actions
+
+- **A pending approval is remembered for the session only.** After a restart, or on another device, the detail no
+  longer says "Waiting for approval". Backend ask: a `pending_change_request` (id, action, created at) on the
+  experiment serializer, or change requests readable with `experiment:read`.
+- **No project default for the cleanup repository.** `set_repository_as_team_default` needs `project:write` and
+  project admin, so the phone saves the pick on the experiment only.
+- **Archive never disables the flag.** The web's "Also disable and archive the linked feature flag" needs
+  `feature_flag:write`. No Unarchive, Reset or Freeze exposure on the phone.
+- **No cleanup PR progress.** A cleanup PR started from the phone shows a toast; the PR link arrives the usual way.
+  `flag_cleanup_task/` could show it later.
+- **Group-aggregated flags say "groups"** instead of the group type's name.
