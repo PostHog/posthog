@@ -64,7 +64,8 @@ products/mobile/
                           TabHeaderPublisher (a pinned screen's status line), useTabVisit (counts tab visits)
       inbox/              InboxScreen, InboxRow, InboxListFooter, hooks,
                           prefetchPlan (prefetch window and queue), usePrefetchReports,
-                          useInboxHasUnread (the Inbox tab's dot, from the saved inbox list)
+                          useInboxUnread (the unread count of the saved inbox list, for the Inbox tab's dot and Live's
+                          Meanwhile)
       report/             ReportScreen, TopChrome, Headline, HeadlineTitle, ReportMeta, ReportByline, TextLinkRow,
                           Evidence*, ReplayRow, Facts, Activity,
                           hooks, queries (query options shared by the screen and the inbox prefetch)

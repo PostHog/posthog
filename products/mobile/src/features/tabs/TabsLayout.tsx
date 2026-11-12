@@ -1,7 +1,7 @@
 import { type BottomTabBarProps, Tabs } from 'expo-router/js-tabs'
 import { type ReactElement, useEffect, useLayoutEffect, useRef } from 'react'
 import { Platform, View } from 'react-native'
-import { useInboxHasUnread } from '@/features/inbox/useInboxHasUnread'
+import { useInboxHasUnread } from '@/features/inbox/useInboxUnread'
 import { trackLiveOpened } from '@/features/live/analytics'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { useToasts } from '@/features/views/ViewsToast'

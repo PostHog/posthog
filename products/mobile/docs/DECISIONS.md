@@ -44,9 +44,10 @@ Choices the build contract left open, with the reason for each.
   bar sends `mobile_live_opened` (`from: tab`) once per switch to Home, like the Inbox and Chats opens, because a
   focus effect would count again each time a pushed screen, Settings or the chat sheet closes over Home.
 - **The Inbox tab shows a blue dot** while the inbox had an unread report the last time it loaded.
-  `useInboxHasUnread` reads the first page the inbox saves in the query cache (`read-inbox`) and never fetches, so
-  there is no dot until the inbox has loaded once, on this launch or an earlier one, and the dot cannot announce a new
-  report. The inbox saves that page only after the full read-state request succeeds.
+  `useInboxHasUnread` (`useInboxUnread.ts`, from the same count as Live's Meanwhile) reads the first page the inbox
+  saves in the query cache (`read-inbox`) and never fetches, so there is no dot until the inbox has loaded once, on
+  this launch or an earlier one, and the dot cannot announce a new report.
+  The inbox saves that page only after the full read-state request succeeds.
   Opening a report while that request is pending preserves the saved unread states until a full response arrives.
   `mobile_inbox_opened` sends `had_unread`, the dot's state when the Inbox opened. iOS native tabs show the dot as an
   empty badge.
