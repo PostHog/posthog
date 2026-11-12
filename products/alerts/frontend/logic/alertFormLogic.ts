@@ -56,6 +56,7 @@ import { canCheckOngoingInterval, getAlertFormValidationErrors } from './alertFo
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { ALERT_NOTIFICATION_TYPE_PAGERDUTY } from './alertNotifications'
+import { alertsLogic } from './alertsLogic'
 import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
 import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
@@ -629,6 +630,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 const payload: AlertTypeWrite = {
                     ...alert,
+                    // The snooze control saves on its own, so the form's copy can be stale and would undo it.
+                    snoozed_until: undefined,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
                     // can only skip weekends for sub-daily alerts
@@ -942,6 +945,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
             return undefined
         }
 
+        const updateAlertsPageList = (updatedAlert: AlertType): void => {
+            if (alertsLogic.isMounted()) {
+                alertsLogic.actions.updateAlertInList(updatedAlert)
+            }
+        }
+
         return {
             deleteAlert: async () => {
                 if (!values.alertForm.id) {
@@ -963,7 +972,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const resolvedSnoozeUntil = resolveSnoozeUntil(snoozeUntil)
                 try {
                     const updatedAlert = (await alertsPartialUpdate(
-                        String(ApiConfig.getCurrentProjectId()),
+                        String(ApiConfig.getCurrentTeamId()),
                         values.alertForm.id,
                         { snoozed_until: resolvedSnoozeUntil }
                     )) as unknown as AlertType
@@ -973,6 +982,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         parent.actions.upsertAlert(updatedAlert)
                         parent.actions.loadAlerts()
                     }
+                    updateAlertsPageList(updatedAlert)
                     const snoozedUntilLabel = formatDate(
                         dayjs(updatedAlert.snoozed_until ?? resolvedSnoozeUntil),
                         'MMM D, HH:mm'
@@ -1001,6 +1011,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         parent.actions.upsertAlert(updatedAlert)
                         parent.actions.loadAlerts()
                     }
+                    updateAlertsPageList(updatedAlert)
                     lemonToast.success('Alert unsnoozed.')
                 } catch (error) {
                     lemonToast.error("We couldn't unsnooze this alert. Please try again.")

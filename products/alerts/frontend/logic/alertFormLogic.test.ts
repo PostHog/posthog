@@ -366,7 +366,7 @@ describe('alertFormLogic', () => {
 
     it('shows success toast and no error toast when update succeeds', async () => {
         const onEditSuccess = jest.fn()
-        const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id', snoozed_until: '2026-07-16T15:30:00Z' })
         const logic = alertFormLogic({
             alert: existingAlert,
             insightId: 42,
@@ -382,6 +382,8 @@ describe('alertFormLogic', () => {
         }).toFinishAllListeners()
 
         expect(updateSpy).toHaveBeenCalledTimes(1)
+        // The form still holds the alert as it loaded, so sending its snooze would undo one set since.
+        expect(updateSpy.mock.calls[0][1].snoozed_until).toBeUndefined()
         expect(errorToastSpy).not.toHaveBeenCalled()
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
         expect(captureSpy).toHaveBeenCalledWith('alert wizard completed', {
