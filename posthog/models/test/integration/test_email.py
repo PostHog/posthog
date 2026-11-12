@@ -155,6 +155,32 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             other.rollback()
             other.close()
 
+    def test_verification_waits_for_a_create_in_progress_on_the_same_domain(self):
+        sender = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="hello@verifying.example.com",
+            config={
+                "email": "hello@verifying.example.com",
+                "domain": "verifying.example.com",
+                "provider": "maildev",
+                "verified": False,
+                "organization_proof_token": "token",
+            },
+        )
+        other = connection.get_new_connection(connection.get_connection_params())
+        try:
+            with other.cursor() as cursor:
+                lock_sender_domain(cursor, "verifying.example.com")
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            with pytest.raises(OperationalError, match="lock timeout"):
+                EmailIntegration(sender).verify()
+            assert Integration.objects.get(id=sender.id).config["verified"] is False
+        finally:
+            other.rollback()
+            other.close()
+
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_sender_created_during_the_provider_call_is_refused_not_upserted(self, mock_create_email_domain):
         config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
