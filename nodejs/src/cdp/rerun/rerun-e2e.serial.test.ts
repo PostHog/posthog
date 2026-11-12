@@ -690,14 +690,21 @@ describe('CDP hog invocation rerun e2e', () => {
 
         try {
             const token = jsonwebtoken.sign(
-                { team_id: team.id, hog_flow_id: flow.id },
+                { team_id: team.id, hog_flow_id: flow.id, kind: 'code_send' },
                 hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
                 { audience: 'posthog:workflows:send_transactional_email', expiresIn: '2m' }
             )
             const res = await supertest(app)
-                .post(`/api/projects/${team.id}/hog_flows/${flow.id}/transactional_email`)
+                .post(`/api/projects/${team.id}/hog_flows/${flow.id}/transactional_email/send`)
                 .set({ Authorization: `Bearer ${token}` })
-                .send({ to, distinct_id: 'reader', message_category: { id: newsletterId, type: 'marketing' } })
+                .send({
+                    to,
+                    distinct_id: 'reader',
+                    send: {
+                        tracking: { captureEngagement: false },
+                        message_category: { id: newsletterId, type: 'marketing' },
+                    },
+                })
             expect(res.status).toEqual(202)
 
             const failedRunId = await waitForExpect(async () => {
@@ -740,6 +747,7 @@ describe('CDP hog invocation rerun e2e', () => {
                     status: ['failed'],
                     invocation_ids: [failedRunId],
                 },
+                replay_code_sends: true,
             })
             rerunWorker = new CdpRerunWorkerConsumer(
                 { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },

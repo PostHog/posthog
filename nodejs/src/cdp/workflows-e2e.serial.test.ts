@@ -3823,10 +3823,10 @@ describe('Workflows E2E (email queue)', () => {
                 error: 'unsubscribe_link_required',
             },
             {
-                name: 'a template send in a marketing category whose email step has no unsubscribe link',
-                kind: 'template',
+                name: 'a code send in a marketing category without its own content whose email step has no unsubscribe link',
+                kind: 'code',
                 stepEmail: { html: '<p>News</p>', text: 'News' },
-                payload: { message_category: newsletter },
+                payload: codeSendIn(newsletter, { content: undefined }),
                 status: 400,
                 error: 'unsubscribe_link_required',
             },
@@ -3842,14 +3842,6 @@ describe('Workflows E2E (email queue)', () => {
                 kind: 'code',
                 stepEmail: { bcc: 'audit@example.com' },
                 payload: codeSendIn(newsletter),
-                status: 400,
-                error: 'copies_not_allowed',
-            },
-            {
-                name: 'a template send in a marketing category whose email step has a cc',
-                kind: 'template',
-                stepEmail: { cc: 'manager@example.com' },
-                payload: { message_category: newsletter },
                 status: 400,
                 error: 'copies_not_allowed',
             },
@@ -3930,22 +3922,22 @@ describe('Workflows E2E (email queue)', () => {
                 payload: codeSendIn(newsletter, { content: { subject: 'News', text: 'Bye: {{unsubscribe_url}}' } }),
             },
             {
-                name: 'a template send in a marketing category whose email step has the link as a Liquid tag',
-                kind: 'template',
-                stepEmail: { html: '', text: 'Bye: {% unsubscribe_url %}' },
-                payload: { message_category: newsletter },
+                name: 'a code send in a marketing category without its own content whose email step has the link as a Liquid tag',
+                kind: 'code',
+                stepEmail: { subject: 'News', html: '', text: 'Bye: {% unsubscribe_url %}' },
+                payload: codeSendIn(newsletter, { content: undefined }),
             },
             {
-                name: 'a template send in a marketing category whose email step trims the link with Liquid',
-                kind: 'template',
-                stepEmail: { html: '', text: 'Bye: {{- unsubscribe_url -}}' },
-                payload: { message_category: newsletter },
+                name: 'a code send in a marketing category without its own content whose email step trims the link with Liquid',
+                kind: 'code',
+                stepEmail: { subject: 'News', html: '', text: 'Bye: {{- unsubscribe_url -}}' },
+                payload: codeSendIn(newsletter, { content: undefined }),
             },
             {
-                name: 'a template send in a marketing category whose email step has the one-click link',
-                kind: 'template',
-                stepEmail: { html: '', text: 'Bye: {{ unsubscribe_url_one_click }}' },
-                payload: { message_category: newsletter },
+                name: 'a code send in a marketing category without its own content whose email step has the one-click link',
+                kind: 'code',
+                stepEmail: { subject: 'News', html: '', text: 'Bye: {{ unsubscribe_url_one_click }}' },
+                payload: codeSendIn(newsletter, { content: undefined }),
             },
             {
                 name: 'a code send in a marketing category to a recipient who opted out of another one',
@@ -4064,7 +4056,7 @@ describe('Workflows E2E (email queue)', () => {
 
         it.each<ApiSend & { delivered: number; copyDelivered?: boolean; skipped?: string }>([
             {
-                name: 'a template send whose marketing email step has no unsubscribe link',
+                name: 'a template send with no category whose marketing email step has no unsubscribe link',
                 kind: 'template',
                 step: 'marketing',
                 stepEmail: { html: '<p>News</p>', text: 'News' },
@@ -4072,7 +4064,7 @@ describe('Workflows E2E (email queue)', () => {
                 delivered: 1,
             },
             {
-                name: 'a code send from a marketing email step with a cc and no unsubscribe link',
+                name: 'a code send with no category from a marketing email step with a cc and no unsubscribe link',
                 kind: 'code',
                 step: 'marketing',
                 payload: { send: codeSend({ content: { subject: 'News', html: '<p>News</p>', text: 'News' } }) },
@@ -4080,7 +4072,7 @@ describe('Workflows E2E (email queue)', () => {
                 copyDelivered: true,
             },
             {
-                name: "a template send to a recipient who opted out of its marketing step's category",
+                name: "a template send with no category to a recipient who opted out of its marketing step's category",
                 kind: 'template',
                 step: 'marketing',
                 stepCategoryId: newsletterId,
@@ -4089,7 +4081,21 @@ describe('Workflows E2E (email queue)', () => {
                 delivered: 0,
                 skipped: 'recipient_opted_out',
             },
-        ])('accepts $name with no category on the request, as master does', async (row) => {
+            {
+                name: 'a template send that names a marketing category, whose email step has no unsubscribe link',
+                kind: 'template',
+                stepEmail: { html: '<p>News</p>', text: 'News' },
+                payload: { message_category: newsletter },
+                delivered: 1,
+            },
+            {
+                name: 'a template send that names a marketing category, to a recipient who opted out of it',
+                kind: 'template',
+                payload: { message_category: newsletter },
+                given: (to: string) => optOut(to, newsletterId),
+                delivered: 1,
+            },
+        ])('accepts $name, as master does', async (row) => {
             const flow = await insertHogFlow(
                 hub.postgres,
                 sendFlow(row.kind, row.step ?? 'transactional', row.stepEmail, row.stepCategoryId)
@@ -4123,27 +4129,22 @@ describe('Workflows E2E (email queue)', () => {
             expect(await emailsTo(bcc)).toHaveLength(1)
         })
 
-        it('replays a marketing template send retried after its email step lost the unsubscribe link', async () => {
+        it('replays a marketing code send without its own content retried after its email step lost the unsubscribe link', async () => {
             const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))
             const to = `reader-${new UUIDT().toString()}@example.com`
             const send = {
                 to,
                 distinct_id: 'reader',
-                message_category: newsletter,
+                ...codeSendIn(newsletter, { content: undefined }),
                 idempotency_key: new UUIDT().toString(),
             }
 
-            const first = await post('template', flow, send)
+            const first = await post('code', flow, send)
             expect(first.status).toEqual(202)
             await changeWorkflowEmail(flow, { html: '', text: 'News' })
             await withOtherPod(async (otherApp) => {
-                const fresh = await post(
-                    'template',
-                    flow,
-                    { ...send, idempotency_key: new UUIDT().toString() },
-                    otherApp
-                )
-                const retry = await post('template', flow, send, otherApp)
+                const fresh = await post('code', flow, { ...send, idempotency_key: new UUIDT().toString() }, otherApp)
+                const retry = await post('code', flow, send, otherApp)
 
                 expect(fresh.body).toEqual({ error: 'unsubscribe_link_required' })
                 expect(retry.status).toEqual(202)
@@ -4167,17 +4168,17 @@ describe('Workflows E2E (email queue)', () => {
                 skipped: 'unsubscribe_link_required',
             },
         ])(
-            'skips a marketing template $send whose email step gains $name between the API accepting it and the email worker sending it',
+            'skips a marketing code $send without its own content whose email step gains $name between the API accepting it and the email worker sending it',
             async ({ send, stepEmail, skipped }) => {
                 const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))
                 const to = `reader-${new UUIDT().toString()}@example.com`
                 const copy = `manager-${new UUIDT().toString()}@example.com`
                 const scheduled = send === 'scheduled send'
 
-                const res = await post('template', flow, {
+                const res = await post('code', flow, {
                     to,
                     distinct_id: 'reader',
-                    message_category: newsletter,
+                    ...codeSendIn(newsletter, { content: undefined }),
                     ...(scheduled && { scheduled_at: tomorrow() }),
                 })
                 expect(res.status).toEqual(202)
@@ -4202,45 +4203,48 @@ describe('Workflows E2E (email queue)', () => {
                 otherLink: true,
                 sent: false,
             },
-        ])('a marketing template send that $name sends: $sent', async ({ showFooter, otherLink, sent }) => {
-            const otherPreferences = new RecipientTokensService(
-                hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
-            ).generatePreferencesUrl({ team_id: team.id, identifier: 'someone-else@example.com' })
-            const flow = await insertHogFlow(
-                hub.postgres,
-                sendFlow('template', 'transactional', {
-                    html: '',
-                    text: `News${otherLink ? ` Settings: ${otherPreferences}` : ''}{% if variables.show_footer %} Bye: {{ unsubscribe_url }}{% endif %}`,
-                })
-            )
-            const to = `reader-${new UUIDT().toString()}@example.com`
+        ])(
+            'a marketing code send without its own content that $name sends: $sent',
+            async ({ showFooter, otherLink, sent }) => {
+                const otherPreferences = new RecipientTokensService(
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL
+                ).generatePreferencesUrl({ team_id: team.id, identifier: 'someone-else@example.com' })
+                const flow = await insertHogFlow(
+                    hub.postgres,
+                    sendFlow('template', 'transactional', {
+                        html: '',
+                        text: `News${otherLink ? ` Settings: ${otherPreferences}` : ''}{% if variables.show_footer %} Bye: {{ unsubscribe_url }}{% endif %}`,
+                    })
+                )
+                const to = `reader-${new UUIDT().toString()}@example.com`
 
-            const res = await post('template', flow, {
-                to,
-                distinct_id: 'reader',
-                variables: { show_footer: showFooter },
-                message_category: newsletter,
-            })
-            expect(res.status).toEqual(202)
-            await deliver()
-
-            expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
-            if (!sent) {
-                await expectStoredStatus(res.body.invocation_id, {
-                    status: 'failed',
-                    reason: 'unsubscribe_link_required',
+                const res = await post('code', flow, {
+                    to,
+                    distinct_id: 'reader',
+                    variables: { show_footer: showFooter },
+                    ...codeSendIn(newsletter, { content: undefined }),
                 })
+                expect(res.status).toEqual(202)
+                await deliver()
+
+                expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
+                if (!sent) {
+                    await expectStoredStatus(res.body.invocation_id, {
+                        status: 'failed',
+                        reason: 'unsubscribe_link_required',
+                    })
+                }
             }
-        })
+        )
 
-        it('refuses a retry of a template send that reuses its idempotency key in another category', async () => {
-            const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))
+        it('refuses a retry of a code send that reuses its idempotency key in another category', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
             const to = `receipt-${new UUIDT().toString()}@example.com`
             const send = { to, distinct_id: 'buyer', idempotency_key: new UUIDT().toString() }
 
-            const first = await post('template', flow, { ...send, message_category: receipts })
-            const retry = await post('template', flow, { ...send, message_category: newsletter })
+            const first = await post('code', flow, { ...send, ...codeSendIn(receipts) })
+            const retry = await post('code', flow, { ...send, ...codeSendIn(newsletter) })
             expect(first.status).toEqual(202)
             expect(retry.status).toEqual(422)
             expect(retry.body).toEqual({ error: 'idempotency_key_reused' })

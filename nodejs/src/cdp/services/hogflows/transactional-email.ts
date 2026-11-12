@@ -321,7 +321,6 @@ export const TransactionalEmailRequestSchema = z.object({
     variables: z.record(z.string(), z.any()).default({}),
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
-    message_category: SendCategorySchema.optional(),
     scheduled_at: ScheduledAtSchema.optional(),
 })
 
@@ -329,11 +328,14 @@ export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }
 export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }
 export const ATTACHMENT_UPLOAD_TOKEN_CLAIMS = { kind: 'attachment_upload' }
 
-export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.omit({ message_category: true })
-    .extend({ send: AcceptedSendSchema })
-    .transform(({ send: { message_category, ...send }, ...request }) => ({ ...request, send, message_category }))
+export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema }).transform(
+    ({ send: { message_category, ...send }, ...request }) => ({ ...request, send, message_category })
+)
 
-export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema> & { send?: AcceptedSend }
+export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema> & {
+    send?: AcceptedSend
+    message_category?: SendCategory
+}
 
 export const transactionalEmailRecipients = ({ to, send }: TransactionalEmailRequest): string[] => [
     to,
