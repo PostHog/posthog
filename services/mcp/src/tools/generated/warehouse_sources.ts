@@ -4,7 +4,6 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/warehouse_sources/api'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
-import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -100,10 +99,7 @@ const dataWarehouseStoredCredentialsList = (): ToolBase<
 
 const ExternalDataSchemasCancelSchema = () => {
     const ExternalDataSchemasCancelCreateParams = orvalSchemas.ExternalDataSchemasCancelCreateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasCancelCreateParams.omit({ project_id: true })
-    )
+    return ExternalDataSchemasCancelCreateParams.omit({ project_id: true })
 }
 
 const externalDataSchemasCancel = (): ToolBase<ReturnType<typeof ExternalDataSchemasCancelSchema>, unknown> => ({
@@ -121,10 +117,7 @@ const externalDataSchemasCancel = (): ToolBase<ReturnType<typeof ExternalDataSch
 
 const ExternalDataSchemasDeleteDataSchema = () => {
     const ExternalDataSchemasDeleteDataDestroyParams = orvalSchemas.ExternalDataSchemasDeleteDataDestroyParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasDeleteDataDestroyParams.omit({ project_id: true })
-    )
+    return ExternalDataSchemasDeleteDataDestroyParams.omit({ project_id: true })
 }
 
 const externalDataSchemasDeleteData = (): ToolBase<
@@ -145,10 +138,7 @@ const externalDataSchemasDeleteData = (): ToolBase<
 
 const ExternalDataSchemasDestinationsRetrieveSchema = () => {
     const ExternalDataSchemasDestinationsRetrieveParams = orvalSchemas.ExternalDataSchemasDestinationsRetrieveParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasDestinationsRetrieveParams.omit({ project_id: true })
-    )
+    return ExternalDataSchemasDestinationsRetrieveParams.omit({ project_id: true })
 }
 
 const externalDataSchemasDestinationsRetrieve = (): ToolBase<
@@ -173,10 +163,7 @@ const externalDataSchemasDestinationsRetrieve = (): ToolBase<
 const ExternalDataSchemasIncrementalFieldsCreateSchema = () => {
     const ExternalDataSchemasIncrementalFieldsCreateParams =
         orvalSchemas.ExternalDataSchemasIncrementalFieldsCreateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasIncrementalFieldsCreateParams.omit({ project_id: true })
-    )
+    return ExternalDataSchemasIncrementalFieldsCreateParams.omit({ project_id: true })
 }
 
 const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
@@ -233,11 +220,8 @@ const externalDataSchemasList = (): ToolBase<
 const ExternalDataSchemasPartialUpdateSchema = () => {
     const ExternalDataSchemasPartialUpdateBody = orvalSchemas.ExternalDataSchemasPartialUpdateBody()
     const ExternalDataSchemasPartialUpdateParams = orvalSchemas.ExternalDataSchemasPartialUpdateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasPartialUpdateParams.omit({ project_id: true }).extend(
-            ExternalDataSchemasPartialUpdateBody.shape
-        )
+    return ExternalDataSchemasPartialUpdateParams.omit({ project_id: true }).extend(
+        ExternalDataSchemasPartialUpdateBody.shape
     )
 }
 
@@ -309,10 +293,7 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
 
 const ExternalDataSchemasReloadSchema = () => {
     const ExternalDataSchemasReloadCreateParams = orvalSchemas.ExternalDataSchemasReloadCreateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasReloadCreateParams.omit({ project_id: true })
-    )
+    return ExternalDataSchemasReloadCreateParams.omit({ project_id: true })
 }
 
 const externalDataSchemasReload = (): ToolBase<ReturnType<typeof ExternalDataSchemasReloadSchema>, unknown> => ({
@@ -330,10 +311,7 @@ const externalDataSchemasReload = (): ToolBase<ReturnType<typeof ExternalDataSch
 
 const ExternalDataSchemasResyncSchema = () => {
     const ExternalDataSchemasResyncCreateParams = orvalSchemas.ExternalDataSchemasResyncCreateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasResyncCreateParams.omit({ project_id: true })
-    )
+    return ExternalDataSchemasResyncCreateParams.omit({ project_id: true })
 }
 
 const externalDataSchemasResync = (): ToolBase<ReturnType<typeof ExternalDataSchemasResyncSchema>, unknown> => ({
@@ -351,10 +329,7 @@ const externalDataSchemasResync = (): ToolBase<ReturnType<typeof ExternalDataSch
 
 const ExternalDataSchemasRetrieveSchema = () => {
     const ExternalDataSchemasRetrieveParams = orvalSchemas.ExternalDataSchemasRetrieveParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasRetrieveParams.omit({ project_id: true })
-    )
+    return ExternalDataSchemasRetrieveParams.omit({ project_id: true })
 }
 
 const externalDataSchemasRetrieve = (): ToolBase<
@@ -378,11 +353,8 @@ const ExternalDataSourcesBulkUpdateSchemasSchema = () => {
         orvalSchemas.ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody()
     const ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams =
         orvalSchemas.ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams.omit({ project_id: true }).extend(
-            ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody.shape
-        )
+    return ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams.omit({ project_id: true }).extend(
+        ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody.shape
     )
 }
 
@@ -507,14 +479,8 @@ const externalDataSourcesCreate = (): ToolBase<
 })
 
 const ExternalDataSourcesCreateWebhookCreateSchema = () => {
-    const ExternalDataSourcesCreateWebhookCreateBody = orvalSchemas.ExternalDataSourcesCreateWebhookCreateBody()
     const ExternalDataSourcesCreateWebhookCreateParams = orvalSchemas.ExternalDataSourcesCreateWebhookCreateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesCreateWebhookCreateParams.omit({ project_id: true }).extend(
-            ExternalDataSourcesCreateWebhookCreateBody.shape
-        )
-    )
+    return ExternalDataSourcesCreateWebhookCreateParams.omit({ project_id: true })
 }
 
 const externalDataSourcesCreateWebhookCreate = (): ToolBase<
@@ -528,52 +494,17 @@ const externalDataSourcesCreateWebhookCreate = (): ToolBase<
         params: z.infer<ReturnType<typeof ExternalDataSourcesCreateWebhookCreateSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.created_via !== undefined) {
-            body['created_via'] = params.created_via
-        }
-        if (params.client_secret !== undefined) {
-            body['client_secret'] = params.client_secret
-        }
-        if (params.account_id !== undefined) {
-            body['account_id'] = params.account_id
-        }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.direct_query_enabled !== undefined) {
-            body['direct_query_enabled'] = params.direct_query_enabled
-        }
-        if (params.auto_sync_new_schemas !== undefined) {
-            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
-        }
-        if (params.auto_sync_schema_patterns !== undefined) {
-            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
-        }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
-        }
         const result = await context.api.request<Schemas.CreateWebhookResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/create_webhook/`,
-            body,
         })
         return result
     },
 })
 
 const ExternalDataSourcesDeleteWebhookCreateSchema = () => {
-    const ExternalDataSourcesDeleteWebhookCreateBody = orvalSchemas.ExternalDataSourcesDeleteWebhookCreateBody()
     const ExternalDataSourcesDeleteWebhookCreateParams = orvalSchemas.ExternalDataSourcesDeleteWebhookCreateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesDeleteWebhookCreateParams.omit({ project_id: true }).extend(
-            ExternalDataSourcesDeleteWebhookCreateBody.shape
-        )
-    )
+    return ExternalDataSourcesDeleteWebhookCreateParams.omit({ project_id: true })
 }
 
 const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
@@ -587,38 +518,9 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
         params: z.infer<ReturnType<typeof ExternalDataSourcesDeleteWebhookCreateSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.created_via !== undefined) {
-            body['created_via'] = params.created_via
-        }
-        if (params.client_secret !== undefined) {
-            body['client_secret'] = params.client_secret
-        }
-        if (params.account_id !== undefined) {
-            body['account_id'] = params.account_id
-        }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.direct_query_enabled !== undefined) {
-            body['direct_query_enabled'] = params.direct_query_enabled
-        }
-        if (params.auto_sync_new_schemas !== undefined) {
-            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
-        }
-        if (params.auto_sync_schema_patterns !== undefined) {
-            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
-        }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
-        }
         const result = await context.api.request<Schemas.DeleteWebhookResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/delete_webhook/`,
-            body,
         })
         return result
     },
@@ -626,10 +528,7 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
 
 const ExternalDataSourcesDestinationsRetrieveSchema = () => {
     const ExternalDataSourcesDestinationsRetrieveParams = orvalSchemas.ExternalDataSourcesDestinationsRetrieveParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesDestinationsRetrieveParams.omit({ project_id: true })
-    )
+    return ExternalDataSourcesDestinationsRetrieveParams.omit({ project_id: true })
 }
 
 const externalDataSourcesDestinationsRetrieve = (): ToolBase<
@@ -656,16 +555,13 @@ const ExternalDataSourcesDestinationsUpdateSchema = () => {
         orvalSchemas.ExternalDataSourcesDestinationsPartialUpdateBody()
     const ExternalDataSourcesDestinationsPartialUpdateParams =
         orvalSchemas.ExternalDataSourcesDestinationsPartialUpdateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesDestinationsPartialUpdateParams.omit({ project_id: true })
-            .extend(ExternalDataSourcesDestinationsPartialUpdateBody.shape)
-            .extend({
-                destination_ids: ExternalDataSourcesDestinationsPartialUpdateBody.shape['destination_ids'].describe(
-                    'The full list of destination ids for this source, at least one. A destination left out is detached.'
-                ),
-            })
-    )
+    return ExternalDataSourcesDestinationsPartialUpdateParams.omit({ project_id: true })
+        .extend(ExternalDataSourcesDestinationsPartialUpdateBody.shape)
+        .extend({
+            destination_ids: ExternalDataSourcesDestinationsPartialUpdateBody.shape['destination_ids'].describe(
+                'The full list of destination ids for this source, at least one. A destination left out is detached.'
+            ),
+        })
 }
 
 const externalDataSourcesDestinationsUpdate = (): ToolBase<
@@ -694,10 +590,7 @@ const externalDataSourcesDestinationsUpdate = (): ToolBase<
 
 const ExternalDataSourcesDestroySchema = () => {
     const ExternalDataSourcesDestroyParams = orvalSchemas.ExternalDataSourcesDestroyParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesDestroyParams.omit({ project_id: true })
-    )
+    return ExternalDataSourcesDestroyParams.omit({ project_id: true })
 }
 
 const externalDataSourcesDestroy = (): ToolBase<ReturnType<typeof ExternalDataSourcesDestroySchema>, unknown> => ({
@@ -742,11 +635,8 @@ const externalDataSourcesList = (): ToolBase<
 const ExternalDataSourcesPartialUpdateSchema = () => {
     const ExternalDataSourcesPartialUpdateBody = orvalSchemas.ExternalDataSourcesPartialUpdateBody()
     const ExternalDataSourcesPartialUpdateParams = orvalSchemas.ExternalDataSourcesPartialUpdateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesPartialUpdateParams.omit({ project_id: true }).extend(
-            ExternalDataSourcesPartialUpdateBody.shape
-        )
+    return ExternalDataSourcesPartialUpdateParams.omit({ project_id: true }).extend(
+        ExternalDataSourcesPartialUpdateBody.shape
     )
 }
 
@@ -798,11 +688,8 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
 const ExternalDataSourcesRefreshSchemasSchema = () => {
     const ExternalDataSourcesRefreshSchemasCreateBody = orvalSchemas.ExternalDataSourcesRefreshSchemasCreateBody()
     const ExternalDataSourcesRefreshSchemasCreateParams = orvalSchemas.ExternalDataSourcesRefreshSchemasCreateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesRefreshSchemasCreateParams.omit({ project_id: true }).extend(
-            ExternalDataSourcesRefreshSchemasCreateBody.shape
-        )
+    return ExternalDataSourcesRefreshSchemasCreateParams.omit({ project_id: true }).extend(
+        ExternalDataSourcesRefreshSchemasCreateBody.shape
     )
 }
 
@@ -839,11 +726,8 @@ const externalDataSourcesRefreshSchemas = (): ToolBase<
 const ExternalDataSourcesReloadSchema = () => {
     const ExternalDataSourcesReloadCreateBody = orvalSchemas.ExternalDataSourcesReloadCreateBody()
     const ExternalDataSourcesReloadCreateParams = orvalSchemas.ExternalDataSourcesReloadCreateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesReloadCreateParams.omit({ project_id: true }).extend(
-            ExternalDataSourcesReloadCreateBody.shape
-        )
+    return ExternalDataSourcesReloadCreateParams.omit({ project_id: true }).extend(
+        ExternalDataSourcesReloadCreateBody.shape
     )
 }
 
@@ -876,10 +760,7 @@ const externalDataSourcesReload = (): ToolBase<ReturnType<typeof ExternalDataSou
 
 const ExternalDataSourcesRepairCdcCreateSchema = () => {
     const ExternalDataSourcesRepairCdcCreateParams = orvalSchemas.ExternalDataSourcesRepairCdcCreateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesRepairCdcCreateParams.omit({ project_id: true })
-    )
+    return ExternalDataSourcesRepairCdcCreateParams.omit({ project_id: true })
 }
 
 const externalDataSourcesRepairCdcCreate = (): ToolBase<
@@ -900,10 +781,7 @@ const externalDataSourcesRepairCdcCreate = (): ToolBase<
 
 const ExternalDataSourcesRetrieveSchema = () => {
     const ExternalDataSourcesRetrieveParams = orvalSchemas.ExternalDataSourcesRetrieveParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesRetrieveParams.omit({ project_id: true })
-    )
+    return ExternalDataSourcesRetrieveParams.omit({ project_id: true })
 }
 
 const externalDataSourcesRetrieve = (): ToolBase<
@@ -931,11 +809,8 @@ const ExternalDataSourcesUpdateWebhookInputsCreateSchema = () => {
         orvalSchemas.ExternalDataSourcesUpdateWebhookInputsCreateBody()
     const ExternalDataSourcesUpdateWebhookInputsCreateParams =
         orvalSchemas.ExternalDataSourcesUpdateWebhookInputsCreateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesUpdateWebhookInputsCreateParams.omit({ project_id: true }).extend(
-            ExternalDataSourcesUpdateWebhookInputsCreateBody.shape
-        )
+    return ExternalDataSourcesUpdateWebhookInputsCreateParams.omit({ project_id: true }).extend(
+        ExternalDataSourcesUpdateWebhookInputsCreateBody.shape
     )
 }
 
@@ -951,32 +826,8 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
     ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.created_via !== undefined) {
-            body['created_via'] = params.created_via
-        }
-        if (params.client_secret !== undefined) {
-            body['client_secret'] = params.client_secret
-        }
-        if (params.account_id !== undefined) {
-            body['account_id'] = params.account_id
-        }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.direct_query_enabled !== undefined) {
-            body['direct_query_enabled'] = params.direct_query_enabled
-        }
-        if (params.auto_sync_new_schemas !== undefined) {
-            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
-        }
-        if (params.auto_sync_schema_patterns !== undefined) {
-            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
-        }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
+        if (params.inputs !== undefined) {
+            body['inputs'] = params.inputs
         }
         const result = await context.api.request<Schemas.UpdateWebhookInputsResponse>({
             method: 'POST',
@@ -989,10 +840,7 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
 
 const ExternalDataSourcesWebhookInfoRetrieveSchema = () => {
     const ExternalDataSourcesWebhookInfoRetrieveParams = orvalSchemas.ExternalDataSourcesWebhookInfoRetrieveParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['source_id', 'sourceId'] }),
-        ExternalDataSourcesWebhookInfoRetrieveParams.omit({ project_id: true })
-    )
+    return ExternalDataSourcesWebhookInfoRetrieveParams.omit({ project_id: true })
 }
 
 const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
