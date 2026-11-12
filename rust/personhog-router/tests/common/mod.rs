@@ -63,6 +63,7 @@ use personhog_proto::personhog::types::v1::{
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse, WriteDistinctIdsRequest,
     WriteDistinctIdsResponse,
 };
+use personhog_router::backend::affinity::PodChannels;
 use personhog_router::backend::{
     ChannelBackend, DnsBackendConfig, LeaderBackend, LeaderBackendConfig, StashTable,
 };
@@ -91,6 +92,7 @@ pub struct TestReplicaService {
     pub groups: Vec<Group>,
     pub group_type_mappings: Vec<GroupTypeMapping>,
     pub sheds_remaining: Arc<AtomicUsize>,
+    pub unavailable_remaining: Arc<AtomicUsize>,
     pub calls: Arc<AtomicUsize>,
 }
 
@@ -105,8 +107,16 @@ impl TestReplicaService {
             groups: vec![],
             group_type_mappings: vec![],
             sheds_remaining: Arc::new(AtomicUsize::new(0)),
+            unavailable_remaining: Arc::new(AtomicUsize::new(0)),
             calls: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    /// The next `n` person reads fail UNAVAILABLE without the shed marker, as a replica whose
+    /// own property reader is failing does.
+    pub fn unavailable(mut self, n: usize) -> Self {
+        self.unavailable_remaining = Arc::new(AtomicUsize::new(n));
+        self
     }
 
     pub fn sheds(mut self, n: usize) -> Self {
@@ -172,6 +182,13 @@ impl PersonHogReplica for TestReplicaService {
                 .metadata_mut()
                 .insert(NOT_APPLIED_HEADER, "load_shed".parse().unwrap());
             return Err(status);
+        }
+        if self
+            .unavailable_remaining
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            return Err(Status::unavailable("person properties not readable yet"));
         }
         Ok(Response::new(GetPersonResponse {
             person: self.person.clone(),
@@ -476,6 +493,14 @@ impl PersonHogReplica for TestReplicaService {
         &self,
         _request: Request<DeletePersonsRequest>,
     ) -> Result<Response<DeletePersonsResponse>, Status> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self
+            .unavailable_remaining
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            return Err(Status::unavailable("replica unavailable"));
+        }
         Ok(Response::new(DeletePersonsResponse {
             deleted_count: 0,
             tombstoned: false,
@@ -1136,6 +1161,52 @@ pub async fn start_test_router_raw_with_dying_leader(
 /// Start a raw proxy router (replica only, no leader).
 pub async fn start_test_router_raw(replica_addr: SocketAddr) -> SocketAddr {
     start_test_router_raw_with_max_recv(replica_addr, 4 * 1024 * 1024).await
+}
+
+/// A raw proxy router whose replica reads with an affinity key are pinned to one of `pods`.
+pub async fn start_test_router_raw_with_replica_pods(
+    replica_addr: SocketAddr,
+    pods: &[SocketAddr],
+) -> SocketAddr {
+    start_test_router_raw_with_replica_pods_bounded(replica_addr, pods, Duration::from_secs(1))
+        .await
+}
+
+/// A raw proxy with affinity pods whose pinned attempts give up after `pinned_timeout`.
+pub async fn start_test_router_raw_with_replica_pods_bounded(
+    replica_addr: SocketAddr,
+    pods: &[SocketAddr],
+    pinned_timeout: Duration,
+) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let pod_channels = Arc::new(PodChannels::default());
+    for pod in pods {
+        pod_channels.insert(
+            *pod,
+            tonic::transport::Channel::from_shared(format!("http://{pod}"))
+                .unwrap()
+                .connect_lazy(),
+        );
+    }
+    let replica = Arc::new(
+        Arc::into_inner(make_channel_backend("replica", replica_addr))
+            .expect("unshared backend")
+            .with_pods(pod_channels),
+    );
+    let retry_config = RetryConfig {
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
+    };
+    let proxy = RawProxyService::new(replica, None, None, retry_config, 4 * 1024 * 1024, 0)
+        .with_pinned_attempt_timeout(pinned_timeout);
+
+    spawn_proxy_server(listener, proxy);
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    addr
 }
 
 /// Start a raw proxy router with a custom max receive message size.

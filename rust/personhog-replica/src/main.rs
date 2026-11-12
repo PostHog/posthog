@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
@@ -20,7 +21,9 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use personhog_common::{spawn_pool_monitor, MonitoredPool};
-use personhog_replica::config::Config;
+use personhog_coordination::store::PersonhogStore;
+use personhog_coordination::types::PropertyStoreLayout;
+use personhog_replica::config::{Config, PropertySource};
 use personhog_replica::service::PersonHogReplicaService;
 use personhog_replica::storage::postgres::PostgresStorage;
 
@@ -314,7 +317,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(config.pool_monitor_interval_secs),
     );
 
-    let service = PersonHogReplicaService::new(storage);
+    let mut service = PersonHogReplicaService::new(storage);
+    if config.property_source == PropertySource::Slatedb {
+        let etcd = EtcdStore::connect_with_member_failover(StoreConfig {
+            endpoints: config.etcd_endpoint_list(),
+            prefix: config.etcd_prefix.clone(),
+        })
+        .await?;
+        PersonhogStore::new(etcd)
+            .verify_property_store_layout(&PropertyStoreLayout {
+                shards: config.property_store.shards,
+                location: config.property_store.location()?,
+            })
+            .await?;
+        let object_store = personhog_property_store::reader_object_store(&config.property_store)?;
+        tracing::info!(
+            location = %config.property_store.location()?,
+            shards = config.property_store.shards,
+            "Reading properties from SlateDB"
+        );
+        let reader = Arc::new(personhog_property_store::PropertyReader::new(
+            &config.property_store,
+            object_store,
+        ));
+        reader.spawn_idle_reaper();
+        service = service.with_slatedb_properties(reader, config.property_read_concurrency);
+    }
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();

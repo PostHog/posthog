@@ -7,7 +7,10 @@ publish = false
 
 [dependencies]
 personhog-common = { path = "../personhog-common" }
+personhog-property-store = { path = "../personhog-property-store" }
 personhog-proto = { path = "../personhog-proto" }
+personhog-coordination = { path = "../personhog-coordination" }
+assignment-coordination = { path = "../common/assignment-coordination" }
 common-database = { path = "../common/database" }
 common-alloc = { path = "../common/alloc" }
 common-metrics = { path = "../common/metrics" }
@@ -32,6 +35,7 @@ uuid = { workspace = true }
 metrics = { workspace = true }
 metrics-util = { workspace = true }
 rstest = "0.28"
+tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = "0.1"
 

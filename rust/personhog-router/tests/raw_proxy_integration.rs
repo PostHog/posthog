@@ -11,9 +11,10 @@ use common::{
     start_test_replica_with_async_gzip_disabled, start_test_router_raw,
     start_test_router_raw_with_dying_leader, start_test_router_raw_with_identity,
     start_test_router_raw_with_leader, start_test_router_raw_with_leader_and_max_recv,
-    start_test_router_raw_with_max_recv, TestIdentityService, TestLeaderService,
-    TestLifecycleService, TestReplicaService, H2_FLAG_END_HEADERS, H2_FLAG_END_STREAM,
-    H2_FRAME_DATA, H2_FRAME_HEADERS, H2_FRAME_SETTINGS, H2_PREFACE,
+    start_test_router_raw_with_max_recv, start_test_router_raw_with_replica_pods,
+    TestIdentityService, TestLeaderService, TestLifecycleService, TestReplicaService,
+    H2_FLAG_END_HEADERS, H2_FLAG_END_STREAM, H2_FRAME_DATA, H2_FRAME_HEADERS, H2_FRAME_SETTINGS,
+    H2_PREFACE,
 };
 use personhog_proto::personhog::identity::v1::person_hog_identity_client::PersonHogIdentityClient;
 use personhog_proto::personhog::identity::v1::{
@@ -80,6 +81,52 @@ async fn raw_proxy_eventual_get_person_routes_to_replica() {
         .unwrap();
 
     assert_eq!(response.into_inner().person.unwrap().id, test_person.id);
+}
+
+#[tokio::test]
+async fn raw_proxy_pins_replica_reads_for_one_distinct_id_to_one_pod() {
+    let first = TestReplicaService::with_person(create_test_person());
+    let second = TestReplicaService::with_person(create_test_person());
+    let first_calls = first.calls.clone();
+    let first_addr = start_test_replica(first).await;
+    let second_addr = start_test_replica(second).await;
+    let router_addr =
+        start_test_router_raw_with_replica_pods(first_addr, &[first_addr, second_addr]).await;
+    let mut client = create_client(router_addr).await;
+
+    let mut keys_on_first = 0;
+    for n in 0..20 {
+        // Non-ASCII on purpose: binary metadata carries any distinct id.
+        let distinct_id = format!("usér-{n}");
+        let mut on_first = Vec::new();
+        for _ in 0..3 {
+            let before = first_calls.load(Ordering::SeqCst);
+            let mut request = Request::new(GetPersonRequest {
+                team_id: 1,
+                person_id: 42,
+                read_options: None,
+            });
+            request
+                .metadata_mut()
+                .insert("x-team-id", "1".parse().unwrap());
+            request.metadata_mut().insert_bin(
+                "x-distinct-id-bin",
+                tonic::metadata::MetadataValue::from_bytes(distinct_id.as_bytes()),
+            );
+            client.get_person(request).await.unwrap();
+            on_first.push(first_calls.load(Ordering::SeqCst) > before);
+        }
+        assert!(
+            on_first.iter().all(|hit| *hit == on_first[0]),
+            "distinct id {distinct_id} moved between pods"
+        );
+        keys_on_first += usize::from(on_first[0]);
+    }
+
+    assert!(
+        (1..20).contains(&keys_on_first),
+        "every distinct id landed on one pod: {keys_on_first} of 20 on the first"
+    );
 }
 
 #[tokio::test]
@@ -1188,5 +1235,132 @@ async fn raw_proxy_identity_without_backend_returns_unimplemented() {
         status.message().contains("identity backend not configured"),
         "{}",
         status.message()
+    );
+}
+
+#[tokio::test]
+async fn raw_proxy_reads_fall_back_when_the_pinned_replica_is_unavailable() {
+    let first = TestReplicaService::with_person(create_test_person()).unavailable(usize::MAX);
+    let second = TestReplicaService::with_person(create_test_person());
+    let first_calls = first.calls.clone();
+    let first_addr = start_test_replica(first).await;
+    let second_addr = start_test_replica(second).await;
+    let router_addr =
+        start_test_router_raw_with_replica_pods(second_addr, &[first_addr, second_addr]).await;
+    let mut client = create_client(router_addr).await;
+
+    for n in 0..20 {
+        let mut request = Request::new(GetPersonRequest {
+            team_id: 1,
+            person_id: 42,
+            read_options: None,
+        });
+        request
+            .metadata_mut()
+            .insert("x-team-id", "1".parse().unwrap());
+        request.metadata_mut().insert_bin(
+            "x-distinct-id-bin",
+            tonic::metadata::MetadataValue::from_bytes(format!("user-{n}").as_bytes()),
+        );
+        client
+            .get_person(request)
+            .await
+            .unwrap_or_else(|e| panic!("user-{n}: {e}"));
+    }
+
+    assert!(
+        first_calls.load(Ordering::SeqCst) > 0,
+        "no read was pinned to the failing pod, so nothing was proven"
+    );
+}
+
+#[tokio::test]
+async fn raw_proxy_bounds_a_read_pinned_to_a_pod_that_never_answers() {
+    let live_addr = start_test_replica(TestReplicaService::with_person(create_test_person())).await;
+    // Accepts connections and never speaks, as a wedged pod would.
+    let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let silent_addr = silent.local_addr().unwrap();
+    let accepted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let accepts = Arc::clone(&accepted);
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        loop {
+            let (stream, _) = silent.accept().await.unwrap();
+            accepts.fetch_add(1, Ordering::SeqCst);
+            held.push(stream);
+        }
+    });
+    let router_addr = common::start_test_router_raw_with_replica_pods_bounded(
+        live_addr,
+        &[silent_addr, live_addr],
+        Duration::from_millis(200),
+    )
+    .await;
+    let mut client = create_client(router_addr).await;
+
+    for n in 0..20 {
+        let started = std::time::Instant::now();
+        let mut request = Request::new(GetPersonRequest {
+            team_id: 1,
+            person_id: 42,
+            read_options: None,
+        });
+        request
+            .metadata_mut()
+            .insert("x-team-id", "1".parse().unwrap());
+        request.metadata_mut().insert_bin(
+            "x-distinct-id-bin",
+            tonic::metadata::MetadataValue::from_bytes(format!("user-{n}").as_bytes()),
+        );
+        tokio::time::timeout(Duration::from_secs(5), client.get_person(request))
+            .await
+            .expect("the pinned attempt was never bounded")
+            .unwrap_or_else(|e| panic!("user-{n}: {e}"));
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "user-{n} took {:?}",
+            started.elapsed()
+        );
+    }
+    assert!(
+        accepted.load(Ordering::SeqCst) > 0,
+        "no read was pinned to the silent pod, so nothing was proven"
+    );
+}
+
+#[tokio::test]
+async fn raw_proxy_never_pins_a_replica_write() {
+    let first = TestReplicaService::with_person(create_test_person()).unavailable(usize::MAX);
+    let second = TestReplicaService::with_person(create_test_person());
+    let first_calls = first.calls.clone();
+    let first_addr = start_test_replica(first).await;
+    let second_addr = start_test_replica(second).await;
+    let router_addr =
+        start_test_router_raw_with_replica_pods(second_addr, &[first_addr, second_addr]).await;
+    let mut client = create_client(router_addr).await;
+
+    for n in 0..20 {
+        let mut request = Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids: vec!["00000000-0000-0000-0000-000000000042".to_string()],
+            mode: 0,
+        });
+        request
+            .metadata_mut()
+            .insert("x-team-id", "1".parse().unwrap());
+        request.metadata_mut().insert_bin(
+            "x-distinct-id-bin",
+            tonic::metadata::MetadataValue::from_bytes(format!("user-{n}").as_bytes()),
+        );
+        client
+            .delete_persons(request)
+            .await
+            .unwrap_or_else(|e| panic!("user-{n}: {e}"));
+    }
+
+    assert_eq!(
+        first_calls.load(Ordering::SeqCst),
+        0,
+        "a write carrying affinity headers was pinned"
     );
 }

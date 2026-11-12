@@ -7,7 +7,7 @@ pub mod repair;
 pub mod writer;
 
 pub use config::{Compression, PropertyStoreConfig};
-pub use encoding::StoredProperties;
+pub use encoding::{StoredProperties, STUB_VERSION};
 pub use reader::PropertyReader;
 pub use writer::{PartitionKey, PropertyRecord, PropertyWriter, PutError};
 

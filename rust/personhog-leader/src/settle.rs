@@ -1,7 +1,7 @@
 //! Death-document residency maintenance: the prune tick and the settle
 //! that drops a death document once the writer has applied its record.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -25,6 +25,44 @@ pub fn retired_topic(live: &ChangelogConfig, writer_group: &str, topic: &str) ->
         && live.draining.iter().all(|g| g.topic != topic)
 }
 
+/// A SlateDB reader trails the writer by up to a poll, so marks outlive their commit by `delay`.
+pub struct CommitDelay {
+    delay: Duration,
+    pending: HashMap<Stream, VecDeque<(Instant, i64)>>,
+    settled: HashMap<Stream, i64>,
+}
+
+impl CommitDelay {
+    pub fn new(delay: Duration) -> Self {
+        Self {
+            delay,
+            pending: HashMap::new(),
+            settled: HashMap::new(),
+        }
+    }
+
+    pub fn effective(&mut self, stream: &Stream, committed: i64, now: Instant) -> Option<i64> {
+        if self.delay.is_zero() {
+            return Some(committed);
+        }
+        let pending = self.pending.entry(stream.clone()).or_default();
+        if pending
+            .back()
+            .is_none_or(|&(_, offset)| offset != committed)
+        {
+            pending.push_back((now, committed));
+        }
+        while let Some(&(observed_at, offset)) = pending.front() {
+            if now.duration_since(observed_at) < self.delay {
+                break;
+            }
+            self.settled.insert(stream.clone(), offset);
+            pending.pop_front();
+        }
+        self.settled.get(stream).copied()
+    }
+}
+
 /// One prune pass over the published partitions: fetch committed offsets per
 /// topic, prune the applied marks and settle their death documents. A retired
 /// stream settles without a fetch; a failed fetch leaves its topic's marks waiting.
@@ -34,6 +72,7 @@ pub async fn prune_and_settle_tick(
     locks: &DashMap<PersonCacheKey, Arc<Mutex<()>>>,
     pools: &WarmClientPools,
     offsets_timeout: Duration,
+    commit_delay: &mut CommitDelay,
     retired: impl Fn(&str) -> bool,
 ) -> Vec<StreamLag> {
     let targets = dirty_index.streams_with_marks();
@@ -92,10 +131,13 @@ pub async fn prune_and_settle_tick(
                 .and_then(|offsets| offsets.get(&stream.partition))
                 .copied()
         };
-        if let Some(offset) = offset {
+        let prune_through =
+            offset.and_then(|offset| commit_delay.effective(&stream, offset, Instant::now()));
+        if let Some(prune_through) = prune_through {
             if cache.is_published(partition) {
                 loop {
-                    let (pruned, exhausted) = dirty_index.prune_chunk(partition, &stream, offset);
+                    let (pruned, exhausted) =
+                        dirty_index.prune_chunk(partition, &stream, prune_through);
                     removed_total += pruned.removed as u64;
                     if on_retired {
                         retired_total += pruned.removed as u64;
@@ -179,6 +221,25 @@ mod tests {
     use super::*;
     use crate::cache::CachedPerson;
     use personhog_coordination::types::Generation;
+
+    #[test]
+    fn a_commit_prunes_only_once_it_is_older_than_the_delay() {
+        let stream = Stream {
+            topic: Arc::from("changelog"),
+            cluster: None,
+            partition: 3,
+        };
+        let start = Instant::now();
+        let at = |secs: u64| start + Duration::from_secs(secs);
+        let mut delay = CommitDelay::new(Duration::from_secs(2));
+
+        assert_eq!(delay.effective(&stream, 10, at(0)), None);
+        assert_eq!(delay.effective(&stream, 20, at(1)), None);
+        assert_eq!(delay.effective(&stream, 20, at(2)), Some(10));
+        assert_eq!(delay.effective(&stream, 30, at(3)), Some(20));
+        assert_eq!(delay.effective(&stream, 30, at(4)), Some(20));
+        assert_eq!(delay.effective(&stream, 30, at(5)), Some(30));
+    }
 
     #[test]
     fn a_topic_is_retired_only_when_the_config_vouches_for_the_writer() {

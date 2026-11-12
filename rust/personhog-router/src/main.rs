@@ -455,7 +455,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             retry_config,
             max_recv,
             config.response_size_warn_bytes,
-        );
+        )
+        .with_pinned_attempt_timeout(Duration::from_millis(config.affinity_attempt_timeout_ms));
         let mut server = http2_windows.apply_to_server(
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
@@ -544,18 +545,22 @@ async fn build_channel_backend(
                 discovery_handle.shutdown_token(),
             );
 
+            let pods = discovery.pods();
             tokio::spawn(async move {
                 let _guard = discovery_handle.process_scope();
                 discovery.run().await;
             });
 
             (
-                Arc::new(ChannelBackend::new_k8s(
-                    role,
-                    channel,
-                    config.retry_config(),
-                    readiness.clone(),
-                )),
+                Arc::new(
+                    ChannelBackend::new_k8s(
+                        role,
+                        channel,
+                        config.retry_config(),
+                        readiness.clone(),
+                    )
+                    .with_pods(pods),
+                ),
                 Some(readiness),
             )
         }

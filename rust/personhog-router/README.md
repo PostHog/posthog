@@ -157,3 +157,7 @@ Bounds are configurable per partition (`STASH_MAX_MESSAGES_PER_PARTITION`,
 `STASH_MAX_BYTES_PER_PARTITION`); requests that would exceed either bound
 are rejected with `UNAVAILABLE` so callers retry rather than the router
 silently dropping writes.
+
+#### Replica read affinity
+
+A replica read that carries `x-team-id` and `x-distinct-id-bin` is pinned to one replica pod by hashing the pair, so one person's reads keep hitting the pod whose SlateDB reader already holds its shard. The read tries that pod once, bounded as a whole, connection wait included, by `AFFINITY_ATTEMPT_TIMEOUT_MS` (default 1000). When the pod does not answer in time, fails, refuses the request or answers `UNAVAILABLE`, the read goes to the balanced channel with its usual retries, none of which the pinned attempt spends; `personhog_router_pinned_fallbacks_total` counts those by reason. A write is never pinned, whatever headers it carries, so none is cut off and sent again; writes keep the ordinary retry rules.

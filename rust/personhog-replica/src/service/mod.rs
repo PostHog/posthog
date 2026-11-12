@@ -1,6 +1,7 @@
 mod consistency;
 mod error;
 pub mod field_mask;
+mod slatedb_properties;
 mod types;
 
 #[cfg(test)]
@@ -10,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use personhog_common::persons::COOKIELESS_SENTINEL_VALUE;
+use personhog_property_store::PropertyReader;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     AckPersonTombstonesRequest, AckPersonTombstonesResponse, CheckCohortMembershipRequest,
@@ -90,11 +92,69 @@ const DELETE_TOMBSTONED_DEFAULT_ROWS: i64 = 1000;
 
 pub struct PersonHogReplicaService {
     storage: Arc<dyn FullStorage>,
+    slatedb: Option<slatedb_properties::SlatedbProperties>,
 }
 
 impl PersonHogReplicaService {
     pub fn new(storage: Arc<dyn FullStorage>) -> Self {
-        Self { storage }
+        Self {
+            storage,
+            slatedb: None,
+        }
+    }
+
+    pub fn with_slatedb_properties(
+        mut self,
+        reader: Arc<PropertyReader>,
+        read_concurrency: usize,
+    ) -> Self {
+        self.slatedb = Some(slatedb_properties::SlatedbProperties::new(
+            reader,
+            read_concurrency,
+        ));
+        self
+    }
+
+    fn postgres_properties(&self, wanted: bool) -> bool {
+        wanted && self.slatedb.is_none()
+    }
+
+    async fn person_with_properties(
+        &self,
+        person: Option<storage::types::Person>,
+    ) -> Result<Option<storage::types::Person>, Status> {
+        match (&self.slatedb, person) {
+            (Some(slatedb), Some(person)) => {
+                slatedb_properties::with_properties(slatedb, person).await
+            }
+            (_, person) => Ok(person),
+        }
+    }
+
+    async fn persons_with_properties(
+        &self,
+        persons: Vec<storage::types::Person>,
+        wanted: bool,
+    ) -> Result<Vec<storage::types::Person>, Status> {
+        match &self.slatedb {
+            Some(slatedb) if wanted => {
+                slatedb_properties::all_with_properties(slatedb, persons).await
+            }
+            _ => Ok(persons),
+        }
+    }
+
+    async fn keyed_persons_with_properties<K>(
+        &self,
+        rows: Vec<(K, Option<storage::types::Person>)>,
+        wanted: bool,
+    ) -> Result<Vec<(K, Option<storage::types::Person>)>, Status> {
+        match &self.slatedb {
+            Some(slatedb) if wanted => {
+                slatedb_properties::keyed_with_properties(slatedb, rows).await
+            }
+            _ => Ok(rows),
+        }
     }
 }
 
@@ -113,9 +173,10 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let person = self
             .storage
-            .get_person_by_id(req.team_id, req.person_id)
+            .get_person_by_id(req.team_id, req.person_id, self.postgres_properties(true))
             .await
             .map_err(|e| log_and_convert_error(e, "get_person"))?;
+        let person = self.person_with_properties(person).await?;
 
         Ok(Response::new(GetPersonResponse {
             person: person.map(Into::into),
@@ -138,9 +199,14 @@ impl PersonHogReplica for PersonHogReplicaService {
         let include_props = person_needs_properties(&req.read_options);
         let persons = self
             .storage
-            .get_persons_by_ids(req.team_id, &req.person_ids, include_props)
+            .get_persons_by_ids(
+                req.team_id,
+                &req.person_ids,
+                self.postgres_properties(include_props),
+            )
             .await
             .map_err(|e| log_and_convert_error(e, "get_persons"))?;
+        let persons = self.persons_with_properties(persons, include_props).await?;
 
         let found_ids: std::collections::HashSet<i64> = persons.iter().map(|p| p.id).collect();
         let missing_ids: Vec<i64> = req
@@ -173,9 +239,10 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let person = self
             .storage
-            .get_person_by_uuid(req.team_id, uuid)
+            .get_person_by_uuid(req.team_id, uuid, self.postgres_properties(true))
             .await
             .map_err(|e| log_and_convert_error(e, "get_person_by_uuid"))?;
+        let person = self.person_with_properties(person).await?;
 
         Ok(Response::new(GetPersonResponse {
             person: person.map(Into::into),
@@ -205,9 +272,10 @@ impl PersonHogReplica for PersonHogReplicaService {
         let include_props = person_needs_properties(&req.read_options);
         let persons = self
             .storage
-            .get_persons_by_uuids(req.team_id, &uuids, include_props)
+            .get_persons_by_uuids(req.team_id, &uuids, self.postgres_properties(include_props))
             .await
             .map_err(|e| log_and_convert_error(e, "get_persons_by_uuids"))?;
+        let persons = self.persons_with_properties(persons, include_props).await?;
 
         let mask = build_field_mask(&req.read_options);
         let mut proto_persons: Vec<_> = persons.into_iter().map(Into::into).collect();
@@ -234,9 +302,14 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let person = self
             .storage
-            .get_person_by_distinct_id(req.team_id, &req.distinct_id)
+            .get_person_by_distinct_id(
+                req.team_id,
+                &req.distinct_id,
+                self.postgres_properties(true),
+            )
             .await
             .map_err(|e| log_and_convert_error(e, "get_person_by_distinct_id"))?;
+        let person = self.person_with_properties(person).await?;
 
         Ok(Response::new(GetPersonResponse {
             person: person.map(Into::into),
@@ -259,9 +332,16 @@ impl PersonHogReplica for PersonHogReplicaService {
         let include_props = person_needs_properties(&req.read_options);
         let results = self
             .storage
-            .get_persons_by_distinct_ids_in_team(req.team_id, &req.distinct_ids, include_props)
+            .get_persons_by_distinct_ids_in_team(
+                req.team_id,
+                &req.distinct_ids,
+                self.postgres_properties(include_props),
+            )
             .await
             .map_err(|e| log_and_convert_error(e, "get_persons_by_distinct_ids_in_team"))?;
+        let results = self
+            .keyed_persons_with_properties(results, include_props)
+            .await?;
 
         let mask = build_field_mask(&req.read_options);
         Ok(Response::new(PersonsByDistinctIdsInTeamResponse {
@@ -303,9 +383,15 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let results = self
             .storage
-            .get_persons_by_distinct_ids_cross_team(&team_distinct_ids, include_props)
+            .get_persons_by_distinct_ids_cross_team(
+                &team_distinct_ids,
+                self.postgres_properties(include_props),
+            )
             .await
             .map_err(|e| log_and_convert_error(e, "get_persons_by_distinct_ids"))?;
+        let results = self
+            .keyed_persons_with_properties(results, include_props)
+            .await?;
 
         let mask = build_field_mask(&req.read_options);
         Ok(Response::new(PersonsByDistinctIdsResponse {

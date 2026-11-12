@@ -14,6 +14,7 @@ use personhog_common::grpc::{
 };
 use rand::Rng;
 use tonic::body::BoxBody;
+use tonic::transport::Channel;
 use tonic::Code;
 use tower::{Service, ServiceExt};
 
@@ -151,6 +152,8 @@ struct RawProxyInner {
     retry_config: RetryConfig,
     max_recv_message_size: usize,
     response_size_warn_bytes: usize,
+    /// Bounds a read's attempt on its pinned pod, connection wait included.
+    pinned_attempt_timeout: Duration,
 }
 
 impl RawProxyService {
@@ -170,8 +173,16 @@ impl RawProxyService {
                 retry_config,
                 max_recv_message_size,
                 response_size_warn_bytes,
+                pinned_attempt_timeout: Duration::from_secs(1),
             }),
         }
+    }
+
+    pub fn with_pinned_attempt_timeout(mut self, timeout: Duration) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("set before the service is shared")
+            .pinned_attempt_timeout = timeout;
+        self
     }
 }
 
@@ -401,9 +412,18 @@ impl RawProxyInner {
         };
         let new_path = format!("{REPLICA_PREFIX}{method}");
 
+        let affinity_key = replica_affinity_key(&parts.headers);
+
         let _in_flight = ClientInFlightGuard::new("replica");
-        self.forward_with_retry(&self.replica, &parts, &body_bytes, &new_path, method)
-            .await
+        self.forward_with_retry(
+            &self.replica,
+            &parts,
+            &body_bytes,
+            &new_path,
+            method,
+            affinity_key.as_deref(),
+        )
+        .await
     }
 
     /// Forward an identity-server request (identity or lifecycle service)
@@ -443,7 +463,7 @@ impl RawProxyInner {
         };
 
         let _in_flight = ClientInFlightGuard::new("identity");
-        self.forward_with_retry(identity, &parts, &body_bytes, path, method)
+        self.forward_with_retry(identity, &parts, &body_bytes, path, method, None)
             .await
     }
 
@@ -473,7 +493,20 @@ impl RawProxyInner {
         body_bytes: &Bytes,
         path: &str,
         method: Arc<str>,
+        affinity_key: Option<&[u8]>,
     ) -> (http::Response<BoxBody>, Option<f64>) {
+        // Only a read is pinned: a write cut off and re-sent could land twice.
+        if is_replica_read(&method) {
+            if let Some(channel) = affinity_key.and_then(|key| backend.pinned_channel(key)) {
+                if let Some(answer) = self
+                    .forward_pinned(channel, parts, body_bytes, path, &method)
+                    .await
+                {
+                    return answer;
+                }
+            }
+        }
+
         let mut delay_ms = self.retry_config.initial_backoff_ms;
         let client = current_client_name();
 
@@ -515,16 +548,11 @@ impl RawProxyInner {
             )
             .record(ready_start.elapsed().as_secs_f64() * 1000.0);
 
-            let body = BoxBody::new(Full::new(body_bytes.clone()).map_err(|never| match never {}));
-
-            let mut req = http::Request::new(body);
-            *req.method_mut() = parts.method.clone();
-            *req.uri_mut() = http::Uri::builder().path_and_query(path).build().unwrap();
-            *req.version_mut() = parts.version;
-            *req.headers_mut() = parts.headers.clone();
-
             let call_start = Instant::now();
-            match ready_channel.call(req).await {
+            match ready_channel
+                .call(build_request(parts, body_bytes, path))
+                .await
+            {
                 Ok(response) => {
                     let channel_call_ms = call_start.elapsed().as_secs_f64() * 1000.0;
                     let unapplied = unapplied_refusal_reason(&response).map(str::to_owned);
@@ -577,6 +605,52 @@ impl RawProxyInner {
         }
 
         unreachable!()
+    }
+
+    /// One attempt at the pod a read is pinned to, bounded as a whole so an unreachable pod costs
+    /// at most `pinned_attempt_timeout`. A pod that does not answer in time, fails, refuses the
+    /// request or answers `UNAVAILABLE` yields nothing, and the balanced channel takes the read.
+    async fn forward_pinned(
+        &self,
+        mut channel: Channel,
+        parts: &http::request::Parts,
+        body_bytes: &Bytes,
+        path: &str,
+        method: &Arc<str>,
+    ) -> Option<(http::Response<BoxBody>, Option<f64>)> {
+        let client = current_client_name();
+        let started = Instant::now();
+        let attempt = async {
+            let ready = channel.ready().await?;
+            ready.call(build_request(parts, body_bytes, path)).await
+        };
+        let reason = match tokio::time::timeout(self.pinned_attempt_timeout, attempt).await {
+            Err(_) => "timeout",
+            Ok(Err(_)) => "error",
+            Ok(Ok(response)) if unapplied_refusal_reason(&response).is_some() => "refused",
+            Ok(Ok(response)) if grpc_status(&response) == Some(Code::Unavailable as i32) => {
+                "unavailable"
+            }
+            Ok(Ok(response)) => {
+                let channel_call_ms = started.elapsed().as_secs_f64() * 1000.0;
+                histogram!(
+                    "personhog_router_channel_call_ms",
+                    "method" => method.clone(),
+                    "client" => client,
+                    "outcome" => "ok",
+                )
+                .record(channel_call_ms);
+                return Some((response, Some(channel_call_ms)));
+            }
+        };
+        counter!(
+            "personhog_router_pinned_fallbacks_total",
+            "method" => method.clone(),
+            "client" => client,
+            "reason" => reason,
+        )
+        .increment(1);
+        None
     }
 
     /// Raw-forward a leader request — a strong `GetPerson` or an
@@ -725,6 +799,52 @@ async fn retry_backoff(
 /// body; the leader independently validates them against the decoded body.
 const TEAM_ID_HEADER: &str = "x-team-id";
 const PERSON_ID_HEADER: &str = "x-person-id";
+/// Binary metadata, because a distinct id is arbitrary bytes and plain metadata must be ASCII.
+const DISTINCT_ID_HEADER: &str = "x-distinct-id-bin";
+
+/// The forwarders keep the whole body in hand, so a request can be built again for a replay.
+fn build_request(
+    parts: &http::request::Parts,
+    body_bytes: &Bytes,
+    path: &str,
+) -> http::Request<BoxBody> {
+    let body = BoxBody::new(Full::new(body_bytes.clone()).map_err(|never| match never {}));
+    let mut req = http::Request::new(body);
+    *req.method_mut() = parts.method.clone();
+    *req.uri_mut() = http::Uri::builder().path_and_query(path).build().unwrap();
+    *req.version_mut() = parts.version;
+    *req.headers_mut() = parts.headers.clone();
+    req
+}
+
+/// An error answer arrives as a trailers-only response, so its status is in the headers.
+fn grpc_status(response: &http::Response<BoxBody>) -> Option<i32> {
+    response
+        .headers()
+        .get("grpc-status")?
+        .to_str()
+        .ok()?
+        .parse()
+        .ok()
+}
+
+/// The replica RPCs a router pins to a pod and may repeat elsewhere: reads only.
+fn is_replica_read(method: &str) -> bool {
+    ["Get", "List", "Count", "Check"]
+        .iter()
+        .any(|prefix| method.starts_with(prefix))
+}
+
+/// A replica read stamped with `x-team-id` and `x-distinct-id-bin` keeps landing on one pod.
+fn replica_affinity_key(headers: &http::HeaderMap) -> Option<Vec<u8>> {
+    let team_id = headers.get(TEAM_ID_HEADER)?;
+    let distinct_id = headers.get(DISTINCT_ID_HEADER)?;
+    let mut key = Vec::with_capacity(team_id.len() + 1 + distinct_id.len());
+    key.extend_from_slice(team_id.as_bytes());
+    key.push(b':');
+    key.extend_from_slice(distinct_id.as_bytes());
+    Some(key)
+}
 
 /// Extract the `(team_id, person_id)` routing key from request headers.
 /// A missing or malformed header means the client predates the header
@@ -973,6 +1093,17 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    /// A team alone would send a whole team's reads to one pod.
+    #[test]
+    fn replica_affinity_needs_the_team_and_the_distinct_id() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(TEAM_ID_HEADER, "1".parse().unwrap());
+        assert_eq!(replica_affinity_key(&headers), None);
+
+        headers.insert(DISTINCT_ID_HEADER, "dXNlcg".parse().unwrap());
+        assert_eq!(replica_affinity_key(&headers), Some(b"1:dXNlcg".to_vec()));
     }
 
     /// Well-formed routing-key headers yield the `(team_id, person_id)`

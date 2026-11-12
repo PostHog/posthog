@@ -1,12 +1,52 @@
 use envconfig::Envconfig;
 use personhog_common::h2_window::{Http2Windows, WindowSize};
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::time::Duration;
 
-#[derive(Envconfig, Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PropertySource {
+    Postgres,
+    Slatedb,
+}
+
+impl FromStr for PropertySource {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "postgres" => Ok(PropertySource::Postgres),
+            "slatedb" => Ok(PropertySource::Slatedb),
+            other => Err(format!(
+                "unknown property source {other:?}; use postgres or slatedb"
+            )),
+        }
+    }
+}
+
+/// No `Debug`: the property store config holds S3 credentials.
+#[derive(Envconfig, Clone)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:50051")]
     pub grpc_address: SocketAddr,
+
+    /// In slatedb mode Postgres still resolves the person row.
+    #[envconfig(default = "postgres")]
+    pub property_source: PropertySource,
+
+    #[envconfig(nested = true)]
+    pub property_store: personhog_property_store::PropertyStoreConfig,
+
+    /// In slatedb mode, how many SlateDB reads run at once across requests.
+    #[envconfig(default = "64")]
+    pub property_read_concurrency: usize,
+
+    /// Read only in slatedb mode, to check this pod's shard layout against the writer's.
+    #[envconfig(default = "http://localhost:2379")]
+    pub etcd_endpoints: String,
+
+    #[envconfig(default = "/personhog/")]
+    pub etcd_prefix: String,
 
     /// Storage backend to use. Currently supported: "postgres"
     #[envconfig(default = "postgres")]
@@ -150,6 +190,15 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn etcd_endpoint_list(&self) -> Vec<String> {
+        self.etcd_endpoints
+            .split(',')
+            .map(str::trim)
+            .filter(|endpoint| !endpoint.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
     pub fn acquire_timeout(&self) -> Duration {
         Duration::from_secs(self.acquire_timeout_secs)
     }

@@ -8,6 +8,10 @@ const FORMAT_V1: u8 = 1;
 const FLAG_DELETED: u8 = 0b1;
 const HEADER_LEN: usize = 18;
 
+/// Identity creates a person's row at this version with no changelog record, so a row still at
+/// it has no record in the store and empty properties.
+pub const STUB_VERSION: i64 = 0;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredProperties {
     pub version: i64,
@@ -15,6 +19,13 @@ pub struct StoredProperties {
     /// Epoch milliseconds; a revival resets it, so an earlier value than the row's marks a previous incarnation.
     pub created_at: i64,
     pub properties: Bytes,
+}
+
+impl StoredProperties {
+    /// A delete marker below the row's version: identity revived the person, who starts empty.
+    pub fn is_revival(&self, row_version: i64) -> bool {
+        self.deleted && self.version < row_version
+    }
 }
 
 pub fn encode_key(team_id: i64, person_id: i64) -> [u8; 16] {

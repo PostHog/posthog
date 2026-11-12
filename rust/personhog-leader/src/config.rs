@@ -1,6 +1,7 @@
 use std::fs;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
+use std::str::FromStr;
 use std::time::Duration;
 
 use common_ingestion_warnings::RowWarningsSettings;
@@ -11,6 +12,26 @@ use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::{
     PodConfig, DRAIN_SETUP_BOUND, REVOKE_TIMEOUT, SHUTDOWN_FENCE_BOUND,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PropertySource {
+    Postgres,
+    Slatedb,
+}
+
+impl FromStr for PropertySource {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "postgres" => Ok(PropertySource::Postgres),
+            "slatedb" => Ok(PropertySource::Slatedb),
+            other => Err(format!(
+                "unknown property source {other:?}; use postgres or slatedb"
+            )),
+        }
+    }
+}
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -318,6 +339,12 @@ pub struct Config {
     /// pairs personhog_person_tmp on both — flip them together at cutover.
     #[envconfig(default = "posthog_person")]
     pub fallback_table: String,
+
+    #[envconfig(default = "postgres")]
+    pub property_source: PropertySource,
+
+    #[envconfig(nested = true)]
+    pub property_store: personhog_property_store::PropertyStoreConfig,
 
     /// Saga state tables the fence checks read (the takeover scan, the mark
     /// verifications, the ghost-fence healer). Must be the pair identity
@@ -664,6 +691,17 @@ impl Config {
         }
     }
 
+    /// The dirty-mark delay covers a reader poll, not a memtable flush, so the leader's reads need the WAL.
+    pub fn validate_property_store(&self) -> Result<(), String> {
+        if self.property_store.reader_skip_wal {
+            return Err(
+                "PROPERTY_STORE_READER_SKIP_WAL is for replicas; the leader must read the WAL"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+
     /// Every relation the fenced produce path depends on, checked at
     /// startup: the derivation satisfies them wherever the lease TTL
     /// leaves room, and an operator can override either knob.
@@ -900,6 +938,16 @@ mod lease_timescale_tests {
             overrun.validate_shutdown_budgets().is_err(),
             "phases summing to the whole global window leave the manager no slack"
         );
+    }
+
+    #[test]
+    fn a_leader_that_skips_the_wal_is_refused() {
+        let mut config =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
+        assert!(config.validate_property_store().is_ok());
+
+        config.property_store.reader_skip_wal = true;
+        assert!(config.validate_property_store().is_err());
     }
 
     /// The pod's teardown must fit the coordination component's budget,

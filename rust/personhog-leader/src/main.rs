@@ -21,6 +21,7 @@ use personhog_coordination::changelog::{
 };
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
+use personhog_coordination::types::PropertyStoreLayout;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use tokio::sync::Notify;
 use tokio::time::timeout;
@@ -35,7 +36,7 @@ use tracing_subscriber::EnvFilter;
 
 use metrics::{counter, gauge};
 use personhog_leader::cache::{DirtyIndex, PartitionedCache, PersonCacheKey};
-use personhog_leader::config::Config;
+use personhog_leader::config::{Config, PropertySource};
 use personhog_leader::coordination::{ChangelogCaptures, LeaderHandoffHandler};
 use personhog_leader::fencing::{
     preregister_fencing_metrics, FencedChangelogProducers, FencedProducerConfig,
@@ -43,15 +44,18 @@ use personhog_leader::fencing::{
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::migration::SealDuty;
 use personhog_leader::pg::{validate_table_name, LifecycleTables, PgFallback};
+use personhog_leader::property_read::PropertyRead;
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
-use personhog_leader::settle::{prune_and_settle_tick, retired_topic};
+use personhog_leader::settle::{prune_and_settle_tick, retired_topic, CommitDelay};
 use personhog_leader::warming::{
     changelog_kafka, changelog_partition_count, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
 };
 use personhog_leader::warnings;
 
 common_alloc::used!();
+
+const STORE_CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -73,6 +77,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config
         .validate_shutdown_budgets()
         .expect("Invalid shutdown configuration");
+    config
+        .validate_property_store()
+        .expect("Invalid property store configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
     validate_table_name(&config.lifecycle_op_table).expect("Invalid LIFECYCLE_OP_TABLE");
     validate_table_name(&config.lifecycle_op_person_table)
@@ -244,6 +251,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             (
                 Matcher::Full("personhog_leader_kafka_produce_bytes".into()),
                 CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES,
+            ),
+            (
+                Matcher::Full(personhog_property_store::OBJECT_STORE_REQUEST_DURATION.into()),
+                personhog_property_store::OBJECT_STORE_REQUEST_BUCKETS_SECONDS,
+            ),
+            (
+                Matcher::Full("personhog_leader_property_store_read_ms".into()),
+                personhog_property_store::READ_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_person_load_duration_ms".into()),
+                personhog_property_store::READ_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_property_store_reader_open_ms".into()),
+                personhog_property_store::READ_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_property_store_fresh_read_ms".into()),
+                personhog_property_store::READ_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_property_store_express_read_ms".into()),
+                personhog_property_store::READ_LATENCY_BUCKETS_MS,
             ),
         ],
     );
@@ -532,6 +563,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&emitted_versions),
     )
     .with_fence_capacity(config.fence_map_max_entries);
+    let mut property_read = None;
+    let service = if config.property_source == PropertySource::Slatedb {
+        store
+            .verify_property_store_layout(&PropertyStoreLayout {
+                shards: config.property_store.shards,
+                location: config.property_store.location()?,
+            })
+            .await?;
+        let object_store = personhog_property_store::reader_object_store(&config.property_store)?;
+        tracing::info!(
+            location = %config.property_store.location()?,
+            shards = config.property_store.shards,
+            "Reading properties from SlateDB"
+        );
+        let reader = Arc::new(personhog_property_store::PropertyReader::new(
+            &config.property_store,
+            object_store,
+        ));
+        reader.spawn_idle_reaper();
+        let read = PropertyRead { reader };
+        property_read = Some(read.clone());
+        service.with_property_read(read)
+    } else {
+        service
+    };
 
     let warm_pools = Arc::new(WarmClientPools::new(
         &config.kafka,
@@ -568,6 +624,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&authority),
         Arc::clone(&emitted_versions),
     );
+    let handler = match &property_read {
+        Some(read) => handler.with_property_read(read.clone()),
+        None => handler,
+    };
     let advertise_address =
         personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)
             .expect("Invalid advertise address configuration");
@@ -693,6 +753,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.writer_consumer_group.clone(),
         Duration::from_secs(config.warm_committed_offsets_timeout_secs),
         Duration::from_secs(config.dirty_index_prune_interval_secs.max(1)),
+        // Two polls cover a reader that polled just before the commit, plus its poll time.
+        if config.property_source == PropertySource::Slatedb {
+            config.property_store.reader_poll_interval() * 2
+        } else {
+            Duration::ZERO
+        },
     ));
 
     // gRPC server. Mirrors the replica's middleware stack so the router's
@@ -776,6 +842,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let waited = monitor_guard.wait().await;
+    if let Some(read) = property_read {
+        // A hung object store must not keep the process alive.
+        if tokio::time::timeout(STORE_CLOSE_TIMEOUT, read.reader.close())
+            .await
+            .is_err()
+        {
+            tracing::warn!("property store readers did not close in time");
+        }
+    }
 
     // Flush before the result propagates: a failed component or a timed-out
     // drain is exactly the shutdown that leaves warnings queued.
@@ -801,8 +876,10 @@ async fn run_dirty_index_prune_loop(
     writer_group: String,
     offsets_timeout: Duration,
     prune_interval: Duration,
+    commit_delay: Duration,
 ) {
     let mut interval = tokio::time::interval(prune_interval);
+    let mut commit_delay = CommitDelay::new(commit_delay);
     loop {
         interval.tick().await;
         gauge!("personhog_leader_dirty_index_size").set(dirty_index.len() as f64);
@@ -816,6 +893,7 @@ async fn run_dirty_index_prune_loop(
             &locks,
             &pools,
             offsets_timeout,
+            &mut commit_delay,
             |topic| retired_topic(&changelog.current(), &writer_group, topic),
         )
         .await;

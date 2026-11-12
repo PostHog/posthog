@@ -190,6 +190,10 @@ and warming can consume to a known endpoint without racing producers.
 
 - `WRITER_CONSUMER_GROUP` — group whose committed offset bounds the
   warming range.
+- `PROPERTY_SOURCE` — where a cold load reads properties: `postgres`
+  (default) or `slatedb`. In `slatedb` mode the row still comes from
+  Postgres and the properties from SlateDB (`PROPERTY_STORE_*`), so the
+  writer must be in `dual` or `slatedb` storage mode.
 - `WARM_COMMITTED_OFFSETS_TIMEOUT_SECS`, `WARM_FETCH_WATERMARKS_TIMEOUT_SECS`,
   `WARM_RECV_TIMEOUT_SECS` — Kafka call timeouts.
 - `WARM_RETRY_MAX_ATTEMPTS`, `WARM_RETRY_INITIAL_BACKOFF_MS`,
@@ -199,6 +203,16 @@ and warming can consume to a known endpoint without racing producers.
 The synchronous rdkafka calls (`committed_offsets`, `fetch_watermarks`)
 run on the blocking pool via `tokio::task::spawn_blocking` so a slow
 broker can't park the runtime thread.
+
+#### SlateDB property reads
+
+With `PROPERTY_SOURCE=slatedb`, a cold load reads the person's row from Postgres and its properties from SlateDB, and serves the person only when the two agree on the version. SlateDB behind Postgres means the writer has not applied the record yet: the load retries once with a one-off read of the latest state, then fails `UNAVAILABLE` for the caller to retry. SlateDB ahead of Postgres cannot happen while the writer applies every record to both stores, so it fails `INTERNAL` with an error log naming the person. Dirty marks prune only once the writer's committed offset is older than twice `PROPERTY_STORE_READER_POLL_MS`, so a reader trailing the writer never serves a person whose record it has not seen. The store's own settings and metrics are in [personhog-property-store](../personhog-property-store/README.md).
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `personhog_leader_property_store_reads_total{outcome}` | counter | Cold loads by how SlateDB answered: `served`; `behind`, `missing`, `timeout` and `unavailable` fail the load `UNAVAILABLE`; `data` is bad stored bytes, logged as an error; `ahead` and `deleted_at_live_version` mean SlateDB disagrees with Postgres and fail the load `INTERNAL` |
+| `personhog_leader_property_store_read_ms` | histogram | The SlateDB part of a cold load, including the one-off read when the first read was not settled |
+| `personhog_leader_person_loads_total{source, outcome}` | counter | Gains `properties_unavailable` and `properties_inconsistent` for the two failure shapes above |
 
 #### vNode ownership
 

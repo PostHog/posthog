@@ -1,3 +1,4 @@
+pub mod affinity;
 mod channel;
 pub mod discovery;
 mod leader;

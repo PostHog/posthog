@@ -35,6 +35,7 @@ use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::{InflightGuard, InflightTracker};
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
 use crate::pg::{load_person_from_pg, PgFallback};
+use crate::property_read::{self, LoadError, PropertyRead};
 use crate::recovery::ChangelogRecovery;
 use crate::warnings::{SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
@@ -155,6 +156,7 @@ pub struct PersonHogLeaderService {
     fence_map_max_entries: usize,
     /// This pod's claim to serve, consulted before answering a strong read.
     authority: Arc<AuthorityClock>,
+    property_read: Option<PropertyRead>,
     /// Versions emitted without a confirmed outcome, so a later write for
     /// the same person cannot reuse one.
     emitted_versions: Arc<EmittedVersions>,
@@ -268,7 +270,13 @@ impl PersonHogLeaderService {
             authority,
             emitted_versions,
             fence_map_max_entries: DEFAULT_FENCE_MAP_MAX_ENTRIES,
+            property_read: None,
         }
+    }
+
+    pub fn with_property_read(mut self, property_read: PropertyRead) -> Self {
+        self.property_read = Some(property_read);
+        self
     }
 
     /// Override the fence-map capacity (`fence_map_max_entries` in the
@@ -423,7 +431,14 @@ impl PersonHogLeaderService {
         };
 
         let started = Instant::now();
-        let result = load_person_from_pg(&fallback.pool, &fallback.table, key).await;
+        let result = match &self.property_read {
+            Some(read) => {
+                property_read::load_person(&fallback.pool, &fallback.table, read, key).await
+            }
+            None => load_person_from_pg(&fallback.pool, &fallback.table, key)
+                .await
+                .map_err(LoadError::from),
+        };
         histogram!("personhog_leader_person_load_duration_ms", "source" => "pg")
             .record(started.elapsed().as_secs_f64() * 1000.0);
         match result {
@@ -447,7 +462,35 @@ impl PersonHogLeaderService {
                     key.team_id, key.person_id
                 )))
             }
-            Err(e) => {
+            Err(LoadError::Unavailable(reason)) => {
+                counter!(
+                    "personhog_leader_person_loads_total",
+                    "source" => "pg", "outcome" => "properties_unavailable"
+                )
+                .increment(1);
+                tracing::debug!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    reason,
+                    "property store cannot serve the person yet"
+                );
+                Err(Status::unavailable("person properties not readable yet"))
+            }
+            Err(LoadError::Inconsistent(reason)) => {
+                counter!(
+                    "personhog_leader_person_loads_total",
+                    "source" => "pg", "outcome" => "properties_inconsistent"
+                )
+                .increment(1);
+                tracing::error!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    reason,
+                    "property store disagrees with Postgres"
+                );
+                Err(Status::internal("person properties inconsistent"))
+            }
+            Err(LoadError::Pg(e)) => {
                 counter!(
                     "personhog_leader_person_loads_total",
                     "source" => "pg", "outcome" => "error"

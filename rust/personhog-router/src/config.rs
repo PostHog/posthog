@@ -169,6 +169,11 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub max_backoff_ms: u64,
 
+    /// Bounds a replica read's first attempt on the pod its affinity key pins it to, connection
+    /// wait included; past this the request goes to the balanced channel.
+    #[envconfig(default = "1000")]
+    pub affinity_attempt_timeout_ms: u64,
+
     /// Interval between HTTP/2 keepalive pings sent by the gRPC server (0 = disabled)
     #[envconfig(default = "30")]
     pub grpc_keepalive_interval_secs: u64,

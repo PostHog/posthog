@@ -16,8 +16,11 @@ use rstest::rstest;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+#[rstest]
+#[case::with_properties(true)]
+#[case::without_properties(false)]
 #[tokio::test]
-async fn test_get_person_by_id() {
+async fn test_get_person_by_id(#[case] include_properties: bool) {
     let ctx = TestContext::new().await;
     let person = ctx
         .insert_person("test_user@example.com", None)
@@ -26,7 +29,7 @@ async fn test_get_person_by_id() {
 
     let result = ctx
         .storage
-        .get_person_by_id(ctx.team_id, person.id)
+        .get_person_by_id(ctx.team_id, person.id, include_properties)
         .await
         .expect("Failed to get person");
 
@@ -35,6 +38,7 @@ async fn test_get_person_by_id() {
     assert_eq!(fetched.id, person.id);
     assert_eq!(fetched.uuid, person.uuid);
     assert_eq!(fetched.team_id, ctx.team_id);
+    assert_eq!(fetched.properties.is_some(), include_properties);
 
     ctx.cleanup().await.ok();
 }
@@ -45,7 +49,7 @@ async fn test_get_person_by_id_not_found() {
 
     let result = ctx
         .storage
-        .get_person_by_id(ctx.team_id, 999999999)
+        .get_person_by_id(ctx.team_id, 999999999, true)
         .await
         .expect("Failed to query");
 
@@ -54,8 +58,11 @@ async fn test_get_person_by_id_not_found() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::with_properties(true)]
+#[case::without_properties(false)]
 #[tokio::test]
-async fn test_get_person_by_uuid() {
+async fn test_get_person_by_uuid(#[case] include_properties: bool) {
     let ctx = TestContext::new().await;
     let person = ctx
         .insert_person("uuid_test@example.com", None)
@@ -64,7 +71,7 @@ async fn test_get_person_by_uuid() {
 
     let result = ctx
         .storage
-        .get_person_by_uuid(ctx.team_id, person.uuid)
+        .get_person_by_uuid(ctx.team_id, person.uuid, include_properties)
         .await
         .expect("Failed to get person");
 
@@ -72,6 +79,7 @@ async fn test_get_person_by_uuid() {
     let fetched = result.unwrap();
     assert_eq!(fetched.id, person.id);
     assert_eq!(fetched.uuid, person.uuid);
+    assert_eq!(fetched.properties.is_some(), include_properties);
 
     ctx.cleanup().await.ok();
 }
@@ -103,8 +111,11 @@ async fn test_get_persons_by_ids() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::with_properties(true)]
+#[case::without_properties(false)]
 #[tokio::test]
-async fn test_get_person_by_distinct_id() {
+async fn test_get_person_by_distinct_id(#[case] include_properties: bool) {
     let ctx = TestContext::new().await;
     let distinct_id = "distinct_test_user@example.com";
     let person = ctx
@@ -114,13 +125,14 @@ async fn test_get_person_by_distinct_id() {
 
     let result = ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, distinct_id)
+        .get_person_by_distinct_id(ctx.team_id, distinct_id, include_properties)
         .await
         .expect("Failed to get person");
 
     assert!(result.is_some());
     let fetched = result.unwrap();
     assert_eq!(fetched.id, person.id);
+    assert_eq!(fetched.properties.is_some(), include_properties);
 
     ctx.cleanup().await.ok();
 }
@@ -586,13 +598,13 @@ async fn test_delete_persons_tombstone_mode_keeps_the_rows() {
     // Reads treat a tombstone as absent.
     assert!(ctx
         .storage
-        .get_person_by_id(ctx.team_id, person.id)
+        .get_person_by_id(ctx.team_id, person.id, true)
         .await
         .unwrap()
         .is_none());
     assert!(ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "tombstone_b")
+        .get_person_by_distinct_id(ctx.team_id, "tombstone_b", true)
         .await
         .unwrap()
         .is_none());
@@ -1139,7 +1151,7 @@ async fn test_person_properties() {
 
     let result = ctx
         .storage
-        .get_person_by_id(ctx.team_id, person.id)
+        .get_person_by_id(ctx.team_id, person.id, true)
         .await
         .expect("Failed to get person");
 
@@ -1917,19 +1929,19 @@ async fn test_delete_persons_batch_for_team() {
     // Verify all persons are gone
     assert!(ctx
         .storage
-        .get_person_by_id(ctx.team_id, p1.id)
+        .get_person_by_id(ctx.team_id, p1.id, true)
         .await
         .unwrap()
         .is_none());
     assert!(ctx
         .storage
-        .get_person_by_id(ctx.team_id, p2.id)
+        .get_person_by_id(ctx.team_id, p2.id, true)
         .await
         .unwrap()
         .is_none());
     assert!(ctx
         .storage
-        .get_person_by_id(ctx.team_id, p3.id)
+        .get_person_by_id(ctx.team_id, p3.id, true)
         .await
         .unwrap()
         .is_none());
@@ -1937,19 +1949,19 @@ async fn test_delete_persons_batch_for_team() {
     // Verify distinct IDs are gone too
     assert!(ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "batch_del_1")
+        .get_person_by_distinct_id(ctx.team_id, "batch_del_1", true)
         .await
         .unwrap()
         .is_none());
     assert!(ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "batch_del_2")
+        .get_person_by_distinct_id(ctx.team_id, "batch_del_2", true)
         .await
         .unwrap()
         .is_none());
     assert!(ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "batch_del_3")
+        .get_person_by_distinct_id(ctx.team_id, "batch_del_3", true)
         .await
         .unwrap()
         .is_none());
@@ -2007,7 +2019,7 @@ async fn test_delete_persons_batch_for_team_cross_team_isolation() {
     // Other team's person should still exist
     let other_person = ctx
         .storage
-        .get_person_by_id(other_team_id, other_person_id)
+        .get_person_by_id(other_team_id, other_person_id, true)
         .await
         .unwrap();
     assert!(other_person.is_some());
@@ -2064,13 +2076,13 @@ async fn test_delete_persons_batch_for_team_rolls_back_on_partial_failure() {
     // Both persons should still exist — transaction rolled back
     assert!(ctx
         .storage
-        .get_person_by_id(ctx.team_id, p1.id)
+        .get_person_by_id(ctx.team_id, p1.id, true)
         .await
         .unwrap()
         .is_some());
     assert!(ctx
         .storage
-        .get_person_by_id(ctx.team_id, p2.id)
+        .get_person_by_id(ctx.team_id, p2.id, true)
         .await
         .unwrap()
         .is_some());
@@ -2078,13 +2090,13 @@ async fn test_delete_persons_batch_for_team_rolls_back_on_partial_failure() {
     // Distinct IDs should also still exist — proves the step 2 deletes were rolled back
     assert!(ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "rollback_user_1")
+        .get_person_by_distinct_id(ctx.team_id, "rollback_user_1", true)
         .await
         .unwrap()
         .is_some());
     assert!(ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "rollback_user_2")
+        .get_person_by_distinct_id(ctx.team_id, "rollback_user_2", true)
         .await
         .unwrap()
         .is_some());
@@ -2122,19 +2134,19 @@ async fn test_delete_persons_small_batch() {
     // p1 and p2 gone, p3 remains
     assert!(ctx
         .storage
-        .get_person_by_id(ctx.team_id, p1.id)
+        .get_person_by_id(ctx.team_id, p1.id, true)
         .await
         .unwrap()
         .is_none());
     assert!(ctx
         .storage
-        .get_person_by_id(ctx.team_id, p2.id)
+        .get_person_by_id(ctx.team_id, p2.id, true)
         .await
         .unwrap()
         .is_none());
     assert!(ctx
         .storage
-        .get_person_by_id(ctx.team_id, p3.id)
+        .get_person_by_id(ctx.team_id, p3.id, true)
         .await
         .unwrap()
         .is_some());
@@ -2142,19 +2154,19 @@ async fn test_delete_persons_small_batch() {
     // Distinct IDs for deleted persons should also be gone
     assert!(ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "del_uuid_1")
+        .get_person_by_distinct_id(ctx.team_id, "del_uuid_1", true)
         .await
         .unwrap()
         .is_none());
     assert!(ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "del_uuid_2")
+        .get_person_by_distinct_id(ctx.team_id, "del_uuid_2", true)
         .await
         .unwrap()
         .is_none());
     assert!(ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "del_uuid_3")
+        .get_person_by_distinct_id(ctx.team_id, "del_uuid_3", true)
         .await
         .unwrap()
         .is_some());
@@ -2212,19 +2224,19 @@ async fn test_delete_persons_with_multiple_distinct_ids() {
     // All three distinct IDs should be gone
     assert!(ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "multi_did_1")
+        .get_person_by_distinct_id(ctx.team_id, "multi_did_1", true)
         .await
         .unwrap()
         .is_none());
     assert!(ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "multi_did_1b")
+        .get_person_by_distinct_id(ctx.team_id, "multi_did_1b", true)
         .await
         .unwrap()
         .is_none());
     assert!(ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "multi_did_1c")
+        .get_person_by_distinct_id(ctx.team_id, "multi_did_1c", true)
         .await
         .unwrap()
         .is_none());
@@ -2269,7 +2281,7 @@ async fn test_delete_persons_large_batch_tombstones_every_chunk() {
     for i in 0..150 {
         assert!(
             ctx.storage
-                .get_person_by_distinct_id(ctx.team_id, &format!("large_batch_del_{i}"))
+                .get_person_by_distinct_id(ctx.team_id, &format!("large_batch_del_{i}"), true)
                 .await
                 .unwrap()
                 .is_none(),
@@ -2927,7 +2939,7 @@ async fn test_split_person_creates_new_persons(#[case] num_splits: usize) {
         // New person should exist in DB
         let new_person = ctx
             .storage
-            .get_person_by_uuid(ctx.team_id, result.new_person_uuid)
+            .get_person_by_uuid(ctx.team_id, result.new_person_uuid, true)
             .await
             .expect("Lookup should succeed")
             .expect("New person should exist");
@@ -2937,7 +2949,7 @@ async fn test_split_person_creates_new_persons(#[case] num_splits: usize) {
         // PDI should now point to the new person
         let looked_up = ctx
             .storage
-            .get_person_by_distinct_id(ctx.team_id, &result.distinct_id)
+            .get_person_by_distinct_id(ctx.team_id, &result.distinct_id, true)
             .await
             .expect("Lookup should succeed")
             .expect("Person for distinct_id should exist");
@@ -2947,7 +2959,7 @@ async fn test_split_person_creates_new_persons(#[case] num_splits: usize) {
     // Original person still exists with its keeper distinct_id
     let original = ctx
         .storage
-        .get_person_by_id(ctx.team_id, person.id)
+        .get_person_by_id(ctx.team_id, person.id, true)
         .await
         .expect("Lookup should succeed")
         .expect("Original person should still exist");
@@ -2955,7 +2967,7 @@ async fn test_split_person_creates_new_persons(#[case] num_splits: usize) {
 
     let original_by_did = ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "keeper@example.com")
+        .get_person_by_distinct_id(ctx.team_id, "keeper@example.com", true)
         .await
         .expect("Lookup should succeed")
         .expect("Keeper DID should still resolve to original");
@@ -3108,7 +3120,7 @@ async fn test_split_person_idempotent() {
     // The new person should still exist with the correct UUID
     let new_person = ctx
         .storage
-        .get_person_by_uuid(ctx.team_id, results1[0].new_person_uuid)
+        .get_person_by_uuid(ctx.team_id, results1[0].new_person_uuid, true)
         .await
         .expect("Lookup should succeed")
         .expect("New person should still exist");
@@ -3165,7 +3177,7 @@ async fn test_split_person_revives_a_tombstoned_generated_person() {
 
     let revived = ctx
         .storage
-        .get_person_by_uuid(ctx.team_id, loser_uuid)
+        .get_person_by_uuid(ctx.team_id, loser_uuid, true)
         .await
         .unwrap()
         .expect("The revived person reads as live");
@@ -3173,7 +3185,7 @@ async fn test_split_person_revives_a_tombstoned_generated_person() {
     assert_eq!(revived.version, Some(loser_version + 1));
     let owner = ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "revive_split@example.com")
+        .get_person_by_distinct_id(ctx.team_id, "revive_split@example.com", true)
         .await
         .unwrap()
         .expect("The split mapping reads as live");
@@ -3263,7 +3275,7 @@ async fn test_split_person_revive_keeps_the_tombstone_created_at() {
 
     let revived = ctx
         .storage
-        .get_person_by_uuid(ctx.team_id, split_uuid)
+        .get_person_by_uuid(ctx.team_id, split_uuid, true)
         .await
         .expect("Lookup should succeed")
         .expect("Revived person should exist");
@@ -3313,7 +3325,7 @@ async fn test_split_person_never_reuses_a_live_person(#[case] live_is_source: bo
     };
     let source_version_before = ctx
         .storage
-        .get_person_by_uuid(ctx.team_id, source.uuid)
+        .get_person_by_uuid(ctx.team_id, source.uuid, true)
         .await
         .unwrap()
         .expect("source exists")
@@ -3332,7 +3344,7 @@ async fn test_split_person_never_reuses_a_live_person(#[case] live_is_source: bo
 
     let owner = ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, split_did)
+        .get_person_by_distinct_id(ctx.team_id, split_did, true)
         .await
         .unwrap()
         .expect("The split mapping reads as live");
@@ -3342,7 +3354,7 @@ async fn test_split_person_never_reuses_a_live_person(#[case] live_is_source: bo
 
     let untouched = ctx
         .storage
-        .get_person_by_uuid(ctx.team_id, live.uuid)
+        .get_person_by_uuid(ctx.team_id, live.uuid, true)
         .await
         .unwrap()
         .expect("The live person stays live");
@@ -3416,7 +3428,7 @@ async fn test_split_person_mixed_targets_keep_request_order() {
     for result in &results {
         let owner = ctx
             .storage
-            .get_person_by_distinct_id(ctx.team_id, &result.distinct_id)
+            .get_person_by_distinct_id(ctx.team_id, &result.distinct_id, true)
             .await
             .unwrap()
             .expect("Each split mapping reads as live");
@@ -3424,7 +3436,7 @@ async fn test_split_person_mixed_targets_keep_request_order() {
     }
     let kept = ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "mixed_keeper@example.com")
+        .get_person_by_distinct_id(ctx.team_id, "mixed_keeper@example.com", true)
         .await
         .unwrap()
         .expect("The source keeps its other distinct id");
@@ -3538,7 +3550,7 @@ async fn test_split_person_cross_team_isolation() {
     // Original should be untouched
     let original = ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "iso_split@example.com")
+        .get_person_by_distinct_id(ctx.team_id, "iso_split@example.com", true)
         .await
         .expect("Lookup should succeed")
         .expect("Original DID should still resolve");
@@ -3582,7 +3594,7 @@ async fn test_split_person_transaction_rollback_on_partial_failure() {
     // Valid distinct_id should NOT have been reassigned (no partial commit)
     let still_original = ctx
         .storage
-        .get_person_by_distinct_id(ctx.team_id, "tx_split_a@example.com")
+        .get_person_by_distinct_id(ctx.team_id, "tx_split_a@example.com", true)
         .await
         .expect("Lookup should succeed")
         .expect("DID should still resolve to original");
@@ -3618,7 +3630,7 @@ async fn test_split_person_new_persons_have_empty_properties() {
 
     let new_person = ctx
         .storage
-        .get_person_by_uuid(ctx.team_id, results[0].new_person_uuid)
+        .get_person_by_uuid(ctx.team_id, results[0].new_person_uuid, true)
         .await
         .expect("Lookup should succeed")
         .expect("New person should exist");
@@ -3828,7 +3840,7 @@ async fn test_set_person_version_floor_guarded_bump(#[case] initial_version: Opt
     assert!(updated);
     let p = ctx
         .storage
-        .get_person_by_id(ctx.team_id, person.id)
+        .get_person_by_id(ctx.team_id, person.id, true)
         .await
         .unwrap()
         .unwrap();
@@ -3843,7 +3855,7 @@ async fn test_set_person_version_floor_guarded_bump(#[case] initial_version: Opt
     assert!(!updated);
     let p = ctx
         .storage
-        .get_person_by_id(ctx.team_id, person.id)
+        .get_person_by_id(ctx.team_id, person.id, true)
         .await
         .unwrap()
         .unwrap();
@@ -5049,7 +5061,7 @@ async fn test_raise_person_version_floors_raises_only_live_persons() {
     assert_eq!(tomb_version, 1);
     let raised = ctx
         .storage
-        .get_person_by_uuid(ctx.team_id, low.uuid)
+        .get_person_by_uuid(ctx.team_id, low.uuid, true)
         .await
         .unwrap()
         .expect("live");
@@ -5113,7 +5125,7 @@ async fn test_restore_persons_inserts_only_absent_uuids() {
 
     let inserted = ctx
         .storage
-        .get_person_by_uuid(ctx.team_id, absent)
+        .get_person_by_uuid(ctx.team_id, absent, true)
         .await
         .unwrap()
         .expect("restored person reads as live");
@@ -5127,7 +5139,7 @@ async fn test_restore_persons_inserts_only_absent_uuids() {
     );
     let untouched = ctx
         .storage
-        .get_person_by_uuid(ctx.team_id, live.uuid)
+        .get_person_by_uuid(ctx.team_id, live.uuid, true)
         .await
         .unwrap()
         .expect("live");
@@ -5212,7 +5224,7 @@ async fn test_restore_persons_inserts_the_listed_distinct_ids_or_not_the_person(
     );
     assert!(ctx
         .storage
-        .get_person_by_uuid(ctx.team_id, unreachable)
+        .get_person_by_uuid(ctx.team_id, unreachable, true)
         .await
         .unwrap()
         .is_none());
