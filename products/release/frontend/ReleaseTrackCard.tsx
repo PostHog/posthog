@@ -9,8 +9,6 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { ReleaseFlagActions, ReleaseVariantWarning, emptyVariantWarning } from './ReleaseFlagActions'
-import { releaseLogic } from './releaseLogic'
-import { RolloutStep, rolloutSteps } from './releaseRollout'
 import { ReleaseTimelineAxis } from './ReleaseTimelineAxis'
 import { ReleaseTrackGrid } from './ReleaseTrackGrid'
 import { ReleaseTrackLabel } from './ReleaseTrackLabel'
@@ -18,6 +16,7 @@ import { ReleaseTrackLane } from './ReleaseTrackLane'
 import { Lane, Scale, Track, buildTrack } from './releaseTracks'
 import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS, isEnrollingEarlyAccess } from './releaseUtils'
 import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
+import { useRolloutStepsByFlag } from './useRolloutStepsByFlag'
 
 const TRACK_NAME = 264
 const TRACK_MIN_DAY = 12
@@ -129,23 +128,13 @@ const COLUMNS: ColumnDef<Lane>[] = [
 ]
 
 export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | null {
-    const { flags, scheduledChanges } = useValues(releaseLogic)
-    const { flagActivity, failedFlagIds } = useValues(releaseCalendarLogic)
+    const { failedFlagIds } = useValues(releaseCalendarLogic)
     const { loadFlagActivity } = useActions(releaseCalendarLogic)
     const { ref, width = 0 } = useResizeObserver<HTMLDivElement>()
     useRefreshChangedFlagHistory(row.flags)
 
-    const track = useMemo(() => {
-        const today = dayjs()
-        const horizon = today.add(TRACK_MAX_PAST_DAYS, 'day')
-        const stepsByFlag = new Map<number, RolloutStep[]>()
-        for (const flag of flags) {
-            if (flagActivity[flag.id]) {
-                stepsByFlag.set(flag.id, rolloutSteps(flag, flagActivity[flag.id], scheduledChanges, today, horizon))
-            }
-        }
-        return buildTrack(row, stepsByFlag)
-    }, [row, flags, flagActivity, scheduledChanges])
+    const stepsByFlag = useRolloutStepsByFlag(TRACK_MAX_FUTURE_DAYS)
+    const track = useMemo(() => buildTrack(row, stepsByFlag), [row, stepsByFlag])
 
     const rows = useMemo(() => buildTrack(row, new Map()).lanes, [row])
     const lanesByKey = useMemo(() => new Map(track.lanes.map((lane) => [lane.key, lane])), [track])
