@@ -346,7 +346,13 @@ describe('valves', () => {
         )
     })
 
-    async function fakeEdge({ observation, removed }: { observation: 'held' | 'none applied'; removed: number }) {
+    async function fakeEdge({
+        observation,
+        removed,
+    }: {
+        observation: 'held' | 'none applied' | 'applied after 100ms'
+        removed: number
+    }) {
         const requests: string[] = []
         let observationAsked!: () => void
         const asked = new Promise<void>((resolve) => (observationAsked = resolve))
@@ -358,6 +364,8 @@ describe('valves', () => {
                 res.writeHead(removed).end()
             } else if (observation === 'held') {
                 observationAsked()
+            } else if (observation === 'applied after 100ms') {
+                setTimeout(() => res.writeHead(200).end(JSON.stringify({ applied: 1 })), 100)
             } else {
                 res.writeHead(200).end(JSON.stringify({ applied: 0 }))
             }
@@ -389,6 +397,21 @@ describe('valves', () => {
                 observedAt: undefined,
                 removals: ['DELETE /_faults/fault-1'],
             })
+        } finally {
+            await edge.close()
+        }
+    })
+
+    it('does not observe a fault from a hit the edge reports after the observation window', async () => {
+        const edge = await fakeEdge({ observation: 'applied after 100ms', removed: 204 })
+        const valves = createValves({ pollMs: 5, faultObservedWithinMs: 20 })
+        try {
+            await valves.start([throttle(1, '60m')], { ...stackOf().context, edgeUrl: edge.edgeUrl })
+            await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+            await valves.releaseAll()
+
+            const { error, observedAt } = valves.timeline()[0]
+            expect({ error, observedAt }).toEqual({ error: 'applied but not observed', observedAt: undefined })
         } finally {
             await edge.close()
         }
