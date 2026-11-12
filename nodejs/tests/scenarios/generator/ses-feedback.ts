@@ -40,6 +40,16 @@ export function watchSesFeedback({ edgeUrl, lag, withinMs = 60_000, pollMs = 500
     }
     const read = (): Promise<boolean> => (reading ??= readTruthPage().finally(() => (reading = undefined)))
 
+    type LagProbe = { behind: Promise<number>; settledAt?: number }
+    let lagProbe: LagProbe | undefined
+    const probeLag = (): Promise<number> => {
+        if (lagProbe === undefined || (lagProbe.settledAt !== undefined && Date.now() - lagProbe.settledAt >= pollMs)) {
+            const probe: LagProbe = { behind: lag().finally(() => (probe.settledAt = Date.now())) }
+            lagProbe = probe
+        }
+        return lagProbe.behind
+    }
+
     return {
         async settled(unitId, signal) {
             const deadline = Date.now() + withinMs
@@ -58,7 +68,7 @@ export function watchSesFeedback({ edgeUrl, lag, withinMs = 60_000, pollMs = 500
                 await sleep(morePages ? 0 : pollMs, undefined, { signal })
             }
             for (;;) {
-                const behind = await lag()
+                const behind = await probeLag()
                 if (behind === 0) {
                     return undefined
                 }

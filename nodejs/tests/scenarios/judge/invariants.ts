@@ -142,15 +142,16 @@ export const bouncedSuppressed: InvariantDefinition = {
     name: 'bounced_suppressed',
     params: z.object({}).strict(),
     check: ({ journal, truth }) => {
-        const bounced = new Set(
-            truth.flatMap(({ kind, fault, status, unitId }) =>
-                kind === 'ses.send' && fault === 'ses.reject' && isAccepted(status) && unitId !== undefined
-                    ? [unitId]
-                    : []
-            )
+        const rejectedSends = truth.filter(
+            ({ kind, fault, unitId }) => kind === 'ses.send' && fault === 'ses.reject' && unitId !== undefined
+        )
+        const bounced = new Set(rejectedSends.filter(({ status }) => isAccepted(status)).map(({ unitId }) => unitId))
+        const refusedOutright = new Set(
+            rejectedSends.filter(({ status }) => !isAccepted(status)).map(({ unitId }) => unitId)
         )
         const unsuppressed = journal.flatMap(({ unitId, followUp }) => {
-            if (!bounced.has(unitId)) {
+            const skipped = followUp !== undefined && 'notSent' in followUp && !refusedOutright.has(unitId)
+            if (!bounced.has(unitId) && !skipped) {
                 return []
             }
             const reason = followUp ? unsuppressedReason(followUp) : 'no follow-up was offered'

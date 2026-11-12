@@ -357,6 +357,16 @@ describe('judge', () => {
         ],
         ['never bounced, then accepted again', undefined, { accepted: true }, { passed: true, observed: 0 }],
         [
+            'never bounced, then not followed up',
+            undefined,
+            { notSent: 'the edge recorded no SES feedback within 60s' },
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT}: the follow-up was not sent: the edge recorded no SES feedback within 60s`,
+            },
+        ],
+        [
             'rejected rather than bounced, then not followed up',
             'rejected',
             { notSent: 'the edge recorded no SES feedback within 60s' },

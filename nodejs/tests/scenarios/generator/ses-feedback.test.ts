@@ -99,6 +99,33 @@ describe('watchSesFeedback', () => {
         }
     })
 
+    it('probes the consumer lag once per poll for all units waiting on it', async () => {
+        const units = Array.from({ length: 15 }, (_, i) => `run-a-${i + 1}`)
+        const edge = await startEdge(units.map((unitId) => ({ unitId, status: 200, detail: {} })))
+        let probes = 0
+        let probing = 0
+        let mostAtOnce = 0
+        const lag = async (): Promise<number> => {
+            probes += 1
+            probing += 1
+            mostAtOnce = Math.max(mostAtOnce, probing)
+            await sleep(5)
+            probing -= 1
+            return probes < 5 ? 4 : 0
+        }
+        try {
+            const watch = watchSesFeedback({ edgeUrl: edge.url, lag, pollMs: 5 })
+
+            expect(await Promise.all(units.map((unitId) => watch.settled(unitId, NEVER_ABORTED)))).toEqual(
+                units.map(() => undefined)
+            )
+            expect(mostAtOnce).toBe(1)
+            expect(probes).toBeLessThan(units.length)
+        } finally {
+            await edge.close()
+        }
+    })
+
     it.each<[string, Feedback[] | 'never drained']>([
         ['while it waits for feedback', []],
         ['while it waits for the consumer', [{ unitId: UNIT, status: 200, detail: {} }]],
