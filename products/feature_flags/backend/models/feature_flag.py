@@ -238,10 +238,8 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     # when accessing evaluation context names for many flags at once.
     _evaluation_tag_names: Optional[list[str]] = None
 
-    # Cache projection: whether the flag backs an experiment, set in bulk to avoid a per-flag experiment lookup.
-    # The experiment read runs after the flag read, so it can see an experiment write newer than the flags. A flag
-    # cache built from both still converges: the `connect_experiment_changed` receivers in flags_cache.py and
-    # local_evaluation.py rebuild the team's flag caches after every experiment save and delete.
+    # Cache projection: whether the flag backs an experiment, set by one bulk read after the flag read. It can be newer
+    # than the flags, and the `connect_experiment_changed` receivers rebuild the caches after every experiment write.
     _has_experiment: Optional[bool] = None
 
     # The flag API sets this to the flag's experiments that are not deleted, loaded for all flags of a response in one
