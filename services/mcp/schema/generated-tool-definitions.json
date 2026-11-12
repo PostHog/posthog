@@ -10673,7 +10673,7 @@
         "feature_flag": "logs-anomalies"
     },
     "logs-attribute-values-list": {
-        "description": "List values for a specific log attribute key. Use to discover what values exist before building filters. Defaults to attribute_type \"log\" (log-level attributes). To get values for resource-level attributes (e.g. service.name, k8s.pod.name), you MUST explicitly pass attribute_type: \"resource\". Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.",
+        "description": "List values for a specific log attribute key. Use to discover what values exist before building filters. Defaults to attribute_type \"log\" (log-level attributes). To get values for resource-level attributes (e.g. service.name, k8s.pod.name), you MUST explicitly pass attribute_type: \"resource\". Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned. Counts come from 10-minute rollups and cover every 10-minute bucket that overlaps dateRange, so for a short window they can include logs from outside it. Use logs-count for an exact count of a window.",
         "category": "Logs",
         "feature": "logs",
         "summary": "List log attribute values",

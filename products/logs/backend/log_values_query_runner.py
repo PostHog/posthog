@@ -52,7 +52,7 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
                     sum(attribute_count) AS value_count
                 FROM log_attributes
                 WHERE time_bucket >= {date_from_start_of_interval}
-                AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
+                AND time_bucket < {date_to}
                 AND attribute_type = {attributeType}
                 AND attribute_key = {attributeKey}
                 AND attribute_value ILIKE {search}
