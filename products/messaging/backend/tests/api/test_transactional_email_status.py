@@ -1,11 +1,15 @@
 import json
 import base64
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
+
+from django.conf import settings
 
 import requests
 from parameterized import parameterized
@@ -16,6 +20,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
+from posthog.redis import _get_test_fake_server
 from posthog.uuidt import UUIDT
 
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
@@ -425,6 +430,15 @@ class TestManageScheduledEmails(EmailsApiTestBase):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
 
+    @contextmanager
+    def _redis_down(self) -> Iterator[None]:
+        server = _get_test_fake_server(settings.REDIS_URL)
+        server.connected = False
+        try:
+            yield
+        finally:
+            server.connected = True
+
     def _lose_the_answer(self) -> Any:
         def post(*args: Any, **kwargs: Any) -> requests.Response:
             raise requests.Timeout()
@@ -434,26 +448,26 @@ class TestManageScheduledEmails(EmailsApiTestBase):
     def test_a_cancel_reaches_the_pipeline_when_writing_the_mark_fails(self, mock_post, _flag):
         self._job("waiting")
 
-        with patch(
-            "products.messaging.backend.services.scheduled_emails._cancel_marks",
-            return_value=MagicMock(**{"set.side_effect": ConnectionError("down")}),
-        ):
+        with self._redis_down():
             response = self._cancel(mock_post)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert self.cdp.jobs.get((self.team.id, self.message_id)) == "canceled"
 
-    def test_a_repeat_cancel_answers_from_the_status_when_reading_the_mark_fails(self, mock_post, _flag):
-        self._status_rows([("canceled", 60, "")])
+    @parameterized.expand(
+        [
+            ("once_its_cancel_status_landed", [("scheduled", 0, ""), ("canceled", 60, "")], status.HTTP_200_OK),
+            ("while_it_may_still_wait", [("scheduled", 0, "")], status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("after_it_went_out", [("scheduled", 0, ""), ("sent", 60, "")], status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_a_repeat_cancel_when_reading_the_mark_fails(self, mock_post, _flag, _name, status_rows, expected_status):
+        self._status_rows(status_rows)
 
-        with patch(
-            "products.messaging.backend.services.scheduled_emails._cancel_marks",
-            return_value=MagicMock(**{"get.side_effect": ConnectionError("down")}),
-        ):
+        with self._redis_down():
             response = self._cancel(mock_post)
 
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"id": self.message_id, "status": "canceled"}
+        assert response.status_code == expected_status, response.json()
 
     @parameterized.expand(
         [
