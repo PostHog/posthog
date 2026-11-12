@@ -1,5 +1,6 @@
 from textwrap import dedent
 from typing import Any, Literal, Union, cast
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -20,6 +21,7 @@ from posthog.schema import (
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -199,6 +201,21 @@ def _follow_on_commit(alert: AlertConfiguration) -> None:
     transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
 
 
+def _native_alert(*, team_id: int, alert_id: str) -> AlertConfiguration | None:
+    """The team's insight alert with no insight row under `alert_id`, as the insight API presents it, or None."""
+    # Deferred for the same cycle as `_follow_on_commit`.
+    from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
+
+    try:
+        public_id = UUID(alert_id)
+    except ValueError:
+        return None
+    # The platform's tables refuse reads outside a team scope, which the insight API's request sets.
+    with team_scope(team_id):
+        view = native_insight_alert_view(team_id, public_id)
+        return AlertConfiguration.from_platform_view(view, team_id=team_id) if view is not None else None
+
+
 def _persist_native_alert(
     *, team_id: int, insight: Insight, creator: User, fields: dict[str, Any]
 ) -> AlertConfiguration:
@@ -236,8 +253,15 @@ class UpsertAlertTool(MaxTool):
             return f"Execute {self.name} operation"
 
         alert = await self._resolve_alert(action.alert_id)
-        alert_label = f"'{alert.name}'" if alert else f"(ID: {action.alert_id})"
+        # The preview reaches the user before the update runs its access checks, so it names only an
+        # alert whose insight the user may view.
+        visible = alert is not None and await self._can_view_insight_of(alert)
+        alert_label = f"'{alert.name}'" if alert and visible else f"(ID: {action.alert_id})"
         return f"**Update** alert {alert_label}"
+
+    async def _can_view_insight_of(self, alert: AlertConfiguration) -> bool:
+        insight = await sync_to_async(lambda edited: edited.insight)(alert)
+        return bool(await sync_to_async(self.user_access_control.check_access_level_for_object)(insight, "viewer"))
 
     async def _arun_impl(self, action: UpsertAlertAction) -> tuple[str, dict[str, Any]]:
         if isinstance(action, CreateAlertAction):
@@ -385,6 +409,8 @@ class UpsertAlertTool(MaxTool):
         across the count and the write. Returns a `_SaveRefusal` instead of saving when
         the write is refused.
         """
+        if alert.has_no_insight_row:
+            return self._save_native_alert(alert, action)
         with transaction.atomic():
             current_insight_id = AlertConfiguration.objects.get(id=alert.id, team_id=alert.team_id).insight_id
             # Match evaluation's insight-before-alert lock order to keep validation stable.
@@ -399,46 +425,8 @@ class UpsertAlertTool(MaxTool):
                 )
             new_interval = action.calculation_interval or alert.calculation_interval
             new_enabled = action.enabled if action.enabled is not None else alert.enabled
-            if error := AlertConfiguration.real_time_alert_validation_error(
-                team_id=alert.team_id,
-                organization=self._team.organization,
-                calculation_interval=new_interval,
-                enabled=new_enabled,
-                existing=alert,
-            ):
-                return _SaveRefusal(message=error, error_code="plan_limit_reached")
-            if is_llm_detector_config(alert.detector_config) and new_enabled:
-                # The API validates the insight configuration on every write; this tool only
-                # touches it for an enabled AI alert, whose checks would otherwise auto-disable.
-                try:
-                    with upgrade_insight(alert.insight):
-                        validate_alert_config(
-                            alert.insight.query or {},
-                            {"type": action.condition_type} if action.condition_type is not None else alert.condition,
-                            {**(alert.config or {}), "series_index": action.series_index}
-                            if action.series_index is not None
-                            else alert.config,
-                            self._proposed_threshold_configuration(alert, action),
-                            new_interval,
-                            detector_config=alert.detector_config,
-                        )
-                except ValueError as validation_error:
-                    return _SaveRefusal(message=str(validation_error), error_code="validation_failed")
-            if refusal := admit_llm_alert_write(
-                LLMAlertWrite(
-                    team_id=alert.team_id,
-                    organization=self._team.organization,
-                    principal=alert.created_by,
-                    detector_config=alert.detector_config,
-                    enabled=new_enabled,
-                    calculation_interval=new_interval,
-                    existing=alert,
-                )
-            ):
-                return _SaveRefusal(
-                    message=refusal.message,
-                    error_code="plan_limit_reached" if refusal.reason == "cap" else "validation_failed",
-                )
+            if refusal := self._admission_refusal(alert, action, new_interval=new_interval, new_enabled=new_enabled):
+                return refusal
             # The state before this update, which decides whether the update adds an active real-time alert.
             previous = AlertConfiguration(
                 id=alert.id, calculation_interval=alert.calculation_interval, enabled=alert.enabled
@@ -529,6 +517,139 @@ class UpsertAlertTool(MaxTool):
                 return _SaveRefusal(message=limit_error, error_code="plan_limit_reached")
         return None
 
+    def _admission_refusal(
+        self,
+        alert: AlertConfiguration,
+        action: UpdateAlertAction,
+        *,
+        new_interval: str | None,
+        new_enabled: bool,
+    ) -> _SaveRefusal | None:
+        """The plan and AI detector checks an update runs under the alert's lock, with or without an insight row."""
+        if error := AlertConfiguration.real_time_alert_validation_error(
+            team_id=alert.team_id,
+            organization=self._team.organization,
+            calculation_interval=new_interval,
+            enabled=new_enabled,
+            existing=alert,
+        ):
+            return _SaveRefusal(message=error, error_code="plan_limit_reached")
+        if is_llm_detector_config(alert.detector_config) and new_enabled:
+            # The API validates the insight configuration on every write; this tool only
+            # touches it for an enabled AI alert, whose checks would otherwise auto-disable.
+            try:
+                with upgrade_insight(alert.insight):
+                    validate_alert_config(
+                        alert.insight.query or {},
+                        {"type": action.condition_type} if action.condition_type is not None else alert.condition,
+                        {**(alert.config or {}), "series_index": action.series_index}
+                        if action.series_index is not None
+                        else alert.config,
+                        self._proposed_threshold_configuration(alert, action),
+                        new_interval,
+                        detector_config=alert.detector_config,
+                    )
+            except ValueError as validation_error:
+                return _SaveRefusal(message=str(validation_error), error_code="validation_failed")
+        if refusal := admit_llm_alert_write(
+            LLMAlertWrite(
+                team_id=alert.team_id,
+                organization=self._team.organization,
+                principal=alert.created_by,
+                detector_config=alert.detector_config,
+                enabled=new_enabled,
+                calculation_interval=new_interval,
+                existing=alert,
+            )
+        ):
+            return _SaveRefusal(
+                message=refusal.message,
+                error_code="plan_limit_reached" if refusal.reason == "cap" else "validation_failed",
+            )
+        return None
+
+    def _save_native_alert(self, alert: AlertConfiguration, action: UpdateAlertAction) -> _SaveRefusal | None:
+        """`_save_alert` for an alert with no insight row: the same checks under the insight API's lock
+        order, then the edit written to the platform, which keeps the alert."""
+        # Deferred for the same cycle as `_follow_on_commit`.
+        from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
+        from products.alerts.backend.platform_ownership import write_native_alert_edit  # noqa: PLC0415
+
+        with team_scope(alert.team_id), transaction.atomic():
+            if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
+                return _SaveRefusal(
+                    message="The insight no longer exists. Refresh the alert.", error_code="validation_failed"
+                )
+            view = native_insight_alert_view(alert.team_id, alert.id, lock=True)
+            locked = AlertConfiguration.from_platform_view(view, team_id=alert.team_id) if view is not None else None
+            if locked is None:
+                return _SaveRefusal(message=f"Alert '{alert.id}' not found.", error_code="alert_not_found")
+            if locked.insight_id != alert.insight_id:
+                return _SaveRefusal(
+                    message="The alert's insight changed. Retry the update.", error_code="validation_failed"
+                )
+            new_interval = action.calculation_interval or locked.calculation_interval
+            new_enabled = action.enabled if action.enabled is not None else locked.enabled
+            if refusal := self._admission_refusal(locked, action, new_interval=new_interval, new_enabled=new_enabled):
+                return refusal
+            previous = AlertConfiguration(
+                id=locked.id, calculation_interval=locked.calculation_interval, enabled=locked.enabled
+            )
+            changes: dict[str, Any] = {}
+            if action.name is not None:
+                changes["name"] = action.name[:255]
+            if action.condition_type is not None:
+                changes["condition"] = {"type": action.condition_type}
+            if action.calculation_interval is not None and action.calculation_interval != locked.calculation_interval:
+                changes["calculation_interval"] = action.calculation_interval
+            if action.series_index is not None:
+                changes["config"] = {**(locked.config or {}), "series_index": action.series_index}
+            if action.enabled is not None:
+                changes["enabled"] = action.enabled
+            if action.skip_weekend is not None:
+                changes["skip_weekend"] = action.skip_weekend
+            if self._has_threshold_changes(action):
+                threshold = self._proposed_threshold_configuration(locked, action)
+                # The platform schema does not check that the lower bound is below the upper one.
+                try:
+                    Threshold(configuration=threshold).clean()
+                except ValidationError as e:
+                    return _SaveRefusal(message=str(e), error_code="validation_failed")
+                changes["threshold"] = threshold
+            if not changes:
+                return _SaveRefusal(
+                    message="No changes provided. Specify at least one field to update.", error_code="no_changes"
+                )
+            rescheduled = (
+                any(field in changes for field in ("condition", "calculation_interval", "config", "threshold"))
+                or ("enabled" in changes and changes["enabled"] and not locked.enabled)
+                or ("skip_weekend" in changes and changes["skip_weekend"] != locked.skip_weekend)
+            )
+            if rescheduled:
+                changes["next_check_at"] = timezone.now()
+            try:
+                write_native_alert_edit(
+                    team_id=locked.team_id,
+                    alert_id=locked.id,
+                    changes=changes,
+                    snooze_changed=False,
+                    rescheduled=rescheduled,
+                )
+            except (PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
+                transaction.set_rollback(True)
+                return _SaveRefusal(message=str(error), error_code="validation_failed")
+            # Again under the lock, after the platform locked its copy, as the row path does.
+            if limit_error := AlertConfiguration.update_limit_error(
+                team_id=locked.team_id,
+                organization=self._team.organization,
+                calculation_interval=new_interval,
+                enabled=new_enabled,
+                existing=previous,
+            ):
+                transaction.set_rollback(True)
+                return _SaveRefusal(message=limit_error, error_code="plan_limit_reached")
+        return None
+
     @staticmethod
     def _has_threshold_changes(action: UpdateAlertAction) -> bool:
         return (
@@ -544,6 +665,10 @@ class UpsertAlertTool(MaxTool):
                 return f"Alert '{action.alert_id}' not found.", {"error": "alert_not_found"}
 
             await self.check_object_access(alert, "editor", resource="alert", action="edit")
+            # Access control has no resource for an alert, so the check above passes everyone. The alert
+            # API gates every alert on viewer access to its insight, and so does this tool.
+            insight = await sync_to_async(lambda edited: edited.insight)(alert)
+            await self.check_object_access(insight, "viewer", resource="insight", action="edit an alert on")
 
             if interval_msg := await self._validate_interval_entitlement(
                 action.calculation_interval,
@@ -553,9 +678,11 @@ class UpsertAlertTool(MaxTool):
 
             if refusal := await sync_to_async(self._save_alert)(alert, action):
                 return refusal.message, {"error": refusal.error_code}
+            if alert.has_no_insight_row:
+                # The platform wrote the edit, so this object still holds the settings from before it.
+                alert = await sync_to_async(_native_alert)(team_id=self._team.id, alert_id=str(alert.id)) or alert
             await sync_to_async(alert.report_updated)(self._user, {"source": EventSource.POSTHOG_AI})
 
-            insight = await sync_to_async(lambda: alert.insight)()
             alert_url = f"/insights/{insight.short_id}/alerts?alert_id={alert.id}"
             return (
                 f"Alert '{alert.name}' updated successfully. [View alert]({alert_url}).",
@@ -582,7 +709,7 @@ class UpsertAlertTool(MaxTool):
                 id=alert_id, team=self._team
             )
         except Exception:
-            return None
+            return await sync_to_async(_native_alert)(team_id=self._team.id, alert_id=alert_id)
 
     @classmethod
     def _proposed_threshold_configuration(cls, alert: AlertConfiguration, action: UpdateAlertAction) -> dict | None:
