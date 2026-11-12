@@ -677,6 +677,9 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             truncate_with_ellipsis(description, MAX_ISSUE_DESCRIPTION_LENGTH);
         }
 
+        raw.other
+            .retain(|key, _| !key.starts_with("$adaptive_ingestion_"));
+
         for key in [
             "$exception_sources",
             "$exception_types",
@@ -801,7 +804,11 @@ mod tests {
                 event: "$exception".to_string(),
                 team_id: 42,
                 timestamp: "2026-01-01T00:00:00Z".to_string(),
-                properties: serde_json::json!({"$exception_list": exceptions}),
+                properties: serde_json::json!({
+                    "$exception_list": exceptions,
+                    "$adaptive_ingestion_decision": "sample_project",
+                    "$adaptive_ingestion_fake": "client-value"
+                }),
                 others: HashMap::new(),
             })
             .unwrap();
@@ -822,6 +829,8 @@ mod tests {
                 .into_finalized()
                 .into_clickhouse_properties();
             let output = processed["$exception_list"].as_array().unwrap();
+            assert!(processed.get("$adaptive_ingestion_decision").is_none());
+            assert!(processed.get("$adaptive_ingestion_fake").is_none());
             assert_eq!(output.len(), exceptions.len());
             for (index, exception) in output.iter().enumerate() {
                 assert_eq!(exception["mechanism"], mechanisms[index]);

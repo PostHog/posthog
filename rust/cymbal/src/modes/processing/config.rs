@@ -195,6 +195,24 @@ pub struct ProcessingConfig {
     )]
     pub error_tracking_rate_limiter_enabled_team_ids: String,
 
+    #[envconfig(from = "ADAPTIVE_INGESTION_MODE", default = "off")]
+    pub adaptive_ingestion_mode: String,
+
+    #[envconfig(from = "ADAPTIVE_INGESTION_TEAMS", default = "")]
+    pub adaptive_ingestion_teams: String,
+
+    #[envconfig(from = "ADAPTIVE_INGESTION_TEAM_PERCENT", default = "0")]
+    pub adaptive_ingestion_team_percent: u8,
+
+    #[envconfig(from = "ADAPTIVE_INGESTION_PROJECT_MULTIPLIER", default = "3.0")]
+    pub adaptive_ingestion_project_multiplier: f64,
+
+    #[envconfig(from = "ADAPTIVE_INGESTION_PROJECT_FLOOR", default = "500")]
+    pub adaptive_ingestion_project_floor: u64,
+
+    #[envconfig(from = "ADAPTIVE_INGESTION_PROJECT_KEEP_PERCENT", default = "10")]
+    pub adaptive_ingestion_project_keep_percent: u8,
+
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
