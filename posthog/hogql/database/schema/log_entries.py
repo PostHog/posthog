@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
@@ -8,6 +10,10 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
 )
+from posthog.hogql.parser import parse_expr
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 LOG_ENTRIES_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -42,6 +48,11 @@ class LogEntriesTable(Table):
     # log_entries lives on the single-shard aux cluster, so wide-window GROUP BYs can't lean on
     # shard fan-out and must be able to spill to disk under the profile's thresholds.
     inherit_profile_spill: bool = True
+
+    def get_predicates(self, context: "HogQLContext | None" = None) -> list[ast.Expr]:
+        if context is not None and context.restricted_properties:
+            return [parse_expr("log_source NOT IN ('hog_function', 'plugin')")]
+        return []
 
     def to_printed_clickhouse(self, context):
         return "log_entries"

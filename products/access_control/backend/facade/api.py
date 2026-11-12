@@ -149,6 +149,18 @@ def get_restricted_properties_with_group_type_index_for_team(
     return _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
 
 
+def has_restricted_properties_in_organization(*, user: User | None, organization_id: UUID) -> bool:
+    team_ids = (
+        PropertyAccessControl.objects.filter(team__organization_id=organization_id)
+        .exclude(property_definition__isnull=True)
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
+    return any(
+        _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id) for team_id in team_ids
+    )
+
+
 def get_restricted_properties_for_group_type(
     *, user: User | None, team_id: int, group_type_index: int
 ) -> set[RestrictedProperty]:

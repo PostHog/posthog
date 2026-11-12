@@ -53,7 +53,7 @@ from products.cdp.backend.models.plugin import (
     transpile,
     update_validated_data_from_url,
 )
-from products.cdp.backend.permissions import CDPPropertyAccessPermission
+from products.cdp.backend.permissions import CDPOrganizationPropertyAccessPermission, CDPPropertyAccessPermission
 from products.cdp.backend.templates import HOG_FUNCTION_MIGRATORS
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
@@ -346,7 +346,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
-    permission_classes = [PluginsAccessLevelPermission]
+    permission_classes = [PluginsAccessLevelPermission, CDPOrganizationPropertyAccessPermission]
     hide_api_docs = True
 
     def dangerously_get_permissions(self):

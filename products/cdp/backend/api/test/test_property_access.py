@@ -4,12 +4,12 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Team
+from posthog.models import Organization, OrganizationMembership, Team
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.models.plugin import Plugin, PluginConfig
+from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from products.event_definitions.backend.models import PropertyDefinition
 
 
@@ -33,10 +33,24 @@ class TestCDPPropertyAccess(APIBaseTest):
         self.rule = PropertyAccessControl.objects.create(
             team=self.team, property_definition=self.property, access_level="none"
         )
-        reload_workers = patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
-        reload_workers.start()
-        self.addCleanup(reload_workers.stop)
+        for worker_reload in (
+            "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers",
+            "products.cdp.backend.models.plugin.reload_plugins_on_workers",
+        ):
+            reload_workers = patch(worker_reload)
+            reload_workers.start()
+            self.addCleanup(reload_workers.stop)
         self.url = f"/api/projects/{self.team.pk}/hog_functions/"
+
+    def _create_source_plugin(self, capabilities: dict[str, list[str]] | None = None) -> Plugin:
+        self.organization.plugins_access_level = Organization.PluginsAccessLevel.ROOT
+        self.organization.save()
+        plugin = Plugin.objects.create(
+            organization=self.organization, name="Test plugin", config_schema=[], capabilities=capabilities or {}
+        )
+        PluginConfig.objects.create(team=self.team, plugin=plugin, config={}, enabled=True, order=0)
+        PluginSourceFile.objects.create(plugin=plugin, filename="index.ts", source="'original'")
+        return plugin
 
     @parameterized.expand(
         [
@@ -192,3 +206,84 @@ class TestCDPPropertyAccess(APIBaseTest):
 
         assert response.status_code == 403, response.json()
         assert "property access" in response.json()["detail"].lower()
+
+    @parameterized.expand(
+        [
+            ("plugins", {}),
+            ("pipeline_transformations", {"methods": ["processEvent"]}),
+            ("pipeline_destinations", {"methods": ["onEvent"]}),
+            ("pipeline_frontend_apps", {}),
+            ("pipeline_import_apps", {"scheduled_tasks": ["runEveryMinute"]}),
+        ]
+    )
+    def test_restricted_member_cannot_update_plugin_source(
+        self, route: str, capabilities: dict[str, list[str]]
+    ) -> None:
+        plugin = self._create_source_plugin(capabilities)
+        url = f"/api/organizations/{self.organization.pk}/{route}/{plugin.pk}/"
+
+        assert self.client.get(f"{url}source/").json() == {"index.ts": "'original'"}
+        response = self.client.patch(f"{url}update_source/", {"index.ts": "'updated'"})
+
+        assert response.status_code == 403, response.json()
+        assert "property access" in response.json()["detail"].lower()
+        assert PluginSourceFile.objects.get(plugin=plugin, filename="index.ts").source == "'original'"
+
+    @parameterized.expand([("member_override",), ("admin",), ("feature_disabled",)])
+    def test_allowed_member_can_update_plugin_source(self, access: str) -> None:
+        plugin = self._create_source_plugin()
+        if access == "member_override":
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=self.property,
+                organization_member=self.organization_membership,
+                access_level="read",
+            )
+        elif access == "admin":
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+        else:
+            self.organization.available_product_features = []
+            self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.pk}/plugins/{plugin.pk}/update_source/",
+            {"index.ts": "'updated'"},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert PluginSourceFile.objects.get(plugin=plugin, filename="index.ts").source == "'updated'"
+
+    def test_plugin_edits_check_restrictions_outside_the_current_project(self) -> None:
+        plugin = self._create_source_plugin()
+        self.user.current_team = Team.objects.create(organization=self.organization, name="Other project")
+        self.user.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.pk}/plugins/{plugin.pk}/update_source/",
+            {"index.ts": "'updated'"},
+        )
+
+        assert response.status_code == 403, response.json()
+        assert PluginSourceFile.objects.get(plugin=plugin, filename="index.ts").source == "'original'"
+
+    def test_plugin_edits_ignore_restrictions_in_other_organizations(self) -> None:
+        plugin = self._create_source_plugin()
+        other_organization = Organization.objects.create(
+            name="Other organization", available_product_features=self.organization.available_product_features
+        )
+        other_team = Team.objects.create(organization=other_organization, name="Other project")
+        other_property = PropertyDefinition.objects.create(
+            team=other_team, name="other_note", type=PropertyDefinition.Type.EVENT
+        )
+        self.rule.team = other_team
+        self.rule.property_definition = other_property
+        self.rule.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.pk}/plugins/{plugin.pk}/update_source/",
+            {"index.ts": "'updated'"},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert PluginSourceFile.objects.get(plugin=plugin, filename="index.ts").source == "'updated'"

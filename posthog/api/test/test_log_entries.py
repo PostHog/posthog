@@ -4,12 +4,19 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.log_entries import count_log_entries
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.workload import Workload
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.cdp.backend.facade.clickhouse import INSERT_HOG_INVOCATION_RESULT_SQL
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 def create_log_entry(
@@ -64,6 +71,37 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             timestamp=timestamp,
         )
 
+    def _set_property_access(self, property_type: int, access: str) -> None:
+        self.organization.available_product_features = (
+            []
+            if access == "feature_disabled"
+            else [
+                {"key": feature, "name": feature}
+                for feature in [AvailableFeature.PROPERTY_ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS]
+            ]
+        )
+        self.organization.save()
+        self.organization_membership.level = (
+            OrganizationMembership.Level.ADMIN if access == "admin" else OrganizationMembership.Level.MEMBER
+        )
+        self.organization_membership.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team,
+            name="private_note",
+            type=property_type,
+            group_type_index=0 if property_type == PropertyDefinition.Type.GROUP else None,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=property_definition, access_level="none"
+        )
+        if access == "granted":
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=property_definition,
+                organization_member=self.organization_membership,
+                access_level="read",
+            )
+
     def test_returns_default(self):
         res = self.get_log_entries()
         assert res.status_code == status.HTTP_200_OK
@@ -90,6 +128,100 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "message": "Test log. Much info.",
             }
         ]
+
+    @parameterized.expand(
+        [
+            ("event", PropertyDefinition.Type.EVENT, "restricted", "log_entries"),
+            ("person", PropertyDefinition.Type.PERSON, "restricted", "log_entries"),
+            ("group", PropertyDefinition.Type.GROUP, "restricted", "log_entries"),
+            ("member_override", PropertyDefinition.Type.EVENT, "granted", "log_entries"),
+            ("admin", PropertyDefinition.Type.EVENT, "admin", "log_entries"),
+            ("feature_disabled", PropertyDefinition.Type.EVENT, "feature_disabled", "log_entries"),
+            ("alias", PropertyDefinition.Type.EVENT, "restricted", "log_entries AS logs"),
+            ("subquery", PropertyDefinition.Type.EVENT, "restricted", "(SELECT * FROM log_entries)"),
+        ]
+    )
+    def test_hogql_log_entries_follow_property_access(
+        self, _name: str, property_type: int, access: str, source: str
+    ) -> None:
+        self._set_property_access(property_type, access)
+        sources = ["batch_export", "hog_function", "plugin", "session_replay"]
+        for log_source in sources:
+            create_log_entry(
+                team_id=self.team.pk,
+                log_source=log_source,
+                log_source_id=str(self.hog_function.pk),
+                instance_id="test-instance",
+                message=f"{log_source} log message",
+                level="info",
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"SELECT log_source, message FROM {source} ORDER BY log_source",
+                },
+                "refresh": "force_blocking",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        expected_sources = ["batch_export", "session_replay"] if access == "restricted" else sources
+        assert response.json()["results"] == [
+            [log_source, f"{log_source} log message"] for log_source in expected_sources
+        ]
+
+    @parameterized.expand([("restricted",), ("admin",)])
+    @time_machine.travel("2026-01-15 12:00:00", tick=False)
+    def test_hogql_invocation_errors_follow_property_access(self, access: str) -> None:
+        self._set_property_access(PropertyDefinition.Type.EVENT, access)
+        now = datetime(2026, 1, 15, 12, tzinfo=UTC)
+        kinds = ["hog_flow", "hog_function", "hog_function_rerun"]
+        for kind in kinds:
+            sync_execute(
+                INSERT_HOG_INVOCATION_RESULT_SQL,
+                {
+                    "team_id": self.team.pk,
+                    "function_kind": kind,
+                    "function_id": str(self.hog_function.pk),
+                    "invocation_id": kind,
+                    "parent_run_id": "",
+                    "status": "failed",
+                    "attempts": 1,
+                    "is_retry": 0,
+                    "scheduled_at": now,
+                    "first_scheduled_at": now,
+                    "started_at": now,
+                    "finished_at": now,
+                    "duration_ms": 1,
+                    "error_kind": "Error",
+                    "error_message": f"{kind} error message",
+                    "event_uuid": "",
+                    "distinct_id": "",
+                    "person_id": "",
+                    "invocation_globals": "{}",
+                    "version": 1,
+                    "is_deleted": 0,
+                },
+                workload=Workload.OFFLINE,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT function_kind, error_message FROM posthog.hog_invocation_results ORDER BY function_kind",
+                },
+                "refresh": "force_blocking",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        expected_kinds = ["hog_flow"] if access == "restricted" else kinds
+        assert response.json()["results"] == [[kind, f"{kind} error message"] for kind in expected_kinds]
 
     @time_machine.travel("2023-09-23 12:00:00", tick=False)
     def test_pages_log_entries_by_offset(self):

@@ -31,3 +31,14 @@ class CDPPropertyAccessPermission(BasePermission):
 
 class CDPLogPropertyAccessPermission(CDPPropertyAccessPermission):
     sensitive_read_actions = frozenset({"list", "retrieve"})
+
+
+class CDPOrganizationPropertyAccessPermission(CDPPropertyAccessPermission):
+    def has_permission(self, request: "Request", view: "APIView") -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+
+        org_view = cast("TeamAndOrgViewSetMixin", view)
+        return not access_control_api.has_restricted_properties_in_organization(
+            organization_id=org_view.organization.id, user=cast("User", request.user)
+        )
