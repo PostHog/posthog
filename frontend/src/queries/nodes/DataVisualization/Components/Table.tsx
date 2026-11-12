@@ -486,9 +486,13 @@ export const Table = (props: TableProps): JSX.Element => {
 
                 const sourceColumnName = cell.sourceColumnName ?? column.name
                 const columnFormat = getColumnFormat(response, sourceColumnName)
+                const wrapText = sourceTabularColumnsByName.get(sourceColumnName)?.settings?.display?.wrapText
 
                 return (
-                    <div className="truncate" title={getCellTitle(cell)}>
+                    <div
+                        className={wrapText ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'truncate'}
+                        title={getCellTitle(cell)}
+                    >
                         {renderColumn(
                             sourceColumnName,
                             cell.formattedValue,

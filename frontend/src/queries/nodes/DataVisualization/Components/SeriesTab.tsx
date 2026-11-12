@@ -619,6 +619,21 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                     )}
                 </div>
             )}
+            {effectiveVisualizationType === ChartDisplayType.ActionsTable && (
+                <LemonField name="wrapText" label="Wrap text">
+                    {({ value, onChange }) => (
+                        <LemonSwitch
+                            checked={value ?? false}
+                            onChange={(wrapText) => {
+                                onChange(wrapText)
+                                updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
+                                    display: { wrapText },
+                                })
+                            }}
+                        />
+                    )}
+                </LemonField>
+            )}
             {showTableSettings && (
                 <LemonField name="description" label="Description">
                     {({ value, onChange }) => (
