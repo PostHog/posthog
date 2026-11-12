@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -108,7 +109,13 @@ export function InsightSelector({
                         fullWidth
                     />
                 )}
-                <div className="border-t pt-2 space-y-1 max-h-[200px] overflow-y-auto">
+                <div
+                    className={clsx(
+                        'border-t pt-2 space-y-1 overflow-y-auto',
+                        // Group headings add rows, so the grouped list gets more height before it scrolls.
+                        showGroups ? 'max-h-100' : 'max-h-[200px]'
+                    )}
+                >
                     {showGroups ? (
                         insightGroups.map((group) => {
                             const { checked, disabledReason } = insightGroupCheckboxStates[group.key]
