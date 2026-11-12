@@ -32,9 +32,12 @@ from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
 from products.subscriptions.backend.models.subscription import AIQueryPlanStatus, Subscription
 from products.subscriptions.backend.temporal.ai_subscription.prompts import (
+    COVERAGE_PROMPT,
     EVENT_SELECTION_PROMPT,
     EVENT_SELECTION_PROMPT_NAME,
+    PLAN_COVERAGE_SUFFIX,
     PLAN_GENERATION_PROMPT,
+    PLAN_REPAIR_SUFFIX,
     PLANNER_PROMPT_NAME,
     prepend_hogql_query_writing_rules,
     render_prompt,
@@ -43,8 +46,13 @@ from products.subscriptions.backend.temporal.ai_subscription.prompts import (
 from products.subscriptions.backend.temporal.ai_subscription.schemas import (
     MAX_CHART_CATEGORIES,
     MAX_CHARTS_PER_REPORT,
+    MAX_QUERY_PLAN_STEPS,
+    CoverageItem,
+    CoveredQueryPlan,
     EnrichedPromptSpec,
+    QueryCoverage,
     QueryPlan,
+    QueryPlanStep,
     RelevantEvents,
 )
 
@@ -105,13 +113,16 @@ _SILENT_ON_FAILURE_SUFFIXES = ("OrNull", "OrZero")
 _PLACEHOLDER_TOKEN = re.compile(r"\{\{[^{}]*\}\}|[{<][^{}<>A-Za-z_]*[A-Za-z_][^{}<>]*[}>]")
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
-AI_QUERY_PLAN_VERSION = 8
+AI_QUERY_PLAN_VERSION = 9
 
 
-DEFAULT_PLANNER_MODEL = "gpt-4.1"
-DEFAULT_SYNTHESIS_MODEL = "gpt-4.1"
+DEFAULT_PLANNER_MODEL = "gpt-6-luna"
+DEFAULT_SYNTHESIS_MODEL = "gpt-6-luna"
+LLM_REASONING_EFFORT = "low"
 _PLANNER_LLM_TIMEOUT_SECONDS = 90.0
+_COVERAGE_LLM_TIMEOUT_SECONDS = 45.0
 _EVENT_SELECTION_LLM_TIMEOUT_SECONDS = 30.0
+_COMPARISON_PLACEHOLDERS = (COMPARE_DATE_RANGE_PLACEHOLDER, COMPARE_WINDOW_START_PLACEHOLDER)
 AI_SUBSCRIPTION_AI_PRODUCT = "subscriptions"
 
 
@@ -550,6 +561,7 @@ def _llm_selected_events(
     )
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
+        reasoning_effort=LLM_REASONING_EFFORT,
         timeout=_EVENT_SELECTION_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
@@ -734,32 +746,89 @@ def build_context_blob(
     return "\n".join(lines)
 
 
-def generate_query_plan(
-    *,
-    cleaned_prompt: str,
-    context_blob: str,
-    team: Team,
-    user: User,
-    trace_correlation_id: Optional[Union[int, str]] = None,
-) -> QueryPlan:
-    # `user is None` is enforced at the public entry point (`generate_ai_report`)
-    # which is the only caller path into here. Don't repeat the check.
+class _TableReadFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.reads_table = False
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if isinstance(node.table, ast.Field):
+            self.reads_table = True
+        super().visit_join_expr(node)
+
+
+def step_reads_table(hogql: str) -> bool:
+    try:
+        query = parse_select(hogql)
+    except BaseHogQLError:
+        # Unparseable steps go to the query fixer at run time; the plan check only looks for
+        # queries that parse but answer from a constant.
+        return True
+    finder = _TableReadFinder()
+    finder.visit(query)
+    return finder.reads_table
+
+
+def _step_compares_periods(hogql: str) -> bool:
+    return any(token in hogql for token in _COMPARISON_PLACEHOLDERS)
+
+
+@dataclass(frozen=True)
+class CoverageFailure:
+    item: CoverageItem
+    reason: str
+
+
+def check_plan_coverage(coverage: QueryCoverage, plan: CoveredQueryPlan) -> list[CoverageFailure]:
+    failures: list[CoverageFailure] = []
+    for item in coverage.items:
+        steps = [step for step in plan.steps if item.id in step.covers]
+        valid = [step for step in steps if step_reads_table(step.hogql)]
+        if not steps:
+            failures.append(CoverageFailure(item, "No step answers this item."))
+        elif not valid:
+            failures.append(
+                CoverageFailure(item, "Its step returns a constant instead of reading a table. Query the data.")
+            )
+        elif item.needs_previous_period and not any(_step_compares_periods(step.hogql) for step in valid):
+            failures.append(
+                CoverageFailure(
+                    item,
+                    "It asks about change, but no step compares with the previous period. Use "
+                    "`{{compare_date_range}}` and split at `{{window_start}}`.",
+                )
+            )
+    return failures
+
+
+def _planning_llm(
+    *, team: Team, user: User, stage: str, timeout: float, trace_correlation_id: Optional[Union[int, str]]
+) -> tuple[MaxChatOpenAI, RunnableConfig]:
     posthog_properties, llm_config = ai_subscription_llm_tracing(
-        team=team, user=user, stage="plan", trace_correlation_id=trace_correlation_id
+        team=team, user=user, stage=stage, trace_correlation_id=trace_correlation_id
     )
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
-        timeout=_PLANNER_LLM_TIMEOUT_SECONDS,
+        reasoning_effort=LLM_REASONING_EFFORT,
+        timeout=timeout,
         user=user,
         team=team,
         billable=True,
         posthog_properties=posthog_properties,
-    ).with_structured_output(QueryPlan, method="json_schema", include_raw=False)
+    )
+    return llm, llm_config
 
+
+def _render_coverage(items: Sequence[CoverageItem]) -> str:
+    return "\n".join(
+        f"- {item.id}: {item.need}" + (" (previous period)" if item.needs_previous_period else "") for item in items
+    )
+
+
+def _planner_base_prompt(team: Team, context_blob: str, cleaned_prompt: str) -> str:
     planner_prompt = prepend_hogql_query_writing_rules(
         resolve_prompt(team, PLANNER_PROMPT_NAME, PLAN_GENERATION_PROMPT)
     )
-    rendered_prompt = render_prompt(
+    return render_prompt(
         planner_prompt,
         {
             "context_blob": context_blob,
@@ -769,10 +838,95 @@ def generate_query_plan(
         },
     )
 
-    result = llm.invoke([("system", rendered_prompt)], config=llm_config)
-    if not isinstance(result, QueryPlan):
+
+def _format_coverage_failures(failures: Sequence[CoverageFailure]) -> str:
+    return "\n".join(
+        f"- {failure.item.id}: {failure.item.need}"
+        + (" (previous period)" if failure.item.needs_previous_period else "")
+        + f". {failure.reason}"
+        for failure in failures
+    )
+
+
+def generate_query_plan(
+    *,
+    cleaned_prompt: str,
+    context_blob: str,
+    team: Team,
+    user: User,
+    trace_correlation_id: Optional[Union[int, str]] = None,
+) -> QueryPlan:
+    # One planner call at low reasoning effort drops items the prompt asks for, most often the
+    # previous-period comparison. A separate coverage pass lists those items first, and a
+    # deterministic check sends only the uncovered items to one repair call.
+    coverage_llm, coverage_config = _planning_llm(
+        team=team,
+        user=user,
+        stage="coverage",
+        timeout=_COVERAGE_LLM_TIMEOUT_SECONDS,
+        trace_correlation_id=trace_correlation_id,
+    )
+    coverage = coverage_llm.with_structured_output(QueryCoverage, method="json_schema", include_raw=False).invoke(
+        [("system", render_prompt(COVERAGE_PROMPT, {"context_blob": context_blob, "cleaned_prompt": cleaned_prompt}))],
+        config=coverage_config,
+    )
+    if not isinstance(coverage, QueryCoverage):
+        raise PromptRejectedError("Coverage pass returned a malformed checklist.")
+
+    base_prompt = _planner_base_prompt(team, context_blob, cleaned_prompt)
+    planner_llm, planner_config = _planning_llm(
+        team=team,
+        user=user,
+        stage="plan",
+        timeout=_PLANNER_LLM_TIMEOUT_SECONDS,
+        trace_correlation_id=trace_correlation_id,
+    )
+    plan = planner_llm.with_structured_output(CoveredQueryPlan, method="json_schema", include_raw=False).invoke(
+        [("system", base_prompt + render_prompt(PLAN_COVERAGE_SUFFIX, {"coverage": _render_coverage(coverage.items)}))],
+        config=planner_config,
+    )
+    if not isinstance(plan, CoveredQueryPlan):
         raise PromptRejectedError("Planner returned a malformed plan.")
-    return result
+
+    failures = check_plan_coverage(coverage, plan)
+    kept = [step for step in plan.steps if step_reads_table(step.hogql)]
+    logger.info(
+        "ai_subscription.plan_coverage",
+        team_id=team.id,
+        coverage_items=len(coverage.items),
+        steps=len(plan.steps),
+        constant_steps=len(plan.steps) - len(kept),
+        failures=len(failures),
+    )
+    if failures:
+        repair_llm, repair_config = _planning_llm(
+            team=team,
+            user=user,
+            stage="plan_repair",
+            timeout=_PLANNER_LLM_TIMEOUT_SECONDS,
+            trace_correlation_id=trace_correlation_id,
+        )
+        repair_prompt = base_prompt + render_prompt(
+            PLAN_REPAIR_SUFFIX, {"failures": _format_coverage_failures(failures)}
+        )
+        # A failed repair still leaves the first plan's valid steps, which is better than no report.
+        try:
+            repair = repair_llm.with_structured_output(
+                CoveredQueryPlan, method="json_schema", include_raw=False
+            ).invoke([("system", repair_prompt)], config=repair_config)
+        except Exception:
+            logger.warning("ai_subscription.plan_repair_failed", team_id=team.id, exc_info=True)
+            repair = None
+        if isinstance(repair, CoveredQueryPlan):
+            kept.extend(step for step in repair.steps if step_reads_table(step.hogql))
+    if not kept:
+        raise PromptRejectedError("Planner returned no step that reads data.")
+    return QueryPlan(
+        overall_intent=plan.overall_intent,
+        steps=[
+            QueryPlanStep.model_validate(step.model_dump(exclude={"covers"})) for step in kept[:MAX_QUERY_PLAN_STEPS]
+        ],
+    )
 
 
 def build_enriched_prompt(

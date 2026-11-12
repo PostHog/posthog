@@ -62,6 +62,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     COMPARE_WINDOW_START_PLACEHOLDER,
     DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
+    LLM_REASONING_EFFORT,
     WINDOW_BOUND_PLACEHOLDERS,
     WINDOW_FILTER_PLACEHOLDERS,
     WINDOW_PLACEHOLDERS,
@@ -576,6 +577,7 @@ async def _synthesize(
         report_schema["$defs"]["ReportText"]["properties"]["items"]["items"] = {"$ref": "#/$defs/ReportTextItem"}
     chat = MaxChatOpenAI(
         model=DEFAULT_SYNTHESIS_MODEL,
+        reasoning_effort=LLM_REASONING_EFFORT,
         timeout=_SYNTHESIS_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
@@ -824,6 +826,7 @@ async def _arequest_hogql_fix(
 
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
+        reasoning_effort=LLM_REASONING_EFFORT,
         timeout=_FIX_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,

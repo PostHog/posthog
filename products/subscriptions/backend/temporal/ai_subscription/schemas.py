@@ -103,3 +103,41 @@ class RelevantEvents(BaseModel):
         default_factory=list,
         description="Event names — copied verbatim from the provided list — relevant to the user's prompt.",
     )
+
+
+MAX_COVERAGE_ITEMS = 12
+
+
+class CoverageItem(BaseModel):
+    id: str = Field(..., max_length=20, description="Short unique id, e.g. 'c1'.")
+    need: str = Field(
+        ...,
+        max_length=300,
+        description="One thing the report must show to answer the prompt, phrased as a metric or question.",
+    )
+    needs_previous_period: bool = Field(
+        ...,
+        description=(
+            "True when this item is about change: growth, drops, trends versus before, what is new, "
+            "or what stopped happening. It then needs a comparison with the previous period."
+        ),
+    )
+
+
+class QueryCoverage(BaseModel):
+    items: list[CoverageItem] = Field(..., min_length=1, max_length=MAX_COVERAGE_ITEMS)
+
+
+class CoveredQueryPlanStep(QueryPlanStep):
+    covers: list[str] = Field(
+        default_factory=list, description="Ids of the coverage items this step answers, e.g. ['c1']."
+    )
+
+
+class CoveredQueryPlan(BaseModel):
+    overall_intent: str = Field(
+        ...,
+        max_length=500,
+        description="Plain-English summary of what the report will tell the user.",
+    )
+    steps: list[CoveredQueryPlanStep] = Field(..., min_length=1, max_length=MAX_QUERY_PLAN_STEPS)

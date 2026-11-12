@@ -18,7 +18,15 @@ from posthog.models import Team
 from products.event_definitions.backend.models import EventDefinition, EventProperty, PropertyDefinition
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
 from products.subscriptions.backend.models.subscription import AIQueryPlanStatus, Subscription
-from products.subscriptions.backend.temporal.ai_subscription.schemas import QueryPlan, QueryPlanStep, RelevantEvents
+from products.subscriptions.backend.temporal.ai_subscription.schemas import (
+    CoverageItem,
+    CoveredQueryPlan,
+    CoveredQueryPlanStep,
+    QueryCoverage,
+    QueryPlan,
+    QueryPlanStep,
+    RelevantEvents,
+)
 from products.subscriptions.backend.temporal.ai_subscription.spec_generator import (
     AI_QUERY_PLAN_VERSION,
     MAX_PINNED_EVENTS,
@@ -38,10 +46,12 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     _top_event_names,
     build_context_blob,
     build_frozen_prompt,
+    check_plan_coverage,
     compute_report_window,
     generate_query_plan,
     get_ai_query_plan_status,
     sanitize_prompt,
+    step_reads_table,
     validate_stored_query_plan,
     window_token_problems,
 )
@@ -953,40 +963,138 @@ class TestTopEventNames(APIBaseTest):
         assert names == ["export created"]
 
 
-class TestGenerateQueryPlanSubstitution(APIBaseTest):
-    """Test the substitution *behaviour* — that the planner actually receives the prompt and context
-    interpolated into the template — rather than asserting prose fragments exist in the prompt string.
-    Prompt *quality* (do the guardrails work?) belongs in an LLM eval, not a unit test."""
+_COUNT_EVENTS = "SELECT count() AS c FROM events WHERE {{date_range}}"
+_COMPARE_EVENTS = (
+    "SELECT countIf(timestamp >= {{window_start}}) AS current, countIf(timestamp < {{window_start}}) AS previous "
+    "FROM events WHERE {{compare_date_range}}"
+)
+_CONSTANT = "SELECT 0 AS uploaded_files"
 
-    @patch(f"{_SG}.MaxChatOpenAI")
-    def test_substitutes_prompt_and_context_into_system_message(self, mock_chat: MagicMock) -> None:
-        structured = mock_chat.return_value.with_structured_output.return_value
-        structured.invoke.return_value = QueryPlan(
-            overall_intent="intent",
-            steps=[QueryPlanStep(description="d", hogql="SELECT 1")],
-        )
 
-        generate_query_plan(
+def _coverage(*items: tuple[str, bool]) -> QueryCoverage:
+    return QueryCoverage(
+        items=[CoverageItem(id=item_id, need=f"need {item_id}", needs_previous_period=prev) for item_id, prev in items]
+    )
+
+
+def _covered_plan(*steps: tuple[str, list[str]]) -> CoveredQueryPlan:
+    return CoveredQueryPlan(
+        overall_intent="intent",
+        steps=[
+            CoveredQueryPlanStep(description=f"step {i}", hogql=hogql, covers=covers)
+            for i, (hogql, covers) in enumerate(steps)
+        ],
+    )
+
+
+class TestPlanCoverageCheck:
+    @parameterized.expand(
+        [
+            ("constant", _CONSTANT, False),
+            ("constant_inside_subquery", "SELECT x FROM (SELECT 1 AS x)", False),
+            ("events", _COUNT_EVENTS, True),
+            ("events_inside_subquery", "SELECT c FROM (SELECT count() AS c FROM events WHERE {{date_range}})", True),
+            ("unparseable_goes_to_fixer", "SELECT FROM WHERE", True),
+        ]
+    )
+    def test_step_reads_table(self, _name: str, hogql: str, expected: bool) -> None:
+        assert step_reads_table(hogql) is expected
+
+    @parameterized.expand(
+        [
+            ("covered", [("c1", False)], [(_COUNT_EVENTS, ["c1"])], []),
+            ("comparison_covered", [("c1", True)], [(_COMPARE_EVENTS, ["c1"])], []),
+            ("no_step", [("c1", False), ("c2", False)], [(_COUNT_EVENTS, ["c1"])], ["c2"]),
+            ("constant_step", [("c1", False)], [(_CONSTANT, ["c1"])], ["c1"]),
+            ("comparison_dropped", [("c1", True)], [(_COUNT_EVENTS, ["c1"])], ["c1"]),
+        ]
+    )
+    def test_check_plan_coverage_flags_uncovered_items(
+        self,
+        _name: str,
+        items: list[tuple[str, bool]],
+        steps: list[tuple[str, list[str]]],
+        expected_failed_ids: list[str],
+    ) -> None:
+        failures = check_plan_coverage(_coverage(*items), _covered_plan(*steps))
+
+        assert [failure.item.id for failure in failures] == expected_failed_ids
+
+
+class TestGenerateQueryPlan(APIBaseTest):
+    def _run(self, mock_chat: MagicMock, responses: dict[type, list[object]]) -> tuple[QueryPlan, list[str]]:
+        prompts: list[str] = []
+
+        def structured_output(schema: type, **_kwargs: object) -> MagicMock:
+            structured = MagicMock()
+
+            def invoke(messages: list[tuple[str, str]], **_invoke_kwargs: object) -> object:
+                prompts.append(messages[0][1])
+                return responses[schema].pop(0)
+
+            structured.invoke.side_effect = invoke
+            return structured
+
+        mock_chat.return_value.with_structured_output.side_effect = structured_output
+        plan = generate_query_plan(
             cleaned_prompt="CLEANED_PROMPT_MARKER",
             context_blob="CONTEXT_BLOB_MARKER",
             team=self.team,
             user=self.user,
         )
-
-        (messages,) = structured.invoke.call_args[0]
-        (_role, system_content) = messages[0]
-        assert "CLEANED_PROMPT_MARKER" in system_content
-        assert "CONTEXT_BLOB_MARKER" in system_content
-        # The template's `{{{...}}}` placeholders must be gone — proving substitution ran.
-        assert "{{{" not in system_content
+        return plan, prompts
 
     @patch(f"{_SG}.MaxChatOpenAI")
-    def test_rejects_malformed_planner_output(self, mock_chat: MagicMock) -> None:
-        structured = mock_chat.return_value.with_structured_output.return_value
-        structured.invoke.return_value = "not a QueryPlan"
+    def test_plans_one_step_per_coverage_item_without_repair(self, mock_chat: MagicMock) -> None:
+        plan, prompts = self._run(
+            mock_chat,
+            {
+                QueryCoverage: [_coverage(("c1", True))],
+                CoveredQueryPlan: [_covered_plan((_COMPARE_EVENTS, ["c1"]))],
+            },
+        )
 
+        assert [step.hogql for step in plan.steps] == [_COMPARE_EVENTS]
+        coverage_prompt, planner_prompt = prompts
+        for prompt in (coverage_prompt, planner_prompt):
+            assert "CLEANED_PROMPT_MARKER" in prompt
+            assert "CONTEXT_BLOB_MARKER" in prompt
+            assert "{{{" not in prompt
+        assert "c1: need c1 (previous period)" in planner_prompt
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_repair_replaces_constant_step_and_adds_missing_comparison(self, mock_chat: MagicMock) -> None:
+        plan, prompts = self._run(
+            mock_chat,
+            {
+                QueryCoverage: [_coverage(("c1", True), ("c2", False))],
+                CoveredQueryPlan: [
+                    _covered_plan((_COUNT_EVENTS, ["c1"]), (_CONSTANT, ["c2"])),
+                    _covered_plan((_COMPARE_EVENTS, ["c1"]), (_COUNT_EVENTS, ["c2"])),
+                ],
+            },
+        )
+
+        assert [step.hogql for step in plan.steps] == [_COUNT_EVENTS, _COMPARE_EVENTS, _COUNT_EVENTS]
+        repair_prompt = prompts[-1]
+        assert "c1: need c1 (previous period)" in repair_prompt
+        assert "c2: need c2" in repair_prompt
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_rejects_plan_without_any_step_that_reads_data(self, mock_chat: MagicMock) -> None:
+        with pytest.raises(PromptRejectedError, match="no step that reads data"):
+            self._run(
+                mock_chat,
+                {
+                    QueryCoverage: [_coverage(("c1", False))],
+                    CoveredQueryPlan: [_covered_plan((_CONSTANT, ["c1"])), _covered_plan((_CONSTANT, ["c1"]))],
+                },
+            )
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_rejects_malformed_coverage_output(self, mock_chat: MagicMock) -> None:
         with pytest.raises(PromptRejectedError, match="malformed"):
-            generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)
+            self._run(mock_chat, {QueryCoverage: ["not a checklist"]})
 
 
 class TestStoredQueryPlan:
