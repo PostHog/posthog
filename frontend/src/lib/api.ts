@@ -2045,6 +2045,19 @@ function tracingHeaders({ includeDistinctId = false } = {}): Record<string, stri
     }
 }
 
+/**
+ * The frontend build, so the server can count requests from a tab on another build than the pod
+ * that answers. Same-origin only: other targets (the agent proxy, a remote region) have their own
+ * CORS allowlists, and an unlisted header fails the preflight.
+ */
+function clientBuildHeader(url: string): Record<string, string> {
+    const clientBuild = window.POSTHOG_APP_CONTEXT?.commit_sha
+    if (!clientBuild || new URL(url, window.location.origin).origin !== window.location.origin) {
+        return {}
+    }
+    return { 'X-PostHog-Client-Build': clientBuild }
+}
+
 const PROJECT_ID_REGEX = /\/api\/(project|environment)s\/(\w+)(?:$|[/?#])/
 
 const ensureProjectIdNotInvalid = (url: string): void => {
@@ -4444,6 +4457,8 @@ const api = {
                 const response = await fetch(url, {
                     headers: { Authorization: `Bearer ${token}` },
                     credentials: 'omit',
+                    // A long page URL as the Referer pushes the headers past recording-api's size limit, which answers 431.
+                    referrerPolicy: 'no-referrer',
                     signal: controller.signal,
                 })
                 if (!response.ok) {
@@ -6862,6 +6877,7 @@ const api = {
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...tracingHeaders({ includeDistinctId: true }),
+                    ...clientBuildHeader(url),
                     ...oauthAuthHeaders(url),
                     ...authHeaders,
                 },
@@ -6889,6 +6905,7 @@ const api = {
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
+                    ...clientBuildHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: isFormData ? data : JSON.stringify(data),
@@ -6933,6 +6950,7 @@ const api = {
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
+                    ...clientBuildHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
@@ -6968,6 +6986,7 @@ const api = {
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
+                    ...clientBuildHeader(url),
                     ...oauthAuthHeaders(url),
                 },
             })
@@ -7024,6 +7043,7 @@ const api = {
                 ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
                 'X-CSRFToken': getCookie('posthog_csrftoken') || '',
                 ...tracingHeaders(),
+                ...clientBuildHeader(url),
                 ...objectClean(headers ?? {}),
             },
             body: data !== undefined ? JSON.stringify(data) : undefined,
@@ -7298,6 +7318,7 @@ function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promi
             ...objectClean(options?.headers ?? {}),
             'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             ...tracingHeaders(),
+            ...clientBuildHeader(url),
             ...oauthAuthHeaders(url),
         }
         for (const [name, value] of Object.entries(headers)) {

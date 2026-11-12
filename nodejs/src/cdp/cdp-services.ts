@@ -204,6 +204,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
+        | 'CDP_EMAIL_TEMPLATE_TAGS_TEAMS'
         | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
@@ -487,7 +488,7 @@ export function createCdpCoreServices(
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
-    const workflowsActivationReporter = new WorkflowsActivationReporter(deps.teamManager)
+    const workflowsActivationReporter = new WorkflowsActivationReporter(deps.teamManager, deps.postgres)
     // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
     // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
     // cdp-api also gets the pool, but its sends are all test sends, which skip both limits.
@@ -512,6 +513,7 @@ export function createCdpCoreServices(
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
             workflowRunLinkTagTeams: config.CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS,
+            templateTagsTeams: config.CDP_EMAIL_TEMPLATE_TAGS_TEAMS,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
@@ -542,6 +544,7 @@ export function createCdpCoreServices(
         // Valkey-only: push is pre-release, so it moved over whole rather than dual-writing.
         valkeyShadow.writer,
         personsManager,
+        workflowsActivationReporter,
         messageAssetsService
     )
 

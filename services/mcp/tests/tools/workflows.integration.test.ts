@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import { serverDetailOf } from '@/lib/errors'
 import {
     TEST_ORG_ID,
     TEST_PROJECT_ID,
@@ -397,7 +398,8 @@ describe('Workflows', { concurrent: false }, () => {
                     ],
                 })
                 // MCP requests are non-web, so the guard fires even on a draft save.
-                await expect(createTool.handler(context, params)).rejects.toThrow(/behavior/i)
+                const error = await createTool.handler(context, params).catch((caught: unknown) => caught)
+                expect(serverDetailOf(error)).toMatch(/behavior/i)
             } finally {
                 await context.api
                     .request({ method: 'PATCH', path: `${cohortPath}${cohort.id}/`, body: { deleted: true } })
