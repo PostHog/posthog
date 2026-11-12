@@ -387,9 +387,12 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     if (scopedIdempotencyKey) {
                         await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, invocationId)
                     }
+                    addLog('warn', `Started no run: ${HOG_FLOW_QUOTA_LIMITED_MESSAGE}`)
                     functionResult.finished = false
-                    functionResult.execResult = {
-                        httpResponse: { status: 429, body: { error: HOG_FLOW_QUOTA_LIMITED_MESSAGE } },
+                    if (hogFlow.trigger?.type !== 'tracking_pixel') {
+                        functionResult.execResult = {
+                            httpResponse: { status: 429, body: { error: HOG_FLOW_QUOTA_LIMITED_MESSAGE } },
+                        }
                     }
                     return { result: functionResult, queuedInvocationId: null }
                 }

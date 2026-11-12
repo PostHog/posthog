@@ -4713,10 +4713,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         return new CdpCyclotronWorkerBatchResolve(hub, deps, workerForConsumer, queryService, internalFetchService)
     }
 
-    async function insertActiveBatchFlow(
-        triggerMasking?: HogFlow['trigger_masking'],
-        overrides: Partial<HogFlow> = {}
-    ): Promise<HogFlow> {
+    async function insertActiveBatchFlow(triggerMasking?: HogFlow['trigger_masking']): Promise<HogFlow> {
         const flow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
             .withStatus('active')
@@ -4741,7 +4738,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
                 edges: [{ from: 'trigger', to: 'function_1', type: 'continue' }],
             })
             .build()
-        return await insertHogFlow(hub.postgres, { ...flow, ...overrides })
+        return await insertHogFlow(hub.postgres, flow)
     }
 
     it('POST /batch_invocations with flag on creates a resolver cyclotron job with the right shape', async () => {
@@ -4936,7 +4933,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         ['refuses a batch that starts over the workflow quota', 0, 'failed', 0],
         ['finishes a batch that goes over the workflow quota after its first page', 1, 'completed', 4],
     ])('%s', async (_name, pagesBeforeLimit, expectedStatus, expectedChildren) => {
-        const flow = await insertActiveBatchFlow(undefined, { billable_action_types: ['function'] })
+        const flow = await insertActiveBatchFlow()
         const parentRunId = new UUIDT().toString()
         const statusPuts: Array<{ status: string }> = []
         let personPageCalls = 0

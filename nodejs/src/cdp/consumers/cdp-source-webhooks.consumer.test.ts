@@ -626,6 +626,7 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
                 expect(getQueuedHogFlowIds()).toEqual([])
                 await waitForBackgroundTasks()
+                expect(getLogs()).toContain('[Action:trigger] Started no run: The project is over its workflow quota')
                 expect(getMetrics()).toContainEqual(
                     expect.objectContaining({
                         app_source_id: billableHogFlow.id,
@@ -637,9 +638,9 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it.each([
-                ['serves the pixel and queues a run under the workflow quota', false, 200, 'image/gif', 1],
-                ['refuses a run over the workflow quota', true, 429, 'application/json', 0],
-            ])('tracking pixel workflow: %s', async (_name, overQuota, status, contentType, queuedRuns) => {
+                ['queues a run under the workflow quota', false, 1],
+                ['queues no run over the workflow quota', true, 0],
+            ])('tracking pixel workflow serves its image and %s', async (_name, overQuota, queuedRuns) => {
                 const template = await insertHogFunctionTemplate(hub.postgres, {
                     ...pixelTemplate,
                     id: `${pixelTemplate.id}-${team.id}`,
@@ -665,8 +666,8 @@ describe('SourceWebhooksConsumer', () => {
 
                 const res = await doGetRequest({ webhookId: `${pixelHogFlow.id}.gif?ph_distinct_id=test-distinct-id` })
 
-                expect(res.status).toEqual(status)
-                expect(res.headers['content-type']).toContain(contentType)
+                expect(res.status).toEqual(200)
+                expect(res.headers['content-type']).toEqual('image/gif')
                 expect(getQueuedHogFlowIds()).toEqual(Array(queuedRuns).fill(pixelHogFlow.id))
             })
 
