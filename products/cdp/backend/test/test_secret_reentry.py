@@ -41,6 +41,11 @@ class TestGuardedContent(SimpleTestCase):
                 content(inputs={"headers": {"value": {"b": "2", "a": "1"}}}),
             ),
             (
+                "secret_value",
+                content(inputs={"target": {"value": "old"}}, schema=[URL, TARGET]),
+                content(inputs={"target": {"value": "typed again"}}, schema=[URL, TARGET]),
+            ),
+            (
                 "server_derived_fields",
                 content(inputs={"url": {"value": "{event.url}", "bytecode": ["_H", 1], "order": 0}}),
                 content(inputs={"url": {"value": "{event.url}", "bytecode": ["_H", 2], "order": 1}}),
@@ -101,6 +106,11 @@ class TestGuardedContent(SimpleTestCase):
                     inputs={"url": {"value": "{{ event.url }}", "templating": "liquid"}},
                     schema=[{**URL, "templating": "liquid"}],
                 ),
+            ),
+            (
+                "secret_templating",
+                content(inputs={"target": {"value": "x", "templating": "hog"}}, schema=[URL, TARGET]),
+                content(inputs={"target": {"value": "x", "templating": "liquid"}}, schema=[URL, TARGET]),
             ),
             (
                 "default_that_fills_an_empty_secret",

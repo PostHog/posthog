@@ -83,10 +83,18 @@ def _without_derived_fields(entry: Any) -> Any:
     return {key: value for key, value in entry.items() if key not in _DERIVED_FIELDS}
 
 
+def _authored_input(item: Any, secret: bool) -> Any:
+    authored = _without_derived_fields(item)
+    if secret and isinstance(authored, dict):
+        # A secret's value is compared apart, but how the worker evaluates it, such as its templating, counts.
+        authored.pop("value", None)
+    return authored
+
+
 def _authored_inputs(inputs: Any, secret_keys: set[str]) -> Any:
     if not isinstance(inputs, dict):
         return inputs
-    return {str(key): _without_derived_fields(item) for key, item in inputs.items() if key not in secret_keys}
+    return {str(key): _authored_input(item, key in secret_keys) for key, item in inputs.items()}
 
 
 def _authored_mapping(mapping: Any) -> Any:
