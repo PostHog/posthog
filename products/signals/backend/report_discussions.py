@@ -13,15 +13,13 @@ discussions. Only tasks on the canonical team qualify, as in `discussion_notes.p
 environment's discussion stays out of the parent project's scouts. Only tasks the whole team may
 read qualify, and a summary the tasks facade keeps private comes back null.
 
-A summary is free text that reaches a scout holding privileged tools, so it has to clear the same
-bar as a scout note: the task's creator must pass `user_can_steer_scouts`. Every other row keeps its
-report, status, and task id, with a null summary. Nothing records who wrote a summary: the discussion
-agent writes it, but `set_summary` accepts any caller who controls the task, and any member controls
-a null-channel discussion task, which is the usual inbox case. So a member who may not steer scouts
-can write the summary on a discussion that a member who may steer scouts started. With default
-access that member can leave a scout note anyway, and the scout reads a summary as evidence, never
-as instructions. The question itself is never returned: the discussion note already carries it
-behind the full steering gate, including the credential scopes this read cannot recover.
+A summary is free text that reaches a scout holding privileged tools, so it clears the same bar as a
+scout note: the task's creator must pass `user_can_steer_scouts`. Every other row keeps its report,
+status, and task id, with a null summary. Nothing records who wrote a summary, and `set_summary`
+accepts any member on a null-channel discussion task, the usual inbox case. With default access that
+member can leave a scout note anyway, and the scout reads a summary as evidence, never as
+instructions. The question itself is never returned: the discussion note already carries it behind
+the full steering gate, including the credential scopes this read cannot recover.
 """
 
 from __future__ import annotations
