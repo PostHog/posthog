@@ -450,7 +450,7 @@ function upcomingSendEvents(flow: SendCalendarFlowApi, now: dayjs.Dayjs): Releas
                 key: `send-schedule-${schedule.id}-${time.valueOf()}`,
                 date: time.toISOString(),
                 kind: 'broadcast' as const,
-                title: `Broadcast: ${flow.name || 'Untitled broadcast'}`,
+                title: `Broadcast scheduled: ${flow.name || 'Untitled broadcast'}`,
                 detail: 'Scheduled to send',
                 href: urls.broadcast(flow.id),
                 upcoming: true,
