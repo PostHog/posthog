@@ -636,6 +636,40 @@ describe('SourceWebhooksConsumer', () => {
                 )
             })
 
+            it.each([
+                ['serves the pixel and queues a run under the workflow quota', false, 200, 'image/gif', 1],
+                ['refuses a run over the workflow quota', true, 429, 'application/json', 0],
+            ])('tracking pixel workflow: %s', async (_name, overQuota, status, contentType, queuedRuns) => {
+                const template = await insertHogFunctionTemplate(hub.postgres, {
+                    ...pixelTemplate,
+                    id: `${pixelTemplate.id}-${team.id}`,
+                })
+                const pixelHogFlow = new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'tracking_pixel',
+                            template_id: template.template_id,
+                            inputs: {
+                                event: { value: 'my-event', bytecode: await compileHog(`return f'my-event'`) },
+                                distinct_id: {
+                                    value: '{request.query.ph_distinct_id}',
+                                    bytecode: await compileHog(`return f'{request.query.ph_distinct_id}'`),
+                                },
+                            },
+                        },
+                    })
+                    .build()
+                await insertHogFlow(hub.postgres, { ...pixelHogFlow, billable_action_types: ['function'] })
+                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', overQuota)
+
+                const res = await doGetRequest({ webhookId: `${pixelHogFlow.id}.gif?ph_distinct_id=test-distinct-id` })
+
+                expect(res.status).toEqual(status)
+                expect(res.headers['content-type']).toContain(contentType)
+                expect(getQueuedHogFlowIds()).toEqual(Array(queuedRuns).fill(pixelHogFlow.id))
+            })
+
             describe('idempotency key', () => {
                 const postWithKey = (webhookId: string, idempotencyKey: string) =>
                     doPostRequest({
