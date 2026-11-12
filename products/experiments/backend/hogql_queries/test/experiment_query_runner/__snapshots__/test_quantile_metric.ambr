@@ -78,3 +78,100 @@
                        use_hive_partitioning=0
   '''
 # ---
+# name: TestExperimentQuantileMetric.test_quantile_metric_with_breakdown_counts_against_the_breakdown_and_the_whole_variant
+  '''
+  WITH exposures AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
+            argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(in(events.event, ['$feature_flag_called', '$experiment_exposure']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+            toTimeZone(events.timestamp, 'UTC') AS timestamp,
+            accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'app_ready_ms'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'app_ready'))),
+       variant_events AS
+    (SELECT exposures.variant AS variant,
+            exposures.entity_id AS entity_id,
+            metric_events.value AS value,
+            exposures.breakdown_value_1 AS breakdown_value_1
+     FROM metric_events
+     JOIN exposures ON equals(exposures.entity_id, metric_events.entity_id)
+     WHERE and(greaterOrEquals(metric_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC')), isNotNull(metric_events.value))),
+       variant_quantiles AS
+    (SELECT variant_events.variant AS variant,
+            quantilesExact(0.5, 0.4020018008, 0.5979981992, 0.4307048088, 0.5692951912, 0.4510009004, 0.5489990996, 0.4653524044, 0.5346475956, 0.4755004502, 0.5244995498, 0.4826762022, 0.5173237978, 0.4877502251, 0.5122497749, 0.4913381011, 0.5086618989, 0.4938751125, 0.5061248875, 0.4956690505, 0.5043309495, 0.4969375563, 0.5030624437, 0.4978345253, 0.5021654747, 0.4984687781, 0.5015312219, 0.4989172626, 0.5010827374, 0.4992343891, 0.5007656109, 0.4994586313, 0.5005413687, 0.4996171945, 0.5003828055, 0.4997293157, 0.5002706843, 0.4998085973, 0.5001914027, 0.4998646578, 0.5001353422)(variant_events.value) AS quantile_grid,
+            variant_events.breakdown_value_1 AS breakdown_value_1
+     FROM variant_events
+     GROUP BY variant_events.variant,
+              variant_events.breakdown_value_1),
+       overall_quantiles AS
+    (SELECT variant_events.variant AS variant,
+            quantilesExact(0.5, 0.4020018008, 0.5979981992, 0.4307048088, 0.5692951912, 0.4510009004, 0.5489990996, 0.4653524044, 0.5346475956, 0.4755004502, 0.5244995498, 0.4826762022, 0.5173237978, 0.4877502251, 0.5122497749, 0.4913381011, 0.5086618989, 0.4938751125, 0.5061248875, 0.4956690505, 0.5043309495, 0.4969375563, 0.5030624437, 0.4978345253, 0.5021654747, 0.4984687781, 0.5015312219, 0.4989172626, 0.5010827374, 0.4992343891, 0.5007656109, 0.4994586313, 0.5005413687, 0.4996171945, 0.5003828055, 0.4997293157, 0.5002706843, 0.4998085973, 0.5001914027, 0.4998646578, 0.5001353422)(variant_events.value) AS quantile_grid
+     FROM variant_events
+     GROUP BY variant_events.variant),
+       entity_stats AS
+    (SELECT variant_events.variant AS variant,
+            variant_events.entity_id AS entity_id,
+            countIf(ifNull(lessOrEquals(variant_events.value, variant_quantiles.quantile_grid[1]), 0)) AS events_below_quantile,
+            count() AS event_count,
+            any(variant_quantiles.quantile_grid) AS quantile_grid,
+            countIf(ifNull(lessOrEquals(variant_events.value, overall_quantiles.quantile_grid[1]), 0)) AS events_below_overall_quantile,
+            any(overall_quantiles.quantile_grid) AS overall_quantile_grid
+     FROM variant_events
+     JOIN variant_quantiles ON and(equals(variant_events.variant, variant_quantiles.variant), equals(variant_quantiles.breakdown_value_1, variant_events.breakdown_value_1))
+     JOIN overall_quantiles ON equals(variant_events.variant, overall_quantiles.variant)
+     GROUP BY variant_events.variant,
+              variant_events.entity_id)
+  SELECT exposures.variant AS variant,
+         exposures.breakdown_value_1 AS breakdown_value_1,
+         count(exposures.entity_id) AS num_users,
+         sum(coalesce(entity_stats.events_below_quantile, 0)) AS total_sum,
+         sum(power(coalesce(entity_stats.events_below_quantile, 0), 2)) AS total_sum_of_squares,
+         sum(coalesce(entity_stats.event_count, 0)) AS denominator_sum,
+         sum(power(coalesce(entity_stats.event_count, 0), 2)) AS denominator_sum_squares,
+         sum(multiply(coalesce(entity_stats.events_below_quantile, 0), coalesce(entity_stats.event_count, 0))) AS numerator_denominator_sum_product,
+         anyIf(entity_stats.quantile_grid, notEmpty(entity_stats.quantile_grid)) AS quantile_grid,
+         sum(coalesce(entity_stats.events_below_overall_quantile, 0)) AS overall_total_sum,
+         sum(power(coalesce(entity_stats.events_below_overall_quantile, 0), 2)) AS overall_total_sum_of_squares,
+         sum(multiply(coalesce(entity_stats.events_below_overall_quantile, 0), coalesce(entity_stats.event_count, 0))) AS overall_numerator_denominator_sum_product,
+         anyIf(entity_stats.overall_quantile_grid, notEmpty(entity_stats.overall_quantile_grid)) AS overall_quantile_grid
+  FROM exposures
+  LEFT JOIN entity_stats ON and(equals(exposures.entity_id, entity_stats.entity_id), equals(exposures.variant, entity_stats.variant))
+  GROUP BY exposures.variant,
+           exposures.breakdown_value_1
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=600,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=39728447488,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---

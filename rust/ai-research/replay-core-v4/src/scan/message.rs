@@ -138,6 +138,227 @@ pub(crate) fn canonicalize_keys(bytes: &mut Vec<u8>) {
     bytes.truncate(length);
 }
 
+fn read_inner(inner: Vec<u8>, max_events: usize) -> Result<Message, ReadError> {
+    match read_in_one_pass(&inner, max_events) {
+        Some(read) => Ok(Message {
+            window_id: read.window_id.map(Arc::from),
+            snapshot_source: read.snapshot_source,
+            library: read.library,
+            session_id: read.session_id,
+            events: read.events,
+            inner,
+        }),
+        None => read_by_level(inner, max_events),
+    }
+}
+
+/// How many containers enclose a value of the message, of its properties, of an event and of an event's data. The
+/// one-pass reader opens them itself, and [`scan::locate_value_as_scanned`] counts them towards the nesting a value may
+/// have, so that it stops where a scan from the message's first brace stops.
+const IN_MESSAGE: usize = 1;
+const IN_PROPERTIES: usize = 2;
+const IN_EVENT: usize = 4;
+const IN_DATA: usize = 5;
+
+struct Read {
+    session_id: String,
+    window_id: Option<String>,
+    snapshot_source: Option<String>,
+    library: Option<String>,
+    events: Vec<Event>,
+}
+
+/// Reads a message that [`read_by_level`] reads, with the same result, and reads each byte once: it descends into the
+/// properties, the events and each event's data where it meets them. `None` for a message that does not read, and for
+/// one it does not read the same way for certain.
+fn read_in_one_pass(inner: &[u8], max_events: usize) -> Option<Read> {
+    let mut keys = scan::ObjectKeys::new(inner, scan::skip_ws(inner, 0)).ok()?;
+    let mut properties = None;
+    while let Ok(key) = keys.next_key().ok()? {
+        if key.escaped {
+            return None;
+        }
+        let end = if &inner[key.key.0..key.key.1] == b"properties" {
+            if properties.is_some() {
+                return None;
+            }
+            let (found, end) =
+                read_properties(inner, scan::skip_ws(inner, key.value_start), max_events)?;
+            properties = Some(found);
+            end
+        } else {
+            scan::locate_value_as_scanned(inner, key.value_start, IN_MESSAGE)?.1
+        };
+        keys.value_ended(end);
+    }
+    let found = properties?;
+    let window_id = string(inner, found.window_id).ok()?;
+    if window_id
+        .as_ref()
+        .is_some_and(|id| id.len() > MAX_WINDOW_ID_BYTES || id.bytes().any(|byte| byte < b' '))
+    {
+        return None;
+    }
+    Some(Read {
+        session_id: string(inner, found.session_id).ok()??,
+        window_id,
+        snapshot_source: string(inner, found.snapshot_source).ok()?,
+        library: string(inner, found.library).ok()?,
+        events: found.events?,
+    })
+}
+
+#[derive(Default)]
+struct PropertiesRead {
+    session_id: Option<Span>,
+    window_id: Option<Span>,
+    snapshot_source: Option<Span>,
+    library: Option<Span>,
+    events: Option<Vec<Event>>,
+}
+
+fn read_properties(
+    inner: &[u8],
+    start: usize,
+    max_events: usize,
+) -> Option<(PropertiesRead, usize)> {
+    let mut keys = scan::ObjectKeys::new(inner, start).ok()?;
+    let mut found = PropertiesRead::default();
+    loop {
+        let key = match keys.next_key().ok()? {
+            Ok(key) => key,
+            Err(end) => return Some((found, end)),
+        };
+        if key.escaped {
+            return None;
+        }
+        let name = &inner[key.key.0..key.key.1];
+        if name == b"$snapshot_items" {
+            if found.events.is_some() {
+                return None;
+            }
+            let (events, end) =
+                read_events(inner, scan::skip_ws(inner, key.value_start), max_events)?;
+            found.events = Some(events);
+            keys.value_ended(end);
+            continue;
+        }
+        let value = scan::locate_value_as_scanned(inner, key.value_start, IN_PROPERTIES)?;
+        keys.value_ended(value.1);
+        let slot = match name {
+            b"$session_id" => &mut found.session_id,
+            b"$window_id" => &mut found.window_id,
+            b"$snapshot_source" => &mut found.snapshot_source,
+            b"$lib" => &mut found.library,
+            _ => continue,
+        };
+        if slot.replace(value).is_some() {
+            return None;
+        }
+    }
+}
+
+fn read_events(inner: &[u8], start: usize, max_events: usize) -> Option<(Vec<Event>, usize)> {
+    if inner.get(start) != Some(&b'[') {
+        return None;
+    }
+    let mut events = Vec::new();
+    let mut pos = scan::skip_ws(inner, start + 1);
+    while inner.get(pos) != Some(&b']') {
+        if events.len() >= max_events {
+            return None;
+        }
+        if !events.is_empty() {
+            if inner.get(pos) != Some(&b',') {
+                return None;
+            }
+            pos += 1;
+        }
+        let (event, end) = read_event_in_one_pass(inner, scan::skip_ws(inner, pos))?;
+        events.push(event);
+        pos = scan::skip_ws(inner, end);
+    }
+    Some((events, pos + 1))
+}
+
+fn read_event_in_one_pass(inner: &[u8], start: usize) -> Option<(Event, usize)> {
+    let mut keys = scan::ObjectKeys::new(inner, start).ok()?;
+    let mut event = Event {
+        span: (start, start),
+        kind: None,
+        timestamp_ms: None,
+        data: None,
+        source: None,
+        compressed: false,
+        may_carry_page_url: false,
+        positions_start: None,
+        expansion: None,
+    };
+    loop {
+        let key = match keys.next_key().ok()? {
+            Ok(key) => key,
+            Err(end) => {
+                event.span.1 = end;
+                return Some((event, end));
+            }
+        };
+        if key.escaped {
+            return None;
+        }
+        let name = &inner[key.key.0..key.key.1];
+        if name == b"data" {
+            // Only the last `data` counts, as in `JSON.parse`.
+            event.source = None;
+            event.may_carry_page_url = false;
+            event.positions_start = None;
+            let start = scan::skip_ws(inner, key.value_start);
+            let end = if inner.get(start) == Some(&b'{') {
+                read_data(inner, start, &mut event)?
+            } else {
+                scan::locate_value_as_scanned(inner, start, IN_EVENT)?.1
+            };
+            event.data = Some((start, end));
+            keys.value_ended(end);
+            continue;
+        }
+        let value = scan::locate_value_as_scanned(inner, key.value_start, IN_EVENT)?;
+        keys.value_ended(value.1);
+        match name {
+            b"type" => event.kind = small_uint(inner, value),
+            b"timestamp" => {
+                event.timestamp_ms =
+                    scan::parse_number(inner, value).filter(|ts| ts.abs() <= MAX_TIMESTAMP_MS)
+            }
+            b"cv" => {
+                event.compressed = scan::is_string(inner, value)
+                    && scan::unescape(inner, value).is_ok_and(|v| v == CV_VERSION)
+            }
+            _ => {}
+        }
+    }
+}
+
+fn read_data(inner: &[u8], start: usize, event: &mut Event) -> Option<usize> {
+    let mut keys = scan::ObjectKeys::new(inner, start).ok()?;
+    loop {
+        let key = match keys.next_key().ok()? {
+            Ok(key) => key,
+            Err(end) => return Some(end),
+        };
+        let value = scan::locate_value_as_scanned(inner, key.value_start, IN_DATA)?;
+        keys.value_ended(value.1);
+        if key.escaped {
+            continue;
+        }
+        match &inner[key.key.0..key.key.1] {
+            b"source" => event.source = small_uint(inner, value),
+            b"href" | b"payload" => event.may_carry_page_url = true,
+            b"positions" => event.positions_start = u32::try_from(value.0).ok(),
+            _ => {}
+        }
+    }
+}
+
 #[derive(Default)]
 struct Properties {
     session_id: Option<Span>,
@@ -147,7 +368,9 @@ struct Properties {
     items: Option<Span>,
 }
 
-fn read_inner(inner: Vec<u8>, max_events: usize) -> Result<Message, ReadError> {
+/// Reads the message one level at a time: it finds where an object ends, then reads the object's entries. It decides
+/// every message that [`read_in_one_pass`] does not read.
+fn read_by_level(inner: Vec<u8>, max_events: usize) -> Result<Message, ReadError> {
     let root = scan::locate_value(&inner, 0)?;
     let mut properties = None;
     for entry in scan::object_entries(&inner, root)? {
@@ -343,6 +566,78 @@ mod tests {
         let event: serde_json::Value =
             serde_json::from_slice(&message.inner[meta.span.0..meta.span.1]).unwrap();
         assert_eq!(event["data"]["href"], "https://example.com/\"quoted\"");
+    }
+
+    fn parts(message: Message) -> impl PartialEq + std::fmt::Debug {
+        (
+            message.inner,
+            message.session_id,
+            message.window_id,
+            message.snapshot_source,
+            message.library,
+            message.events,
+        )
+    }
+
+    #[test]
+    fn reads_in_one_pass_what_a_level_by_level_read_returns() {
+        let nested = |depth: usize| {
+            format!(
+                r#"{{"properties":{{"$session_id":"s","$snapshot_items":[{{"type":3,"data":{{"source":0,"adds":{}{}}}}}]}}}}"#,
+                "[".repeat(depth),
+                "]".repeat(depth)
+            )
+        };
+        let mut seeds: Vec<String> = [
+            r#"{"event":"$snapshot_items","properties":{"$session_id":"s","$window_id":"w","$snapshot_source":"web","$lib":"web","$snapshot_items":[{"type":4,"timestamp":1,"data":{"href":"https://example.com/a","width":1}},{"type":3,"data":{"source":1,"positions":[{"x":1,"y":2}]},"timestamp":2.5},{"type":2,"timestamp":3,"data":"","cv":"2024-10"}]}}"#,
+            r#" { "properties" : { "$snapshot_items" : [ { "data" : { "source" : 0 , "adds" : [ { "node" : { "id" : 1 } } ] } , "type" : 3 } , { } ] , "$session_id" : "s" } , "after" : [ 1 , { "a" : "}" } ] } "#,
+            r#"{"properties":{"$session_id":"s","$snapshot_items":[{"data":{"source":1},"type":3,"data":{"payload":1,"source":"x"},"data":[{"source":2}]},{"data":{"source":1},"data":{"source":5}}]}}"#,
+            r#"{"properties":{"$session_id":"s","$snapshot_items":[{"data":{"source":1,,},"data":{"source":5}},1,"e",[]]}}"#,
+            r#"{"properties":{"$session_id":"s","$snapshot_items":[{"type":3}],"$snapshot_items":[]},"properties":{}}"#,
+            r#"{"properties":{"$session_id":7,"$window_id":null,"$snapshot_items":{"type":3},"$lib":["web"]}}"#,
+            r#"{"properties":["$snapshot_items"],"x":{"$session_id":"s","$snapshot_items":[{"type":3}]}}"#,
+        ]
+        .map(str::to_owned)
+        .into();
+        seeds.extend((1016..=1024).map(nested));
+        let replacements = b"{}[],:\"\\ 1";
+        let mut read = 0;
+        for seed in &seeds {
+            let seed = seed.as_bytes();
+            // The deep seeds are long, and their nesting is what they test, so only whole messages of them are read.
+            let positions = if seed.len() > 1000 { 0 } else { seed.len() };
+            let mut inputs = vec![seed.to_vec()];
+            for at in 0..positions {
+                inputs.push([&seed[..at], &seed[at + 1..]].concat());
+                for &byte in replacements {
+                    inputs.push([&seed[..at], &[byte], &seed[at + 1..]].concat());
+                    inputs.push([&seed[..at], &[byte], &seed[at..]].concat());
+                }
+            }
+            for input in inputs {
+                for max_events in [0, 1, 2, usize::MAX] {
+                    let Some(one_pass) = read_in_one_pass(&input, max_events) else {
+                        continue;
+                    };
+                    read += 1;
+                    let one_pass = Message {
+                        inner: input.clone(),
+                        session_id: one_pass.session_id,
+                        window_id: one_pass.window_id.map(Arc::from),
+                        snapshot_source: one_pass.snapshot_source,
+                        library: one_pass.library,
+                        events: one_pass.events,
+                    };
+                    assert_eq!(
+                        Ok(parts(one_pass)),
+                        read_by_level(input.clone(), max_events).map(parts),
+                        "{} with at most {max_events} events",
+                        input.escape_ascii()
+                    );
+                }
+            }
+        }
+        assert!(read > 1000, "{read} of the inputs read");
     }
 
     #[test]

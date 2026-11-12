@@ -988,8 +988,8 @@ class IntegrationSerializer(serializers.Serializer):
         # `create` is a POST with upsert semantics: each kind's helper except email's does an `update_or_create`
         # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
         # existing integration instead of adding a new one. Adding is allowed for any project
-        # member. A Google account's creator can also reconnect it because its credentials are
-        # personal; every other overwrite still requires admin. The transaction rolls back an
+        # member. The creator of a Google account or a PostHog connection can also reconnect it because its
+        # credentials are personal; every other overwrite still requires admin. The transaction rolls back an
         # unauthorized helper upsert.
         with transaction.atomic():
             existing_integrations = {
@@ -2976,6 +2976,8 @@ class IntegrationViewSet(
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
         instance = self.get_object()
+        if instance.kind != "email":
+            raise ValidationError("email/verify is only supported for email integrations")
         email = EmailIntegration(instance)
         verification_result = email.verify(
             on_domain_verified=lambda: self._report_email_domain_verified(request, instance)
@@ -3043,6 +3045,8 @@ class IntegrationViewSet(
     @action(methods=["PATCH"], detail=True, url_path="email")
     def email_update(self, request, **kwargs) -> Response:
         instance = self.get_object()
+        if instance.kind != "email":
+            raise ValidationError("Only email integrations can be updated here")
         config = request.data.get("config", {})
 
         serializer = NativeEmailIntegrationSerializer(data=config)
