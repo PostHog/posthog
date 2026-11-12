@@ -197,6 +197,8 @@ describe('cohortEditLogic', () => {
 
             const mockElement = {
                 scrollIntoView: scrollIntoViewSpy,
+                querySelector: () => null,
+                getClientRects: () => [{}],
             }
             querySelectorSpy.mockReturnValue(mockElement as unknown as Element)
         })
@@ -232,9 +234,11 @@ describe('cohortEditLogic', () => {
             logic = cohortEditLogic({ id: 'new' })
             logic.mount()
 
-            querySelectorSpy
-                .mockReturnValueOnce(null)
-                .mockReturnValueOnce({ scrollIntoView: scrollIntoViewSpy } as unknown as Element)
+            querySelectorSpy.mockReturnValueOnce(null).mockReturnValueOnce({
+                scrollIntoView: scrollIntoViewSpy,
+                querySelector: () => null,
+                getClientRects: () => [{}],
+            } as unknown as Element)
 
             await expectLogic(logic, () => {
                 logic.actions.setCohort({

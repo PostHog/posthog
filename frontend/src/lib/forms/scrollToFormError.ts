@@ -21,6 +21,7 @@ interface ScrollToFormErrorOptions {
 
 /**
  * Scrolls to the first error field in a form after the next animation frame to allow DOM updates.
+ * When that field marks a control with `aria-invalid="true"`, focuses the control instead.
  * Always uses 'center' alignment for consistent positioning unless the element is already
  * fully visible in the viewport.
  *
@@ -40,8 +41,14 @@ export function scrollToFormError(options: ScrollToFormErrorOptions = {}): void 
             }
         }
 
-        if (errorElement) {
-            errorElement.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        const invalidControl = errorElement?.querySelector<HTMLElement>('[aria-invalid="true"]')
+        if (invalidControl) {
+            invalidControl.focus()
+        } else if (errorElement) {
+            // A `display: contents` field has no box to scroll to, so scroll to its message instead.
+            const hasBox = errorElement.getClientRects().length > 0
+            const target = (!hasBox && errorElement.querySelector('.Field__error')) || errorElement
+            target.scrollIntoView({ block: 'center', behavior: 'smooth' })
         } else if (fallbackErrorMessage) {
             lemonToast.error(fallbackErrorMessage)
         }

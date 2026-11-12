@@ -61,6 +61,8 @@ export type SceneMainTitleProps = {
     markdown?: boolean
     isLoading?: boolean
     onNameChange?: (value: string) => void
+    /** Only the rail navigation shows it, in a tooltip that touch screens never show, so also render it inline. */
+    nameError?: string
     onDescriptionChange?: (value: string) => void
     /**
      * If true, the name and description will be editable
