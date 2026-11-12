@@ -472,6 +472,40 @@ describe("ClaudeAcpAgent session creation", () => {
     });
   });
 
+  it("reads the Django model list for an own-subscription session, ignoring plan locks", async () => {
+    const listModels = vi.fn().mockResolvedValue([
+      {
+        id: "claude-opus-5-5",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: false,
+        restriction_reason: "paid_plan_required",
+      },
+    ]);
+    const client = {
+      sessionUpdate: vi.fn().mockResolvedValue(undefined),
+      extNotification: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AgentSideConnection;
+    const agent = new ClaudeAcpAgent(client, {
+      machineAuth: { oauthToken: "subscription-token" },
+      listModels,
+    });
+
+    const response = await agent.newSession({
+      cwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-subscription", model: "claude-opus-5-5" },
+    });
+
+    expect(listModels).toHaveBeenCalledOnce();
+    expect(getModelConfigOption(response)).toMatchObject({
+      currentValue: "claude-opus-5-5",
+      options: [expect.not.objectContaining({ _meta: expect.anything() })],
+    });
+  });
+
   it.each([
     {
       start: undefined,

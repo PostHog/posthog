@@ -155,7 +155,7 @@ describe("createWebSearchTool", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://gateway.us.posthog.com/posthog_code/v1/responses",
+      "https://ai-gateway.us.posthog.com/v1/responses",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
@@ -248,7 +248,7 @@ describe("createWebSearchTool with dynamic auth", () => {
     );
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "https://gateway.eu.posthog.com/posthog_code/v1/responses",
+      "https://ai-gateway.eu.posthog.com/v1/responses",
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer pha_from_registry",

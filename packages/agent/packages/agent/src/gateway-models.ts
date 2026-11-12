@@ -17,6 +17,8 @@ export {
   formatGatewayModelName,
   formatModelId,
   type GatewayModel,
+  type GatewayModelRow,
+  gatewayModelRowsFromTaskModels,
   getClaudeModelRecency,
   getProviderName,
   isAnthropicModel,
@@ -32,7 +34,10 @@ export {
   isOfferedModel,
   isOpenAIModel,
   isServedModelId,
+  normalizeGatewayModelsResponse,
   pickAllowedModel,
+  TASK_MODELS_FETCH_TIMEOUT_MS,
+  taskModelsUrl,
 } from "@posthog/agent-contracts";
 
 export interface FetchGatewayModelsOptions {

@@ -1,4 +1,8 @@
 import type http from "node:http";
+import {
+  type GatewayModelRow,
+  gatewayModelRowsFromTaskModels,
+} from "@posthog/agent/gateway-models";
 import type { ScopedLogger } from "@posthog/di/logger";
 import {
   aiGatewayDenialCode,
@@ -34,7 +38,6 @@ export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 export interface SessionTarget {
   kind: "session";
   projectId: number;
-  legacyGatewayUrl: string;
   headers: Record<string, string>;
 }
 
@@ -75,7 +78,7 @@ function isSessionHeader(lower: string): boolean {
   );
 }
 
-/** Serves session targets: Go under a per-request credential, else legacy. */
+/** Serves session targets on Go under a per-request credential. */
 export class GatewaySessionHandler {
   private readonly modes = new WeakMap<
     SessionTarget,
@@ -87,12 +90,10 @@ export class GatewaySessionHandler {
       log: ScopedLogger;
       fetchImpl: FetchLike;
       source: () => GatewayCredentialSource;
-      forwardLegacy: (
-        url: URL,
-        options: RequestInit,
-        res: http.ServerResponse,
-        abort: AbortController,
-      ) => Promise<void>;
+      listTaskModels: (
+        projectId: number,
+        signal: AbortSignal,
+      ) => Promise<Response>;
     },
   ) {}
 
@@ -163,13 +164,7 @@ export class GatewaySessionHandler {
     );
     // Listing models is read-only, so a blocked org still sees the picker.
     if (credential.mode === "blocked" && path === "/v1/models") {
-      this.forwardOnLegacy(
-        target,
-        { path, search, method, body },
-        req,
-        res,
-        abort,
-      );
+      await this.serveTaskModels(target, res, abort);
       return;
     }
     if (credential.mode === "blocked") {
@@ -374,40 +369,33 @@ export class GatewaySessionHandler {
     }
   }
 
-  private forwardOnLegacy(
+  private async serveTaskModels(
     target: SessionTarget,
-    request: {
-      path: string;
-      search: string;
-      method: string;
-      body: Body | undefined;
-    },
-    req: http.IncomingMessage,
     res: http.ServerResponse,
     abort: AbortController,
-  ): void {
-    const { path, search, method, body } = request;
-    const base = target.legacyGatewayUrl.replace(/\/+$/, "");
-    const url = new URL(`${base}${path}${search}`);
-    const headers: Record<string, string> = {};
-    const stripped = strippedRequestHeaders(req.headers.connection);
-    for (const [key, value] of Object.entries(req.headers)) {
-      const lower = key.toLowerCase();
-      if (stripped.has(lower) || typeof value !== "string") {
-        continue;
+  ): Promise<void> {
+    let rows: GatewayModelRow[];
+    try {
+      const response = await this.deps.listTaskModels(
+        target.projectId,
+        abort.signal,
+      );
+      if (!response.ok) {
+        void response.body?.cancel().catch(() => {});
+        jsonError(res, 502, { type: "api_error", message: "Proxy error" });
+        return;
       }
-      headers[lower] = value;
+      rows = gatewayModelRowsFromTaskModels(await response.json());
+    } catch (error) {
+      if (abort.signal.aborted) return;
+      this.deps.log.warn("Model catalogue fetch failed", {
+        error: serializeError(error),
+      });
+      jsonError(res, 502, { type: "api_error", message: "Proxy error" });
+      return;
     }
-    for (const [key, value] of Object.entries(target.headers)) {
-      headers[key.toLowerCase()] = value;
-    }
-    headers["x-posthog-project-id"] = String(target.projectId);
-    void this.deps.forwardLegacy(
-      url,
-      { method, headers, body, signal: abort.signal },
-      res,
-      abort,
-    );
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ data: rows }));
   }
 }
 

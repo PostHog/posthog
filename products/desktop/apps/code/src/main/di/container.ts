@@ -452,6 +452,9 @@ container.bind(AUTH_PROXY_AUTH).toDynamicValue((ctx) => ({
     ctx
       .get<AuthService>(MAIN_AUTH_SERVICE)
       .authenticatedFetch(fetch, url, init),
+  apiHost: async () =>
+    (await ctx.get<AuthService>(MAIN_AUTH_SERVICE).getValidAccessToken())
+      .apiHost,
 }));
 container
   .bind(GATEWAY_CREDENTIAL_SOURCE)

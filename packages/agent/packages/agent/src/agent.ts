@@ -240,6 +240,7 @@ export class Agent {
           }
         : undefined;
 
+    const posthogAPI = this.posthogAPI;
     this.acpConnection = createAcpConnection({
       adapter: options.adapter,
       logWriter: this.sessionLogWriter,
@@ -254,9 +255,10 @@ export class Agent {
       enricherEnabled: this.enricherEnabled,
       claudeGatewayEnv,
       claudeMachineAuth: claudeSubscription ? machineClaudeAuth() : undefined,
-      claudeModelsGatewayUrl: claudeSubscription
-        ? this.posthogAPI?.getLlmGatewayUrl()
-        : undefined,
+      claudeListModels:
+        claudeSubscription && posthogAPI
+          ? () => posthogAPI.getTaskModels()
+          : undefined,
       contextWiki: options.contextWiki,
       codexOptions:
         options.adapter === "codex" && (codexSubscription || gatewayConfig)

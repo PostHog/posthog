@@ -10,6 +10,7 @@ vi.stubGlobal("fetch", mockFetch);
 
 import { configureCustomCloud } from "@posthog/shared";
 import { Container } from "inversify";
+import { NO_PROJECT_GATEWAY_ERROR } from "../auth-proxy/gateway-proxy";
 import { AUTH_PROXY_SERVICE } from "../auth-proxy/identifiers";
 import { MCP_PROXY_SERVICE } from "../mcp-proxy/identifiers";
 import { AgentAuthAdapter } from "./auth-adapter";
@@ -145,10 +146,7 @@ describe("AgentAuthAdapter", () => {
         }),
       );
 
-      const result = await withGo.ensureGatewayProxy(
-        "https://app.posthog.com",
-        1,
-      );
+      const result = await withGo.ensureGatewayProxy(1);
 
       expect(result.mode).toBe("go");
       expect(authProxy.startGatewaySession).toHaveBeenCalled();
@@ -161,10 +159,7 @@ describe("AgentAuthAdapter", () => {
         .mockResolvedValue({ mode: "go", token: "phe_x" });
       const { withGo, authProxy } = withSource(getRoute);
 
-      const result = await withGo.ensureGatewayProxy(
-        "https://app.posthog.com",
-        1,
-      );
+      const result = await withGo.ensureGatewayProxy(1);
 
       expect(getRoute).toHaveBeenCalledWith(1, { awaitRecheck: true });
       expect(result).toEqual({
@@ -173,7 +168,6 @@ describe("AgentAuthAdapter", () => {
       });
       expect(authProxy.startGatewaySession).toHaveBeenCalledWith({
         projectId: 1,
-        legacyGatewayUrl: "https://gateway.example.com",
         headers: undefined,
       });
     });
@@ -184,7 +178,7 @@ describe("AgentAuthAdapter", () => {
         .mockResolvedValue({ mode: "go", token: "phe_x" });
       const { withGo } = withSource(getRoute);
 
-      await withGo.ensureGatewayProxy("https://app.posthog.com", 1, {
+      await withGo.ensureGatewayProxy(1, {
         awaitRecheck: false,
       });
 
@@ -207,10 +201,7 @@ describe("AgentAuthAdapter", () => {
       async (_label, getRoute) => {
         const { withGo, authProxy } = withSource(getRoute);
 
-        const result = await withGo.ensureGatewayProxy(
-          "https://app.posthog.com",
-          1,
-        );
+        const result = await withGo.ensureGatewayProxy(1);
 
         expect(result).toEqual({
           proxyUrl: "http://127.0.0.1:9999/session",
@@ -220,12 +211,14 @@ describe("AgentAuthAdapter", () => {
       },
     );
 
-    it("stays on legacy without a project", async () => {
-      const { withGo } = withSource(vi.fn());
+    it("refuses without a project and never starts a legacy proxy", async () => {
+      const { withGo, authProxy } = withSource(vi.fn());
 
-      expect(
-        (await withGo.ensureGatewayProxy("https://app.posthog.com", null)).mode,
-      ).toBe("legacy");
+      await expect(withGo.ensureGatewayProxy(null)).rejects.toThrow(
+        NO_PROJECT_GATEWAY_ERROR,
+      );
+      expect(authProxy.start).not.toHaveBeenCalled();
+      expect(authProxy.startGatewaySession).not.toHaveBeenCalled();
     });
   });
 
