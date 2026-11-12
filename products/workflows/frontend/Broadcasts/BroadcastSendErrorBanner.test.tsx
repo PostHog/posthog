@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
+import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -28,23 +29,28 @@ describe('BroadcastSendErrorBanner', () => {
     let errorLogs: (string | null)[]
     let runCount = 0
     let clicked: string[]
+    let served: string[]
 
     beforeEach(() => {
         clicked = []
+        served = []
         initKeaTests()
         useMocks({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
                     const query: string = ((await request.json()) as { query: { query: string } }).query.query
                     if (query.includes('FROM log_entries')) {
+                        served.push('log')
                         const log = errorLogs.length > 1 ? errorLogs.shift() : errorLogs[0]
                         return log === null
                             ? [500, { detail: 'Query timed out' }]
                             : [200, { results: log ? [[log]] : [] }]
                     }
                     if (query.includes('email_link_clicked_by_link')) {
+                        served.push('links')
                         return [200, { results: [] }]
                     }
+                    served.push('totals')
                     const sentMetric = run.channel === 'push' ? 'push_sent' : 'email_sent'
                     return [
                         200,
@@ -65,7 +71,7 @@ describe('BroadcastSendErrorBanner', () => {
         cleanup()
     })
 
-    async function renderBanner(sendRun: Run): Promise<() => string | null> {
+    function renderBanner(sendRun: Run): { bannerText: () => string | null; settled: () => Promise<void> } {
         run = sendRun
         errorLogs = [...(sendRun.errorLogs ?? [])]
         const props = { runId: `run-${++runCount}`, runStartedAt: '2026-10-19T22:28:56Z', channel: sendRun.channel }
@@ -84,15 +90,19 @@ describe('BroadcastSendErrorBanner', () => {
                 />
             </Provider>
         )
-        const logic = broadcastPerformanceLogic(props)
-        await waitFor(() =>
-            expect([logic.values.totals !== null, logic.values.latestErrorLogLoading]).toEqual([true, false])
-        )
-        return () => container.querySelector('[data-attr="broadcast-send-error"]')?.textContent ?? null
+        return {
+            bannerText: () => container.querySelector('[data-attr="broadcast-send-error"]')?.textContent ?? null,
+            settled: async () => {
+                await waitFor(() => expect(served).toEqual(expect.arrayContaining(['totals', 'links'])))
+                await expectLogic(broadcastPerformanceLogic(props)).toFinishAllListeners()
+            },
+        }
     }
 
     it('shows nothing when everyone got the broadcast', async () => {
-        const bannerText = await renderBanner({ sent: 40, failed: 0, errorLogs: [BROKEN_TAG] })
+        const { bannerText, settled } = renderBanner({ sent: 40, failed: 0, errorLogs: [BROKEN_TAG] })
+
+        await settled()
 
         expect(bannerText()).toBeNull()
     })
@@ -153,9 +163,9 @@ describe('BroadcastSendErrorBanner', () => {
             action: 'Resend it',
         },
     ])('explains $name and offers the matching action', async ({ run, text, action }) => {
-        const bannerText = await renderBanner(run)
+        const { bannerText } = renderBanner(run)
 
-        expect(bannerText()).toBe(`${text}Show details`)
+        await waitFor(() => expect(bannerText()).toBe(`${text}Show details`))
         const offered = ['Fix it', 'Resend it'].filter((label) => screen.queryAllByText(label).length > 0)
         expect(offered).toEqual(action ? [action] : [])
         offered.forEach((label) => fireEvent.click(screen.getAllByText(label)[0]))
@@ -163,18 +173,19 @@ describe('BroadcastSendErrorBanner', () => {
     })
 
     it('blocks the fix action when the caller gives a reason', async () => {
-        await renderBanner({ failed: 3, errorLogs: [BROKEN_TAG], fixDisabledReason: 'You cannot edit this broadcast' })
+        renderBanner({ failed: 3, errorLogs: [BROKEN_TAG], fixDisabledReason: 'You cannot edit this broadcast' })
 
-        fireEvent.click(screen.getAllByText('Fix it')[0])
+        fireEvent.click((await screen.findAllByText('Fix it'))[0])
 
         expect(clicked).toEqual([])
     })
 
     it('shows the raw error from the send on request and hides it again', async () => {
-        await renderBanner({ failed: 3, errorLogs: [UNKNOWN] })
+        renderBanner({ failed: 3, errorLogs: [UNKNOWN] })
 
+        const showDetails = await screen.findByText('Show details')
         expect(screen.queryByText(UNKNOWN)).toBeNull()
-        fireEvent.click(screen.getByText('Show details'))
+        fireEvent.click(showDetails)
         expect(screen.getByText(UNKNOWN)).toBeTruthy()
         fireEvent.click(screen.getByText('Hide details'))
         expect(screen.queryByText(UNKNOWN)).toBeNull()
@@ -182,8 +193,10 @@ describe('BroadcastSendErrorBanner', () => {
     })
 
     it('lets the sender load the error again when its details failed to load', async () => {
-        const bannerText = await renderBanner({ failed: 3, errorLogs: [null, BROKEN_TAG] })
+        const { bannerText } = renderBanner({ failed: 3, errorLogs: [null, BROKEN_TAG] })
 
+        await waitFor(() => expect(served).toContain('log'))
+        await waitFor(() => expect(screen.queryAllByText('Try again')).toHaveLength(1))
         expect(bannerText()).toBe(
             "3 people didn't get this email. Sending it hit an error, and its details didn't load. Try again"
         )
