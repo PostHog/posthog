@@ -7,14 +7,11 @@ are shown to everyone in the project and sent to agents through MCP tools.
 
 from dataclasses import dataclass
 
-from django.conf import settings
-
 import structlog
-import posthoganalytics
 from google.genai.types import GenerateContentConfig
-from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 
+from posthog.llm.gateway_client import build_gemini_client
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
@@ -88,13 +85,16 @@ def label_topics(team: Team, candidates: list[TopicLabelInput]) -> dict[str, Top
     """A label and summary for every candidate. Blank answers fall back to a neutral label."""
     if not candidates:
         return {}
-    _ensure_llm_available(team, api_key=settings.GEMINI_API_KEY, key_name="GEMINI_API_KEY")
-
-    client = genai.Client(
-        api_key=settings.GEMINI_API_KEY,
-        posthog_client=posthoganalytics.default_client,
-        http_options={"timeout": DIGEST_TIMEOUT_MS},
+    client = build_gemini_client(
+        ai_product="mcp_analytics",
+        properties={"ai_feature": "intent-topic-labels"},
+        distinct_id=f"team/{team.id}/mcp-analytics-intent-topics",
+        # The samples are customer intents, so only token counts reach analytics.
+        privacy_mode=True,
+        timeout_ms=DIGEST_TIMEOUT_MS,
     )
+    _ensure_llm_available(team, configured=client is not None)
+    assert client is not None
     config = GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
         response_mime_type="application/json",
@@ -106,11 +106,6 @@ def label_topics(team: Team, candidates: list[TopicLabelInput]) -> dict[str, Top
             model=DIGEST_THEMES_MODEL,
             contents=build_label_prompt(candidates),
             config=config,
-            posthog_distinct_id=f"team/{team.id}/mcp-analytics-intent-topics",
-            posthog_properties={"ai_product": "mcp_analytics", "ai_feature": "intent-topic-labels"},
-            posthog_groups={"project": str(team.id)},
-            # The samples are customer intents, so only token counts reach analytics.
-            posthog_privacy_mode=True,
         )
     except Exception as e:
         logger.exception("mcp_analytics.intent_topics.labeling_failed", team_id=team.id)

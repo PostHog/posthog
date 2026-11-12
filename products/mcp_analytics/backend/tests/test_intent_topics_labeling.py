@@ -3,6 +3,8 @@ import json
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
 from products.mcp_analytics.backend.intent_topics.labeling import (
     TopicLabel,
@@ -48,13 +50,11 @@ class TestLabelTopics(APIBaseTest):
         client.models.generate_content.return_value = MagicMock(text=json.dumps(payload))
         return client
 
-    @patch("products.mcp_analytics.backend.intent_topics.labeling.settings")
-    @patch("products.mcp_analytics.backend.intent_topics.labeling.genai")
-    def test_maps_numbered_answers_back_to_topic_ids(self, mock_genai, mock_settings) -> None:
-        mock_settings.GEMINI_API_KEY = "key"
+    @patch("products.mcp_analytics.backend.intent_topics.labeling.build_gemini_client")
+    def test_maps_numbered_answers_back_to_topic_ids(self, mock_build_client) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_genai.Client.return_value = self._mock_client(
+        mock_build_client.return_value = self._mock_client(
             {
                 "topics": [
                     {"number": 1, "label": "Create insights", "summary": "Agents build charts."},
@@ -70,13 +70,11 @@ class TestLabelTopics(APIBaseTest):
             "t2": TopicLabel(label="List flags", summary="Agents read flags."),
         }
 
-    @patch("products.mcp_analytics.backend.intent_topics.labeling.settings")
-    @patch("products.mcp_analytics.backend.intent_topics.labeling.genai")
-    def test_missing_or_blank_answers_fall_back_without_intent_text(self, mock_genai, mock_settings) -> None:
-        mock_settings.GEMINI_API_KEY = "key"
+    @patch("products.mcp_analytics.backend.intent_topics.labeling.build_gemini_client")
+    def test_missing_or_blank_answers_fall_back_without_intent_text(self, mock_build_client) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_genai.Client.return_value = self._mock_client({"topics": [{"number": 1, "label": "  ", "summary": ""}]})
+        mock_build_client.return_value = self._mock_client({"topics": [{"number": 1, "label": "  ", "summary": ""}]})
 
         labels = label_topics(
             self.team,
@@ -90,22 +88,24 @@ class TestLabelTopics(APIBaseTest):
         assert labels["0193e5c2-1234-7abc-8def-0000000000bb"].label == "Topic 000000bb"
         assert "secret" not in json.dumps({k: v.label + v.summary for k, v in labels.items()})
 
-    @patch("products.mcp_analytics.backend.intent_topics.labeling.settings")
-    @patch("products.mcp_analytics.backend.intent_topics.labeling.genai")
-    def test_sample_intents_stay_out_of_ai_telemetry(self, mock_genai, mock_settings) -> None:
-        mock_settings.GEMINI_API_KEY = "key"
+    @patch("products.mcp_analytics.backend.intent_topics.labeling.build_gemini_client")
+    def test_sample_intents_stay_out_of_ai_telemetry(self, mock_build_client) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        client = self._mock_client({"topics": [{"number": 1, "label": "Create insights", "summary": "Charts."}]})
-        mock_genai.Client.return_value = client
+        mock_build_client.return_value = self._mock_client(
+            {"topics": [{"number": 1, "label": "Create insights", "summary": "Charts."}]}
+        )
 
         label_topics(self.team, [_candidate("t1")])
 
-        assert client.models.generate_content.call_args.kwargs["posthog_privacy_mode"] is True
+        assert mock_build_client.call_args.kwargs["privacy_mode"] is True
 
-    @patch("products.mcp_analytics.backend.intent_topics.labeling.settings")
-    def test_requires_consent_and_a_key(self, mock_settings) -> None:
-        mock_settings.GEMINI_API_KEY = ""
+    @parameterized.expand([("no_consent", False, MagicMock()), ("no_gateway", True, None)])
+    @patch("products.mcp_analytics.backend.intent_topics.labeling.build_gemini_client")
+    def test_requires_consent_and_a_gateway(self, _name, approved, client, mock_build_client) -> None:
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        mock_build_client.return_value = client
         try:
             label_topics(self.team, [_candidate("t1")])
         except IntentGenerationUnavailable:
