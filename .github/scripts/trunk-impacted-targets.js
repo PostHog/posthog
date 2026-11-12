@@ -1573,7 +1573,11 @@ function isWarehouseSourceVendorFile(file) {
 // file of the product already claims the lane.
 const WAREHOUSE_SOURCE_SDK_IMPORT = /^\s*(?:from\s+([\w.]+)\s+import\b|import\s+([\w.]+))/gm
 const WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS = ['posthog.', 'common.', 'ee.', 'products.']
-const WAREHOUSE_SOURCE_VENDOR_CONFTESTS = ['products/conftest.py', `${WAREHOUSE_SOURCE_PLUGIN_DIR}conftest.py`]
+const WAREHOUSE_SOURCE_VENDOR_CONFTESTS = [
+    'conftest.py',
+    'products/conftest.py',
+    `${WAREHOUSE_SOURCE_PLUGIN_DIR}conftest.py`,
+]
 
 function loadWarehouseSourceSdkImports(repoRoot) {
     const imports = new Set()

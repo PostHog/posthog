@@ -1990,16 +1990,19 @@ test('a warehouse source vendor claims only the vendor lane, which every vendor 
                 '',
             ].join('\n')
         )
-        // products/conftest.py star-imports the core fixtures into every vendor test.
+        // Every vendor test collects the root and products/ conftest files too.
+        write('conftest.py', 'from posthog.test.junit import set_junit_report_location\n')
         write('products/conftest.py', 'from posthog.conftest import *  # noqa: F403\n')
         write(sdkImport, '')
         write('posthog/conftest.py', '')
+        write('posthog/test/junit.py', '')
         write('posthog/security/url_validation.py', '')
         write('products/warehouse_sources/backend/facade/api.py', '')
         assert.deepEqual([...loadWarehouseSourceSdkImports(root)].sort(), [
             'posthog/conftest.py',
             sdkImport,
             'posthog/security/url_validation.py',
+            'posthog/test/junit.py',
         ])
     } finally {
         fs.rmSync(root, { recursive: true, force: true })
