@@ -50,6 +50,40 @@ CATALOG_FLAG_CHECK = (
 )
 
 
+class TestAccountPersonMembershipLimits(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ([3, 1, 1], 2, 6, [2]),
+            ([2, 2, 2], 2, 6, [1, 2]),
+            ([2], 2, 3, [1]),
+            ([2], 2, 2, []),
+        ]
+    )
+    def test_alias_budget_omits_incomplete_people(
+        self, alias_counts: list[int], person_limit: int, request_limit: int, expected_ids: list[int]
+    ) -> None:
+        aliases = {
+            person_id: [f"person-{person_id}-alias-{index}" for index in range(count)]
+            for person_id, count in enumerate(alias_counts, start=1)
+        }
+        fetched: list[str] = []
+
+        def get_aliases(team_id: int, person_ids: list[int], *, limit_per_person: int) -> dict[int, list[str]]:
+            rows = {person_id: aliases[person_id][:limit_per_person] for person_id in person_ids}
+            fetched.extend(alias for values in rows.values() for alias in values)
+            return rows
+
+        with (
+            patch.object(memberships_logic, "MAX_ALIASES_PER_PERSON", person_limit),
+            patch.object(memberships_logic, "MAX_ALIASES_PER_REQUEST", request_limit),
+            patch.object(memberships_logic, "get_distinct_ids_for_persons", side_effect=get_aliases),
+        ):
+            resolved = memberships_logic.get_person_distinct_ids(1, list(aliases))
+
+        assert resolved == {person_id: aliases[person_id] for person_id in expected_ids}
+        assert len(fetched) <= request_limit
+
+
 class TestAccountPersonsQueryValidation(SimpleTestCase):
     @parameterized.expand(
         [
@@ -469,9 +503,22 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             ],
         )
 
-    @parameterized.expand([(100, 500), (1, 1)])
+    @parameterized.expand(
+        [
+            (100, 500, 5_000, True, True),
+            (100, 1, 5_000, True, True),
+            (1, 500, 5_000, False, True),
+            (2, 1, 3, True, False),
+            (2, 500, 2, False, False),
+        ]
+    )
     def test_membership_enrichment_resolves_aliases_and_excludes_inaccessible_accounts(
-        self, alias_page_size: int, query_batch_size: int
+        self,
+        alias_limit: int,
+        query_batch_size: int,
+        request_limit: int,
+        include_first: bool,
+        include_second: bool,
     ) -> None:
         other_key = "second-workspace"
         hidden_key = "hidden-workspace"
@@ -493,7 +540,8 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self._insert_membership("outside-person", "2024-01-01", "2024-01-05", group_key=other_key)
         flush_persons_and_events()
         with (
-            patch.object(memberships_logic, "ALIAS_PAGE_SIZE", alias_page_size),
+            patch.object(memberships_logic, "MAX_ALIASES_PER_PERSON", alias_limit),
+            patch.object(memberships_logic, "MAX_ALIASES_PER_REQUEST", request_limit),
             patch.object(memberships_logic, "MEMBERSHIP_QUERY_BATCH_SIZE", query_batch_size),
             patch.object(
                 memberships_logic, "list_membership_keys", wraps=memberships_logic.list_membership_keys
@@ -507,10 +555,13 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         assert all(len(call.args[2]) <= query_batch_size for call in queries.call_args_list)
         assert response.status_code == 200, response.content
         accounts = {item["person_id"]: {account["id"] for account in item["accounts"]} for item in response.json()}
-        assert accounts == {
-            str(self.first.uuid): {str(self.account.id), str(other.id)},
-            str(self.second.uuid): {str(self.account.id)},
-        }
+        expected = {}
+        if include_first:
+            expected[str(self.first.uuid)] = {str(self.account.id), str(other.id)}
+        if include_second:
+            expected[str(self.second.uuid)] = {str(self.account.id)}
+        assert accounts == expected
+        assert sum(len(call.args[2]) for call in queries.call_args_list) <= request_limit
 
     @parameterized.expand([([],), (["invalid"],), (["00000000-0000-0000-0000-000000000001"] * 501,)])
     def test_membership_enrichment_rejects_invalid_or_oversized_requests(self, person_ids: list[str]) -> None:

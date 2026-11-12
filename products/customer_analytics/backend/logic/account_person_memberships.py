@@ -1,6 +1,4 @@
 from collections import defaultdict
-from collections.abc import Iterator
-from functools import partial
 from itertools import batched
 from typing import cast
 
@@ -13,40 +11,33 @@ from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.person.util import get_distinct_ids_for_persons, get_person_ids_and_uuids_by_uuids
-from posthog.personhog_client.client import personhog_call, require_personhog_client
-from posthog.personhog_client.proto import GetDistinctIdsForPersonRequest
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade.contracts import PersonAccount, PersonAccounts
 from products.customer_analytics.backend.logic.account_persons import AccountPersonsReader, MembershipTableReferences
 from products.customer_analytics.backend.models.account import Account
 
-ALIAS_PAGE_SIZE = 100
+MAX_ALIASES_PER_PERSON = 100
+MAX_ALIASES_PER_REQUEST = 5_000
 MEMBERSHIP_QUERY_BATCH_SIZE = 500
 
 
-def iter_person_distinct_ids(team_id: int, person_ids: list[int]) -> Iterator[str]:
-    first_pages = get_distinct_ids_for_persons(team_id, person_ids, limit_per_person=ALIAS_PAGE_SIZE)
-    for person_id in person_ids:
-        distinct_ids = first_pages.pop(person_id, [])
-        if len(distinct_ids) < ALIAS_PAGE_SIZE:
-            yield from distinct_ids
-            continue
-        cursor_id = 0
-        while True:
-            page = personhog_call(
-                "get_distinct_ids_for_person",
-                partial(
-                    require_personhog_client().get_distinct_ids_for_person,
-                    GetDistinctIdsForPersonRequest(
-                        team_id=team_id, person_id=person_id, limit=ALIAS_PAGE_SIZE, cursor_id=cursor_id
-                    ),
-                ),
-            )
-            yield from (row.distinct_id for row in page.distinct_ids)
-            if not page.HasField("next_cursor_id"):
-                break
-            cursor_id = page.next_cursor_id
+def get_person_distinct_ids(team_id: int, person_ids: list[int]) -> dict[int, list[str]]:
+    distinct_ids_by_person: dict[int, list[str]] = {}
+    remaining = MAX_ALIASES_PER_REQUEST
+    offset = 0
+    fetch_limit = MAX_ALIASES_PER_PERSON + 1
+    while offset < len(person_ids) and remaining >= fetch_limit:
+        batch_size = min(50, remaining // fetch_limit)
+        batch = person_ids[offset : offset + batch_size]
+        first_pages = get_distinct_ids_for_persons(team_id, batch, limit_per_person=fetch_limit)
+        for person_id in batch:
+            distinct_ids = first_pages.get(person_id, [])
+            remaining -= len(distinct_ids)
+            if len(distinct_ids) <= MAX_ALIASES_PER_PERSON:
+                distinct_ids_by_person[person_id] = distinct_ids
+        offset += len(batch)
+    return distinct_ids_by_person
 
 
 class AccountPersonMembershipsQueryRunner(HogQLQueryRunner):
@@ -104,10 +95,14 @@ def list_person_accounts(
     if reader.group_key is None:
         return []
     persons = get_person_ids_and_uuids_by_uuids(reader.team.pk, person_ids)
+    request_order = {uuid: index for index, uuid in enumerate(person_ids)}
+    persons.sort(key=lambda person: request_order[person[1]])
     membership_keys: defaultdict[str, set[str]] = defaultdict(set)
-    distinct_ids = iter_person_distinct_ids(reader.team.pk, [person_id for person_id, _ in persons])
+    distinct_ids_by_person = get_person_distinct_ids(reader.team.pk, [person_id for person_id, _ in persons])
+    resolved_person_ids = [str(uuid) for person_id, uuid in persons if person_id in distinct_ids_by_person]
+    distinct_ids = (distinct_id for aliases in distinct_ids_by_person.values() for distinct_id in aliases)
     for batch in batched(distinct_ids, MEMBERSHIP_QUERY_BATCH_SIZE, strict=False):
-        for person_id, batch_keys in list_membership_keys(reader, person_ids, batch):
+        for person_id, batch_keys in list_membership_keys(reader, resolved_person_ids, batch):
             membership_keys[person_id].update(batch_keys)
     rows = [(person_id, keys) for person_id, keys in membership_keys.items() if reader.group_key in keys]
     keys = {key for _, group_keys in rows for key in group_keys}
