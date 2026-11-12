@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 40 enabled ops
+ * PostHog API - MCP 43 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -193,6 +193,18 @@ export const ExternalDataSchemasDeleteDataDestroyParams = () => zod.object({
  * Send `destination_ids: null` to clear the override so the table follows its source again.
  */
 export const ExternalDataSchemasDestinationsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data schema.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Delete the history table of a CDC schema that no longer writes it, for example after `cdc_table_mode` moved to `consolidated` or the schema left CDC while keeping it. Deletes the table and every past row version in it, and cannot be undone. Refused while the schema still writes the history table, or while a sync of it is still running. Switching back to a mode that keeps history later starts a new history table.
+ */
+export const ExternalDataSchemasHistoryTableDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
         .string()
@@ -703,6 +715,33 @@ export const ExternalDataSourcesRepairCdcCreateParams = () => zod.object({
 })
 
 /**
+ * Update the revenue analytics configuration and return the full external data source.
+ */
+export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this external data source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = () => zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed."
+        ),
+    include_invoiceless_charges: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices.'
+        ),
+})
+
+/**
  * Create, Read, Update and Delete External data Sources.
  */
 export const ExternalDataSourcesUpdateWebhookInputsCreateParams = () => zod.object({
@@ -795,6 +834,36 @@ export const ExternalDataSourcesCheckCdcPrerequisitesCreateParams = () => zod.ob
         ),
 })
 
+export const ExternalDataSourcesCheckCdcPrerequisitesCreateBody = () => zod.object({
+    source_type: zod
+        .string()
+        .describe("A CDC-capable source type, for example 'Postgres'. Other source types are rejected."),
+    payload: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Connection details as flat keys for the source_type, the same fields the create flow takes in its payload (host, port, database, user, password, schema, ssh_tunnel and so on). Discover them with 'external-data-sources-wizard'. Prefer {'credential_id': <id>} referencing connection details the user stored via the connect-link page: it is merged in server-side and is not consumed by this check, so the same id still works for source setup afterwards."
+        ),
+    cdc_management_mode: zod
+        .string()
+        .optional()
+        .describe(
+            "Who owns the replication slot and publication: 'posthog' (default, PostHog creates them) or 'self_managed' (the user created them)."
+        ),
+    tables: zod
+        .array(zod.string())
+        .optional()
+        .describe('Tables to check against the publication. Omit to check the database-level prerequisites only.'),
+    cdc_slot_name: zod
+        .string()
+        .nullish()
+        .describe("Self-managed replication slot name to check. Ignored in 'posthog' mode."),
+    cdc_publication_name: zod
+        .string()
+        .nullish()
+        .describe("Self-managed publication name to check. Ignored in 'posthog' mode."),
+})
+
 /**
  * Return a secure browser link for connecting a data warehouse source.
  *
@@ -835,6 +904,44 @@ export const ExternalDataSourcesConnectionsListParams = () => zod.object({
 })
 
 /**
+ * Draft a Custom REST source manifest from API documentation using an LLM.
+ *
+ * Reads the docs (a URL fetched server-side, or pasted text / OpenAPI spec), asks the model to
+ * author a RESTAPIConfig manifest, and validates it against the create-path checks — repairing
+ * against validation errors up to a small budget. Returns the manifest for the user to review
+ * and tweak in the builder before creating the source; it does NOT create anything. Gated by the
+ * `dwh-custom-source-ai-builder` flag, and requires the org to have approved AI data processing,
+ * since the docs are sent to the LLM gateway.
+ */
+export const ExternalDataSourcesDraftCustomManifestCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const externalDataSourcesDraftCustomManifestCreateBodySourceNameDefault = ``
+export const externalDataSourcesDraftCustomManifestCreateBodyDocsUrlTwoMax = 0
+
+export const ExternalDataSourcesDraftCustomManifestCreateBody = () => zod.object({
+    source_name: zod
+        .string()
+        .default(externalDataSourcesDraftCustomManifestCreateBodySourceNameDefault)
+        .describe("Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model."),
+    docs_url: zod
+        .union([zod.url(), zod.string().max(externalDataSourcesDraftCustomManifestCreateBodyDocsUrlTwoMax)])
+        .optional()
+        .describe(
+            'URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy.'
+        ),
+    docs_text: zod
+        .string()
+        .optional()
+        .describe('Raw API documentation or an OpenAPI\/Swagger spec, pasted directly. Provide this or docs_url.'),
+})
+
+/**
  * One-shot data warehouse source setup.
  *
  * Validate credentials, discover available tables, enable them all with sensible sync defaults
@@ -865,7 +972,7 @@ export const ExternalDataSourcesSetupCreateBody = () => zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_\* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults."
+            "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint). Stored credentials work once, expire after 24 hours, are deleted once the source is created, and must be stored for the same source_type. An already-connected OAuth integration can be passed via its id key instead. The key name differs per source and is listed in the wizard output as the source's OAuth field, e.g. {'hubspot_integration_id': 123}, {'google_ads_integration_id': 45} or {'meta_ads_integration_id': 67}. For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_\* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults."
         ),
     prefix: zod
         .string()

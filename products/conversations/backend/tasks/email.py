@@ -1,6 +1,5 @@
 """Email outbox send, retry, and periodic flush."""
 
-import html as html_mod
 from datetime import timedelta
 from email.utils import formataddr
 from uuid import UUID
@@ -188,7 +187,11 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         txt_body = rich_content_to_markdown(comment.rich_content, include_images=False)
     else:
         txt_body = comment.content or ""
-        html_body = f"<p>{html_mod.escape(comment.content or '')}</p>"
+        # Deferred: the renderer pulls posthog.api onto the Django startup path.
+        from posthog.helpers.email_formatting import render_markdown_email_html
+
+        # Content-only replies come from the API, MCP, and AI agents, so the text may be model-written.
+        html_body = render_markdown_email_html(txt_body)
 
     subject = ticket.email_subject or "Your support request"
     is_reply = latest_mapping is not None
