@@ -4575,9 +4575,14 @@ jobs:
             (needs.turbo-tests.result != 'skipped' || needs.django.result != 'skipped')
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 0
-                  filter: blob:none
+            - name: Fetch coverage history without file contents
+              run: |
+                  git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+                  git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA" +refs/heads/master:refs/remotes/origin/master
+                  if ! git merge-base origin/master HEAD >/dev/null; then
+                      git fetch --no-tags --filter=blob:none --unshallow origin "$GITHUB_SHA" +refs/heads/master:refs/remotes/origin/master
+                  fi
+              retry: 2
             - name: Check for coverage reporter
               id: reporter
               shell: bash
@@ -4610,7 +4615,6 @@ jobs:
               if: steps.reporter.outputs.available == 'true'
               run: |
                   mkdir -p cov-artifacts core-artifacts
-                  git fetch --no-tags --filter=blob:none --quiet origin master
                   uv run --script .github/scripts/coverage_report.py \
                       --artifacts cov-artifacts \
                       --core-artifacts core-artifacts \

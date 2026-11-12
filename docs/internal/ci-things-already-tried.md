@@ -533,7 +533,9 @@ With `fetch-depth: 1000` and `filter: blob:none`, the checkout took 42 to 46 s, 
 Without the filter it took 39 s, because the server then packs the file contents of all 1000 commits.
 A depth-1 checkout followed by `git fetch --filter=blob:none --depth=1000` takes about 7 s, and the job uses that now.
 `--deepen=999` in its place fetched nothing when GitHub had already replaced the PR's merge ref, which failed the run.
-The `test-selection-verdict` and `backend-coverage-report` jobs still use deep blobless checkouts. They run after the required gate, so no PR waits on them.
+The `backend-coverage-report` job uses a depth-1 checkout followed by a bounded blobless fetch of the run SHA and master.
+It fetches full history when the bounded fetch cannot find their merge base, so older branches retain patch coverage.
+The `test-selection-verdict` job still uses a deep blobless checkout. It runs after the required gate, so no PR waits on it.
 The Agent Skills build uses a plain depth-1 checkout on master pushes because its schema cache keys read only `HEAD`.
 Its PR checkout keeps bounded blobless history for the merge-base schema key.
 
