@@ -555,7 +555,7 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — disables a ReplayScanner, not an alert; scanners have no state machine.
         self.enabled = False
         self.disabled_reason = reason
-        self.save(update_fields=["enabled", "disabled_reason"])
+        self.save(update_fields=["enabled", "disabled_reason", "updated_at"])
 
     def recordings_query(self) -> "RecordingsQuery":
         """The persisted candidate filter; an empty `query` parses as a bare RecordingsQuery."""
