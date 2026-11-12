@@ -27449,6 +27449,70 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `manual` - Manual
+     * * `detected` - Detected from GitHub
+     */
+    export type CodeEmailSourceOriginEnum = typeof CodeEmailSourceOriginEnum[keyof typeof CodeEmailSourceOriginEnum];
+
+
+    export const CodeEmailSourceOriginEnum = {
+      Manual: 'manual',
+      Detected: 'detected',
+    } as const;
+
+    export interface CodeEmail {
+      /** The code email's ID. */
+      id: string;
+      /** The `template_key` your code sends under. Each key is one email. */
+      key: string;
+      /** The hidden workflow that sends this key's emails. */
+      hog_flow_id: string;
+      /** What the email is for. Empty when nobody added one. */
+      description: string;
+      /** Tags for organizing transactional emails. */
+      tags: string[];
+      /** True when PostHog keeps no copy of each sent email's body and doesn't track link clicks. */
+      sensitive: boolean;
+      /**
+         * A link to the file in your repository that sends this email. Null when unlinked.
+         * @nullable
+         */
+      source_url: string | null;
+      /** How `source_url` was set: `manual` when a person linked or unlinked it, `detected` when PostHog found the file in a connected GitHub repository. Setting `source_url` makes it `manual`. Null when no link was ever set or cleared.
+       *
+       * * `manual` - Manual
+       * * `detected` - Detected from GitHub */
+      readonly source_origin: CodeEmailSourceOriginEnum | null;
+      /** When your code first sent under this key. */
+      created_at: string;
+      /**
+         * Your access level to this email's workflow, such as `viewer` or `editor`. Editing the description, the tags or the source file needs `editor`.
+         * @nullable
+         */
+      user_access_level: string | null;
+    }
+
+    export interface CodeEmailSourceCandidate {
+      /** The repository that holds the file, as `owner/name`. */
+      repository: string;
+      /** The file's path in the repository. */
+      path: string;
+      /** The line that holds the key: the first one next to an email send call, otherwise the first match. */
+      line: number;
+      /** A link to that line on the repository's default branch. Send it as `source_url` to link the file. */
+      url: string;
+      /** True when the key is within five lines of an email send call, so the file most likely sends it. */
+      call_site: boolean;
+    }
+
+    export interface CodeEmailSourceCandidates {
+      /** One entry per file in the project's connected GitHub repositories that holds the key exactly, files with a send call first. Test, fixture and build files are left out. Empty when nothing matched or the project has no GitHub integration. */
+      candidates: CodeEmailSourceCandidate[];
+      /** False when part of the search did not finish, such as a repository GitHub could not search or a file it could not read, so a file may be missing from `candidates`. */
+      complete: boolean;
+    }
+
+    /**
      * * `dataset_archived` - dataset_archived
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
@@ -60864,6 +60928,11 @@ export namespace Schemas {
       working: ImpactWorking | null;
     }
 
+    export interface ImportAllResponse {
+      /** How many releases the import created. */
+      created_count: number;
+    }
+
     /**
      * * `customerio` - Customer.io
      */
@@ -84313,6 +84382,22 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedCodeEmailUpdate {
+      /**
+         * What the email is for.
+         * @maxLength 1000
+         */
+      description?: string;
+      /**
+         * Tags for organizing transactional emails. Replaces the current tags. Send an empty list to remove them all.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      tags?: string[];
+      /** A link to the file in your repository that sends this email, such as a GitHub or GitLab file link. Must start with http:// or https://. Send null or an empty string to unlink it. */
+      source_url?: string | null;
+    }
+
     export interface PatchedCohort {
       readonly id?: number;
       /**
@@ -93471,12 +93556,16 @@ export namespace Schemas {
          */
       owner_id?: number | null;
       /**
-         * IDs of the feature flags that control who gets the release.
+         * IDs of the feature flags that control who gets the release, at most 100.
+         * @maxItems 100
          * @items.minimum 1
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
-      /** IDs of the broadcasts that announce the release. */
+      /**
+         * IDs of the broadcasts that announce the release, at most 100.
+         * @maxItems 100
+         */
       broadcast_ids?: string[];
     }
 
@@ -123267,12 +123356,16 @@ export namespace Schemas {
          */
       owner_id?: number | null;
       /**
-         * IDs of the feature flags that control who gets the release.
+         * IDs of the feature flags that control who gets the release, at most 100.
+         * @maxItems 100
          * @items.minimum 1
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
-      /** IDs of the broadcasts that announce the release. */
+      /**
+         * IDs of the broadcasts that announce the release, at most 100.
+         * @maxItems 100
+         */
       broadcast_ids?: string[];
     }
 

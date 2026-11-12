@@ -268,7 +268,14 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
 
 // A plain function rather than a listener, because the caller awaits it to keep its editor open on
 // a rejection, and a kea listener that rethrows raises an unhandled rejection on the way out.
-export async function saveTemplateTags(template: MessageTemplate, tags: string[]): Promise<void> {
+// A caller that already shows newer tags passes isLatestEdit, so this save's answer doesn't replace them.
+export async function saveTemplateTags(
+    template: MessageTemplate,
+    tags: string[],
+    isLatestEdit: () => boolean = () => true
+): Promise<void> {
     const updated = await api.messaging.updateTemplate(template.id, { tags })
-    messageTemplatesLogic.findMounted()?.actions.templateTagsSaved(updated)
+    if (isLatestEdit()) {
+        messageTemplatesLogic.findMounted()?.actions.templateTagsSaved(updated)
+    }
 }
