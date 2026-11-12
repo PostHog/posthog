@@ -12576,10 +12576,10 @@ Today (8): `actions`, `boards`, `cards`, `checklists`, `labels`, `lists`, `membe
 
 Diffed against: <https://developer.atlassian.com/cloud/trello/swagger.v3.json>
 
-- [ ] `boards/{id}/customFields + customFields/{id}/options` — custom field definitions and their option values; the lookup that decodes custom field ids on cards (high)
-- [ ] `cards/{id}/customFieldItems` — per-card custom field values, where most teams store story points, priority and sprint (high)
-- [ ] `checklists/{id}/checkItems` — the actual checklist items and their state; checklists alone are empty containers (high)
-- [ ] `boards/{id}/memberships` — board membership rows with member role and status, resolving members to boards (high)
+- [x] `boards/{id}/customFields + customFields/{id}/options` — custom field definitions and their option values; the lookup that decodes custom field ids on cards (high)
+- [x] `cards/{id}/customFieldItems` — per-card custom field values, where most teams store story points, priority and sprint (high)
+- [x] `checklists/{id}/checkItems` — the actual checklist items and their state; checklists alone are empty containers (high)
+- [x] `boards/{id}/memberships` — board membership rows with member role and status, resolving members to boards (high)
 - [ ] `organizations/{id}/memberships` — workspace membership and role per member (medium)
 - [ ] `cards/{id}/attachments` — attachment metadata linking cards to external artifacts (PRs, docs) (medium)
 - [ ] `enterprises/{id}/members` — enterprise-wide member roster with license status (medium)
