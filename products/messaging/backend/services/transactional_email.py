@@ -568,7 +568,8 @@ def send_transactional_email(
         else:
             hog_flow_id = _transactional_workflow_id(team.id, template)
             category_id = template.message_category_id
-        template_send_category(template_category(team.id, category_id), category)
+        if category is not None:
+            template_send_category(template_category(team.id, category_id), category)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 
@@ -588,7 +589,7 @@ def send_code_email(
         category: SendCategory | None = None
         if template is not None:
             hog_flow_id = _transactional_workflow_id(team.id, template)
-            if categories_enabled:
+            if categories_enabled or email.category is not None:
                 category = template_send_category(
                     template_category(team.id, template.message_category_id), email.category
                 )

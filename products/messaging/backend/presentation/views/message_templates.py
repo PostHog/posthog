@@ -1498,7 +1498,9 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 require_workflow_editor=self._require_workflow_editor,
                 require_workflow_create=self._require_workflow_create,
             )
-            if isinstance(data.get("category"), SendCategoryDefinition):
+            if isinstance(data.get("category"), SendCategoryDefinition) and _flag_enabled(
+                self.team, CODE_SEND_CATEGORIES_FLAG
+            ):
                 self._require_workflow_create()
         return self._queue_send(
             request,
