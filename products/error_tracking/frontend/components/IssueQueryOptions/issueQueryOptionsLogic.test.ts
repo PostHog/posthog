@@ -110,9 +110,11 @@ describe('issueQueryOptionsLogic', () => {
 
     // The query ignores a tag that is not enabled, so a filter on one must not stay on screen as if it applied.
     it.each([
-        ['clears a filter on a tag that is not enabled', 'other_tag', null],
-        ['keeps a filter on an enabled tag', 'cause_in_trace', { key: 'cause_in_trace', value: 'yes' }],
-    ])('%s once the tag definitions load', async (_, enabledKey, expected) => {
+        ['clears a filter on a tag that is not enabled', 'before', 'other_tag', null],
+        ['keeps a filter on an enabled tag', 'before', 'cause_in_trace', { key: 'cause_in_trace', value: 'yes' }],
+        ['clears a filter on a tag that is not enabled', 'after', 'other_tag', null],
+        ['keeps a filter on an enabled tag', 'after', 'cause_in_trace', { key: 'cause_in_trace', value: 'yes' }],
+    ])('%s when the link opens %s the tag definitions load', async (_, linkOpens, enabledKey, expected) => {
         useMocks({
             get: {
                 '/api/projects/:team_id/error_tracking/issues/tag_definitions/': {
@@ -120,12 +122,23 @@ describe('issueQueryOptionsLogic', () => {
                 },
             },
         })
+        router.actions.push('/error_tracking')
         const logic = mountLogic()
-        logic.actions.setIssueTag({ key: 'cause_in_trace', value: 'yes' })
+        const openLink = (): void => {
+            router.actions.push('/error_tracking', { issueTag: { key: 'cause_in_trace', value: 'yes' } })
+        }
+        if (linkOpens === 'before') {
+            openLink()
+        }
 
         await expectLogic(issueTagDefinitionsLogic, () => {
             issueTagDefinitionsLogic.mount()
-        }).toDispatchActions(['loadIssueTagDefinitionsSuccess'])
+        })
+            .toDispatchActions(['loadIssueTagDefinitionsSuccess'])
+            .toFinishAllListeners()
+        if (linkOpens === 'after') {
+            openLink()
+        }
 
         expect(logic.values.issueTag).toEqual(expected)
     })

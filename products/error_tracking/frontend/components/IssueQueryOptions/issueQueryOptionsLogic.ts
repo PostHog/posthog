@@ -118,6 +118,17 @@ export function sanitizeIssueTag(issueTag: unknown): ErrorTrackingIssueTagFilter
     return DEFAULT_ISSUE_TAG
 }
 
+// Definitions that loaded before a link opened never reach the load listener, so the link checks them itself.
+// findMounted keeps the definitions request off while the filter is hidden.
+function issueTagFromUrl(raw: unknown): ErrorTrackingIssueTagFilter | null {
+    const issueTag = sanitizeIssueTag(raw)
+    const definitions = issueTagDefinitionsLogic.findMounted()?.values.issueTagDefinitions
+    if (issueTag && definitions && !definitions.some((definition) => definition.key === issueTag.key)) {
+        return DEFAULT_ISSUE_TAG
+    }
+    return issueTag
+}
+
 export interface IssueQueryOptionsLogicProps {
     logicKey: string
 }
@@ -302,7 +313,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             if (!equal(severity, values.severity)) {
                 actions.setSeverity(severity)
             }
-            const issueTag = sanitizeIssueTag(params.issueTag)
+            const issueTag = issueTagFromUrl(params.issueTag)
             if (!equal(issueTag, values.issueTag)) {
                 actions.setIssueTag(issueTag)
             }
