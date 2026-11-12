@@ -42,7 +42,7 @@ const columns: ColumnDef<Person>[] = [
 
 Rules:
 
-- Column defs are standard TanStack `ColumnDef`s; quill-specific options go in `meta`: `align: 'left' | 'center' | 'right'` (header + cells), `expand: true` (absorb leftover width) and `sticky: 'left' | 'right'` (freeze the column while the table scrolls sideways, such as a name column beside a wide timeline).
+- Column defs are standard TanStack `ColumnDef`s; quill-specific options go in `meta`: `align: 'left' | 'center' | 'right'` (header + cells), `expand: true` (absorb leftover width) and `sticky: 'left' | 'right'` (freeze the column while the table scrolls sideways, such as a name column beside a wide timeline). Pin one column per side: every pinned column sits at offset 0, so a second one on the same side would cover the first.
 - A row can grow to show more without an expansion API: render the extra content inside its cells from your own expanded state, toggled by `onRowClick`. Every cell in the row grows together, so a sticky label column stays aligned with the content beside it.
 - `fullWidth` needs exactly one column with `meta: { expand: true }` to decide which column stretches.
 - Sorting is client-side and on by default — click header toggles asc → desc → off. Opt out per column with `enableSorting: false`. A column needs an `accessorKey` or `accessorFn` to sort.
