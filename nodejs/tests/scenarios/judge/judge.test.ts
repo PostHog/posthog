@@ -220,6 +220,7 @@ describe('judge', () => {
     it.each<[string, number, boolean]>([
         ['a status fetch does not retry', 400, true],
         ['a request timeout, which fetch retries', 408, false],
+        ['too many requests, which fetch retries', 429, false],
         ['a server error, which fetch retries', 503, false],
     ])('at_least_once for a webhook whose only attempt a fault answered with %s', (_story, status, passed) => {
         const webhook: TruthRecord = {
