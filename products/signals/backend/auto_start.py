@@ -563,6 +563,7 @@ SKIP_NO_PRIORITY = "no_priority"
 SKIP_AUTOSTART_DISABLED = "autostart_disabled"
 SKIP_NO_RUNNER = "no_runner"
 SKIP_FREE_TRIAL = "free_trial"
+SKIP_REPOSITORY_NOT_NAMED = "repository_not_named"
 
 
 def _capture_autostart_skipped(
@@ -1411,10 +1412,11 @@ async def maybe_autostart_implementation_task(
 
     ``repository_autostart_eligible`` is false when *repository* was inferred from the report's own
     text rather than chosen for a caller who asked to open a PR (see `RepoSelectionResult`). Such a
-    repo is a target for whoever clicks Create PR, so it may not reach the reviewer-less fallback —
-    that is the one path where nobody named the report's destination *or* its runner. A reviewer who
-    resolves and clears their autonomy threshold, or a user whose own reviewer edit triggered this,
-    is a person authorizing the run, so the inference stops mattering and this no longer applies.
+    repo is a target for whoever clicks Create PR, so no automatic path may start on it: neither a
+    suggested reviewer who clears their autonomy threshold nor the reviewer-less fallback. A suggested
+    reviewer authorizes the runner, not the destination, and a repository that the report text only
+    cites as evidence can be the wrong codebase. A user whose own reviewer edit triggered this is a
+    person authorizing the run on the report as it stands, so the inference stops mattering there.
 
     Both the agentic signals pipeline (``temporal/agentic/report.py``) and the
     custom agent activity (``temporal/custom_agent.py``) call this after persisting
@@ -1555,6 +1557,18 @@ async def maybe_autostart_implementation_task(
         await database_sync_to_async(_record_link_gate_skip, thread_sensitive=False)(team_id, report_id, link_skip)
         return AutostartOutcome(status="blocked", reason=link_skip.detail)
 
+    if triggering_user_id is None and not repository_autostart_eligible:
+        logger.info(
+            "self-driving auto-start skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="repository was inferred, not named by the report's author",
+        )
+        await database_sync_to_async(_capture_autostart_skipped, thread_sensitive=False)(
+            team_id=team_id, report_id=report_id, skip_reason=SKIP_REPOSITORY_NOT_NAMED
+        )
+        return AutostartOutcome(status="blocked", reason="No one named the repository for this report")
+
     team = await Team.objects.select_related("organization").aget(pk=team_id)
 
     # A user-triggered auto-start runs as the triggering user; otherwise resolve a trusted
@@ -1590,11 +1604,7 @@ async def maybe_autostart_implementation_task(
             live_owner_identities,
             confirmed_uuids,
         )
-        if (
-            task_user is None
-            and repository_autostart_eligible
-            and _report_meets_team_autostart_threshold(priority.priority, team_default_priority)
-        ):
+        if task_user is None and _report_meets_team_autostart_threshold(priority.priority, team_default_priority):
             # No suggested reviewer resolved to a connected-GitHub member, but the report meets the
             # team's default autostart priority, so run it under the member who enabled signals for
             # the team rather than dropping the PR.

@@ -11,6 +11,7 @@ from posthog.models.utils import uuid7
 
 from .facade.enums import (
     ActorType,
+    AutoQuarantineMode,
     ClassificationReason,
     QuarantineLiftState,
     ReviewDecision,
@@ -49,6 +50,14 @@ class Repo(ProductTeamModel):
 
     # Off by default: the digest posts into other teams' Slack channels, so a repo opts in.
     debt_digest_enabled = models.BooleanField(default=False, db_default=False)
+
+    # Off by default, because an automatic quarantine hides a gate failure from every pull request.
+    auto_quarantine_mode = models.CharField(
+        max_length=10,
+        choices=AutoQuarantineMode.choices,
+        default=AutoQuarantineMode.OFF.value,
+        db_default=AutoQuarantineMode.OFF.value,
+    )
 
     # HMAC signing keys for baseline hash verification: {kid: secret_hex}
     # Supports key rotation — new signatures use the latest key, verification
@@ -420,6 +429,8 @@ class QuarantinedIdentifier(ProductTeamModel):
     # so it lacks what the lift relied on, such as a baseline entry that landed on the default
     # branch. Null for a quarantine that expired on its own or was lifted before this column.
     lifted_at_sha = models.CharField(max_length=40, null=True, blank=True)
+    # Empty unless visual review lifted the quarantine by itself.
+    lift_reason = models.CharField(max_length=255, blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

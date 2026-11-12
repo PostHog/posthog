@@ -93,6 +93,7 @@ An iframe that loads `/embedded/` or `/shared/` gets a fixed placeholder page, s
 - Each changed snapshot shows up in the visual review run for the PR. A person approves it there, and finalizing the run commits the new hashes to the PR branch.
 - A finalized run pushes a commit to the branch. In a stack, that forces a restack of every layer above it, so put the stories that change in the top layer.
 - New and changed story files run up to three more times. A story that renders two different pictures across those runs fails as flaky before anyone approves it.
+- Up to 10 more story files that the diff affects without changing them run twice, within 15 minutes. A story among them that renders two different pictures adds a warning to the job, but doesn't fail it, because the story may already flake on master.
 - A quarantined story still renders and is diffed, but it doesn't gate the PR. The Quarantine part of [the visual review README](../../../products/visual_review/README.md#current-state) says when to approve its new picture and how a quarantine ends.
 
 ## Make a story deterministic

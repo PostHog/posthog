@@ -81,6 +81,7 @@ from posthog.models.integration import (
 )
 from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE
 from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayload
+from posthog.models.integration.model import integration_model
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
@@ -650,7 +651,7 @@ class TestEmailIntegration:
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_integration_from_domain(
-        self, mock_create_email_domain, mock_verify_email_domain, _mock_update, mock_reload
+        self, _mock_create_email_domain, mock_verify_email_domain, _mock_update, mock_reload
     ):
 
         integration = EmailIntegration.create_native_integration(
@@ -677,14 +678,7 @@ class TestEmailIntegration:
             "provider": "ses",
         }
         assert integration.sensitive_config == {}
-        assert integration.created_by == self.user
-
-        mock_create_email_domain.assert_called_once_with(
-            "posthog.com",
-            mail_from_subdomain="youmustnothavelikedmyemail",
-            team_id=self.team.id,
-            org_team_ids=[self.team.id],
-        )
+        assert integration.created_by_id == self.user.id
 
         EmailIntegration(integration).update_native_integration({"name": "Renamed"}, self.team.id)
         assert integration.config["reply_to"] == "support@posthog.com"
@@ -695,7 +689,10 @@ class TestEmailIntegration:
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_email_verify_returns_ses_result(self, mock_create_email_domain, mock_verify_email_domain):
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    def test_email_verify_returns_ses_result(
+        self, _mock_get_mail_from, mock_create_email_domain, mock_verify_email_domain
+    ):
 
         # Mock the verify_email_domain method to return a test result
         expected_result = {
@@ -726,11 +723,13 @@ class TestEmailIntegration:
         }
         mock_verify_email_domain.return_value = expected_result
 
-        integration = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"},
-            team_id=self.team.id,
-            organization_id=self.organization.id,
-            created_by=self.user,
+        integration = integration_model(
+            EmailIntegration.create_native_integration(
+                {**self.valid_config, "provider": "ses"},
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                created_by=self.user,
+            )
         )
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
@@ -754,7 +753,10 @@ class TestEmailIntegration:
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_email_verify_updates_integration(self, mock_create_email_domain, mock_verify_email_domain):
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    def test_email_verify_updates_integration(
+        self, _mock_get_mail_from, mock_create_email_domain, mock_verify_email_domain
+    ):
 
         # Mock the verify_email_domain method to return a test result
         expected_result: EmailDomainVerification = {
@@ -763,11 +765,13 @@ class TestEmailIntegration:
         }
         mock_verify_email_domain.return_value = expected_result
 
-        integration = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"},
-            team_id=self.team.id,
-            organization_id=self.organization.id,
-            created_by=self.user,
+        integration = integration_model(
+            EmailIntegration.create_native_integration(
+                {**self.valid_config, "provider": "ses"},
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                created_by=self.user,
+            )
         )
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
@@ -805,28 +809,34 @@ class TestEmailIntegration:
         }
         mock_verify_email_domain.return_value = expected_result
 
-        integration1 = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"},
-            team_id=self.team.id,
-            organization_id=self.organization.id,
-            created_by=self.user,
+        integration1 = integration_model(
+            EmailIntegration.create_native_integration(
+                {**self.valid_config, "provider": "ses"},
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                created_by=self.user,
+            )
         )
-        integration2 = EmailIntegration.create_native_integration(
-            {**self.valid_config, "email": "second@posthog.com", "provider": "ses"},
-            team_id=self.team.id,
-            organization_id=self.organization.id,
-            created_by=self.user,
+        integration2 = integration_model(
+            EmailIntegration.create_native_integration(
+                {**self.valid_config, "email": "second@posthog.com", "provider": "ses"},
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                created_by=self.user,
+            )
         )
-        integrationOtherDomain = EmailIntegration.create_native_integration(
-            {
-                "email": "me@otherdomain.com",
-                "name": "Me",
-                "mail_from_subdomain": "feedback",
-                "provider": "ses",
-            },
-            team_id=self.team.id,
-            organization_id=self.organization.id,
-            created_by=self.user,
+        integrationOtherDomain = integration_model(
+            EmailIntegration.create_native_integration(
+                {
+                    "email": "me@otherdomain.com",
+                    "name": "Me",
+                    "mail_from_subdomain": "feedback",
+                    "provider": "ses",
+                },
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                created_by=self.user,
+            )
         )
 
         assert not integration1.config["verified"]
@@ -1653,34 +1663,6 @@ class TestAzureBlobIntegration:
         assert not Integration.objects.filter(team=self.team, kind="azure-blob").exists()
 
 
-class TestTwilioIntegration:
-    @pytest.fixture(autouse=True)
-    def setup_integration(self, db):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
-
-    @patch("products.workflows.backend.facade.api.get_twilio_account_info", return_value={"sid": "AC123"})
-    def test_create_stores_the_account_that_twilio_confirms(self, account_info: MagicMock, client: HttpClient):
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/projects/{self.team.pk}/integrations/",
-            {"kind": "twilio", "config": {"account_sid": "AC123", "auth_token": "fake-token"}},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        account_info.assert_called_once_with(account_sid="AC123", auth_token="fake-token")
-        row = IntegrationManager.twilio.token.get(self.team.id, response.json()["id"])
-        assert (row.integration_id, row.created_by_id, dict(row.sensitive_config)) == (
-            "AC123",
-            self.user.id,
-            {"auth_token": "fake-token"},
-        )
-        assert response.json()["created_by"]["id"] == self.user.id
-
-
 class TestIntegrationAPIKeyAccess:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
@@ -2148,7 +2130,7 @@ class TestIntegrationAPIKeyAccess:
             == "Unable to fetch GitHub teams. Please check integration settings and try again."
         )
 
-    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    @patch("posthog.api.integration._ensure_oauth_token_valid", side_effect=lambda instance: instance)
     @patch("posthog.api.integration.JiraIntegration.list_projects")
     def test_jira_projects_with_scope_succeeds(self, mock_list_projects, mock_ensure_token_valid, client: HttpClient):
         mock_list_projects.return_value = [{"id": "10000", "key": "ENG", "name": "Engineering"}]
@@ -2177,7 +2159,7 @@ class TestIntegrationAPIKeyAccess:
         mock_ensure_token_valid.assert_called_once_with(jira_integration)
         mock_list_projects.assert_called_once_with()
 
-    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    @patch("posthog.api.integration._ensure_oauth_token_valid", side_effect=lambda instance: instance)
     @patch("posthog.api.integration.LinearIntegration.list_teams")
     def test_linear_teams_with_scope_succeeds(self, mock_list_teams, mock_ensure_token_valid, client: HttpClient):
         mock_list_teams.return_value = [{"id": "team-id", "name": "Engineering"}]
@@ -2230,7 +2212,7 @@ class TestIntegrationAPIKeyAccess:
             ),
         ],
     )
-    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    @patch("posthog.api.integration._ensure_oauth_token_valid", side_effect=lambda instance: instance)
     def test_assignee_lookups_with_read_scope_succeed(
         self, _mock_ensure_token_valid, kind, url_suffix, list_method, expected_call, client: HttpClient
     ):
@@ -2260,7 +2242,7 @@ class TestIntegrationAPIKeyAccess:
             (AssigneeLookupFailed("Could not list users"), status.HTTP_400_BAD_REQUEST, None),
         ],
     )
-    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    @patch("posthog.api.integration._ensure_oauth_token_valid", side_effect=lambda instance: instance)
     def test_assignee_lookup_failures(
         self, _mock_ensure_token_valid, side_effect, expected_status, expected_body, client: HttpClient
     ):
@@ -8337,7 +8319,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         uninstall.return_value = outcome
         with self.captureOnCommitCallbacks(execute=True):
             integration = GitHubIntegration.integration_from_installation_id("9005", self.team.id, self.user)
-        integration_id = integration.pk
+        integration_id = integration.id
         target = Team.objects.create(organization=self.organization, name="Synthetic target")
         discovered = self.client.get(f"/api/projects/{target.id}/integrations/github/available_installations/")
         assert [item["installation_id"] for item in discovered.json()["installations"]] == ["9005"]

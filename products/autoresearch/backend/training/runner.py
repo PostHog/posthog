@@ -942,6 +942,22 @@ def _report_notebook_enabled(pipeline: AutoresearchPipeline, *, user_id: int) ->
         return False
 
 
+def check_launchable(pipeline: AutoresearchPipeline) -> None:
+    """Raise what ``run_training()`` raises for this pipeline before it writes anything, or return.
+
+    Raises ``SandboxInferenceError`` for a creator who has left, and ``ActionNotFound`` or
+    ``ValueError`` for a target that does not resolve.
+    """
+    # Completion fits the champion as the pipeline's creator, so a creator who has left
+    # would consume the paid run and leave a champion that no scoring run can load.
+    _resolve_acting_user(team=pipeline.team, pipeline=pipeline, user=None)
+    # Every materialization labels through this condition, so a target it refuses (a deleted
+    # action, or one with no steps) would fail the whole paid run.
+    build_target_condition(
+        target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
+    )
+
+
 def run_training(
     pipeline: AutoresearchPipeline,
     iteration_budget: int,
@@ -967,17 +983,10 @@ def run_training(
         # The sandbox task is attributed to a user, and a pipeline whose creator was
         # deleted has none. Fail here rather than at the facade's type boundary.
         raise ValueError(f"Pipeline {pipeline.pk} has no user to attribute a training run to")
-    # Completion fits the champion as the pipeline's creator, so a creator who has left
-    # would consume the paid run and leave a champion that no scoring run can load.
-    _resolve_acting_user(team=pipeline.team, pipeline=pipeline, user=None)
+    check_launchable(pipeline)
     # The MCP token belongs to user_id, so the flag is evaluated for the same user.
     report_notebook = _report_notebook_enabled(pipeline, user_id=user_id)
     mcp_scopes = TRAINING_MCP_SCOPES + REPORT_NOTEBOOK_MCP_SCOPES if report_notebook else TRAINING_MCP_SCOPES
-    # Every materialization labels through this condition, so a target it refuses (a deleted
-    # action, or one with no steps) would fail the whole paid run.
-    build_target_condition(
-        target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
-    )
     agent_config = agent_run_config_for(pipeline)
     limits = limits or limits_for_team(pipeline.team_id)
     iteration_budget = min(iteration_budget, limits.max_iterations_per_run)

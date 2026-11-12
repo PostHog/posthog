@@ -27,7 +27,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
 )
-from products.experiments.backend.health.checks.change_wording import suggested_start, the_change
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT, suggested_start, the_change
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
     changes_to_check,
@@ -314,6 +314,7 @@ def _override_removed(
             *_measured(grade, removed),
             f"Reset the experiment, or move its start date to "
             f"{suggested_start(last_changed_at, history.team_timezone)}.",
+            RESET_EFFECT,
         ],
         grade=grade,
         diagnostic_ref="A7",

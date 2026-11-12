@@ -3,11 +3,11 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { deleteFromTree, isTreeItemLoaded, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
+import { deleteTemplateWithUndo } from './deleteTemplateWithUndo'
 import { filterMessageTemplates } from './filterMessageTemplates'
 import { MessageTemplate } from './types'
 
@@ -191,12 +191,9 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
                     const wasInTree = isTreeItemLoaded('message_template', template.id)
-                    await deleteWithUndo({
-                        endpoint: `environments/${values.currentTeamIdStrict}/messaging_templates`,
-                        object: {
-                            id: template.id,
-                            name: template.name,
-                        },
+                    const deleted = await deleteTemplateWithUndo({
+                        teamId: values.currentTeamIdStrict,
+                        template,
                         callback: (undo) => {
                             if (undo) {
                                 actions.loadTemplates()
@@ -207,8 +204,11 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                                 deleteFromTree('message_template', template.id)
                             }
                         },
+                        retry: () => actions.deleteTemplate(template),
                     })
-                    return values.templates.filter((t: MessageTemplate) => t.id !== template.id)
+                    return deleted
+                        ? values.templates.filter((t: MessageTemplate) => t.id !== template.id)
+                        : values.templates
                 },
                 createTemplate: async ({ template }: { template: Partial<MessageTemplate> }) => {
                     try {

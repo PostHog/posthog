@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
 from products.review_hog.backend.reviewer.constants import (
+    DEVEX_LENS,
     FLASH_LENSES,
     FLASH_MUST_FIX_CAP_MULTIPLIER,
     SINGLE_AGENT_SOURCE,
@@ -711,6 +712,9 @@ def test_turn_stats_count_every_candidate_once_per_session() -> None:
     assert stats.must_fix == {"main": 0, "performance_reliability": 0, "contracts_security": 1}
     assert (stats.after_dedup, stats.kept, stats.dropped) == (2, 1, {"dedup_anchor": 1, "cap": 1})
     assert sum(stats.candidates.values()) == stats.kept + sum(stats.dropped.values())
+    devex = _issue("2003-1-1", IssuePriority.CONSIDER, DEVEX_LENS.source)
+    assert flash_turn_stats([main], selection, reviewable_lines=120, devex_lens=True).candidates["devex"] == 0
+    assert flash_turn_stats([main, devex], selection, reviewable_lines=120, devex_lens=True).candidates["devex"] == 1
 
 
 def test_turn_stats_split_posted_must_fix_by_whether_the_push_changed_its_code() -> None:

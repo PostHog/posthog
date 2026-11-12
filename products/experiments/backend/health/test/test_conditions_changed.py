@@ -12,6 +12,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
 )
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
 from products.experiments.backend.health.context import (
     ChangeWindow,
@@ -139,7 +140,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Since '
                 f'{TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the override in '
-                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_from_a_large_share_before_4_people",
@@ -156,7 +158,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Since '
                 f'{TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the override in '
-                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_without_a_measurement_before_4_people",
@@ -164,7 +167,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
                 "can't measure how many users Set 1 matches. Reset the experiment, or move its start date to "
-                f"{FIRST_CHANGE}.",
+                f"{FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
                 "not_measured",
             ),
             (
@@ -179,7 +183,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Too few '
                 f"users called the flag since {TRAFFIC_SINCE} to measure how many users Set 1 matches. Reset the "
-                f"experiment, or move its start date to {FIRST_CHANGE}.",
+                f"experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
                 "too_few_people",
             ),
             (
@@ -188,7 +193,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
                 "can't measure how many users Set 1 matches. Reset the experiment, or move its start date to "
-                f"{FIRST_CHANGE}.",
+                f"{FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
                 "not_measured",
             ),
             (
@@ -205,7 +211,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 'those exposed while it was in place may have switched variants. Their exposures under "control" '
                 f"stay in the results. Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "
                 f'"control" with the override in place (300 of about 1,650). Reset the experiment, or move its start '
-                f"date to {SECOND_CHANGE}.",
+                f"date to {SECOND_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_set_back_and_removed_again",
@@ -224,7 +231,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {THIRD_CHANGE}. {OVERRIDE_MOVED} Since '
                 f'{TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the override in '
-                f"place (300 of about 1,650). Reset the experiment, or move its start date to {THIRD_CHANGE}.",
+                f"place (300 of about 1,650). Reset the experiment, or move its start date to {THIRD_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_with_its_rollout_set_to_zero",
@@ -232,7 +240,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
                 f"can't measure how many users the override matched. Reset the experiment, or move its start date to "
-                f"{FIRST_CHANGE}.",
+                f"{FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "overrides_removed_from_a_small_share_and_a_variant_at_zero_percent",
@@ -257,7 +266,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f'override "test" of Set 1 was removed on {FIRST_CHANGE}. Users they matched got the override\'s '
                 "variant while it was in place and a random variant after, so those exposed while it was in place "
                 "may have switched variants. Their exposures stay in the results. PostHog can't measure how many "
-                f"users these conditions match. Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                f"users these conditions match. Reset the experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
                 "not_measured",
             ),
             (
@@ -266,7 +276,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'A release condition with the variant override "test" was removed on {FIRST_CHANGE}. '
                 f"{OVERRIDE_MOVED} PostHog can't measure how many users the override matched. Reset the experiment, "
-                f"or move its start date to {FIRST_CHANGE}.",
+                f"or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_set_and_removed_again",
@@ -281,7 +292,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f'The variant override "test" of Set 1 was set on {FIRST_CHANGE} and removed on {SECOND_CHANGE}. '
                 f'{OVERRIDE_MOVED} Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" '
                 "with the override in place (300 of about 1,650). Reset the experiment, or move its start date to "
-                f"{SECOND_CHANGE}.",
+                f"{SECOND_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_before_a_reorder_that_is_no_change",
@@ -294,7 +306,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 2 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Since '
                 f'{TRAFFIC_SINCE}, Set 2 matched about 18.2% of the users who would get "test" with the override in '
-                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_with_its_filters_edited",
@@ -302,7 +315,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
                 f"can't measure how many users the override matched. Reset the experiment, or move its start date to "
-                f"{FIRST_CHANGE}.",
+                f"{FIRST_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "override_removed_and_set_back",
@@ -318,7 +332,8 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 'Between these changes, users it matches did not get "test", so those exposed then may have '
                 f"switched variants. Their exposures stay in the results. Since {TRAFFIC_SINCE}, Set 1 matched about "
                 '18.2% of the users who would get "test" with the override in place (300 of about 1,650). Reset the '
-                f"experiment, or move its start date to {SECOND_CHANGE}.",
+                f"experiment, or move its start date to {SECOND_CHANGE}."
+                f" {RESET_EFFECT}",
             ),
             (
                 "pinned_conditions_reordered",
