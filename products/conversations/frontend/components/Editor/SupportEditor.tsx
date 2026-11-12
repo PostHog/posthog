@@ -314,18 +314,14 @@ export const serializationOptions: { textSerializers?: Record<string, TextSerial
 }
 
 const INLINE_FORMATTING_CHAR = /([\\`*[\]])/g
-// An underscore with a letter or digit on both sides cannot open or close emphasis in CommonMark,
-// so identifiers like distinct_id stay readable as prose.
 const EMPHASIS_UNDERSCORE = /(?<![\p{L}\p{N}])_|_(?![\p{L}\p{N}])/gu
-// At the start of a line these open a list, heading, setext underline or table row, so a line of
-// dashes or a "- Name" sign-off typed after a hard break would stop being prose.
 const LINE_START_BLOCK_CHAR = /^( {0,3})([-+#=|])/
 const LINE_START_ORDERED_MARKER = /^( {0,3}\d{1,9})([.)])/
 
 /**
- * Escape only the characters that format mid-sentence: \ ` * _ [ ]. Punctuation such as
- * "!" or "." is inert in markdown, and the serialized text is quoted as prose in places that
- * never render markdown (ticket previews, workflow emails), where a backslash would show.
+ * Escape only what formats mid-sentence (\ ` * [ ] and an underscore at a word edge) plus the
+ * block markers at the start of a line. The serialized text is also quoted as prose in places
+ * that never render markdown (ticket previews, workflow emails), where a backslash would show.
  */
 function escapeMarkdown(text: string, atLineStart: boolean): string {
     const escaped = text.replace(INLINE_FORMATTING_CHAR, '\\$1').replace(EMPHASIS_UNDERSCORE, '\\_')

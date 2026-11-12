@@ -30,17 +30,11 @@ _RE_MD_STRIKE = re.compile(r"~~(.+?)~~")
 _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
 _RE_INLINE_MENTION = re.compile(r"@\[([^\][\n]+)\]\(([^\s()@]+@[^\s()@]+)\)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
-# Only characters that format mid-sentence are escaped, because the markdown is also quoted as
-# prose where a backslash shows. Stored text can still carry escapes on the wider set, so the
-# unescape pattern stays wider than the escape pattern.
 _RE_MD_ESCAPE = re.compile(r"([\\`*\[\]])")
-# An underscore with a letter or digit on both sides cannot open or close emphasis in CommonMark,
-# so identifiers like distinct_id stay readable as prose.
-_RE_MD_UNDERSCORE_ESCAPE = re.compile(r"(?<![^\W_])_|_(?![^\W_])")
-# At the start of a line these open a list, heading, setext underline or table row, so a line of
-# dashes or a "- Name" sign-off typed after a hard break would stop being prose.
+_RE_MD_EMPHASIS_UNDERSCORE = re.compile(r"(?<![^\W_])_|_(?![^\W_])")
 _RE_MD_LINE_START_BLOCK_CHAR = re.compile(r"^( {0,3})([-+#=|])")
 _RE_MD_LINE_START_ORDERED_MARKER = re.compile(r"^( {0,3}\d{1,9})([.)])")
+# Stored text can carry escapes on the wider set, so the unescape pattern stays wider than the escape one.
 _RE_MD_ESCAPED_CHAR = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|=])")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
@@ -450,7 +444,7 @@ def _normalize_single_newlines_to_markdown(text: str) -> str:
 
 
 def _escape_markdown(text: str, *, at_line_start: bool = False) -> str:
-    text = _RE_MD_UNDERSCORE_ESCAPE.sub(r"\\_", _RE_MD_ESCAPE.sub(r"\\\1", text))
+    text = _RE_MD_EMPHASIS_UNDERSCORE.sub(r"\\_", _RE_MD_ESCAPE.sub(r"\\\1", text))
     if at_line_start:
         text = _RE_MD_LINE_START_BLOCK_CHAR.sub(r"\1\\\2", text)
         text = _RE_MD_LINE_START_ORDERED_MARKER.sub(r"\1\\\2", text)
