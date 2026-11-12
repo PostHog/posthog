@@ -26,7 +26,7 @@ const listed = (context: Partial<StepCatalogContext>): Record<string, string[]> 
 describe('workflowStepCatalog', () => {
     it('lists every step a workflow can always add, in the order the step picker shows them', () => {
         expect(listed({})).toEqual({
-            Dispatch: ['Email', 'SMS', 'Slack', 'Webhook'],
+            Dispatch: ['Email', 'SMS', 'Slack', 'Webhook', 'HTTP request'],
             AI: ['Create AI task', 'Run scout', 'Replay Vision'],
             Delays: ['Delay', 'Time window', 'Wait until'],
             'Audience split': ['Conditional branch', 'Cohort branch'],

@@ -19,6 +19,7 @@ import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
 import {
     MAX_FETCH_RESPONSE_BYTES,
+    MAX_FETCH_TIMEOUT_MS,
     cdpTrackedFetch,
     fetchErrorDetail,
     isFetchResponseRetriable,
@@ -509,6 +510,11 @@ export class HogExecutorAsyncService {
 
         const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
+        if (params.timeout_ms !== undefined) {
+            // A timeout of 0 disables the abort signal, so the floor is 1 ms.
+            fetchParams.timeoutMs = Math.min(Math.max(params.timeout_ms, 1), MAX_FETCH_TIMEOUT_MS)
+        }
+
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body
         }
@@ -538,7 +544,8 @@ export class HogExecutorAsyncService {
                       | null
                       | undefined)
                 : undefined
-            const isNonFailure = isNonFailureStatus(fetchResponse?.status, nonFailureConfig)
+            const isNonFailure =
+                params.fail_on_error === false || isNonFailureStatus(fetchResponse?.status, nonFailureConfig)
 
             const backoffMs = Math.min(
                 this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
@@ -547,7 +554,10 @@ export class HogExecutorAsyncService {
             )
 
             const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
-            const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
+            const maxRetries = Math.min(
+                params.max_tries ?? Infinity,
+                options?.maxFetchRetries ?? this.config.fetchRetries
+            )
             // `canRetry` only says the failure class is retriable. On the last attempt it is still
             // true while no retry follows, so the customer-facing log has to gate on the same
             // condition the scheduling below does.
@@ -610,12 +620,17 @@ export class HogExecutorAsyncService {
         // name and message so the terminal log stops reading as "status 500"
         // with an empty body and instead tells the customer what actually
         // happened (connect timeout, socket abort, DNS failure, etc.).
+        // `error` is only set when no response arrived, so a template can tell it apart from a real 500.
         const hogVmResponse: {
             status: number
             body: unknown
+            duration_ms: number
+            error?: string
         } = {
             status: fetchResponse?.status ?? 500,
             body: body ?? (fetchError ? `${fetchError.name}: ${fetchErrorDetail(fetchError)}` : undefined),
+            duration_ms: Math.round(fetchDuration),
+            ...(fetchError ? { error: `${fetchError.name}: ${fetchErrorDetail(fetchError)}` } : {}),
         }
 
         // Finally we create the response object as the VM expects

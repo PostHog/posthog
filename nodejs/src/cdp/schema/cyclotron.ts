@@ -145,6 +145,10 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
     // An input-key reference, like the `*_input` fields above, so credential header values stay out of the fetch parameters.
     secret_headers_input: z.string().optional(),
+    // Clamped to MAX_FETCH_TIMEOUT_MS by the executor.
+    timeout_ms: z.number().optional(),
+    // When false, a failed request returns its response to Hog instead of failing the invocation.
+    fail_on_error: z.boolean().optional(),
 })
 
 export const MAX_WORKFLOW_EMAIL_SENDERS = 10

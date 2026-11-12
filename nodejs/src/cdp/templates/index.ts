@@ -42,6 +42,7 @@ import { template as posthogShowSurveyTemplate } from './_destinations/posthog_s
 import { template as posthogCreateTaskTemplate } from './_destinations/posthog_tasks/posthog-create-task.template'
 import { template as posthogAddToStaticCohortTemplate } from './_destinations/posthog_workflows/posthog-add-to-static-cohort.template'
 import { template as posthogClassifyTemplate } from './_destinations/posthog_workflows/posthog-classify.template'
+import { template as posthogHttpRequestTemplate } from './_destinations/posthog_workflows/posthog-http-request.template'
 import { template as posthogOptOutOfMessagesTemplate } from './_destinations/posthog_workflows/posthog-opt-out-of-messages.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as pushTemplate } from './_destinations/push/push.template'
@@ -111,6 +112,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogGroupIdentifyTemplate,
     posthogUpdatePersonPropertiesTemplate,
     posthogSetHogflowVariableTemplate,
+    posthogHttpRequestTemplate,
     posthogGetTicketTemplate,
     posthogSendTicketMessageTemplate,
     posthogUpdateTicketTemplate,
