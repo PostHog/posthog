@@ -60,6 +60,7 @@ from products.signals.backend.report_discussions import (
     DEFAULT_DISCUSSIONS_LIMIT,
     DEFAULT_DISCUSSIONS_SINCE,
     MAX_DISCUSSIONS_LIMIT,
+    ReportInvolvement,
 )
 from products.signals.backend.report_metrics import MAX_LIVE_METRIC_QUERY_POINTS, MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
@@ -5004,7 +5005,7 @@ class ScoutReportDiscussionSerializer(serializers.Serializer):
     report_id = serializers.CharField(help_text="The report the discussion is about.")
     report_title = serializers.CharField(help_text="The report's title, truncated.")
     involvement = serializers.ChoiceField(
-        choices=["authored", "edited"],
+        choices=ReportInvolvement.choices,
         help_text="`authored` when your scout emitted the report, `edited` when it only edited it.",
     )
     task_id = serializers.CharField(help_text="The discussion task.")

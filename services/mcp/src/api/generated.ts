@@ -63010,18 +63010,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `authored` - authored
-     * * `edited` - edited
-     */
-    export type InvolvementEnum = typeof InvolvementEnum[keyof typeof InvolvementEnum];
-
-
-    export const InvolvementEnum = {
-      Authored: 'authored',
-      Edited: 'edited',
-    } as const;
-
-    /**
      * How one mailbox provider treated this project's email, from AWS SES's own delivery data.
      */
     export interface IspSendingHealth {
@@ -103974,6 +103962,18 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * * `authored` - Authored
+     * * `edited` - Edited
+     */
+    export type ReportInvolvementEnum = typeof ReportInvolvementEnum[keyof typeof ReportInvolvementEnum];
+
+
+    export const ReportInvolvementEnum = {
+      Authored: 'authored',
+      Edited: 'edited',
+    } as const;
+
     export interface ReportKeyClauses {
       /** The clauses that state the problem or its cause in the lead. */
       lead: KeyClause[];
@@ -109086,9 +109086,9 @@ export namespace Schemas {
       report_title: string;
       /** `authored` when your scout emitted the report, `edited` when it only edited it.
        *
-       * * `authored` - authored
-       * * `edited` - edited */
-      involvement: InvolvementEnum;
+       * * `authored` - Authored
+       * * `edited` - Edited */
+      involvement: ReportInvolvementEnum;
       /** The discussion task. */
       task_id: string;
       /** When the discussion started. */

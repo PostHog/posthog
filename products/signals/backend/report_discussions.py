@@ -27,8 +27,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime, timedelta
-from typing import Literal
 
+from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
@@ -54,14 +54,17 @@ MAX_RUNS_SCANNED = 1_000
 _MAX_TITLE_CHARS = 200
 _MAX_SUMMARY_CHARS = 4_000
 
-Involvement = Literal["authored", "edited"]
+
+class ReportInvolvement(models.TextChoices):
+    AUTHORED = "authored"
+    EDITED = "edited"
 
 
 @frozen
 class ReportDiscussion:
     report_id: str
     report_title: str
-    involvement: Involvement
+    involvement: ReportInvolvement
     task_id: str
     created_at: datetime
     status: str | None
@@ -129,21 +132,21 @@ def list_report_discussions(
     return discussions
 
 
-def _touched_reports(*, team_id: int, skill_name: str, report_id: str | None) -> dict[str, Involvement]:
+def _touched_reports(*, team_id: int, skill_name: str, report_id: str | None) -> dict[str, ReportInvolvement]:
     """The reports this scout's recent runs emitted or edited. Authorship wins over an edit."""
     runs = SignalScoutRun.objects.for_team(team_id).filter(
         skill_name=skill_name, created_at__gte=timezone.now() - REPORT_LOOKBACK
     )
     if report_id is not None:
         runs = runs.filter(Q(emitted_report_ids__contains=[report_id]) | Q(edited_report_ids__contains=[report_id]))
-    involvement: dict[str, Involvement] = {}
+    involvement: dict[str, ReportInvolvement] = {}
     for emitted_ids, edited_ids in runs.order_by("-created_at").values_list("emitted_report_ids", "edited_report_ids")[
         :MAX_RUNS_SCANNED
     ]:
         for emitted_id in emitted_ids or []:
-            involvement[str(emitted_id)] = "authored"
+            involvement[str(emitted_id)] = ReportInvolvement.AUTHORED
         for edited_id in edited_ids or []:
-            involvement.setdefault(str(edited_id), "edited")
+            involvement.setdefault(str(edited_id), ReportInvolvement.EDITED)
     if report_id is not None:
         return {report_id: involvement[report_id]} if report_id in involvement else {}
     return involvement

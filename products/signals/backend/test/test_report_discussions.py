@@ -9,8 +9,9 @@ from rest_framework import status
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.scopes import APIScopeObject
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import (
     SIGNALS_PRODUCT,
@@ -121,7 +122,7 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
 
         real_check = UserAccessControl.check_access_level_for_resource
 
-        def deny_tasks(access: UserAccessControl, resource: str, required_level: str) -> bool:
+        def deny_tasks(access: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
             return False if resource == "task" else real_check(access, resource, required_level)
 
         with patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=deny_tasks):

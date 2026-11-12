@@ -9888,12 +9888,12 @@ export interface ProjectProfileApi {
 }
 
 /**
- * * `authored` - authored
- * * `edited` - edited
+ * * `authored` - Authored
+ * * `edited` - Edited
  */
-export type InvolvementEnumApi = (typeof InvolvementEnumApi)[keyof typeof InvolvementEnumApi]
+export type ReportInvolvementEnumApi = (typeof ReportInvolvementEnumApi)[keyof typeof ReportInvolvementEnumApi]
 
-export const InvolvementEnumApi = {
+export const ReportInvolvementEnumApi = {
     Authored: 'authored',
     Edited: 'edited',
 } as const
@@ -9908,9 +9908,9 @@ export interface ScoutReportDiscussionApi {
     report_title: string
     /** `authored` when your scout emitted the report, `edited` when it only edited it.
      *
-     * * `authored` - authored
-     * * `edited` - edited */
-    involvement: InvolvementEnumApi
+     * * `authored` - Authored
+     * * `edited` - Edited */
+    involvement: ReportInvolvementEnumApi
     /** The discussion task. */
     task_id: string
     /** When the discussion started. */
