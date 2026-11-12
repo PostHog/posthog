@@ -21,7 +21,9 @@ const SKIP_LABELS: Record<string, string> = {
 const stepNote = (step: AEOSetupStepApi): string => {
     switch (step.status) {
         case 'done':
-            return step.step === 'prompts' || step.step === 'keywords' ? `Added ${step.added ?? 0}` : 'Done'
+            return step.step === 'prompts' || step.step === 'keywords'
+                ? `Added ${step.added ?? 0}${step.detail === 'paused' ? ', paused' : ''}`
+                : 'Done'
         case 'skipped':
             return SKIP_LABELS[step.detail ?? ''] ?? 'Skipped'
         case 'failed':

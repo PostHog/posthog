@@ -18,7 +18,11 @@ const outcome = (job: AEOSetupJobApi): string[] => {
     const keywords = step(job, 'keywords')
     const firstRun = step(job, 'first_run')
     const lines: string[] = []
-    if (prompts?.status === 'done') {
+    if (prompts?.status === 'done' && prompts.detail === 'paused') {
+        lines.push(
+            `Added ${pluralize(prompts.added ?? 0, 'prompt')}, paused. No checks run until you turn them on, so nothing is spent yet.`
+        )
+    } else if (prompts?.status === 'done') {
         lines.push(`Added ${pluralize(prompts.added ?? 0, 'prompt')}.`)
     } else if (prompts?.status === 'skipped') {
         lines.push('Kept your existing prompts.')
@@ -34,7 +38,7 @@ const outcome = (job: AEOSetupJobApi): string[] => {
         lines.push(firstRun.detail || "The first checks couldn't be queued. Run them from the overview.")
     } else if (firstRun?.detail === 'not_available') {
         lines.push("Checks aren't available for this project yet.")
-    } else if (firstRun?.status === 'skipped') {
+    } else if (firstRun?.status === 'skipped' && prompts?.detail !== 'paused') {
         lines.push("The first checks run on each engine's schedule.")
     }
     return lines

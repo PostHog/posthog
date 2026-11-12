@@ -21,8 +21,14 @@ const SKIP_REASONS: Record<string, string> = {
     already_run: 'Checks already ran for this project.',
 }
 
-/** The overview of a project that has prompts but no checks yet. */
-export const ContentAutopilotFirstRunCard = ({ prompts }: { prompts: number }): JSX.Element => {
+/** The overview of a project that has prompts but no checks yet. `paused` is set when every prompt is turned off. */
+export const ContentAutopilotFirstRunCard = ({
+    prompts,
+    paused = false,
+}: {
+    prompts: number
+    paused?: boolean
+}): JSX.Element => {
     const {
         activeEngineCount,
         firstRunDisabledReason,
@@ -61,6 +67,28 @@ export const ContentAutopilotFirstRunCard = ({ prompts }: { prompts: number }): 
                     <Spinner />
                     <h3 className="m-0">Queuing the first checks</h3>
                 </div>
+            ) : paused ? (
+                <>
+                    <h3 className="m-0">Your prompts are saved, paused</h3>
+                    <p className="m-0 mt-1 text-muted">
+                        Nothing is checked yet, so nothing is spent. Turn on your {prompts} prompts and run them once to
+                        see where you stand. After that, each engine checks them on its schedule.
+                    </p>
+                    <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
+                        <div className="min-w-0 flex-1 basis-80">
+                            <ContentAutopilotSetupCostNote prompts={prompts} engines={activeEngineCount} />
+                        </div>
+                        <LemonButton
+                            type="primary"
+                            onClick={() => startFirstRun(true)}
+                            loading={starting}
+                            disabledReason={firstRunDisabledReason}
+                            data-attr="content-autopilot-first-run-activate"
+                        >
+                            Turn on and run once
+                        </LemonButton>
+                    </div>
+                </>
             ) : (
                 <>
                     <h3 className="m-0">Your prompts are ready</h3>
@@ -73,7 +101,7 @@ export const ContentAutopilotFirstRunCard = ({ prompts }: { prompts: number }): 
                         </div>
                         <LemonButton
                             type="primary"
-                            onClick={startFirstRun}
+                            onClick={() => startFirstRun(false)}
                             loading={starting}
                             disabledReason={firstRunDisabledReason}
                             data-attr="content-autopilot-first-run-now"
@@ -88,7 +116,11 @@ export const ContentAutopilotFirstRunCard = ({ prompts }: { prompts: number }): 
                     {startError}
                 </LemonBanner>
             ) : firstRunStep?.status === 'failed' ? (
-                <LemonBanner type="error" className="mt-4" action={{ children: 'Try again', onClick: startFirstRun }}>
+                <LemonBanner
+                    type="error"
+                    className="mt-4"
+                    action={{ children: 'Try again', onClick: () => startFirstRun(paused) }}
+                >
                     {firstRunStep.detail || "The checks couldn't be queued. Try again."}
                 </LemonBanner>
             ) : skipReason && !firstRunQueued ? (

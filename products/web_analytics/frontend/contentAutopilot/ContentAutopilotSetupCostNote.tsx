@@ -20,8 +20,8 @@ export const ContentAutopilotSetupCostNote = ({
             </span>
         ) : null}
         <span>
-            Each check is a paid call to an AI engine. Once your prompts are set up, each engine keeps checking them on
-            its schedule, every day or once a week. You can turn engines off or pause prompts in settings.
+            Each check is a paid call to an AI engine. Each engine checks your active prompts on its schedule, every day
+            or once a week. You can turn engines off or pause prompts in settings.
         </span>
     </div>
 )

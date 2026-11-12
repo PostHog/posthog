@@ -122,7 +122,10 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
                 </LemonBanner>
             ) : null}
 
-            <div className="mt-6 flex flex-wrap justify-end gap-2">
+            <p className="m-0 mt-6 text-xs text-secondary">
+                Configure only saves your prompts paused, so no checks run and nothing is spent until you turn them on.
+            </p>
+            <div className="mt-2 flex flex-wrap justify-end gap-2">
                 <LemonButton
                     type="secondary"
                     onClick={() => startSetup(false)}

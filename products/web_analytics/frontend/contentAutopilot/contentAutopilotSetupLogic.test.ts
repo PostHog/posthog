@@ -20,6 +20,7 @@ const CONTEXT: AEOSetupContextApi = {
     websites: [{ domain: 'example.com', source: 'app_urls', pageviews: null }],
     own_domains: [],
     active_prompts: 0,
+    paused_prompts: 0,
     keywords: 0,
     has_checks: false,
     ai_data_processing_approved: true,
@@ -66,13 +67,19 @@ describe('contentAutopilotSetupLogic', () => {
         })
     })
 
-    it('runs only the first checks without sending a site or engines', async () => {
+    it.each([
+        ['runs the active prompts', false],
+        ['turns the paused prompts on, then runs them', true],
+    ])('a first run %s without sending a site or engines', async (_name, activatePaused) => {
         await expectLogic(logic).toDispatchActions(['loadSetupContextSuccess'])
 
-        logic.actions.startFirstRun()
+        logic.actions.startFirstRun(activatePaused)
 
         await expectLogic(logic).toDispatchActions(['setJob'])
-        expect(aeoSetupCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), { only_first_run: true })
+        expect(aeoSetupCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            only_first_run: true,
+            activate_paused_prompts: activatePaused,
+        })
         expect(logic.values.jobRef?.onlyFirstRun).toBe(true)
     })
 

@@ -45,7 +45,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     )
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     const { promptsTopic } = useValues(contentAutopilotPromptsLogic)
-    const { job: setupJob, setupJobShown } = useValues(contentAutopilotSetupLogic)
+    const { job: setupJob, setupJobShown, setupContext } = useValues(contentAutopilotSetupLogic)
 
     if (overviewError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -103,11 +103,12 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
         )
     }
     if (!hasChecks) {
-        return overview.prompts_tracked === 0 ? (
-            <ContentAutopilotSetupCard />
-        ) : (
-            <ContentAutopilotFirstRunCard prompts={overview.prompts_tracked} />
-        )
+        const paused = setupContext?.paused_prompts ?? 0
+        if (overview.prompts_tracked > 0) {
+            return <ContentAutopilotFirstRunCard prompts={overview.prompts_tracked} />
+        }
+        // A configure-only setup saves its prompts paused, which the overview does not count.
+        return paused > 0 ? <ContentAutopilotFirstRunCard prompts={paused} paused /> : <ContentAutopilotSetupCard />
     }
 
     // The chart's legend order, so an engine sits in the same place in the chart and the table.

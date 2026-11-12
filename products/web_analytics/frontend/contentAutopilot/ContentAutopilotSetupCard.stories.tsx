@@ -18,6 +18,7 @@ const CONTEXT: AEOSetupContextApi = {
     ],
     own_domains: [],
     active_prompts: 0,
+    paused_prompts: 0,
     keywords: 0,
     has_checks: false,
     ai_data_processing_approved: true,
@@ -60,7 +61,7 @@ const FINISHED_JOB: AEOSetupJobApi = {
     error: '',
     steps: [
         { step: 'brand', status: 'done', added: 1, detail: '' },
-        { step: 'prompts', status: 'done', added: 20, detail: '' },
+        { step: 'prompts', status: 'done', added: 20, detail: 'paused' },
         {
             step: 'keywords',
             status: 'failed',
@@ -191,3 +192,11 @@ FirstChecksRunning.decorators = [mocks(CONFIGURED_CONTEXT)]
 FirstChecksRunning.parameters = {
     testOptions: { waitForSelector: '[data-attr="content-autopilot-first-run-queued"]' },
 }
+
+export const PromptsSavedPaused: StoryFn = () => (
+    <Frame>
+        <ContentAutopilotFirstRunCard prompts={20} paused />
+    </Frame>
+)
+PromptsSavedPaused.decorators = [mocks({ ...CONFIGURED_CONTEXT, active_prompts: 0, paused_prompts: 20 })]
+PromptsSavedPaused.parameters = { testOptions: { waitForSelector: COUNTED } }
