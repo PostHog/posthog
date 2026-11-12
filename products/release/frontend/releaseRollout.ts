@@ -19,10 +19,12 @@ export interface RolloutStep {
 interface RolloutGroup {
     properties?: unknown[] | null
     rollout_percentage?: number | null
+    aggregation_group_type_index?: number | null
 }
 
 interface RolloutFilters {
     groups?: RolloutGroup[] | null
+    aggregation_group_type_index?: number | null
     early_exit?: boolean
     feature_enrollment?: boolean
     holdout?: { exclusion_percentage?: number } | null
@@ -30,7 +32,14 @@ interface RolloutFilters {
 
 interface RolloutState {
     active: boolean
+    deleted: boolean
     filters: RolloutFilters
+}
+
+const TRUE_VALUES = new Set(['true', 't', 'yes', 'y', 'on', '1'])
+
+function asBoolean(value: unknown): boolean {
+    return typeof value === 'string' ? TRUE_VALUES.has(value.trim().toLowerCase()) : Boolean(value)
 }
 
 const isOpen = (group: RolloutGroup): boolean => !group.properties?.length
@@ -38,6 +47,14 @@ const rolloutOf = (group: RolloutGroup): number => group.rollout_percentage ?? 1
 
 function reachOf(filters: RolloutFilters): { percent: number; targeted: boolean } | null {
     const groups = filters.groups ?? []
+    const mixedTargets = groups.some(
+        (group) =>
+            group.aggregation_group_type_index != null &&
+            group.aggregation_group_type_index !== filters.aggregation_group_type_index
+    )
+    if (mixedTargets) {
+        return { percent: Math.max(...groups.map(rolloutOf)), targeted: true }
+    }
     if (filters.early_exit) {
         const first = groups[0]
         return first ? { percent: rolloutOf(first), targeted: !isOpen(first) } : null
@@ -50,6 +67,9 @@ function reachOf(filters: RolloutFilters): { percent: number; targeted: boolean 
 }
 
 function audienceOf(state: RolloutState): { percent: number; label: string } {
+    if (state.deleted) {
+        return { percent: 0, label: 'Deleted' }
+    }
     if (!state.active) {
         return { percent: 0, label: 'Off' }
     }
@@ -90,12 +110,18 @@ export function rolloutSteps(
     horizon: dayjs.Dayjs
 ): RolloutStep[] {
     const updates = activity
-        .filter((entry) => entry.activity === 'updated' && (changeOf(entry, 'filters') || changeOf(entry, 'active')))
+        .filter(
+            (entry) =>
+                entry.activity === 'deleted' ||
+                entry.activity === 'restored' ||
+                (entry.activity === 'updated' && (changeOf(entry, 'filters') || changeOf(entry, 'active')))
+        )
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
     const firstFilters = updates.map((entry) => changeOf(entry, 'filters')).find(Boolean)
     const firstActive = updates.map((entry) => changeOf(entry, 'active')).find(Boolean)
     let state: RolloutState = {
-        active: firstActive ? Boolean(firstActive.before) : !!flag.active,
+        active: firstActive ? asBoolean(firstActive.before) : !!flag.active,
+        deleted: updates[0]?.activity === 'restored',
         filters: filtersOf(firstFilters ? firstFilters.before : flag.filters),
     }
     const points: { at: string; state: RolloutState; upcoming?: boolean }[] = [{ at: flag.created_at, state }]
@@ -103,12 +129,13 @@ export function rolloutSteps(
         const filters = changeOf(entry, 'filters')
         const active = changeOf(entry, 'active')
         state = {
-            active: active ? Boolean(active.after) : state.active,
+            active: active ? asBoolean(active.after) : state.active,
+            deleted: entry.activity === 'deleted' ? true : entry.activity === 'restored' ? false : state.deleted,
             filters: filters ? filtersOf(filters.after) : state.filters,
         }
         points.push({ at: entry.created_at, state })
     }
-    const current: RolloutState = { active: !!flag.active, filters: filtersOf(flag.filters) }
+    const current: RolloutState = { active: !!flag.active, deleted: false, filters: filtersOf(flag.filters) }
     points.push({ at: today.toISOString(), state: current })
     const pending = scheduled
         .filter(
@@ -125,7 +152,7 @@ export function rolloutSteps(
     for (const change of pending) {
         const payload = (change.payload ?? {}) as { operation?: string; value?: unknown }
         if (payload.operation === 'update_status') {
-            state = { ...state, active: Boolean(payload.value) }
+            state = { ...state, active: asBoolean(payload.value) }
         } else if (payload.operation === 'add_release_condition' && groupsOf(payload.value).length) {
             state = {
                 ...state,

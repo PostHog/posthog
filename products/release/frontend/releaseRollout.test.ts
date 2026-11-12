@@ -116,6 +116,42 @@ describe('rolloutSteps', () => {
             expected: [['2026-11-01', '50%', false]],
         },
         {
+            name: 'treats conditions on different targets as targeted, not as everyone',
+            current: flag(10, true, {
+                groups: [
+                    { properties: [], rollout_percentage: 10 },
+                    { properties: [], rollout_percentage: 100, aggregation_group_type_index: 0 },
+                ],
+            }),
+            activity: [],
+            scheduled: [],
+            expected: [['2026-11-01', 'Targeted', false]],
+        },
+        {
+            name: 'shows the deleted interval of a restored flag',
+            current: flag(100),
+            activity: [
+                { activity: 'deleted', created_at: '2026-11-04T00:00:00Z', detail: {} },
+                { activity: 'restored', created_at: '2026-11-06T00:00:00Z', detail: {} },
+            ] as unknown as ActivityLogEntryApi[],
+            scheduled: [],
+            expected: [
+                ['2026-11-01', 'Everyone', false],
+                ['2026-11-04', 'Deleted', false],
+                ['2026-11-06', 'Everyone', false],
+            ],
+        },
+        {
+            name: 'reads a scheduled "false" as turning the flag off',
+            current: flag(50),
+            activity: [],
+            scheduled: [schedule('2026-11-14T00:00:00Z', { operation: 'update_status', value: 'false' })],
+            expected: [
+                ['2026-11-01', '50%', false],
+                ['2026-11-14', 'Off', true],
+            ],
+        },
+        {
             name: 'draws no history for a flag stored as rules',
             current: flag(100, true, { version: 2 }),
             activity: [],
