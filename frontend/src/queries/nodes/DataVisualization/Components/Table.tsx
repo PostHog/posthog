@@ -458,6 +458,10 @@ export const Table = (props: TableProps): JSX.Element => {
                     )
                 }
 
+                const sourceColumnName = cell.sourceColumnName ?? column.name
+                const wrapText = sourceTabularColumnsByName.get(sourceColumnName)?.settings?.display?.wrapText
+                const cellClassName = wrapText ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'truncate'
+
                 if (props.onInspect) {
                     const sourceRowIndex = isTransposed ? index - 1 : data.rowIndex
                     const sourceColumns = isTransposed ? sourceTabularColumns : tabularColumns
@@ -479,20 +483,15 @@ export const Table = (props: TableProps): JSX.Element => {
                                 )
                             }
                         >
-                            <span className="truncate">{String(cell.formattedValue ?? '—')}</span>
+                            <span className={cellClassName}>{String(cell.formattedValue ?? '—')}</span>
                         </LemonButton>
                     )
                 }
 
-                const sourceColumnName = cell.sourceColumnName ?? column.name
                 const columnFormat = getColumnFormat(response, sourceColumnName)
-                const wrapText = sourceTabularColumnsByName.get(sourceColumnName)?.settings?.display?.wrapText
 
                 return (
-                    <div
-                        className={wrapText ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'truncate'}
-                        title={getCellTitle(cell)}
-                    >
+                    <div className={cellClassName} title={getCellTitle(cell)}>
                         {renderColumn(
                             sourceColumnName,
                             cell.formattedValue,
@@ -505,7 +504,8 @@ export const Table = (props: TableProps): JSX.Element => {
                             },
                             undefined,
                             undefined,
-                            columnFormat
+                            columnFormat,
+                            { wrapText }
                         )}
                     </div>
                 )

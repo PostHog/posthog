@@ -90,7 +90,8 @@ export function renderColumn(
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext<DataTableNode>,
-    columnFormat?: string | null
+    columnFormat?: string | null,
+    options?: { wrapText?: boolean }
 ): JSX.Element | string {
     const { queryContextColumnName, queryContextColumn } = getContextColumn(key, context?.columns)
     const originalKey = key
@@ -204,7 +205,7 @@ export function renderColumn(
             }
             return <JSONCell src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
-        return <Property value={value} />
+        return <Property value={value} wrapText={options?.wrapText} />
     } else if (key === 'event' && isEventsQuery(query.source)) {
         const resultRow = record as any[]
         const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
