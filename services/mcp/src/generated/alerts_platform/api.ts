@@ -35,10 +35,10 @@ export const PlatformAlertsListQueryParams = () => zod.object({
         .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     source_kind: zod
-        .enum(['logs', 'insight', 'warehouse_source', 'warehouse_destination', 'metrics', 'traces'])
+        .enum(['logs', 'insight', 'warehouse_source', 'warehouse_destination', 'metrics', 'traces', 'error_tracking'])
         .optional()
         .describe(
-            'Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.\n\n\* `logs` - Logs\n\* `insight` - Insight\n\* `warehouse_source` - Warehouse source\n\* `warehouse_destination` - Warehouse destination\n\* `metrics` - Metrics\n\* `traces` - Traces'
+            'Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.\n\n\* `logs` - Logs\n\* `insight` - Insight\n\* `warehouse_source` - Warehouse source\n\* `warehouse_destination` - Warehouse destination\n\* `metrics` - Metrics\n\* `traces` - Traces\n\* `error_tracking` - Error tracking'
         ),
 })
 
