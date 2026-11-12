@@ -1503,15 +1503,17 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ github.event.pull_request.head.sha }}
+                  ref: ${{ github.event.repository.default_branch }}
                   sparse-checkout: playwright/snapshots.yml
                   sparse-checkout-cone-mode: false
 
-            # The baseline file's config block names the API host, the team and the repo,
-            # as it does for the CLI. Only connection errors are retried: on a 502 the backend
-            # already tried to post the status, and a re-run of this job is the repair. A 404
-            # or 405 means a backend that does not have this call yet, so the job passes.
-            # The token goes to curl on stdin, so it never shows in the process list.
+            # The baseline file's config block names the API host, the team and the repo, as
+            # it does for the CLI. The job reads the default branch's copy, because the host
+            # receives the token and a pull request can change its own copy. Only connection
+            # errors are retried: on a 502 the backend already tried to post the status, and
+            # a re-run of this job is the repair. A 404 or 405 means a backend that does not
+            # have this call yet, so the job passes. The token goes to curl on stdin, so it
+            # never shows in the process list.
             - name: Report no Visual Review run needed
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
