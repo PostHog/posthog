@@ -268,12 +268,12 @@ class TestFindScannerCandidatesActivity:
 
         assert pause_scouts.called
         scanner.refresh_from_db()
-        assert scanner.enabled is False
-        assert scanner.disabled_reason == (
+        expected_reason = (
             ScannerDisabledReason.EXPERIMENT_DELETED
             if cause == "deleted_experiment"
             else ScannerDisabledReason.NO_AI_CONSENT
         )
+        assert (scanner.enabled, scanner.disabled_reason) == (False, expected_reason)
 
     @parameterized.expand([("fast_walk_behind_the_end", False), ("only_the_deep_pass_behind", True)])
     def test_an_ended_experiment_is_swept_up_to_its_end_before_it_stops(self, _name: str, fast_at_end: bool) -> None:
