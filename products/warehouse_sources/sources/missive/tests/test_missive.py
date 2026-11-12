@@ -71,13 +71,22 @@ class TestUntilPagination:
         assert result.final_state == MissiveResumeConfig(finished=True)
         assert {TOKEN} <= set(result.session_options[0]["redact_values"])
 
-    def test_stops_when_a_full_page_shares_one_timestamp(self) -> None:
-        # Asking again with the same `until` would return the same page, so the walk ends.
-        result = _run("tasks", [_rows("tasks", "last_activity_at", [500] * 50)])
+    @parameterized.expand(
+        [
+            ("conversations_end", "conversations", [None]),
+            ("tasks_continue", "tasks", [None, "499"]),
+        ]
+    )
+    def test_full_page_that_shares_one_timestamp(
+        self, _name: str, schema: str, expected_until: list[str | None]
+    ) -> None:
+        result = _run(
+            schema,
+            [_rows(schema, "last_activity_at", [500] * 50), _rows(schema, "last_activity_at", [400], prefix="old")],
+        )
 
         assert result.raised is None
-        assert len(result.requests) == 1
-        assert len(result.rows) == 50
+        assert result.params("until") == expected_until
 
     @parameterized.expand(
         [
@@ -162,13 +171,14 @@ class TestConversationFanOut:
         assert result.raised is None
         assert result.paths == ["/v1/conversations", "/v1/conversations/active/comments"]
 
-    def test_resume_skips_finished_conversations_and_continues_the_open_one(self) -> None:
+    def test_resume_finishes_the_open_conversation_before_listing_the_rest(self) -> None:
         result = _run(
             "posts",
             route(
                 {
                     "/conversations/c2/posts": [_rows("posts", "created_at", [40], prefix="p")],
-                    "/conversations": [_conversations([("c1", 200), ("c2", 150)])],
+                    "/conversations/c3/posts": [_rows("posts", "created_at", [30], prefix="q")],
+                    "/conversations": [_conversations([("c1", 200), ("c3", 150)])],
                 }
             ),
             resume_state=MissiveResumeConfig(
@@ -177,9 +187,10 @@ class TestConversationFanOut:
         )
 
         assert result.raised is None
-        assert result.paths == ["/v1/conversations", "/v1/conversations/c2/posts"]
-        assert result.params("until") == ["300", "50"]
-        assert [row["conversation_id"] for row in result.rows] == ["c2"]
+        assert result.paths == ["/v1/conversations/c2/posts", "/v1/conversations", "/v1/conversations/c3/posts"]
+        assert result.params("until") == ["50", "300", None]
+        assert [row["conversation_id"] for row in result.rows] == ["c2", "c3"]
+        assert result.final_state == MissiveResumeConfig(finished=True)
 
     def test_stages_the_position_inside_a_conversation_before_its_page_is_handed_over(self) -> None:
         result = _run(

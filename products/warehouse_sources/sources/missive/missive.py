@@ -115,6 +115,31 @@ def _timestamp(row: dict[str, Any], cursor_field: str) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def _next_until_position(
+    config: MissiveEndpointConfig, raw_rows: list[dict[str, Any]], variant_index: int, watermark: int | None
+) -> PagePosition | None:
+    """The position after one newest-first page, or None when the page is the last one."""
+    assert config.cursor_field is not None
+    cursor_field = config.cursor_field
+    stamps = [stamp for row in raw_rows if (stamp := _timestamp(row, cursor_field)) is not None]
+    if not stamps or len(raw_rows) < config.page_size:
+        return None
+    oldest = min(stamps)
+    if watermark is not None and oldest < watermark:
+        return None
+    if oldest == max(stamps):
+        if not config.same_timestamp_page_continues:
+            return None
+        return PagePosition(variant=variant_index, until=oldest - 1)
+    return PagePosition(
+        variant=variant_index,
+        until=oldest,
+        seen_ids=tuple(
+            str(row["id"]) for row in raw_rows if _timestamp(row, cursor_field) == oldest and row.get("id") is not None
+        ),
+    )
+
+
 def _pages(
     config: MissiveEndpointConfig,
     fetch_rows: Callable[[dict[str, Any]], Any],
@@ -153,32 +178,9 @@ def _pages(
                     else None
                 )
             else:
-                assert config.cursor_field is not None
                 seen = set(position.seen_ids)
                 rows = [row for row in raw_rows if row.get("id") not in seen]
-                stamps = [stamp for row in raw_rows if (stamp := _timestamp(row, config.cursor_field)) is not None]
-                oldest = min(stamps) if stamps else None
-                # Missive documents the last page as a short page, or a page where every row has the
-                # same timestamp. Asking again with the same `until` would return that page again.
-                is_last = (
-                    oldest is None
-                    or len(raw_rows) < config.page_size
-                    or oldest == max(stamps)
-                    or (watermark is not None and oldest < watermark)
-                )
-                next_position = (
-                    None
-                    if is_last
-                    else PagePosition(
-                        variant=variant_index,
-                        until=oldest,
-                        seen_ids=tuple(
-                            str(row["id"])
-                            for row in raw_rows
-                            if _timestamp(row, config.cursor_field) == oldest and row.get("id") is not None
-                        ),
-                    )
-                )
+                next_position = _next_until_position(config, raw_rows, variant_index, watermark)
 
             if next_position is None and variant_index + 1 < len(config.param_variants):
                 next_position = PagePosition(variant=variant_index + 1)
@@ -256,7 +258,6 @@ def _fan_out_steps(
         offset=resume.offset if resume else 0,
     )
     done_parent_ids = list(resume.done_parent_ids) if resume else []
-    child_resume = resume if resume and resume.child_parent_id else None
 
     def state(**child: Any) -> MissiveResumeConfig:
         return MissiveResumeConfig(
@@ -268,14 +269,47 @@ def _fan_out_steps(
             **child,
         )
 
-    parent_pages = _pages(
-        parent_config,
-        lambda params: parent_fetch(parent_config.path, params),
-        page_start,
-        {},
-        parent_watermark,
-    )
-    for parents, next_page in parent_pages:
+    def child_steps(parent_id: str, child_start: PagePosition) -> Steps:
+        child_path = config.path.replace("{id}", parent_id)
+
+        def fetch_child_page(params: dict[str, Any]) -> Any:
+            return child_fetch(child_path, params)
+
+        child_pages = _pages(
+            config, fetch_child_page, child_start, _child_params(config, parent_id, watermark), child_watermark
+        )
+        for rows, next_child in child_pages:
+            tagged = [{**row, parent_id_column: parent_id} for row in rows]
+            if next_child is None:
+                done_parent_ids.append(parent_id)
+                yield tagged, state()
+            else:
+                yield (
+                    tagged,
+                    state(
+                        child_parent_id=parent_id,
+                        child_variant=next_child.variant,
+                        child_until=next_child.until,
+                        child_seen_ids=list(next_child.seen_ids),
+                        child_offset=next_child.offset,
+                    ),
+                )
+
+    # New activity can move the parent that was being read above the saved `until`, and the parent
+    # list then no longer returns it. So the run finishes that parent by id before it lists parents.
+    if resume is not None and resume.child_parent_id is not None:
+        resumed_start = PagePosition(
+            variant=resume.child_variant,
+            until=resume.child_until,
+            seen_ids=tuple(resume.child_seen_ids),
+            offset=resume.child_offset,
+        )
+        yield from child_steps(resume.child_parent_id, resumed_start)
+
+    def fetch_parent_page(params: dict[str, Any]) -> Any:
+        return parent_fetch(parent_config.path, params)
+
+    for parents, next_page in _pages(parent_config, fetch_parent_page, page_start, {}, parent_watermark):
         for parent in parents:
             parent_id = parent.get("id")
             if not isinstance(parent_id, str) or parent_id in done_parent_ids:
@@ -283,47 +317,13 @@ def _fan_out_steps(
             last_activity = _timestamp(parent, "last_activity_at")
             if parent_watermark is not None and last_activity is not None and last_activity < parent_watermark:
                 continue
-
-            child_start = PagePosition()
-            if child_resume is not None and child_resume.child_parent_id == parent_id:
-                child_start = PagePosition(
-                    variant=child_resume.child_variant,
-                    until=child_resume.child_until,
-                    seen_ids=tuple(child_resume.child_seen_ids),
-                    offset=child_resume.child_offset,
-                )
-            child_resume = None
-
-            child_path = config.path.replace("{id}", parent_id)
-            child_pages = _pages(
-                config,
-                lambda params, path=child_path: child_fetch(path, params),
-                child_start,
-                _child_params(config, parent_id, watermark),
-                child_watermark,
-            )
-            for rows, next_child in child_pages:
-                tagged = [{**row, parent_id_column: parent_id} for row in rows]
-                if next_child is None:
-                    done_parent_ids.append(parent_id)
-                    yield tagged, state()
-                else:
-                    yield (
-                        tagged,
-                        state(
-                            child_parent_id=parent_id,
-                            child_variant=next_child.variant,
-                            child_until=next_child.until,
-                            child_seen_ids=list(next_child.seen_ids),
-                            child_offset=next_child.offset,
-                        ),
-                    )
+            yield from child_steps(parent_id, PagePosition())
 
         if next_page is None:
             yield [], MissiveResumeConfig(finished=True)
         else:
             page_start = next_page
-            done_parent_ids = []
+            done_parent_ids.clear()
             yield [], state()
 
 

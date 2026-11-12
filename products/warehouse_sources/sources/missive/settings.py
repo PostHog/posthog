@@ -35,8 +35,10 @@ class MissiveEndpointConfig:
     # Copy the variant params onto each row, so the row records which pass read it.
     variant_columns: bool = False
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Merge only: rows change after they are created, so an append sync would store each version.
+    # Rows change after creation, or an incremental walk reads boundary rows again, so append would duplicate them.
     merge_only: bool = False
+    # The task docs page on one second earlier, instead of ending at a full page with one timestamp.
+    same_timestamp_page_continues: bool = False
     primary_keys: tuple[str, ...] = ("id",)
     # A creation timestamp that never changes after the row is created.
     partition_key: str | None = None
@@ -82,6 +84,7 @@ MISSIVE_ENDPOINTS: dict[str, MissiveEndpointConfig] = {
             parent=Parent.CONVERSATIONS,
             parent_id_column="conversation_id",
             incremental_fields=[_unix_field("delivered_at")],
+            merge_only=True,
             partition_key="created_at",
         ),
         MissiveEndpointConfig(
@@ -94,6 +97,7 @@ MISSIVE_ENDPOINTS: dict[str, MissiveEndpointConfig] = {
             parent=Parent.CONVERSATIONS,
             parent_id_column="conversation_id",
             incremental_fields=[_unix_field("created_at")],
+            merge_only=True,
             partition_key="created_at",
         ),
         MissiveEndpointConfig(
@@ -106,6 +110,7 @@ MISSIVE_ENDPOINTS: dict[str, MissiveEndpointConfig] = {
             parent=Parent.CONVERSATIONS,
             parent_id_column="conversation_id",
             incremental_fields=[_unix_field("created_at")],
+            merge_only=True,
             partition_key="created_at",
         ),
         MissiveEndpointConfig(
@@ -117,6 +122,7 @@ MISSIVE_ENDPOINTS: dict[str, MissiveEndpointConfig] = {
             cursor_field="last_activity_at",
             incremental_fields=[_unix_field("last_activity_at")],
             merge_only=True,
+            same_timestamp_page_continues=True,
         ),
         MissiveEndpointConfig(
             name="contact_books",
