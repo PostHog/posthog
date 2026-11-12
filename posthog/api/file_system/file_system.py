@@ -1521,10 +1521,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ):
             for item in items:
                 self._ensure_can_restore(item["type"], item["ref"])
-                self._lock_and_authorize_workflow_files(
-                    new_files=[_workflow_target(item["type"], item["ref"], self.team.id, False)]
-                )
+                # A refusal that names its reason, such as a linked workflow the caller can't edit, would tell
+                # the caller that a deleted object exists under a guessed ref. So it gets the same answer as a
+                # ref that names nothing.
                 try:
+                    self._lock_and_authorize_workflow_files(
+                        new_files=[_workflow_target(item["type"], item["ref"], self.team.id, False)]
+                    )
                     restored_instance = undo_delete_object(
                         type_string=item["type"],
                         ref=item["ref"],
@@ -1534,6 +1537,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         team=self.team,
                         organization=getattr(self, "organization", None),
                     )
+                except InsufficientScope:
+                    raise
+                except PermissionDenied:
+                    raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
                 except ValueError:
                     logger.exception(
                         "Exception during undo_delete_object (type=%s, ref=%s)", item.get("type"), item.get("ref")

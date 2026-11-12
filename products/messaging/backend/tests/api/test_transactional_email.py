@@ -2062,13 +2062,19 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert not self.template.deleted
 
         MessageTemplate.objects.filter(pk=self.template.pk).update(deleted=True)
-        restored = self.client.post(
-            f"/api/projects/{self.team.id}/file_system/undo_delete/",
-            {"items": [{"type": "message_template", "ref": str(self.template.id)}]},
-            format="json",
-        )
 
-        assert restored.status_code == status.HTTP_403_FORBIDDEN, restored.content
+        def restore(ref: str) -> tuple[int, Any]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                {"items": [{"type": "message_template", "ref": ref}]},
+                format="json",
+            )
+            return response.status_code, response.json()
+
+        restored = restore(str(self.template.id))
+
+        assert restored == restore("abcdef12-3456-4890-abcd-ef1234567890"), restored
+        assert restored[0] == status.HTTP_400_BAD_REQUEST, restored
         self.template.refresh_from_db()
         assert self.template.deleted
 
