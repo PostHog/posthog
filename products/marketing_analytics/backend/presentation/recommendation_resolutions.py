@@ -30,6 +30,7 @@ from products.marketing_analytics.backend.facade.api import (
 
 DEFAULT_PAGE_SIZE = 100
 MAX_SUBJECT_LENGTH = 10_000
+MAX_NAME_LENGTH = 400
 
 
 def _choices(enum: type[StrEnum]) -> list[tuple[str, str]]:
@@ -68,6 +69,13 @@ class RecommendationResolutionRequestSerializer(serializers.Serializer):
     identity = RecommendationIdentitySerializer(
         help_text="The recommendation's `identity` from the recommendations query, sent as is."
     )
+    name = serializers.CharField(
+        max_length=MAX_NAME_LENGTH,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="A display label for the recommendation, such as the campaign name or the search term. The activity log shows it. It is not part of the identity.",
+    )
     resolution = serializers.ChoiceField(
         choices=_choices(MarketingAnalyticsRecommendationResolutionState),
         help_text="Dismissed hides the recommendation. Applied marks that someone made the change it suggests.",
@@ -88,6 +96,10 @@ class RecommendationResolutionSerializer(serializers.Serializer):
     identity = RecommendationIdentitySerializer(help_text="The identity of the resolved recommendation.")
     key = serializers.CharField(
         help_text="Opaque id of `identity`, the same as the `key` of the recommendation in the recommendations query."
+    )
+    name = serializers.CharField(
+        allow_blank=True,
+        help_text="The display label sent with the last resolution, such as the campaign name. Empty when none was sent.",
     )
     resolution = serializers.ChoiceField(
         choices=_choices(MarketingAnalyticsRecommendationResolutionState),
@@ -144,6 +156,7 @@ class RecommendationResolutionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
                 MarketingAnalyticsRecommendationIdentity(**data["identity"]),
                 MarketingAnalyticsRecommendationResolutionState(data["resolution"]),
                 cast(User, request.user).id,
+                name=data["name"],
             )
         except InvalidRecommendationIdentity as error:
             raise ValidationError({"identity": str(error)})

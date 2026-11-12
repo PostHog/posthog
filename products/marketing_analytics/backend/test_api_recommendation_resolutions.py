@@ -24,12 +24,15 @@ class TestRecommendationResolutions(APIBaseTest):
         super().setUp()
         self.base = f"/api/projects/{self.team.pk}/marketing_analytics_recommendation_resolutions/"
 
-    def _resolve(self, identity: dict[str, str], resolution: str = "dismissed", base: str | None = None):
-        return self.client.post(base or self.base, {"identity": identity, "resolution": resolution}, format="json")
+    def _resolve(self, identity: dict[str, str], resolution: str = "dismissed", name: str | None = None):
+        body = {"identity": identity, "resolution": resolution}
+        if name is not None:
+            body["name"] = name
+        return self.client.post(self.base, body, format="json")
 
     def test_resolving_again_replaces_the_resolution(self) -> None:
-        first = self._resolve(IDENTITY)
-        second = self._resolve(IDENTITY, "applied")
+        first = self._resolve(IDENTITY, name="Shoes campaign")
+        second = self._resolve(IDENTITY, "applied", name=" Spring shoes ")
 
         assert first.status_code == 201, first.json()
         assert second.status_code == 200, second.json()
@@ -37,10 +40,19 @@ class TestRecommendationResolutions(APIBaseTest):
         assert second.json()["created_at"] == first.json()["created_at"]
         assert second.json()["resolved_at"] > first.json()["resolved_at"]
         assert (second.json()["resolution"], second.json()["resolved_by"]["id"]) == ("applied", self.user.id)
+        assert (first.json()["name"], second.json()["name"]) == ("Shoes campaign", "Spring shoes")
         assert [
-            (log.activity, log.user_id, [change["field"] for change in (log.detail or {}).get("changes") or []])
+            (
+                log.activity,
+                log.user_id,
+                (log.detail or {})["name"],
+                [change["field"] for change in (log.detail or {}).get("changes") or []],
+            )
             for log in ActivityLog.objects.filter(scope="RecommendationResolution").order_by("created_at")
-        ] == [("created", self.user.id, []), ("updated", self.user.id, ["resolution"])]
+        ] == [
+            ("created", self.user.id, "Shoes campaign", []),
+            ("updated", self.user.id, "Spring shoes", ["name", "resolution"]),
+        ]
 
         other_account = self._resolve({**IDENTITY, "customer_id": "9876543210"})
         assert other_account.status_code == 201
@@ -49,6 +61,7 @@ class TestRecommendationResolutions(APIBaseTest):
         assert edge_spaces.json()["identity"]["subject"] == " example shoes "
         long_multibyte = self._resolve({**IDENTITY, "subject": "靴" * 1500})
         assert long_multibyte.status_code == 201, long_multibyte.json()
+        assert long_multibyte.json()["name"] == ""
         long_log = ActivityLog.objects.get(scope="RecommendationResolution", item_id=long_multibyte.json()["id"])
         assert (long_log.detail or {})["name"] == "靴" * 199 + "…"
         assert self._resolve({**IDENTITY, "subject": "靴" * 1500}).status_code == 200

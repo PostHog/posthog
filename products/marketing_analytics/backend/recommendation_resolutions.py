@@ -36,7 +36,11 @@ def resolutions_by_key(team_id: int) -> dict[str, MarketingAnalyticsRecommendati
 
 
 def resolve(
-    team_id: int, identity: MarketingAnalyticsRecommendationIdentity, resolution: ResolutionState, user_id: int
+    team_id: int,
+    identity: MarketingAnalyticsRecommendationIdentity,
+    resolution: ResolutionState,
+    user_id: int,
+    name: str,
 ) -> tuple[RecommendationResolution, bool]:
     validate_identity(identity)
     # Resolving a recommendation again, for example from another tab, replaces the earlier resolution.
@@ -47,8 +51,13 @@ def resolve(
         customer_id=identity.customer_id,
         campaign_id=identity.campaign_id,
         subject_hash=subject_hash(identity.subject),
-        defaults={"resolution": resolution, "resolved_by_id": user_id},
-        create_defaults={"subject": identity.subject, "resolution": resolution, "resolved_by_id": user_id},
+        defaults={"name": name, "resolution": resolution, "resolved_by_id": user_id},
+        create_defaults={
+            "subject": identity.subject,
+            "name": name,
+            "resolution": resolution,
+            "resolved_by_id": user_id,
+        },
     )
 
 

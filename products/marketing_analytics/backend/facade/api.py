@@ -43,6 +43,7 @@ class ResolvedRecommendation:
     id: str
     identity: MarketingAnalyticsRecommendationIdentity
     key: str
+    name: str
     resolution: MarketingAnalyticsRecommendationResolutionState
     resolved_by: RecommendationResolver | None
     resolved_at: datetime
@@ -66,10 +67,12 @@ def resolve_recommendation(
     identity: MarketingAnalyticsRecommendationIdentity,
     resolution: MarketingAnalyticsRecommendationResolutionState,
     user_id: int,
+    *,
+    name: str,
 ) -> ResolveOutcome:
     """Dismiss a recommendation or mark it as applied. Raises InvalidRecommendationIdentity for an identity its rule
     cannot produce."""
-    row, created = recommendation_resolutions.resolve(team_id, identity, resolution, user_id)
+    row, created = recommendation_resolutions.resolve(team_id, identity, resolution, user_id, name)
     return ResolveOutcome(resolution=_to_contract(row), created=created)
 
 
@@ -96,6 +99,7 @@ def _to_contract(row: RecommendationResolution) -> ResolvedRecommendation:
         id=str(row.id),
         identity=identity,
         key=RecommendationKey.from_identity(identity).encoded,
+        name=row.name,
         resolution=MarketingAnalyticsRecommendationResolutionState(row.resolution),
         resolved_by=RecommendationResolver(
             id=user.id,

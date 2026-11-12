@@ -53,6 +53,7 @@ class Migration(migrations.Migration):
                 ),
                 ("subject", models.TextField(blank=True, default="")),
                 ("subject_hash", models.CharField(editable=False, max_length=64)),
+                ("name", models.CharField(blank=True, default="", max_length=400)),
                 (
                     "resolution",
                     models.CharField(
