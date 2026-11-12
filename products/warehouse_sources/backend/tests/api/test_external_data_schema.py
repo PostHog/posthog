@@ -44,6 +44,7 @@ from products.data_warehouse.backend.facade.api import (
     sync_external_data_job_workflow,
 )
 from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
+from products.warehouse_sources.backend.facade.incremental_field_model import recommend_for_candidates
 from products.warehouse_sources.backend.facade.models import (
     INCREMENTAL_HISTORY_KEY,
     DataWarehouseTable,
@@ -736,10 +737,18 @@ class TestExternalDataSchema(APIBaseTest):
                 ["created_at", "fecha_actualizacion"],
                 1,
             ),
+            ("unsure_answer", {}, ["created_at", "created_at"], 1, "c9"),
+            ("wizard_already_asked", {}, ["fecha_actualizacion", "fecha_actualizacion"], 1, "c1", True),
         ]
     )
     def test_incremental_fields_stores_the_model_pick_for_later_opens(
-        self, _name, sync_type_config, expected_first_field_per_open, expected_model_calls
+        self,
+        _name,
+        sync_type_config,
+        expected_first_field_per_open,
+        expected_model_calls,
+        choice="c1",
+        wizard_asked_first=False,
     ):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
@@ -758,12 +767,15 @@ class TestExternalDataSchema(APIBaseTest):
         with (
             mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
             mock.patch.object(StripeSource, "get_schemas", side_effect=lambda *_, **__: [open_orders_schema()]),
-            fake_decision_model() as model_calls,
+            fake_decision_model(choice=choice) as model_calls,
             mock.patch(
                 "products.warehouse_sources.backend.logic.incremental_field_model.cache",
                 LocMemCache(f"incremental-field-{_name}", {}),
             ),
         ):
+            if wizard_asked_first:
+                discovered = open_orders_schema()
+                recommend_for_candidates([(discovered.name, discovered.incremental_fields)], team=self.team)
             first_fields = []
             for _ in expected_first_field_per_open:
                 response = self.client.post(
@@ -818,7 +830,7 @@ class TestExternalDataSchema(APIBaseTest):
             ("cache_down", _UnreachableCache, None, 0),
         ]
     )
-    def test_incremental_fields_queues_one_question_per_column_set(
+    def test_incremental_fields_queues_one_question_while_one_is_pending(
         self, _name, cache_class, dispatch_error, expected_dispatches
     ):
         schema = self._orders_schema_without_cursor()

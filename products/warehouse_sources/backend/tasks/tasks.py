@@ -230,5 +230,11 @@ def compute_incremental_field_suggestion(team_id: int, schema_id: str, table: st
         store_incremental_field_suggestion,
     )
 
-    team = Team.objects.select_related("organization").get(pk=team_id)
-    store_incremental_field_suggestion(team, schema_id, table, cast(list[IncrementalField], fields))
+    # The team or the schema can be deleted while the task waits, and then there is nothing to store.
+    team = Team.objects.select_related("organization").filter(pk=team_id).first()
+    if team is None:
+        return
+    try:
+        store_incremental_field_suggestion(team, schema_id, table, cast(list[IncrementalField], fields))
+    except ExternalDataSchema.DoesNotExist:
+        return

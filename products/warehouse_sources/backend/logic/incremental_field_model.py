@@ -40,6 +40,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 
 from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
+from products.warehouse_sources.backend.tasks.tasks import compute_incremental_field_suggestion
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
     name_is_silent,
@@ -63,7 +64,7 @@ MAX_REQUESTS = 4
 # The open tables one call asks about, so a caller sending more gets no answer for the rest.
 MAX_TABLES_PER_CALL = MAX_REQUESTS * GATEWAY_MAX_QUESTIONS
 CACHE_TTL_SECONDS = 24 * 60 * 60
-PENDING_TTL_SECONDS = 10 * 60
+QUEUED_TTL_SECONDS = 10 * 60
 # Keyed per team: one team's table names must never answer for another team.
 CACHE_KEY_PREFIX = "warehouse_incremental_field_model"
 # Gateway requests per team. Renamed tables miss the cache, so the cache alone does not bound the calls.
@@ -126,33 +127,51 @@ def apply_stored_suggestion(
     the person wait for it. The first open shows the rule-based order and queues the question; later
     opens read the stored answer. A stored pick only counts while the table has the same candidates.
     """
+    try:
+        _apply_stored_suggestion(schema, sync_type_config, team=team, schema_id=schema_id)
+    except Exception as error:
+        # The rule-based order is a complete answer, so a failure here must not fail the endpoint.
+        capture_exception(error, {"team_id": team.pk})
+
+
+def _apply_stored_suggestion(
+    schema: SourceSchema, sync_type_config: Mapping[str, Any] | None, *, team: "Team", schema_id: str
+) -> None:
+    # Checked before a stored pick too, so turning the flag off also withdraws stored picks.
+    if not _is_open(schema) or not _model_allowed(team):
+        return
     key = _candidates_key(schema)
     stored = (sync_type_config or {}).get(SUGGESTION_KEY)
-    stored_field = (
-        stored["field"]
-        if isinstance(stored, dict) and stored.get("candidates") == key and isinstance(stored.get("field"), str)
-        else None
-    )
-    # Checked before a stored pick too, so turning the flag off also withdraws stored picks.
-    if (stored_field is None and not _is_open(schema)) or not _model_allowed(team):
+    if isinstance(stored, dict) and stored.get("candidates") == key and isinstance(stored.get("field"), str):
+        _apply_pick(schema, stored["field"])
         return
-    if stored_field is not None:
-        _apply_pick(schema, stored_field)
+    # Taken before a pick reorders them, so the task asks about and keys the same columns.
+    candidates = _candidates(schema)
+    # The wizard or an earlier task may have asked about these columns already.
+    answer_key = _cache_key(team.pk, schema)
+    cached = _cache_get_many([answer_key]).get(answer_key)
+    if cached == "":
+        # The model was unsure, so there is nothing to store.
         return
-    queued_key = f"{CACHE_KEY_PREFIX}:queued:{team.pk}:{schema_id}:{key}"
-    if not _cache_add(queued_key, PENDING_TTL_SECONDS):
-        return
-    # Deferred import: the task module imports this one.
-    from products.warehouse_sources.backend.tasks.tasks import compute_incremental_field_suggestion  # noqa: PLC0415
+    if cached:
+        _apply_pick(schema, cached)
+    _queue_suggestion(schema.name, candidates, team=team, schema_id=schema_id, candidates_key=key)
 
+
+def _queue_suggestion(
+    table: str, candidates: list[IncrementalField], *, team: "Team", schema_id: str, candidates_key: str
+) -> None:
+    queued_key = f"{CACHE_KEY_PREFIX}:queued:{team.pk}:{schema_id}:{candidates_key}"
+    if not _cache_add(queued_key, QUEUED_TTL_SECONDS):
+        return
     try:
         # No publish retries: the form waits on this call, and the next open can try again.
         compute_incremental_field_suggestion.apply_async(
             kwargs={
                 "team_id": team.pk,
                 "schema_id": schema_id,
-                "table": schema.name,
-                "fields": [dict(f) for f in _candidates(schema)],
+                "table": table,
+                "fields": [dict(field) for field in candidates],
             },
             retry=False,
         )
@@ -168,28 +187,19 @@ def store_incremental_field_suggestion(
     picks = recommend_for_candidates([(table, fields)], team=team)
     if table not in picks:
         return
+    asked = SourceSchema(name=table, supports_incremental=True, supports_append=True, incremental_fields=fields)
     update_sync_type_config_keys(
         schema_id,
         team.pk,
-        updates={SUGGESTION_KEY: {"field": picks[table][0]["field"], "candidates": _candidates_key_for(fields)}},
+        updates={SUGGESTION_KEY: {"field": picks[table][0]["field"], "candidates": _candidates_key(asked)}},
     )
 
 
 def _candidates_key(schema: SourceSchema) -> str:
-    return _candidates_key_for(_candidates(schema))
-
-
-def _candidates_key_for(fields: Sequence[IncrementalField]) -> str:
-    shape = [
-        [
-            field["field"],
-            str(field.get("field_type") or field["type"]),
-            field.get("is_indexed", True),
-            field.get("nullable", False),
-        ]
-        for field in fields
-    ]
-    return hashlib.sha256(json.dumps([MODEL, PROMPT_VERSION, shape]).encode()).hexdigest()
+    # The columns as the model reads them, so a change to what it reads or how sure it must be
+    # withdraws stored picks. The table name is left out, so a renamed table keeps its pick.
+    columns = _table_state(schema)["columns"]
+    return hashlib.sha256(json.dumps([MODEL, PROMPT_VERSION, MIN_CONFIDENCE, columns]).encode()).hexdigest()
 
 
 def _without_model_pick(field: IncrementalField) -> IncrementalField:
