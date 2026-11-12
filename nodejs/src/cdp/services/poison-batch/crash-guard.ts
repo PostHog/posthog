@@ -45,7 +45,7 @@ export type CrashGuardValkeyConfig = Pick<
 
 // A value that is not a number would fail quietly: the threshold would never trip, a key would get no TTL,
 // and ioredis would wait forever for a command.
-function positiveInteger<C extends object>(config: C, name: keyof C & string): number {
+export function positiveInteger<C extends object>(config: C, name: keyof C & string): number {
     const value: unknown = config[name]
     if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
         throw new Error(`${name} must be a positive integer, got "${value}"`)

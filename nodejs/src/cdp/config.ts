@@ -128,6 +128,10 @@ export type CdpConfig = ClickhouseConfig & {
     // the worker flags nearly all of them. Past this many flagged partitions within the key TTL, the guard
     // stops setting aside and the worker stalls, so the lag alerts page instead of the DLQ filling.
     CDP_BATCH_QUARANTINE_MAX_FLAGGED_PARTITIONS: number
+    // A function with this many distinct invocations quarantined within the window shows up in the
+    // cdp_quarantined_functions gauge, which the on-call alert reads.
+    CDP_QUARANTINE_ESCALATION_THRESHOLD: number
+    CDP_QUARANTINE_ESCALATION_WINDOW_SECONDS: number
 
     SES_RATE_LIMITER_VALKEY_HOST: string
     SES_RATE_LIMITER_VALKEY_PORT: number
@@ -420,6 +424,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_BATCH_QUARANTINE_KEY_TTL_SECONDS: 60 * 60,
         CDP_BATCH_QUARANTINE_VALKEY_TIMEOUT_MS: 500,
         CDP_BATCH_QUARANTINE_MAX_FLAGGED_PARTITIONS: 32,
+        CDP_QUARANTINE_ESCALATION_THRESHOLD: 3,
+        CDP_QUARANTINE_ESCALATION_WINDOW_SECONDS: 60 * 60,
 
         // Dev points at the compose stack's Valkey (same instance as CDP_VALKEY) so the SES gate,
         // per-workflow email rate limits, and the MX-validation cache are exercisable locally.
