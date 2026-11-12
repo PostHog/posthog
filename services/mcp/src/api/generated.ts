@@ -34381,6 +34381,11 @@ export namespace Schemas {
       config_schema: DataQualityCheckTypeConfigSchema;
     }
 
+    export interface DataQualityFailingCheckCount {
+      /** Enabled checks whose last run reported a failure. */
+      count: number;
+    }
+
     /**
      * The team-level materialization gate. Checks always run and warn; this only toggles blocking.
      */
@@ -71401,6 +71406,11 @@ export namespace Schemas {
       specificity_rejection?: SpecificityMetadata | null;
     }
 
+    export interface NodeAttentionCount {
+      /** Models whose last serving run failed or whose scheduled runs are suspended, each counted once. */
+      count: number;
+    }
+
     export interface NodePinDelay {
       /** Node id of the downstream view or endpoint. */
       id: string;
@@ -94706,6 +94716,15 @@ export namespace Schemas {
     export interface PauseUntilRequest {
       /** Pause the grouping pipeline until this timestamp (ISO 8601). */
       timestamp: string;
+    }
+
+    export interface PendingReviewCounts {
+      /** Proposed metrics you can see that wait for approval. */
+      metrics: number;
+      /** Proposed joins that wait to be accepted or rejected. */
+      relationships: number;
+      /** Proposed certifications that wait for review. */
+      certifications: number;
     }
 
     export interface PeopleImport {

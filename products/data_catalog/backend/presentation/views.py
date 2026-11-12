@@ -60,6 +60,7 @@ from .serializers import (
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
     MetricSerializer,
+    PendingReviewCountsSerializer,
     RelationshipProposalSerializer,
     RelationshipRejectSerializer,
 )
@@ -605,3 +606,13 @@ class RelationshipProposalViewSet(
             request=request,
         )
         return Response(self.get_serializer(proposal).data)
+
+
+class PendingReviewViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    scope_object = "data_catalog"
+
+    @action(detail=False, methods=["GET"], responses={200: PendingReviewCountsSerializer})
+    def pending_review(self, request: Request, **kwargs) -> Response:
+        """How many items wait in each review queue, counted as the list of that queue shows them to you."""
+        counts = api.pending_review_counts(self.team, cast(User, request.user), self.user_access_control)
+        return Response(PendingReviewCountsSerializer(counts).data)

@@ -515,3 +515,9 @@ class RelationshipRejectSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Why the proposal is rejected. Persisted so it is never re-proposed.",
     )
+
+
+class PendingReviewCountsSerializer(serializers.Serializer):
+    metrics = serializers.IntegerField(help_text="Proposed metrics you can see that wait for approval.")
+    relationships = serializers.IntegerField(help_text="Proposed joins that wait to be accepted or rejected.")
+    certifications = serializers.IntegerField(help_text="Proposed certifications that wait for review.")
