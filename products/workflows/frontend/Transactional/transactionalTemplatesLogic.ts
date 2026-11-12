@@ -74,7 +74,11 @@ export const transactionalTemplatesLogic = kea<transactionalTemplatesLogicType>(
                             basic: true,
                         })
                     )
-                    return templates.filter((template) => template.transactional_hog_flow_id)
+                    return templates.flatMap((template) =>
+                        template.transactional_hog_flow_id
+                            ? [{ ...template, has_draft: template.has_draft ?? template.draft_content != null }]
+                            : []
+                    )
                 },
             },
         ],

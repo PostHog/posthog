@@ -15,7 +15,8 @@ const template = (
     name: string,
     tags: string[],
     createdBy: number,
-    transactional = true
+    transactional = true,
+    draft = false
 ): MessageTemplateApi =>
     ({
         id,
@@ -25,13 +26,13 @@ const template = (
         created_by: { id: createdBy },
         transactional_hog_flow_id: transactional ? `flow-${id}` : null,
         content: { templating: 'liquid', email: { subject: name, html: `<p>${name}</p>` } },
-        draft_content: null,
-        has_draft: false,
+        draft_content: draft ? { templating: 'liquid', email: { subject: `${name} v2`, html: '<p>v2</p>' } } : null,
+        has_draft: draft,
     }) as unknown as MessageTemplateApi
 
 const STORED_TEMPLATES = [
     template('a', 'Password reset', ['auth'], 1),
-    template('b', 'Receipt', ['billing'], 2),
+    template('b', 'Receipt', ['billing'], 2, true, true),
     template('c', 'Sign-in code', ['auth'], 2),
     template('d', 'Newsletter', ['auth'], 1, false),
 ]
@@ -39,11 +40,11 @@ const STORED_TEMPLATES = [
 describe('transactionalEmailsLogic', () => {
     let logic: ReturnType<typeof transactionalEmailsLogic.build>
     let writes: { id: string; tags: string[] }[]
-    let serverFiltersTransactional: boolean
+    let serverPredatesBasicRows: boolean
 
     beforeEach(async () => {
         writes = []
-        serverFiltersTransactional = true
+        serverPredatesBasicRows = false
         useMocks({
             patch: {
                 '/api/projects/:team_id/messaging_templates/:id/': async ({ request, params }) => {
@@ -58,14 +59,13 @@ describe('transactionalEmailsLogic', () => {
                     const params = new URL(request.url).searchParams
                     const offset = Number(params.get('offset') ?? 0)
                     const limit = Math.min(Number(params.get('limit') ?? SERVER_PAGE_SIZE), SERVER_PAGE_SIZE)
-                    const matching = STORED_TEMPLATES.filter(
-                        (t) =>
-                            !serverFiltersTransactional ||
-                            params.get('transactional') !== 'true' ||
-                            t.transactional_hog_flow_id
-                    ).map(({ content, draft_content, ...basic }) =>
-                        params.get('basic') === 'true' ? basic : { ...basic, content, draft_content }
-                    )
+                    const matching = serverPredatesBasicRows
+                        ? STORED_TEMPLATES.map(({ has_draft, ...full }) => full)
+                        : STORED_TEMPLATES.filter(
+                              (t) => params.get('transactional') !== 'true' || t.transactional_hog_flow_id
+                          ).map(({ content, draft_content, ...basic }) =>
+                              params.get('basic') === 'true' ? basic : { ...basic, content, draft_content }
+                          )
                     return [200, { count: matching.length, results: matching.slice(offset, offset + limit) }]
                 },
             },
@@ -78,23 +78,28 @@ describe('transactionalEmailsLogic', () => {
 
     afterEach(() => logic.unmount())
 
-    it.each([
-        ['filters', true],
-        ['ignores, as a server that predates it does,', false],
-    ])(
-        'loads every page of transactional emails without their content when the server %s the filter',
-        async (_case, filters) => {
-            serverFiltersTransactional = filters
-            logic.actions.loadTransactionalTemplates()
-            await expectLogic(logic).toFinishAllListeners()
+    it('loads every page of transactional emails without their content', () => {
+        expect(logic.values.transactionalTemplates.map(({ name, content }) => ({ name, content }))).toEqual([
+            { name: 'Password reset', content: undefined },
+            { name: 'Receipt', content: undefined },
+            { name: 'Sign-in code', content: undefined },
+        ])
+    })
 
-            expect(logic.values.transactionalTemplates.map(({ name, content }) => ({ name, content }))).toEqual([
-                { name: 'Password reset', content: undefined },
-                { name: 'Receipt', content: undefined },
-                { name: 'Sign-in code', content: undefined },
-            ])
-        }
-    )
+    it.each([
+        ['this release', false],
+        ['an earlier release, mid-deploy', true],
+    ])('lists transactional emails and their draft badges from a server on %s', async (_case, predates) => {
+        serverPredatesBasicRows = predates
+        logic.actions.loadTransactionalTemplates()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.transactionalTemplates.map(({ name, has_draft }) => ({ name, has_draft }))).toEqual([
+            { name: 'Password reset', has_draft: false },
+            { name: 'Receipt', has_draft: true },
+            { name: 'Sign-in code', has_draft: false },
+        ])
+    })
 
     it.each([
         ['a tag', `/transactional?tags=${encodeURIComponent('["auth"]')}`, ['Password reset', 'Sign-in code']],
