@@ -224,6 +224,18 @@ class TestRecommendIncrementalFields(SimpleTestCase):
         assert second.calls == []
         assert schema.incremental_fields[0]["field"] == "fecha_actualizacion"
 
+    def test_cache_outage_still_applies_the_pick(self) -> None:
+        schema = _open_schema()
+        down = ConnectionError("cache unreachable")
+
+        with (
+            patch.object(incremental_field_model.cache, "get_many", side_effect=down),
+            patch.object(incremental_field_model.cache, "set_many", side_effect=down),
+        ):
+            self._run([schema], _FakeClient(_pick("c2")))
+
+        assert schema.incremental_fields[0]["field"] == "fecha_actualizacion"
+
     def test_unsure_answer_is_cached(self) -> None:
         self._run([_open_schema()], _FakeClient(_pick("c2", confidence=0.4)))
         second = _FakeClient(_pick("c2"))
