@@ -841,12 +841,12 @@ async function expectLocatorToMatchStorySnapshot(
 /**
  * Captures until two screenshots in a row match, the way Playwright's `toHaveScreenshot` does.
  *
- * A target that does not fit the viewport needs a second pass in Chromium. Chromium captures such a
- * target by resizing the page, and script that reacts to the resize renders again or reloads data
- * during the capture, so the picture can show a loading state. The first pass captures with script on,
- * so the page reacts as often as it needs, for example lazy content that renders when it comes into
- * view. The second pass captures with script paused, so it settles as soon as the page has finished
- * reacting to the first pass, and a new reaction cannot start mid-capture.
+ * Chromium captures a target that does not fit the viewport by resizing the page, and script that
+ * reacts to the resize renders again or reloads data during the capture. Some pages need that reaction
+ * to look right, for example content that renders only while it is captured, so captures run with
+ * script on. A page that reacts differently to every capture never settles, though, and its last
+ * capture is a random frame, such as a loading state. For such a target, Chromium retakes the snapshot
+ * with script paused during each capture, so the page cannot react and the retake settles.
  */
 async function takeSettledSnapshotImage(
     locator: Locator | Page,
@@ -855,12 +855,16 @@ async function takeSettledSnapshotImage(
     loaderWaitTimeout: number | null,
     options?: LocatorScreenshotOptions
 ): Promise<Buffer> {
-    const image = await captureUntilSettled(locator, context, theme, loaderWaitTimeout, false, options)
+    const firstPass = await captureUntilSettled(locator, context, theme, loaderWaitTimeout, false, options)
+    if (firstPass.settled) {
+        return firstPass.image
+    }
     if (!(await captureResizesPage(locator))) {
-        return image
+        return firstPass.image
     }
     await waitBeforeRecapture(locator)
-    return captureUntilSettled(locator, context, theme, loaderWaitTimeout, true, options)
+    const pausedPass = await captureUntilSettled(locator, context, theme, loaderWaitTimeout, true, options)
+    return pausedPass.image
 }
 
 /** Only a target that does not fit the viewport makes Chromium resize the page for the capture. */
@@ -902,7 +906,7 @@ async function captureUntilSettled(
     loaderWaitTimeout: number | null,
     pauseScript: boolean,
     options?: LocatorScreenshotOptions
-): Promise<Buffer> {
+): Promise<{ image: Buffer; settled: boolean }> {
     const page = 'page' in locator ? locator.page() : locator
     if (loaderWaitTimeout !== null) {
         await waitForEveryLoaderHidden(page, loaderWaitTimeout)
@@ -916,15 +920,17 @@ async function captureUntilSettled(
         const image = await takeSnapshotImage(locator, context, pauseScript, options)
         const loaderShowed = loaderWaitTimeout !== null && (await locateVisibleLoaders(page).count()) > 0
         if (image.equals(previous) && !loaderShowed) {
-            return image
+            return { image, settled: true }
         }
         previous = image
     }
     // eslint-disable-next-line no-console
     console.warn(
-        `[test-runner] ${context.id} (${theme}): still changed after ${MAX_SNAPSHOT_CAPTURES} captures. Look for an animation, a timer or late content.`
+        `[test-runner] ${context.id} (${theme}): still changed after ${MAX_SNAPSHOT_CAPTURES} captures with script ${
+            pauseScript ? 'paused' : 'on'
+        }. Look for an animation, a timer or late content.`
     )
-    return previous
+    return { image: previous, settled: false }
 }
 
 const cdpSessionByPage = new WeakMap<Page, CDPSession>()
