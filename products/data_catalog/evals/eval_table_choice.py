@@ -2,8 +2,8 @@
 
 Every case seeds queryable tables, so it needs object storage. Run it once per surface:
 
-    EVAL_SURFACE=app ./bin/hogli evals eval_table_choice --skill-delivery bundled --provider modal
-    EVAL_SURFACE=mcp ./bin/hogli evals eval_table_choice --skill-delivery exec --provider modal
+    ./bin/hogli evals eval_table_choice --surface app --skill-delivery bundled --provider modal
+    ./bin/hogli evals eval_table_choice --surface mcp --skill-delivery exec --provider modal
 """
 
 from __future__ import annotations
@@ -34,15 +34,11 @@ from products.data_catalog.evals.scorers import (
     SemanticMetadataQueried,
     TableInspected,
 )
+from products.data_catalog.evals.seeders import synced_table_names
 from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
-from products.posthog_ai.eval_harness.scorers import SourcesAvoided, SourcesConsulted
-
-
-def _names(table: str) -> list[str]:
-    """A synced table answers to its stored name and to the dotted name HogQL builds from the source."""
-    return [table, f"postgres.{table}"]
+from products.posthog_ai.eval_harness.scorers import ANY_CLEAN_QUERY_SCOPE, SourcesAvoided, SourcesConsulted
 
 
 def _usd(value: float) -> str:
@@ -63,10 +59,10 @@ async def eval_table_choice(ctx: EvalContext) -> None:
                     "surface": "information_schema.tables",
                     "required_columns": ["certification"],
                 },
-                "sources_consulted": {"tables": [_names(DEALS_TABLE)]},
+                "sources_consulted": {"tables": [synced_table_names(DEALS_TABLE)]},
                 "sources_avoided": {
-                    "tables": [*_names(DEALS_LEGACY_TABLE), *_names(DEALS_V3_TABLE)],
-                    "scope": "answer",
+                    "tables": [*synced_table_names(DEALS_LEGACY_TABLE), *synced_table_names(DEALS_V3_TABLE)],
+                    "scope": ANY_CLEAN_QUERY_SCOPE,
                 },
                 "answer_value_stated": {"value": _usd(DEALS_CLOSED_WON_TOTAL)},
             },
@@ -76,7 +72,7 @@ async def eval_table_choice(ctx: EvalContext) -> None:
             name="reject_empty_after_inspection",
             prompt=f"Use {DEALS_V3_TABLE} to total our closed-won deal value.",
             expected={
-                "table_inspected": {"table": _names(DEALS_V3_TABLE)},
+                "table_inspected": {"table": synced_table_names(DEALS_V3_TABLE)},
                 "semantic_layer_answer": {
                     "expected_behavior": (
                         f"Look at {DEALS_V3_TABLE} and find that it has no rows. Say so instead of reporting a "
@@ -97,7 +93,10 @@ async def eval_table_choice(ctx: EvalContext) -> None:
                     "surface": "information_schema.columns",
                     "required_columns": ["description"],
                 },
-                "answer_table_queried": {"tables": _names(USD_AMOUNT_TABLE), "decoys": _names(LOCAL_AMOUNT_TABLE)},
+                "answer_table_queried": {
+                    "tables": synced_table_names(USD_AMOUNT_TABLE),
+                    "decoys": synced_table_names(LOCAL_AMOUNT_TABLE),
+                },
                 "answer_value_stated": {"value": _usd(USD_AMOUNT_TOTAL)},
             },
             setup=seed_amount_currency_tables,

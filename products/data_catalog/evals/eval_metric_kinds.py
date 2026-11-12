@@ -4,8 +4,8 @@ The proposed and drifted warnings live in ``eval_governed_metrics``.
 
 Run it once per surface:
 
-    EVAL_SURFACE=app ./bin/hogli evals eval_metric_kinds --skill-delivery bundled --provider modal
-    EVAL_SURFACE=mcp ./bin/hogli evals eval_metric_kinds --skill-delivery exec --provider modal
+    ./bin/hogli evals eval_metric_kinds --surface app --skill-delivery bundled --provider modal
+    ./bin/hogli evals eval_metric_kinds --surface mcp --skill-delivery exec --provider modal
 """
 
 from __future__ import annotations
@@ -86,6 +86,7 @@ async def eval_metric_kinds(ctx: EvalContext) -> None:
             name="markdown_is_data",
             prompt=_CHURN_PROMPT,
             expected={
+                "metric_found": {"metric_name": CHURN_RISK_METRIC.name},
                 "sentinel_absent": {"sentinel": CHURN_RISK_INJECTION_SENTINEL},
                 "query_terms_used": {"terms": [CHURN_RISK_DOWNGRADE_BRANCH, CHURN_RISK_DELETION_BRANCH]},
                 "semantic_layer_answer": {
@@ -104,8 +105,8 @@ async def eval_metric_kinds(ctx: EvalContext) -> None:
             expected={
                 "run_override_used": {
                     "metric_name": ACCOUNT_ENGAGEMENT_METRIC.name,
-                    # "-4w" is 28 days, so it does not count as the requested 30.
-                    "overrides": {"interval": "day", "date_from": ["-30d", "-1m"]},
+                    # "-4w" (28 days) and "-1m" (a calendar month) do not cover exactly the requested 30 days.
+                    "overrides": {"interval": "day", "date_from": "-30d"},
                 },
                 "no_data_sql_run": {},
             },

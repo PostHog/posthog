@@ -4,8 +4,9 @@ Pure and Django-free: this module only builds frozen descriptions of metrics. ``
 them into a case team. Prompts, ``expected`` values, seeders, and scorers import the names from here, so the
 four can never drift apart.
 
-The catalog has two parts. The noise is sixty approved metrics over the Hedgebox taxonomy, enough that a
-first page of ``metric-list`` does not show every metric, so search and paging matter. The needles are
+The catalog has two parts. The noise is sixty approved metrics over the Hedgebox taxonomy, so the agent
+must pick the needle out of a long list. The catalog fits on the default 100-row page of ``metric-list``,
+so these suites do not test paging. The needles are
 the metrics a case asks about, one per metric kind the catalog supports. A case that asks for every
 relevant metric, such as a growth update, uses the operations noise, which has no metric that the case
 can use.
@@ -13,11 +14,14 @@ can use.
 
 from __future__ import annotations
 
+from typing import Any
+
 from posthog.dataclasses import frozen
 
 from products.data_catalog.evals.constants import (
     APPROVED_METRIC_DEFINITION,
     APPROVED_METRIC_DESCRIPTION,
+    APPROVED_METRIC_DISTINGUISHING_FILTER,
     APPROVED_METRIC_NAME,
     PAYING_CUSTOMERS_METRIC_DEFINITION,
     PAYING_CUSTOMERS_METRIC_DESCRIPTION,
@@ -33,110 +37,189 @@ class CatalogMetric:
     name: str
     display_name: str
     description: str
-    definition: dict
+    definition: dict[str, Any]
     unit: str = ""
 
 
+@frozen
+class _NoiseSubject:
+    predicate: str
+    """HogQL condition that selects the subject's events."""
+    slug: str
+    label: str
+
+
+@frozen
+class _NoiseShape:
+    suffix: str
+    display_suffix: str
+    description: str
+    """Template with a ``{label}`` slot."""
+    query: str
+    """HogQL select template with a ``{predicate}`` slot."""
+
+
 # Hedgebox events and how a catalog author would name them. Every event is in the Hedgebox taxonomy.
-_NOISE_EVENTS: tuple[tuple[str, str, str], ...] = (
-    ("event = 'uploaded_file'", "file_uploads", "file uploads"),
-    ("event = 'downloaded_file'", "file_downloads", "file downloads"),
-    ("event = 'deleted_file'", "file_deletions", "file deletions"),
-    ("event = 'shared_file_link'", "shared_links", "shared file links"),
-    ("event = 'logged_in'", "logins", "logins"),
-    ("event = 'invited_team_member'", "team_invites", "team member invitations"),
-    ("event = 'removed_team_member'", "team_removals", "team member removals"),
-    ("event = 'upgraded_plan'", "plan_upgrades", "plan upgrades"),
-    ("event = 'downgraded_plan'", "plan_downgrades", "plan downgrades"),
-    ("event = '$pageview'", "page_views", "page views"),
+_NOISE_EVENTS: tuple[_NoiseSubject, ...] = (
+    _NoiseSubject(
+        predicate="event = 'uploaded_file'",
+        slug="file_uploads",
+        label="file uploads",
+    ),
+    _NoiseSubject(
+        predicate="event = 'downloaded_file'",
+        slug="file_downloads",
+        label="file downloads",
+    ),
+    _NoiseSubject(
+        predicate="event = 'deleted_file'",
+        slug="file_deletions",
+        label="file deletions",
+    ),
+    _NoiseSubject(
+        predicate="event = 'shared_file_link'",
+        slug="shared_links",
+        label="shared file links",
+    ),
+    _NoiseSubject(
+        predicate="event = 'logged_in'",
+        slug="logins",
+        label="logins",
+    ),
+    _NoiseSubject(
+        predicate="event = 'invited_team_member'",
+        slug="team_invites",
+        label="team member invitations",
+    ),
+    _NoiseSubject(
+        predicate="event = 'removed_team_member'",
+        slug="team_removals",
+        label="team member removals",
+    ),
+    _NoiseSubject(
+        predicate="event = 'upgraded_plan'",
+        slug="plan_upgrades",
+        label="plan upgrades",
+    ),
+    _NoiseSubject(
+        predicate="event = 'downgraded_plan'",
+        slug="plan_downgrades",
+        label="plan downgrades",
+    ),
+    _NoiseSubject(
+        predicate="event = '$pageview'",
+        slug="page_views",
+        label="page views",
+    ),
 )
 
 # Engineering and file-mix measures that a growth update has no use for. Every event and property is in
 # the Hedgebox taxonomy.
-_OPERATIONS_NOISE_EVENTS: tuple[tuple[str, str, str], ...] = (
-    ("event = '$exception'", "app_exceptions", "application exceptions"),
-    (
-        "event = '$exception' AND properties.$exception_types LIKE '%TimeoutError%'",
-        "checkout_timeouts",
-        "checkout API timeouts",
+_OPERATIONS_NOISE_EVENTS: tuple[_NoiseSubject, ...] = (
+    _NoiseSubject(
+        predicate="event = '$exception'",
+        slug="app_exceptions",
+        label="application exceptions",
     ),
-    (
-        "event = '$exception' AND properties.$exception_types LIKE '%RenderError%'",
-        "preview_render_errors",
-        "file preview render errors",
+    _NoiseSubject(
+        predicate="event = '$exception' AND properties.$exception_types LIKE '%TimeoutError%'",
+        slug="checkout_timeouts",
+        label="checkout API timeouts",
     ),
-    (
-        "event = '$exception' AND properties.$exception_types LIKE '%TypeError%'",
-        "invite_type_errors",
-        "team invite type errors",
+    _NoiseSubject(
+        predicate="event = '$exception' AND properties.$exception_types LIKE '%RenderError%'",
+        slug="preview_render_errors",
+        label="file preview render errors",
     ),
-    ("event = '$feature_flag_called'", "flag_evaluations", "feature flag evaluations"),
-    ("event = '$pageleave'", "page_leaves", "page leave events"),
-    ("event = 'uploaded_file' AND properties.file_type = 'application/pdf'", "pdf_uploads", "PDF uploads"),
-    ("event = 'uploaded_file' AND properties.file_type LIKE 'image/%'", "image_uploads", "image uploads"),
-    ("event = 'uploaded_file' AND toInt(properties.file_size_b) > 1000000000", "large_uploads", "uploads over 1 GB"),
-    ("event = 'downloaded_file' AND properties.file_type LIKE 'video/%'", "video_downloads", "video downloads"),
-)
-
-# (name suffix, display suffix, description template, HogQL select template). Each one is a different measure.
-_NOISE_SHAPES: tuple[tuple[str, str, str, str], ...] = (
-    (
-        "daily",
-        "per day",
-        "Daily count of {label} over the trailing 30 days.",
-        "SELECT toStartOfDay(timestamp) AS day, count() AS total FROM events "
-        "WHERE {predicate} AND timestamp >= now() - INTERVAL 30 DAY GROUP BY day ORDER BY day",
+    _NoiseSubject(
+        predicate="event = '$exception' AND properties.$exception_types LIKE '%TypeError%'",
+        slug="invite_type_errors",
+        label="team invite type errors",
     ),
-    (
-        "weekly_users",
-        "weekly unique users",
-        "Unique users with at least one of the {label} in the trailing 7 days.",
-        "SELECT count(DISTINCT person_id) AS users FROM events "
-        "WHERE {predicate} AND timestamp >= now() - INTERVAL 7 DAY",
+    _NoiseSubject(
+        predicate="event = '$feature_flag_called'",
+        slug="flag_evaluations",
+        label="feature flag evaluations",
     ),
-    (
-        "monthly",
-        "per month",
-        "Monthly count of {label} over the trailing 6 months.",
-        "SELECT toStartOfMonth(timestamp) AS month, count() AS total FROM events "
-        "WHERE {predicate} AND timestamp >= now() - INTERVAL 6 MONTH GROUP BY month ORDER BY month",
+    _NoiseSubject(
+        predicate="event = '$pageleave'",
+        slug="page_leaves",
+        label="page leave events",
     ),
-    (
-        "per_user_30d",
-        "per active user",
-        "Average number of {label} per user who did at least one, over the trailing 30 days.",
-        "SELECT count() / nullIf(count(DISTINCT person_id), 0) AS per_user FROM events "
-        "WHERE {predicate} AND timestamp >= now() - INTERVAL 30 DAY",
+    _NoiseSubject(
+        predicate="event = 'uploaded_file' AND properties.file_type = 'application/pdf'",
+        slug="pdf_uploads",
+        label="PDF uploads",
     ),
-    (
-        "total_90d",
-        "last 90 days",
-        "Total {label} in the trailing 90 days.",
-        "SELECT count() AS total FROM events WHERE {predicate} AND timestamp >= now() - INTERVAL 90 DAY",
+    _NoiseSubject(
+        predicate="event = 'uploaded_file' AND properties.file_type LIKE 'image/%'",
+        slug="image_uploads",
+        label="image uploads",
     ),
-    (
-        "share_of_users_30d",
-        "share of users",
-        "Share of all active users in the trailing 30 days who had at least one of the {label}.",
-        "SELECT uniqIf(person_id, {predicate}) / nullIf(uniq(person_id), 0) AS share "
-        "FROM events WHERE timestamp >= now() - INTERVAL 30 DAY",
+    _NoiseSubject(
+        predicate="event = 'uploaded_file' AND toInt(properties.file_size_b) > 1000000000",
+        slug="large_uploads",
+        label="uploads over 1 GB",
+    ),
+    _NoiseSubject(
+        predicate="event = 'downloaded_file' AND properties.file_type LIKE 'video/%'",
+        slug="video_downloads",
+        label="video downloads",
     ),
 )
 
+# Each shape is a different measure over the same subject.
+_NOISE_SHAPES: tuple[_NoiseShape, ...] = (
+    _NoiseShape(
+        suffix="daily",
+        display_suffix="per day",
+        description="Daily count of {label} over the trailing 30 days.",
+        query="SELECT toStartOfDay(timestamp) AS day, count() AS total FROM events WHERE {predicate} AND timestamp >= now() - INTERVAL 30 DAY GROUP BY day ORDER BY day",
+    ),
+    _NoiseShape(
+        suffix="weekly_users",
+        display_suffix="weekly unique users",
+        description="Unique users with at least one of the {label} in the trailing 7 days.",
+        query="SELECT count(DISTINCT person_id) AS users FROM events WHERE {predicate} AND timestamp >= now() - INTERVAL 7 DAY",
+    ),
+    _NoiseShape(
+        suffix="monthly",
+        display_suffix="per month",
+        description="Monthly count of {label} over the trailing 6 months.",
+        query="SELECT toStartOfMonth(timestamp) AS month, count() AS total FROM events WHERE {predicate} AND timestamp >= now() - INTERVAL 6 MONTH GROUP BY month ORDER BY month",
+    ),
+    _NoiseShape(
+        suffix="per_user_30d",
+        display_suffix="per active user",
+        description="Average number of {label} per user who did at least one, over the trailing 30 days.",
+        query="SELECT count() / nullIf(count(DISTINCT person_id), 0) AS per_user FROM events WHERE {predicate} AND timestamp >= now() - INTERVAL 30 DAY",
+    ),
+    _NoiseShape(
+        suffix="total_90d",
+        display_suffix="last 90 days",
+        description="Total {label} in the trailing 90 days.",
+        query="SELECT count() AS total FROM events WHERE {predicate} AND timestamp >= now() - INTERVAL 90 DAY",
+    ),
+    _NoiseShape(
+        suffix="share_of_users_30d",
+        display_suffix="share of users",
+        description="Share of all active users in the trailing 30 days who had at least one of the {label}.",
+        query="SELECT uniqIf(person_id, {predicate}) / nullIf(uniq(person_id), 0) AS share FROM events WHERE timestamp >= now() - INTERVAL 30 DAY",
+    ),
+)
 
-def _noise_metrics(subjects: tuple[tuple[str, str, str], ...]) -> tuple[CatalogMetric, ...]:
-    metrics = []
-    for predicate, slug, label in subjects:
-        for suffix, display_suffix, description, query in _NOISE_SHAPES:
-            metrics.append(
-                CatalogMetric(
-                    name=f"{slug}_{suffix}",
-                    display_name=f"{label[0].upper()}{label[1:]} ({display_suffix})",
-                    description=description.format(label=label),
-                    definition={"kind": "HogQLQuery", "query": query.format(predicate=predicate)},
-                )
-            )
-    return tuple(metrics)
+
+def _noise_metrics(subjects: tuple[_NoiseSubject, ...]) -> tuple[CatalogMetric, ...]:
+    return tuple(
+        CatalogMetric(
+            name=f"{subject.slug}_{shape.suffix}",
+            display_name=f"{subject.label[0].upper()}{subject.label[1:]} ({shape.display_suffix})",
+            description=shape.description.format(label=subject.label),
+            definition={"kind": "HogQLQuery", "query": shape.query.format(predicate=subject.predicate)},
+        )
+        for subject in subjects
+        for shape in _NOISE_SHAPES
+    )
 
 
 def synthesize_noise_metrics() -> tuple[CatalogMetric, ...]:
@@ -159,7 +242,7 @@ MRR_METRIC = CatalogMetric(
     definition=APPROVED_METRIC_DEFINITION,
     unit="usd",
 )
-MRR_DISTINGUISHING_TERMS = ("paid_bill", "personal/free")
+MRR_DISTINGUISHING_TERMS = ("paid_bill", APPROVED_METRIC_DISTINGUISHING_FILTER)
 """Terms an adapted MRR query keeps when it preserves the governed measure: the event and the plan exclusion."""
 
 PAYING_CUSTOMERS_METRIC = CatalogMetric(
