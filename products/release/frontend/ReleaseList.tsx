@@ -13,7 +13,10 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ReleaseAutoImport } from './ReleaseAutoImport'
 import { NewReleaseButton, NewReleaseDialog, ReleaseFilters } from './ReleaseFilters'
+import { ReleaseImportFailedNotice } from './ReleaseImportFailedNotice'
+import { releaseImportLogic } from './releaseImportLogic'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
@@ -118,7 +121,8 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
 ]
 
 function ReleaseListContent(): JSX.Element {
-    const { filteredRows, dataLoading, loadFailed } = useValues(releaseLogic)
+    const { filteredRows, dataLoading, loadFailed, releases } = useValues(releaseLogic)
+    const { showAutoImport } = useValues(releaseImportLogic)
 
     return (
         <SceneContent>
@@ -133,10 +137,13 @@ function ReleaseListContent(): JSX.Element {
                 }
             />
             <div data-quill className="flex flex-col gap-3">
-                <ReleaseFilters />
+                {!showAutoImport && <ReleaseFilters />}
                 <ReleasePartialLoadWarning />
+                <ReleaseImportFailedNotice />
                 {loadFailed ? (
                     <ReleaseLoadError title="Releases could not load" />
+                ) : showAutoImport ? (
+                    <ReleaseAutoImport />
                 ) : dataLoading && !filteredRows.length ? (
                     <Skeleton className="h-64 w-full" />
                 ) : (
@@ -150,7 +157,9 @@ function ReleaseListContent(): JSX.Element {
                             onRowClick={(row) => router.actions.push(urls.release(row.id))}
                             empty={
                                 <Text size="xs" variant="muted">
-                                    No release matches these filters.
+                                    {releases.length
+                                        ? 'No release matches these filters.'
+                                        : 'No releases yet. Each new feature flag gets one, or create one yourself.'}
                                 </Text>
                             }
                         />
