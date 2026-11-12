@@ -3019,6 +3019,67 @@ describe('Cyclotron V2', () => {
                 expect(drained).toEqual([teamA, teamB, teamA, teamB, teamA, teamB, teamA, teamB, teamA, teamB])
             })
 
+            it('lands concurrent multi-team batches listing teams in opposite orders and keeps the interleave', async () => {
+                const teamA = 100
+                const teamB = 200
+                const teamC = 300
+                await manager.bulkCreateJobs(
+                    [teamA, teamB, teamC].map((teamId) => ({ teamId, queueName: EMAIL_QUEUE }))
+                )
+
+                const applicationName = 'opposite-order-bulk-inserts'
+                const racingManager = createManager({
+                    pool: { dbUrl: `${DB_URL}?application_name=${applicationName}` },
+                })
+                await racingManager.connect()
+                const blocker = await assertPool.connect()
+                try {
+                    await blocker.query('BEGIN')
+                    await blocker.query('SELECT 1 FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [teamC])
+
+                    const settled = Promise.allSettled([
+                        racingManager.bulkCreateJobs(
+                            [teamB, teamC, teamA].map((teamId) => ({ teamId, queueName: EMAIL_QUEUE }))
+                        ),
+                        racingManager.bulkCreateJobs(
+                            [teamA, teamC, teamB].map((teamId) => ({ teamId, queueName: EMAIL_QUEUE }))
+                        ),
+                    ])
+                    await waitForExpect(
+                        async () => {
+                            const { rows } = await assertPool.query<{ n: number }>(
+                                `SELECT COUNT(*)::int AS n FROM pg_stat_activity
+                                 WHERE application_name = $1 AND cardinality(pg_blocking_pids(pid)) > 0`,
+                                [applicationName]
+                            )
+                            expect(rows[0].n).toBe(2)
+                        },
+                        3000,
+                        10
+                    )
+                    await blocker.query('COMMIT')
+
+                    expect(await settled).toEqual([
+                        expect.objectContaining({ status: 'fulfilled' }),
+                        expect.objectContaining({ status: 'fulfilled' }),
+                    ])
+                } finally {
+                    await blocker.query('ROLLBACK')
+                    blocker.release()
+                    await racingManager.disconnect()
+                }
+
+                const drained: number[] = []
+                for (let i = 0; i < 9; i++) {
+                    const batch = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
+                    expect(batch).toHaveLength(1)
+                    drained.push(batch[0].teamId)
+                    await batch[0].ack()
+                }
+
+                expect(drained).toEqual([teamA, teamB, teamC, teamA, teamB, teamC, teamA, teamB, teamC])
+            }, 15_000)
+
             it('drains every team in the first multi-team batch even with skewed volumes', async () => {
                 // 10/5/2 distribution drained in batches of 3. We don't assert
                 // the within-batch order (UPDATE...RETURNING doesn't preserve

@@ -30,6 +30,7 @@ if is_inbox_ranking_registered():
             inbox_ranking_dataset.inbox_engagement_export,
             inbox_ranking_dataset.inbox_activity_summary_vectors,
             inbox_ranking_dataset.inbox_activity_summary_profile_vectors,
+            inbox_ranking_dataset.inbox_report_scored_facts,
             inbox_ranking_training.inbox_ranking_serving_manifest,
             inbox_ranking_served.inbox_ranking_served_scores,
             inbox_ranking_training.inbox_ranking_unseen_graded,
