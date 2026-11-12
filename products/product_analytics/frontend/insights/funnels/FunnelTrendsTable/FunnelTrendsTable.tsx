@@ -90,6 +90,7 @@ export function FunnelTrendsTable(): JSX.Element | null {
                     timezone={timezone}
                     weekStartDay={weekStartDay}
                     date={day.toString()}
+                    showFullDate
                 />
             </>
         )
