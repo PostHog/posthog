@@ -184,6 +184,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/slack_app/frontend/workspace-setup/SlackAppWorkspaceSetupScene'),
     Stamphog: () => import('../../products/stamphog/frontend/scenes/StamphogScene/StamphogScene'),
     StamphogRuns: () => import('../../products/stamphog/frontend/scenes/StamphogRunsScene/StamphogRunsScene'),
+    StamphogTeamView: () =>
+        import('../../products/stamphog/frontend/scenes/StamphogTeamViewScene/StamphogTeamViewScene'),
     StamphogDigests: () => import('../../products/stamphog/frontend/scenes/StamphogDigestsScene/StamphogDigestsScene'),
     StreamlitApps: () => import('../../products/streamlit_apps/frontend/StreamlitApps'),
     StreamlitApp: () => import('../../products/streamlit_apps/frontend/StreamlitApp'),
