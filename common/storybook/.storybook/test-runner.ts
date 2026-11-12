@@ -1,4 +1,4 @@
-import type { Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
+import type { CDPSession, Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
 import { StoryContext } from '@storybook/csf'
 import { TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
@@ -840,12 +840,13 @@ async function expectLocatorToMatchStorySnapshot(
 
 /**
  * Captures until two screenshots in a row match, the way Playwright's `toHaveScreenshot` does.
- * Between captures the chart paint and animation finish run again, so a page that changed after the
- * waits is captured again once it settles.
  *
- * A match alone does not prove the page is done: the 0 ms animations freeze a spinner, so two captures
- * of a loading state match too. So unless the story opts out of the loader wait, each capture waits
- * for loaders first, and a capture is kept only when no loader shows after it.
+ * Chromium captures a target that does not fit the viewport by resizing the page, and script that
+ * reacts to the resize renders again or reloads data during the capture. Some pages need that reaction
+ * to look right, for example content that renders only while it is captured, so captures run with
+ * script on. A page that reacts differently to every capture never settles, though, and its last
+ * capture is a random frame, such as a loading state. For such a target, Chromium retakes the snapshot
+ * with script paused during each capture, so the page cannot react and the retake settles.
  */
 async function takeSettledSnapshotImage(
     locator: Locator | Page,
@@ -854,30 +855,107 @@ async function takeSettledSnapshotImage(
     loaderWaitTimeout: number | null,
     options?: LocatorScreenshotOptions
 ): Promise<Buffer> {
+    const firstPass = await captureUntilSettled(locator, context, theme, loaderWaitTimeout, false, options)
+    if (firstPass.settled) {
+        return firstPass.image
+    }
+    if (!(await captureResizesPage(locator))) {
+        return firstPass.image
+    }
+    await waitBeforeRecapture(locator)
+    const pausedPass = await captureUntilSettled(locator, context, theme, loaderWaitTimeout, true, options)
+    return pausedPass.image
+}
+
+/** Only a target that does not fit the viewport makes Chromium resize the page for the capture. */
+async function captureResizesPage(locator: Locator | Page): Promise<boolean> {
+    if (!('page' in locator)) {
+        return false
+    }
+    const page = locator.page()
+    if (page.context().browser()?.browserType().name() !== 'chromium') {
+        return false
+    }
+    const box = await locator.boundingBox().catch(() => null)
+    const viewport = page.viewportSize()
+    if (!box || !viewport) {
+        return false
+    }
+    return box.x + box.width > viewport.width || box.y + box.height > viewport.height
+}
+
+async function waitBeforeRecapture(locator: Locator | Page): Promise<void> {
+    const page = 'page' in locator ? locator.page() : locator
+    await page.waitForTimeout(RECAPTURE_SETTLE_MS)
+    await waitForChartCanvasesPainted(page)
+    await finishAnimations(page)
+}
+
+/**
+ * Captures until two captures in a row match. Before each capture the chart paint, animation finish
+ * and loader wait run again, so a page that changed after the waits is captured again once it settles.
+ *
+ * A match alone does not prove the page is done: the 0 ms animations freeze a spinner, so two captures
+ * of a loading state match too. So unless the story opts out of the loader wait, a capture is kept
+ * only when no loader shows after it.
+ */
+async function captureUntilSettled(
+    locator: Locator | Page,
+    context: TestContext,
+    theme: SnapshotTheme,
+    loaderWaitTimeout: number | null,
+    pauseScript: boolean,
+    options?: LocatorScreenshotOptions
+): Promise<{ image: Buffer; settled: boolean }> {
     const page = 'page' in locator ? locator.page() : locator
     if (loaderWaitTimeout !== null) {
         await waitForEveryLoaderHidden(page, loaderWaitTimeout)
     }
-    let previous = await takeSnapshotImage(locator, context, options)
+    let previous = await takeSnapshotImage(locator, context, pauseScript, options)
     for (let capture = 2; capture <= MAX_SNAPSHOT_CAPTURES; capture++) {
-        await page.waitForTimeout(RECAPTURE_SETTLE_MS)
-        await waitForChartCanvasesPainted(page)
-        await finishAnimations(page)
+        await waitBeforeRecapture(locator)
         if (loaderWaitTimeout !== null) {
             await waitForEveryLoaderHidden(page, loaderWaitTimeout)
         }
-        const image = await takeSnapshotImage(locator, context, options)
+        const image = await takeSnapshotImage(locator, context, pauseScript, options)
         const loaderShowed = loaderWaitTimeout !== null && (await locateVisibleLoaders(page).count()) > 0
         if (image.equals(previous) && !loaderShowed) {
-            return image
+            return { image, settled: true }
         }
         previous = image
     }
     // eslint-disable-next-line no-console
     console.warn(
-        `[test-runner] ${context.id} (${theme}): still changed after ${MAX_SNAPSHOT_CAPTURES} captures. Look for an animation, a timer or late content.`
+        `[test-runner] ${context.id} (${theme}): still changed after ${MAX_SNAPSHOT_CAPTURES} captures with script ${
+            pauseScript ? 'paused' : 'on'
+        }. Look for an animation, a timer or late content.`
     )
-    return previous
+    return { image: previous, settled: false }
+}
+
+const cdpSessionByPage = new WeakMap<Page, CDPSession>()
+
+/**
+ * Pause or resume page script through the Chrome DevTools Protocol, and return whether it worked.
+ *
+ * `takeSettledSnapshotImage` says why a capture pauses script. WebKit has no CDP, so there it does
+ * nothing.
+ */
+async function setPageScriptPaused(page: Page, paused: boolean): Promise<boolean> {
+    if (page.context().browser()?.browserType().name() !== 'chromium') {
+        return false
+    }
+    try {
+        let session = cdpSessionByPage.get(page)
+        if (!session) {
+            session = await page.context().newCDPSession(page)
+            cdpSessionByPage.set(page, session)
+        }
+        await session.send('Emulation.setScriptExecutionDisabled', { value: paused })
+        return true
+    } catch {
+        return false
+    }
 }
 
 /**
@@ -889,8 +967,11 @@ async function takeSettledSnapshotImage(
 async function takeSnapshotImage(
     locator: Locator | Page,
     context: TestContext,
+    pauseScript: boolean,
     options?: LocatorScreenshotOptions
 ): Promise<Buffer> {
+    const page = 'page' in locator ? locator.page() : locator
+    const scriptPaused = pauseScript && (await setPageScriptPaused(page, true))
     try {
         return await locator.screenshot({ ...options })
     } catch (error) {
@@ -902,6 +983,10 @@ async function takeSnapshotImage(
             )
         }
         throw error
+    } finally {
+        if (scriptPaused) {
+            await setPageScriptPaused(page, false)
+        }
     }
 }
 
