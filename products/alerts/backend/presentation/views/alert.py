@@ -2139,8 +2139,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     offset=offset,
                 )
             except MovedAlertHistoryUnavailable:
-                # The row's checks stopped at the move, so they are no stand-in. Only a read that asked for
-                # checks fails, so a read of the settings alone, such as Terraform's, still succeeds.
+                # The row's checks stopped at the move. A read that asked for none, like Terraform's, succeeds.
                 if has_date_filter or raw_limit is not None or raw_offset is not None:
                     raise AlertCheckHistoryUnavailable from None
                 platform_page = MovedAlertCheckPage(total=0, checks=())
