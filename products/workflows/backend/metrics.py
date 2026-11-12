@@ -29,7 +29,7 @@ GUARDRAIL_LABELS = {"email_blocked": "complaint rate", "email_bounced": "bounce 
 TARGET_CONVERSION_METRIC = "conversion_by_start"
 RUN_STARTED_METRIC = "triggered"
 # Older runs have no `conversion_by_start` row even when they converted, so counting them would dilute the rate.
-CONVERSION_BY_START_RECORDED_SINCE = datetime(2026, 11, 4, tzinfo=UTC)
+CONVERSION_BY_START_RECORDED_SINCE = datetime(2026, 11, 13, tzinfo=UTC)
 
 # What a suggestion can aim at: the metric counted, what it divides by, and the name a person reads.
 # An untracked send can record neither an open nor a click. Anything else is measured on opens.
