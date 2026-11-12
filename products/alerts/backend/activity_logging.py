@@ -8,6 +8,7 @@ loads.
 """
 
 import dataclasses
+from collections.abc import Collection
 from typing import Optional
 
 from django.db.models.signals import pre_delete
@@ -15,6 +16,7 @@ from django.dispatch import receiver
 
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 
@@ -113,6 +115,36 @@ def handle_alert_subscription_change(
                     subscriber_name=after_update.user.get_full_name(),
                     subscriber_email=after_update.user.email,
                     alert_name=alert_config.name,
+                ),
+            ),
+        )
+
+
+def log_native_subscriber_changes(
+    alert: AlertConfiguration, *, added: Collection[int], removed: Collection[int]
+) -> None:
+    """The entries `handle_alert_subscription_change` and `handle_alert_subscription_delete` write, for an
+    alert with no insight row, whose subscribers have no `AlertSubscription` rows to send the signals."""
+    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+
+    for user in User.objects.filter(id__in=[*added, *removed]).order_by("id"):
+        log_activity(
+            organization_id=alert.team.organization_id,
+            team_id=alert.team_id,
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+            item_id=alert.id,
+            scope="AlertConfiguration",
+            activity="created" if user.id in added else "deleted",
+            detail=Detail(
+                type="alert_subscription_change",
+                context=AlertSubscriptionContext(
+                    insight_id=alert.insight_id,
+                    insight_short_id=alert.insight.short_id,
+                    insight_name=alert.insight.name,
+                    subscriber_name=user.get_full_name(),
+                    subscriber_email=user.email,
+                    alert_name=alert.name,
                 ),
             ),
         )

@@ -1017,14 +1017,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             view = create_native_alert(
                 team_id=team_id, insight_id=insight.id, created_by_id=created_by.id, fields=fields
             )
-        set_native_subscribers(
-            team_id=team_id,
-            alert_id=view.id,
-            user_ids=[user.id for user in subscribed_users],
-            insight_short_id=insight.short_id,
-        )
         created = AlertConfiguration.from_platform_view(view, team_id=team_id)
         assert created is not None
+        set_native_subscribers(alert=created, user_ids=[user.id for user in subscribed_users])
         _show_platform_status([created], now=timezone.now())
         _show_platform_subscribers([created])
         created.report_created(
@@ -1255,12 +1250,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         # The insight names the in-app destination's resource, so moving the alert rewrites its subscribers too.
         if subscribed_users is not None or updated.insight_id != locked_insight_id:
             set_native_subscribers(
-                team_id=updated.team_id,
-                alert_id=updated.id,
+                alert=updated,
                 user_ids=[user.id for user in subscribed_users]
                 if subscribed_users is not None
                 else platform_subscriber_ids(team_id=updated.team_id, alert_ids=[updated.id]).get(updated.id, ()),
-                insight_short_id=updated.insight.short_id,
             )
         _show_platform_status([updated], now=timezone.now())
         _show_platform_subscribers([updated])

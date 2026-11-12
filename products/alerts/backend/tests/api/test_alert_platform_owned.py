@@ -805,6 +805,28 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert (tested.status_code, tested.json()["email_recipient_count"]) == (status.HTTP_202_ACCEPTED, 1)
         assert mock_send.call_args.kwargs["recipients"] == [self.user.email]
 
+        self.client.patch(f"{self.url}/{self.copy_id}/", {"subscribed_users": [denied.id]}, format="json")
+
+        logged = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="AlertConfiguration",
+            item_id=str(self.copy_id),
+            detail__type="alert_subscription_change",
+        ).order_by("created_at")
+        assert [
+            (
+                row.activity,
+                row.user_id,
+                row.detail["context"]["subscriber_email"],
+                row.detail["context"]["insight_name"],
+            )
+            for row in logged
+        ] == [
+            ("created", self.user.id, self.user.email, self.alert.insight.name),
+            ("created", self.user.id, denied.email, "Signups"),
+            ("deleted", self.user.id, self.user.email, "Signups"),
+        ]
+
     def test_enabling_an_alert_insight_keeps_no_row_for_keeps_its_requested_start_time(self) -> None:
         self._forget_the_insight_row()
         with team_scope(self.team.id):
