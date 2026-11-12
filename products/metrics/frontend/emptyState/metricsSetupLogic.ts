@@ -1,5 +1,8 @@
+import posthog from 'posthog-js'
+
 import { isFeatureFlagGatedError } from 'lib/api-error'
 import { createSetupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { retryWithBackoff } from 'lib/utils/async'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
@@ -8,12 +11,17 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { metricsHasMetricsRetrieve } from '../generated/api'
 import { canViewMetrics } from '../metricsAccess'
+import { metricsSceneLogic } from '../metricsSceneLogic'
 
 // Session-scoped intent state: only an observed no-metrics -> has-metrics
 // transition counts as first ingestion. A team whose first check already
 // returns true (or was cached true) just has pre-existing metrics.
 let sawNoMetrics = false
 let firstIngestIntentFired = false
+// Derived series also report `has-data`, but only ingested metrics count as first ingestion
+// or are cached: derived series go away when the experiment ends or the spans and logs age out.
+let hasIngestedMetrics = false
+let derivedOnly = false
 
 /**
  * Setup detection for the metrics empty state. Binary: the team has ingested at
@@ -36,7 +44,18 @@ export const metricsSetupLogic = createSetupDetectionLogic({
             const response = await retryWithBackoff(() => metricsHasMetricsRetrieve(String(teamId)), {
                 maxAttempts: 3,
             })
-            return response.hasMetrics ? 'has-data' : 'needs-setup'
+            if (response.hasDerivedSources) {
+                // Exposure for the derived series experiment: both variants reach this point only when the
+                // team has spans or logs to derive series from. posthog-js reports each flag value once per session.
+                posthog.getFeatureFlag(FEATURE_FLAGS.METRICS_DERIVED_SERIES)
+            }
+            hasIngestedMetrics = response.hasMetrics
+            derivedOnly = !response.hasMetrics && response.hasDerivedMetrics
+            if (response.hasMetrics) {
+                return 'has-data'
+            }
+            // The test variant charts derived series, so it skips the setup screen.
+            return response.hasDerivedMetrics ? 'has-data' : 'needs-setup'
         } catch (error) {
             // The alpha enrollment has not reached the server yet: it arrives as an ingested
             // person property, so a user who just turned the feature preview on is still denied
@@ -49,10 +68,14 @@ export const metricsSetupLogic = createSetupDetectionLogic({
         }
     },
     onDetected: (status) => {
+        if (status === 'has-data' && derivedOnly) {
+            // The overview reads only ingested metrics, so it would show zero counts.
+            metricsSceneLogic.findMounted()?.actions.openViewerForDerivedSeries()
+        }
         if (status === 'needs-setup') {
             sawNoMetrics = true
         }
-        if (status === 'has-data' && sawNoMetrics && !firstIngestIntentFired) {
+        if (status === 'has-data' && hasIngestedMetrics && sawNoMetrics && !firstIngestIntentFired) {
             firstIngestIntentFired = true
             void addProductIntent({
                 product_type: ProductKey.METRICS,
@@ -63,5 +86,7 @@ export const metricsSetupLogic = createSetupDetectionLogic({
     // The first sample usually lands moments after the agent starts, so re-check
     // often enough for the flip to feel immediate.
     pollIntervalMs: 5000,
-    cacheHasData: true,
+    cacheHasData: () => hasIngestedMetrics,
+    // A cached visit still records experiment exposure, which only the detection call fires.
+    revalidateCachedHasData: true,
 })

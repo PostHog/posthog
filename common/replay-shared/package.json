@@ -11,14 +11,14 @@
         "test": "jest"
     },
     "dependencies": {
-        "fflate": "^0.8.2",
+        "fflate": "^0.8.3",
         "fzstd": "^0.1.1",
         "hls.js": "^1.5.7",
         "posthog-js": "catalog:"
     },
     "devDependencies": {
-        "@swc/core": "^1.11.29",
-        "@swc/jest": "^0.2.37",
+        "@swc/core": "^1.16.20",
+        "@swc/jest": "^0.2.39",
         "@types/jest": "catalog:",
         "jest": "^29.7.0",
         "jest-junit": "catalog:"

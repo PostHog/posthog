@@ -27,6 +27,7 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
 import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
+import { EmailTrackingService } from '../services/messaging/email-tracking.service'
 import { EmailService } from '../services/messaging/email.service'
 import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
@@ -76,6 +77,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     recipientsManager: RecipientsManagerService
 
     emailService: EmailService
+    emailTrackingService: EmailTrackingService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     workflowsActivationReporter: WorkflowsActivationReporter
     cdpUsageReporter: CdpUsageReporterService
@@ -109,6 +111,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.emailService = services.emailService
+        this.emailTrackingService = services.emailTrackingService
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
         this.workflowsActivationReporter = services.workflowsActivationReporter
         this.cdpUsageReporter = services.cdpUsageReporter

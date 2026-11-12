@@ -647,6 +647,32 @@ describe('Hono MCP analytics contexts', () => {
             // Its result is a live presigned S3 POST (policy, signature, credential) — output
             // fields, not secret-shaped keys, so key-based redaction can't catch them.
             ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png', purpose: 'email' }, false],
+            // Its args are raw Fivetran responses, with secrets in fields redaction can't name.
+            [
+                'the Fivetran upload tool',
+                'warehouse-migration-upload-connections',
+                { connections: [{ connection: { config: { pat: 'fake-token' } } }] },
+                false,
+            ],
+            [
+                'the Fivetran upload tool through exec',
+                'exec',
+                {
+                    command:
+                        'call warehouse-migration-upload-connections {"connections":[{"connection":{"config":{"pat":"fake-token"}}}]}',
+                },
+                false,
+            ],
+            [
+                'a Fivetran upload exec rejects for a missing verb',
+                'exec',
+                {
+                    command:
+                        'warehouse-migration-upload-connections {"connections":[{"connection":{"pat":"fake-token"}}]}',
+                },
+                false,
+            ],
+            ['the presigned upload tool through exec', 'exec', { command: 'call media-image-upload-start {}' }, false],
             [
                 'execute-sql wrapped in a connection call',
                 'posthog-connection-call',

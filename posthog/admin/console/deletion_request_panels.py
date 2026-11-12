@@ -115,6 +115,7 @@ class DeletionRequestOverviewPanel(Panel):
     key = "overview"
     title = "Overview"
     owner = CLICKHOUSE
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -192,6 +193,7 @@ class DeletionRequestStatsPanel(Panel):
     key = "stats"
     title = "ClickHouse stats"
     owner = CLICKHOUSE
+    order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -485,6 +487,8 @@ class DeletionRequestWorkflowPanel(Panel):
     key = "workflow"
     title = "Workflow"
     owner = CLICKHOUSE
+    operation_keys = frozenset({"submit", "approve", "revert-to-draft", "retry", "verify"})
+    order = 30
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -569,6 +573,8 @@ class DeletionRequestWorkflowPanel(Panel):
         return operations
 
     def _submit(self, obj: DataDeletionRequest) -> Operation:
+        # Staff usually explain the request in its notes, so the reason starts from them.
+        form_initial: dict[str, object] | None = {"reason": obj.notes} if obj.notes.strip() else None
         if obj.request_type == RequestType.EVENT_REMOVAL:
             return Operation(
                 key="submit",
@@ -577,6 +583,7 @@ class DeletionRequestWorkflowPanel(Panel):
                 # Unless staff tick the opt-out, the auto-approval job can approve it with no other human step.
                 danger=True,
                 form_class=AutoApprovableSubmitForm,
+                form_initial=form_initial,
                 undo_hint=(
                     "Until the deletion job picks it up, move the request back to draft. Data that a run already "
                     "deleted cannot be restored."
@@ -593,6 +600,7 @@ class DeletionRequestWorkflowPanel(Panel):
             label="Submit for approval",
             handler=submit,
             form_class=ReasonForm,
+            form_initial=form_initial,
             description=(
                 "Moves the request to pending. Only event removals are approved automatically, so this one waits "
                 "for the ClickHouse Team."
@@ -680,6 +688,7 @@ class DeletionRequestCriteriaPanel(Panel):
     key = "criteria"
     title = "Criteria"
     owner = CLICKHOUSE
+    order = 40
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -754,3 +763,22 @@ class NewDeletionRequestTool(ConsoleTool):
                 description="Creates a draft and opens it. Nothing is deleted yet.",
             )
         ]
+
+
+for old, target in {
+    "submit": "workflow/submit/",
+    "approve": "workflow/approve/",
+    "retry": "workflow/retry/",
+    "revert-to-draft": "#panel-workflow",
+    "verify": "#panel-workflow",
+    "fetch-stats": "#panel-stats",
+    "preview-stats": "#panel-stats",
+}.items():
+    console.register_moved_action(
+        old_path=f"admin/posthog/datadeletionrequest/<uuid:pk>/{old}/", record="deletion-request", target=target
+    )
+console.register_moved_page(
+    old_path="admin/posthog/datadeletionrequest/add/",
+    title="Creating a deletion request",
+    url="/admin/console/tools/new-deletion-request/create/",
+)

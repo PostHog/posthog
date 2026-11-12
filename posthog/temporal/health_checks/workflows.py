@@ -10,7 +10,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.health_checks.activities import (
-        get_team_id_batches,
         get_team_id_page,
         push_health_check_metrics_activity,
         run_health_check_batch,
@@ -50,9 +49,8 @@ class HealthCheckWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: HealthCheckWorkflowInputs) -> dict:
-        if not temporalio.workflow.patched(PAGED_RUN_PATCH):
-            return await self._run_unpaged(inputs)
-
+        # Histories that carry the patch marker replay with deprecate_patch. Delete it once those runs drain.
+        temporalio.workflow.deprecate_patch(PAGED_RUN_PATCH)
         progress = inputs.progress or HealthCheckRunProgress()
         semaphore = asyncio.Semaphore(inputs.max_concurrent)
         while True:
@@ -77,26 +75,6 @@ class HealthCheckWorkflow(PostHogWorkflow):
             if info.is_continue_as_new_suggested() or info.get_current_history_length() >= MAX_HISTORY_EVENTS_PER_RUN:
                 temporalio.workflow.continue_as_new(dataclasses.replace(inputs, progress=progress))
 
-        return await self._finish(inputs, progress)
-
-    async def _run_unpaged(self, inputs: HealthCheckWorkflowInputs) -> dict:
-        """The run before PAGED_RUN_PATCH, kept so open runs replay. Delete it and `get_team_id_batches` after one deploy."""
-        batches = await temporalio.workflow.execute_activity(
-            get_team_id_batches,
-            inputs,
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
-
-        if not batches:
-            return {
-                "kind": inputs.kind,
-                "total_teams": 0,
-                "batches": 0,
-            }
-
-        semaphore = asyncio.Semaphore(inputs.max_concurrent)
-        progress = await self._run_batches(inputs, batches, HealthCheckRunProgress(), semaphore)
         return await self._finish(inputs, progress)
 
     async def _run_batches(

@@ -78,6 +78,17 @@ that JSON Schema cannot enforce, such as limits across sections and unique list 
 read-only tool to plan alternatives, then read the person's saved layout before replacing it. Schema discovery
 uses the same feature flag and project access checks as reading a customization; saving still validates every layout.
 
+For the Analytics sidebar, keep customization focused on navigation. Apply specific requests directly. For a general
+redesign, ask which destinations matter and which existing sections to keep. Check built-in lists before adding
+shortcuts, since the saved layout contains list references rather than their resolved items. Reuse existing navigation,
+avoid duplicate destinations, and add live metrics only when explicitly requested. Layout limits are ceilings, not targets.
+
+For a general redesign, use `activity-summary-get` when available to suggest a few destinations based on the current
+person's recent work, repeated object opens, and product pages. Explain each suggestion briefly, and give their stated
+goal priority over inferred interests. The summary has no exact date-range filter and can be stale, not ready, or
+unavailable. Fall back to resolved Pinned and Recents items or ask what matters now. The summary does not resolve those
+lists or authorize removing sections or adding metrics. Apply specific requests without fetching activity first.
+
 Preserve API errors with `throw result.error` or `wrapError(message, result.error)` from `@/lib/errors`.
 Copying only the message loses the HTTP status and retry guidance.
 For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
@@ -755,7 +766,7 @@ Product teams own their definitions and control which operations are exposed as 
    - `message` (required) – prompt text shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args at runtime.
    - `action_label` (optional) – short human-readable label for the action (e.g. "delete project"). Surfaced in refusal messages. Defaults to the tool's title.
 
-   **Security model:** the prepare step stashes the validated args and the active project/organization scope in Redis, and signs their SHA-256 digest together with the user identity, tool purpose, a TTL, and a single-use nonce into an HMAC-SHA256 token. The token stays small and constant-size no matter how large the args are, because the model relays only a reference to the payload. The execute step has a strict confirmation-only schema, verifies the signature, fetches-and-burns the stashed payload (the burn is the single-use enforcement), checks it against the signed digest, re-checks that the active scope still matches the one bound at prepare time, and only then runs the original handler with the verified payload. Action args belong only on prepare; extra execute-time fields are rejected, and a confirmation prepared while one project was active can't be replayed against another after `switch-project`.
+   **Security model:** the prepare step stashes the validated args and the active project/organization scope in Redis, and signs their SHA-256 digest together with the user identity, tool purpose, a TTL, and a single-use nonce into an HMAC-SHA256 token. The token stays small and constant-size no matter how large the args are, because the model relays only a reference to the payload. The execute step has a strict confirmation-only schema, verifies the signature, fetches-and-burns the stashed payload (the burn is the single-use enforcement), checks it against the signed digest, re-checks that the active scope still matches the one bound at prepare time, and only then runs the original handler with the verified payload. Action args belong only on prepare; extra execute-time fields are rejected, and a confirmation prepared while one project was active can't be replayed against another after `switch-project`. The token also binds a fingerprint of the tool's input schema. During a deploy, an executor built with a different schema refuses the confirmation, so it never sends a request without the arguments it doesn't know, and the agent runs prepare again. The executor also validates the stashed args against its own schema, which catches a rule, such as a `.refine` check, that the fingerprint can't see. It skips the args that prepare filled from the active project or organization, which the generator lists in `resolvedArgs`.
 
    The confirmation word is supplied through model-authored tool arguments. This is an instruction-backed workflow guard, not client-attested proof that the human typed the word. API scopes remain the authorization boundary.
 

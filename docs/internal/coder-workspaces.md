@@ -86,7 +86,7 @@ Run `hogli devbox:worktree` from a linked worktree to give it its own labeled bo
 It also handles boxes whose worktree was already removed some other way, but only once the box itself has not been used since the `--before` cutoff.
 `hogli devbox:worktree:prune` handles only those boxes, with no cutoff, after t3code, herdr or `git worktree remove` deleted the worktree.
 
-To give every new worktree a box, run `hogli devbox:worktree --auto claude,phw` once with the worktree sources you want (`claude`, `codex`, `posthog-code`, `phw`, `t3code`, `herdr`, `superset`, `emdash`, `orca`, `conductor`, `worktrunk`, `other`). The husky `post-checkout` hook then runs `devbox:worktree` in the background after `git worktree add`, including for `claude -w`. Superset, Emdash, Orca and worktrunk run it from the create hooks checked into the repo, and stop the box from their remove hooks. For Conductor, `--auto conductor` adds the same hooks to your uncommitted `.conductor/settings.local.toml`, so other people's Conductor scripts stay as they are. t3code runs it only after you import `t3.json` once with **Import from t3.json** in the project's scripts. herdr users link `tools/herdr-devbox-plugin` with `herdr plugin link`. Claude subagent worktrees are skipped. Turn it off with `--auto off`.
+To give every new worktree a box, run `hogli devbox:worktree --auto claude,phw` once with the worktree sources you want (`claude`, `codex`, `posthog-code`, `phw`, `t3code`, `herdr`, `superset`, `emdash`, `orca`, `conductor`, `worktrunk`, `paseo`, `other`). The husky `post-checkout` hook then runs `devbox:worktree` in the background after `git worktree add`, including for `claude -w`. Superset, Emdash, Orca and worktrunk run it from the create hooks checked into the repo, and stop the box from their remove hooks. For Conductor, `--auto conductor` adds the same hooks to your uncommitted `.conductor/settings.local.toml`, so other people's Conductor scripts stay as they are. t3code runs it only after you import `t3.json` once with **Import from t3.json** in the project's scripts. herdr users link `tools/herdr-devbox-plugin` with `herdr plugin link`. Paseo users add the same hooks to an untracked `paseo.json` in the main checkout, which Paseo copies into each new worktree. Claude subagent worktrees are skipped. Turn it off with `--auto off`.
 
 **Worktree boxes on Hogland** —
 `hogli devbox:worktree --provider hogland` gives the worktree a Hogland devbox instead of a Coder workspace.
@@ -95,7 +95,8 @@ The box is named `wt-<label>` and the mirror goes to `/home/hog/posthog` over SS
 To make Hogland the default, including for automatic boxes, pass `--provider hogland` together with `--auto`.
 `hogli devbox:config:rm worktree-provider` goes back to Coder.
 `worktrees:clean --stop-boxes` hibernates a Hogland box, and `--delete-boxes` deletes it.
-`--clone-from` and `--start-app` work only with Coder.
+`--clone-from <label>` clones the running Hogland devbox `wt-<label>` with `hogland devbox clone`, which needs a recent `hogland` CLI.
+`--start-app` on a new box saves the file `~/.config/hogli/start-app` on it, and every later `devbox:worktree` run then starts the app with `hogli up -d`.
 
 ## Prerequisites
 
@@ -181,6 +182,7 @@ Common secrets include `CLAUDE_CODE_OAUTH_TOKEN` and `GH_TOKEN`.
 ## Auth model
 
 - Laptop to workspace access uses `coder ssh` and `coder config-ssh` (configured automatically during setup)
+- SSH to a stopped devbox fails with "workspace must be started" instead of starting it. Run `hogli devbox:start` first. Tools that reconnect in the background, such as Herdr and editors, would otherwise queue a new build on every retry.
 - Git inside the workspace should use HTTPS via Coder external auth — do not set up SSH Git inside the workspace
 - Claude auth is stored as a Coder user secret named `CLAUDE_CODE_OAUTH_TOKEN` (requires Coder 2.33+). Run `hogli devbox:setup --configure-claude` to set or replace it.
 

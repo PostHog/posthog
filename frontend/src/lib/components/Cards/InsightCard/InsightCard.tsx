@@ -34,6 +34,7 @@ import { Query } from '~/queries/Query/Query'
 import { queryVizDefinitelyRendersToCanvas } from '~/queries/schema/node-accessors'
 import { isBIVisualizationNode } from '~/queries/schema/node-guards'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import type { QueryContext } from '~/queries/types'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -175,6 +176,7 @@ export interface InsightCardProps extends Resizeable {
     projectTimezone?: string
     /** Shown above the title, for a card that has to name where its insight comes from. */
     contextHeading?: JSX.Element | null
+    onDateRangeZoom?: QueryContext['onDateRangeZoom']
 }
 
 function InsightCardInternal(
@@ -230,6 +232,7 @@ function InsightCardInternal(
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
+        onDateRangeZoom,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -435,6 +438,7 @@ function InsightCardInternal(
                         renderVizWhenMounted && placement === DashboardPlacement.Dashboard,
                     // Small tables keep natural column widths because their full row count is cheap to render.
                     dataVisualizationTableVirtualizationCellThreshold: 100,
+                    onDateRangeZoom,
                 }}
                 readOnly
                 embedded
@@ -454,6 +458,7 @@ function InsightCardInternal(
         biDashboardTileId,
         dashboardId,
         loadPriority,
+        onDateRangeZoom,
     ])
 
     const vizContent = shouldRenderViz ? (

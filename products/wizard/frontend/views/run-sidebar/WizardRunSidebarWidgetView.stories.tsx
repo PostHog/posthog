@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { mswDecorator } from '~/mocks/browser'
+
 import type { WizardRunApi, WizardRunTaskApi } from '../../generated/api.schemas'
 import { WizardRunSidebarWidgetView } from './WizardRunSidebarWidgetView'
 
@@ -142,6 +144,50 @@ export const MultipleRunsHovered: Story = {
 export const MultipleRunsMenuOpen: Story = {
     args: {
         ...MultipleRuns.args,
+        initialMenuOpen: true,
+    },
+}
+
+export const DetectedSourcesMenuOpen: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/external_data_sources/wizard': {
+                    Stripe: { name: 'Stripe', label: 'Stripe', iconPath: '/static/services/stripe.png', fields: [] },
+                    Postgres: {
+                        name: 'Postgres',
+                        label: 'Postgres',
+                        iconPath: '/static/services/postgres.png',
+                        fields: [],
+                    },
+                },
+            },
+        }),
+    ],
+    args: {
+        detectedSources: [
+            {
+                kind: 'Stripe',
+                warehouse_source_type: 'Stripe',
+                first_seen_at: '2026-09-23T10:01:00Z',
+                last_seen_at: '2026-09-23T10:01:00Z',
+            },
+            {
+                kind: 'Postgres',
+                warehouse_source_type: 'Postgres',
+                first_seen_at: '2026-09-23T10:01:00Z',
+                last_seen_at: '2026-09-23T10:01:00Z',
+            },
+        ],
+        onDetectedSourceClick: () => {},
+        tasksByRunId: {
+            [baseRun.id]: [
+                { ...addingEventsTask, name: 'Installing the SDK', status: 'completed' },
+                { ...addingEventsTask, name: 'Identifying users', status: 'completed' },
+                addingEventsTask,
+                { ...addingEventsTask, name: 'Creating a dashboard', status: 'created', started_at: null },
+            ],
+        },
         initialMenuOpen: true,
     },
 }

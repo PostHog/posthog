@@ -13,11 +13,11 @@ const PRIOR_LABELS: Record<HighlightMetricApi['interval'], string> = {
 }
 
 export function pulsePeriodCaption(metric: HighlightMetricApi): string {
-    return PERIOD_CAPTIONS[metric.interval]
+    return metric.reason === 'evaluation' ? 'Recent reports' : PERIOD_CAPTIONS[metric.interval]
 }
 
 export function pulsePriorLabel(metric: HighlightMetricApi): string {
-    return PRIOR_LABELS[metric.interval]
+    return metric.reason === 'evaluation' ? 'vs previous report' : PRIOR_LABELS[metric.interval]
 }
 
 export interface PulseChange {

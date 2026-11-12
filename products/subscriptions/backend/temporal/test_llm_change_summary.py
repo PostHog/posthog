@@ -487,7 +487,10 @@ class TestGenerateChangeSummary:
         result = generate_change_summary([], [_make_state(1, "Traffic", "100 views")], slack_formatting=True)
 
         assert result == "• Traffic is stable."
-        assert [call.kwargs["max_tokens"] for call in client.chat.completions.create.call_args_list] == [1500, 4500]
+        assert [call.kwargs["max_completion_tokens"] for call in client.chat.completions.create.call_args_list] == [
+            4096,
+            8192,
+        ]
 
     @parameterized.expand([(False,), (True,)])
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
@@ -504,8 +507,9 @@ class TestGenerateChangeSummary:
         assert "Pageviews" in result
         mock_client.chat.completions.create.assert_called_once()
         call_kwargs = mock_client.chat.completions.create.call_args
-        assert call_kwargs.kwargs["temperature"] == 0.3
-        assert call_kwargs.kwargs["max_tokens"] == 1500
+        assert "temperature" not in call_kwargs.kwargs
+        assert "max_tokens" not in call_kwargs.kwargs
+        assert call_kwargs.kwargs["max_completion_tokens"] == 4096
         system_prompt = call_kwargs.kwargs["messages"][0]["content"]
         assert "Format this delivery for Slack" not in system_prompt
         assert "remove filler, stock phrases, inflated claims, and duplicate observations" in system_prompt
@@ -634,6 +638,28 @@ class TestGenerateChangeSummary:
 
         messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
         assert isinstance(messages[-1]["content"], str)
+
+    @parameterized.expand(
+        [
+            ("trends_only", ["TrendsQuery"], True),
+            ("stickiness_only", ["StickinessQuery"], False),
+            ("stickiness_with_trends", ["StickinessQuery", "TrendsQuery"], True),
+        ]
+    )
+    @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
+    def test_adds_trend_field_rules_only_for_calendar_time_series(self, _name, query_kinds, expected, mock_get_client):
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
+
+        current = [
+            _make_state(index, f"Insight {index}", "...", query_kind=kind, timestamp="2025-04-15T10:00:00Z")
+            for index, kind in enumerate(query_kinds, start=1)
+        ]
+
+        generate_change_summary(None, current, team=None)
+
+        system_content = mock_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        assert ("Trend series fields:" in system_content) is expected
 
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
     def test_skips_images_for_insights_not_in_current_states(self, mock_get_client):

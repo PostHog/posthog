@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, ClassVar, Optional
 
 if TYPE_CHECKING:
     from .ast import Expr
@@ -69,6 +69,55 @@ class QueryError(ExposedHogQLError):
     """The query is invalid, though correct syntactically."""
 
     code_name = "hogql_query_error"
+
+
+class BoundedResolverError(QueryError):
+    """Base class for saved view resolution failures: cycles, nesting depth and deadlines.
+
+    Inherits from QueryError so callers that catch the public HogQL exception
+    hierarchy (DRF handlers, workflow error mappers) keep treating these failures
+    as user-facing 4xx errors rather than 500s. `initial_view` names the saved query
+    whose resolution was in progress when the failure occurred, so callers can
+    attribute and log the failure without having to plumb context through themselves.
+    """
+
+    status_label: ClassVar[str] = "error"
+
+    def __init__(self, message: str, initial_view: str | None = None):
+        super().__init__(message)
+        self.initial_view = initial_view
+
+
+class ResolutionCycleError(BoundedResolverError):
+    """A view references itself through other views.
+
+    `view_name` is the inner view at which the cycle was detected (the one
+    already on the resolution stack). `initial_view` is the saved query the
+    caller asked to resolve.
+    """
+
+    status_label: ClassVar[str] = "cycle"
+
+    def __init__(self, view_name: str, initial_view: str | None = None):
+        message = f"Circular dependency detected in view '{view_name}'"
+        if initial_view and initial_view != view_name:
+            message += f" while resolving '{initial_view}'"
+        super().__init__(message, initial_view=initial_view)
+        self.view_name = view_name
+
+
+class ResolutionDepthExceededError(BoundedResolverError):
+    """View resolution would exceed the configured nesting depth."""
+
+    status_label: ClassVar[str] = "depth_exceeded"
+
+    def __init__(self, depth: int, max_depth: int, initial_view: str | None = None):
+        message = f"Query exceeds the limit of {max_depth} nested saved views. Reduce the view nesting depth."
+        if initial_view:
+            message += f" Resolving '{initial_view}'."
+        super().__init__(message, initial_view=initial_view)
+        self.depth = depth
+        self.max_depth = max_depth
 
 
 class TableAccessDeniedError(QueryError):

@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
@@ -27,6 +28,7 @@ import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpCohortMembershipTriggerConsumer } from './cdp/consumers/cdp-cohort-membership-trigger.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
+import { CdpCyclotronWorkerEmailSandbox } from './cdp/consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
@@ -38,6 +40,7 @@ import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.co
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
+import { CdpSesWebhooksConsumer } from './cdp/consumers/cdp-ses-webhooks.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
 import { createCdpOutputsRegistry } from './cdp/outputs/registry'
@@ -98,12 +101,14 @@ export class PluginServer implements NodeServer {
             capabilities.cdpProcessedEvents ||
             capabilities.cdpDataWarehouseEvents ||
             capabilities.cdpInternalEvents ||
+            capabilities.cdpSesWebhooks ||
             capabilities.cdpPersonUpdates ||
             capabilities.cdpLegacyOnEvent ||
             capabilities.cdpApi ||
             capabilities.cdpCyclotronWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
             capabilities.cdpCyclotronWorkerEmail ||
+            capabilities.cdpCyclotronWorkerEmailSandbox ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpCohortMembershipTriggers ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
@@ -318,6 +323,14 @@ export class PluginServer implements NodeServer {
             })
         }
 
+        if (capabilities.cdpSesWebhooks) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpSesWebhooksConsumer(this.config, cdpDeps!)
+                await consumer.start()
+                return consumer.service
+            })
+        }
+
         if (capabilities.cdpRerunWorker) {
             serviceLoaders.push(async () => {
                 const worker = new CdpRerunWorkerConsumer(this.config, cdpDeps!, {
@@ -378,6 +391,15 @@ export class PluginServer implements NodeServer {
             })
         }
 
+        if (capabilities.cdpCyclotronWorkerEmailSandbox) {
+            serviceLoaders.push(async () => {
+                const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                const worker = new CdpCyclotronWorkerEmailSandbox(this.config, cdpDeps!, queue)
+                await worker.start()
+                return worker.service
+            })
+        }
+
         if (capabilities.cdpHogflowScheduler) {
             serviceLoaders.push(() => {
                 const scheduler = new HogFlowScheduleService(this.config)
@@ -431,11 +453,13 @@ export class PluginServer implements NodeServer {
                     },
                     queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
                     pollDelayMs: 100,
+                    pollDelayMaxMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS,
                     heartbeatTimeoutMs: this.config.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS + 30_000,
                     // Pages are processed serially, so a bigger dequeue batch adds no throughput —
                     // it only leaves queued peers un-heartbeated behind a slow audience fetch until
                     // the janitor's stall sweep reclaims them. Same shape as the rerun worker.
                     batchMaxSize: 1,
+                    boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
                 })
                 const internalFetchService = new InternalFetchService(
                     this.config.INTERNAL_API_BASE_URL,
@@ -542,7 +566,10 @@ export class PluginServer implements NodeServer {
         const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub!,
+            new PostgresIntegrationSource(this.postgres!, encryptedFields)
+        )
         const internalCaptureService = new InternalCaptureService(this.config)
 
         return {

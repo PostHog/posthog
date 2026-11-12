@@ -75,6 +75,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | Tool                                  | Purpose                                                                                                       |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)                                                 |
+| `inbox-reports-search`                | Reports ranked by how well they match a query, by keywords and by meaning. Behind a rollout flag              |
 | `inbox-reports-retrieve`              | Full detail for a single report                                                                               |
 | `inbox-reports-claim`                 | Claim or release a report, and optionally attach its implementation PR                                        |
 | `inbox-reports-create`                | File a finding of your own as a report. It never starts an implementation run on its own                      |
@@ -90,7 +91,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | `inbox-source-configs-partial-update` | Toggle a source's `enabled` flag (or adjust its `config`)                                                     |
 | `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first)                                           |
 
-The `inbox-reports-*-list` / `-retrieve`, `inbox-report-artefacts-list` / `-retrieve`, and
+The `inbox-reports-*-list` / `-retrieve`, `inbox-reports-search`, `inbox-report-artefacts-list` / `-retrieve`, and
 `inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (resolve / dismiss / snooze a single report),
 `inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call),
 `inbox-reports-claim` (claim / release / attach a PR), see
@@ -119,6 +120,10 @@ What each report status means (in roughly the order a triage agent should care a
 By default `inbox-reports-list` excludes `suppressed` reports and orders results by
 `-is_suggested_reviewer,status,-updated_at` — the user's own suggested reports first, then by
 status, then most recently updated. Refer to the tool's input schema for filter mechanics.
+
+To find the reports about a topic, such as before filing one, use `inbox-reports-search` when it is present.
+It ranks reports by relevance across every status, and matches a report that describes the topic in other words.
+The `search` filter on `inbox-reports-list` matches the exact text only.
 
 ## Dismissed and held-back reports
 

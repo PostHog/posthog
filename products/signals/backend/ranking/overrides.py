@@ -1,9 +1,10 @@
 """Temporary owner overrides of ranking serving, read from one feature flag payload.
 
 An owner sets the `inbox-ranking-overrides` payload only to intervene, and every payload expires on
-its own. The scoring sweep reads `served`, and the training dag reads `pin`. Both parse the payload
-here, so the two cannot disagree about what a payload means. Promotion is not an override: the
-`inbox_ranking_promote_job` writes the served pointer.
+its own. The scoring sweep reads `served`, and the training dag reads `pin` and
+`hold_auto_promotion`. Both parse the payload here, so the two cannot disagree about what a payload
+means. Promotion is not an override: the daily serving publish and `inbox_ranking_promote_job` write
+the served pointer, and `hold_auto_promotion` only stops the publish from moving it.
 
 The parser is fail-safe. An absent, expired or invalid payload, or a failed flag lookup, gives
 `NO_OVERRIDES`, and the sweep and the dag then run as they do with no flag. An invalid payload is
@@ -45,6 +46,7 @@ class _OverridesPayload(pydantic.BaseModel):
     expires_at: pydantic.AwareDatetime
     served: str | None = None
     pin: list[str] = []
+    hold_auto_promotion: bool = False
 
     @pydantic.field_validator("served")
     @classmethod
@@ -68,6 +70,7 @@ class RankingOverrides:
     expires_at: datetime.datetime | None = None
     served: str | None = None
     pin: tuple[str, ...] = ()
+    hold_auto_promotion: bool = False
 
 
 NO_OVERRIDES = RankingOverrides()
@@ -84,6 +87,7 @@ def _validated(payload: Mapping[str, Any], now: datetime.datetime) -> RankingOve
         expires_at=parsed.expires_at,
         served=parsed.served,
         pin=tuple(dict.fromkeys(parsed.pin)),
+        hold_auto_promotion=parsed.hold_auto_promotion,
     )
 
 

@@ -92,7 +92,6 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     const featureFlags = {
         'self-driving-usage-display': true,
         tracing: true,
-        'logs-agent-tools': true,
         tasks: true,
         'tasks-mcp-agent-run-start': true,
         loops: true,
@@ -117,7 +116,9 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'workflows-transactional-email-api': true,
         'workflows-email-from-code': true,
         'activity-summary': true,
+        'warehouse-migration-import': true,
         'activity-summary-search': true,
+        'inbox-reports-search': true,
         'personal-inbox-ranking': true,
         'aeo-citation-tracking': true,
         'mcp-session-recording-console-logs': true,
