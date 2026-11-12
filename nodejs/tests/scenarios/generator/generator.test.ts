@@ -95,7 +95,10 @@ describe('drive', () => {
         }
     )
 
-    it('counts a transactional unit sent inside the window though cdp-api refused it after the window', async () => {
+    it.each([
+        ['accepted', 202],
+        ['refused', 503],
+    ])('counts a transactional unit sent inside the window that cdp-api %s after the window', async (_, status) => {
         jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
         const held: http.ServerResponse[] = []
         let arrive = (): void => undefined
@@ -126,7 +129,7 @@ describe('drive', () => {
             await jest.advanceTimersByTimeAsync(50)
             await arrived
             await jest.advanceTimersByTimeAsync(100)
-            held.forEach((response) => response.writeHead(503).end())
+            held.forEach((response) => response.writeHead(status).end('{}'))
 
             expect(await driving).toEqual({ targetUnits: 2, offeredUnits: 2 })
         } finally {
