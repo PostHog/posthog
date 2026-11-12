@@ -466,8 +466,8 @@ tools:
             daily run. Steps the project already covers are skipped, so running it again only fills the gaps. Unlike
             `aeo-prompts-suggest` and `aeo-keywords-suggest`, this saves what PostHog suggests, so confirm the domain
             with the user first. Returns a pending job right away; poll `aeo-setup-get` with the `id` until `status` is
-            `completed` or `failed`, which takes a few minutes. Then show the user the prompts and keywords it added.
-            A 409 means a setup job is already running: poll its `job_id` instead. To check a project that is already
-            set up now, send only `only_first_run: true`.
+            `completed` or `failed`, which takes a few minutes. Then show the user the prompts and keywords it added. A
+            409 means a setup job is already running: poll its `job_id` instead. To check a project that is already set
+            up now, send only `only_first_run: true`.
         requires_ai_consent: true
         feature_flag: aeo-citation-tracking
