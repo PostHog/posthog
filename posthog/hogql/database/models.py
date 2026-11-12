@@ -247,7 +247,6 @@ class Table(FieldOrTable):
     # When True, queries reading this table don't send HogQL's default
     # `max_bytes_before_external_group_by=0`, so the ClickHouse user profile's spill thresholds apply.
     inherit_profile_spill: bool = False
-    # Whether a persons join from this table applies personIdPushdown when the modifier is unset.
     person_id_pushdown_default: bool = False
     workload: Optional[Workload] = None
     model_config = ConfigDict(extra="forbid")
