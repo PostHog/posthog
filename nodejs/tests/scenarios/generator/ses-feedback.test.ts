@@ -10,17 +10,18 @@ const NEVER_ABORTED = new AbortController().signal
 
 type Feedback = Pick<TruthRecord, 'unitId' | 'status' | 'detail'> & Partial<Pick<TruthRecord, 'kind'>>
 
-function startEdge(feedback: Feedback[]): Promise<{ url: string; close(): Promise<void> }> {
-    const records: TruthRecord[] = feedback.map((record, i) => ({
-        seq: i + 1,
-        at: new Date(0).toISOString(),
-        kind: 'ses.feedback',
-        fault: 'ses.reject',
-        ...record,
-    }))
+function truthRecord(seq: number, record: Feedback): TruthRecord {
+    return { seq, at: new Date(0).toISOString(), kind: 'ses.feedback', fault: 'ses.reject', ...record }
+}
+
+function startEdge(feedback: Feedback[] | 'never drained'): Promise<{ url: string; close(): Promise<void> }> {
+    const pageAfter = (after: number): TruthRecord[] =>
+        feedback === 'never drained'
+            ? [truthRecord(after + 1, { unitId: 'run-a-2', status: 200, detail: {} })]
+            : feedback.map((record, i) => truthRecord(i + 1, record)).slice(after)
     const server = http.createServer((req, res) => {
         const after = Number(new URL(req.url!, 'http://edge').searchParams.get('after'))
-        const page = records.slice(after)
+        const page = pageAfter(after)
         res.writeHead(200, { 'content-type': 'application/json' }).end(
             JSON.stringify({ records: page, next: page.at(-1)?.seq ?? after })
         )
@@ -85,9 +86,23 @@ describe('watchSesFeedback', () => {
         }
     })
 
-    it.each<[string, Feedback[]]>([
+    it('gives up at the deadline while the edge keeps recording other units', async () => {
+        const edge = await startEdge('never drained')
+        try {
+            const watch = watchSesFeedback({ edgeUrl: edge.url, lag: () => Promise.resolve(0), withinMs: 50 })
+
+            expect(await Promise.race([watch.settled(UNIT, NEVER_ABORTED), sleep(1000, 'still reading')])).toBe(
+                'the edge recorded no SES feedback within 0.05s'
+            )
+        } finally {
+            await edge.close()
+        }
+    })
+
+    it.each<[string, Feedback[] | 'never drained']>([
         ['while it waits for feedback', []],
         ['while it waits for the consumer', [{ unitId: UNIT, status: 200, detail: {} }]],
+        ['while the edge keeps recording other units', 'never drained'],
     ])('stops at an abort %s', async (_story, feedback) => {
         const edge = await startEdge(feedback)
         try {

@@ -21,34 +21,30 @@ const FEEDBACK_ANSWERED = 200
 export function watchSesFeedback({ edgeUrl, lag, withinMs = 60_000, pollMs = 500 }: SesFeedbackOptions): SesFeedback {
     const answers = new Map<string, Pick<TruthRecord, 'status' | 'detail'>>()
     let cursor = 0
-    let reading: Promise<void> | undefined
+    let reading: Promise<boolean> | undefined
 
-    const readTruth = async (): Promise<void> => {
-        for (;;) {
-            const response = await internalFetch(`${edgeUrl}/_truth?after=${cursor}`)
-            const text = await response.text()
-            if (response.status !== 200) {
-                throw new Error(`The edge answered /_truth with ${response.status}: ${text}`)
-            }
-            const page = parseJSON(text) as TruthPage
-            if (page.records.length === 0) {
-                return
-            }
-            for (const { kind, unitId, status, detail } of page.records) {
-                if (kind === 'ses.feedback' && unitId !== undefined) {
-                    answers.set(unitId, { status, detail })
-                }
-            }
-            cursor = page.next
+    const readTruthPage = async (): Promise<boolean> => {
+        const response = await internalFetch(`${edgeUrl}/_truth?after=${cursor}`)
+        const text = await response.text()
+        if (response.status !== 200) {
+            throw new Error(`The edge answered /_truth with ${response.status}: ${text}`)
         }
+        const page = parseJSON(text) as TruthPage
+        for (const { kind, unitId, status, detail } of page.records) {
+            if (kind === 'ses.feedback' && unitId !== undefined) {
+                answers.set(unitId, { status, detail })
+            }
+        }
+        cursor = page.next
+        return page.records.length > 0
     }
-    const read = (): Promise<void> => (reading ??= readTruth().finally(() => (reading = undefined)))
+    const read = (): Promise<boolean> => (reading ??= readTruthPage().finally(() => (reading = undefined)))
 
     return {
         async settled(unitId, signal) {
             const deadline = Date.now() + withinMs
             for (;;) {
-                await read()
+                const morePages = await read()
                 const answer = answers.get(unitId)
                 if (answer?.status === FEEDBACK_ANSWERED) {
                     break
@@ -59,7 +55,7 @@ export function watchSesFeedback({ edgeUrl, lag, withinMs = 60_000, pollMs = 500
                 if (Date.now() >= deadline) {
                     return `the edge recorded no SES feedback within ${withinMs / 1000}s`
                 }
-                await sleep(pollMs, undefined, { signal })
+                await sleep(morePages ? 0 : pollMs, undefined, { signal })
             }
             for (;;) {
                 const behind = await lag()
