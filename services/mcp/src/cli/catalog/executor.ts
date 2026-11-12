@@ -23,6 +23,7 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+import { hookVersion } from './hook-versions'
 import type { CatalogEntry, CatalogHttpTool } from './schema'
 
 const CASTS: Record<CatalogHttpTool['input']['casts'][string], (value: unknown) => unknown> = {
@@ -46,7 +47,8 @@ function validatorNamed(name: string): Validator | undefined {
 
 export function hasCapability(capability: string): boolean {
     if (capability.startsWith('hook:')) {
-        return hasKey(GENERATED_TOOL_HOOKS, capability.slice('hook:'.length))
+        const [name = '', version] = capability.slice('hook:'.length).split('@')
+        return hasKey(GENERATED_TOOL_HOOKS, name) && version === String(hookVersion(name))
     }
     if (capability.startsWith('validator:')) {
         return validatorNamed(capability.slice('validator:'.length)) !== undefined

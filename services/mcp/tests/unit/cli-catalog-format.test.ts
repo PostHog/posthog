@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { catalogTool } from '@/cli/catalog/executor'
+import { catalogTool, hasCapability } from '@/cli/catalog/executor'
+import { hookVersion } from '@/cli/catalog/hook-versions'
 import { CATALOG_SCHEMA_VERSION, type CatalogEntry, CatalogHttpToolSchema } from '@/cli/catalog/schema'
 import type { Context } from '@/tools/types'
 
@@ -77,10 +78,15 @@ const PLANS: [CatalogEntry, Record<string, unknown>][] = [
                     tags: { type: 'array', items: { type: 'string' } },
                     limit: { type: 'integer', default: 50 },
                     expand: { type: 'array', items: { type: 'string' } },
+                    since: {
+                        type: 'string',
+                        format: 'date-time',
+                        pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2})$',
+                    },
                 },
             }
         ),
-        { tags: ['a', 'b'], expand: ['detail'] },
+        { tags: ['a', 'b'], expand: ['detail'], since: '2026-01-02T03:04:05+01:00', undeclared: true },
     ],
     [
         plan(
@@ -188,6 +194,20 @@ function fakeContext(): { context: Context; calls: unknown[] } {
     return { context, calls }
 }
 
+const HOOK = 'featureFlags/conditionIdHooks'
+
+function capabilityGrammar(): Record<string, boolean> {
+    const version = hookVersion(HOOK)!
+    return {
+        'hook:<name>@<its version>': hasCapability(`hook:${HOOK}@${version}`),
+        'hook:<name>@<another version>': hasCapability(`hook:${HOOK}@${version + 1}`),
+        'hook:<name>': hasCapability(`hook:${HOOK}`),
+        'hook:<unknown name>@1': hasCapability('hook:missing/hooks@1'),
+        'validator:<unknown name>': hasCapability('validator:missingValidator'),
+        '<anything else>': hasCapability('streaming'),
+    }
+}
+
 describe('CLI catalog format', () => {
     // A change here means plans written in this format run differently. Old hogs keep running them the
     // old way, so bump CATALOG_SCHEMA_VERSION, which makes them ignore the catalog. Update the snapshot
@@ -197,12 +217,17 @@ describe('CLI catalog format', () => {
         for (const [entry, input] of PLANS) {
             const tool = catalogTool(entry)
             const { context, calls } = fakeContext()
-            const result = await tool.handler(context, tool.schema.parse(input))
-            runs.push({ name: entry.name, requests: calls, result })
+            const parsed = tool.schema.parse(input)
+            const result = await tool.handler(context, parsed)
+            runs.push({ name: entry.name, parsed, requests: calls, result })
         }
 
         await expect(
-            JSON.stringify({ planSchema: z.toJSONSchema(CatalogHttpToolSchema), runs }, null, 4) + '\n'
+            JSON.stringify(
+                { planSchema: z.toJSONSchema(CatalogHttpToolSchema), capabilities: capabilityGrammar(), runs },
+                null,
+                4
+            ) + '\n'
         ).toMatchFileSnapshot(`./__snapshots__/cli-catalog-format-v${CATALOG_SCHEMA_VERSION}.txt`)
     })
 })

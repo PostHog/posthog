@@ -4,6 +4,7 @@ import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
 import catalogToolsJson from '../../../schema/cli-catalog-tools.json'
+import { hookVersion } from './hook-versions'
 import {
     CATALOG_MIN_HOG_VERSION,
     CATALOG_SCHEMA_VERSION,
@@ -19,6 +20,18 @@ export interface BuiltCatalog {
     tools: CatalogEntry[]
 }
 
+function versionedHook(capability: string): string {
+    if (!capability.startsWith('hook:')) {
+        return capability
+    }
+    const name = capability.slice('hook:'.length)
+    const version = hookVersion(name)
+    if (version === undefined) {
+        throw new Error(`The hook ${name} has no version in hook-versions.ts.`)
+    }
+    return `${capability}@${version}`
+}
+
 export function buildCliCatalog(build: string | null): BuiltCatalog {
     const plans = catalogToolsJson as Record<string, unknown>
     const tools: CatalogEntry[] = []
@@ -30,6 +43,7 @@ export function buildCliCatalog(build: string | null): BuiltCatalog {
         const plan: CatalogHttpTool = CatalogHttpToolSchema.parse(rawPlan)
         tools.push({
             ...plan,
+            requires: plan.requires.map(versionedHook),
             definition: getToolDefinition(name),
             // The spread drops the non-enumerable `~standard` handle, which keeps the zod schema alive.
             inputSchema: { ...z.toJSONSchema(factory().schema, { io: 'input' }) } as Record<string, unknown>,

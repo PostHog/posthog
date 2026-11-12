@@ -5,6 +5,7 @@ import { loadCatalog } from '@/cli/catalog/load'
 import { createApiToolLibrary } from '@/cli/library'
 
 const TOOL = 'annotations-list'
+const HOOKED_TOOL = 'create-feature-flag'
 
 function catalogWith(change: (entry: Record<string, any>) => void, name = TOOL): Record<string, any> {
     const catalog = structuredClone(buildCliCatalog('test-build')) as Record<string, any>
@@ -42,6 +43,38 @@ describe('CLI catalog loading', () => {
 
         expect(loaded).toMatchObject({ ok: true, dropped: [{ name: TOOL, reason: expect.stringContaining(reason) }] })
         expect(loaded.ok && loaded.entries.map((entry) => entry.name)).not.toContain(TOOL)
+    })
+
+    it.each([
+        [
+            'a newer version of a hook',
+            (entry: any) => (entry.requires = ['hook:featureFlags/conditionIdHooks@2']),
+            'needs hook:featureFlags/conditionIdHooks@2',
+        ],
+        [
+            'a hook without a version',
+            (entry: any) => (entry.requires = ['hook:featureFlags/conditionIdHooks']),
+            'needs hook:featureFlags/conditionIdHooks,',
+        ],
+        [
+            'hooks it does not require',
+            (entry: any) => (entry.requires = []),
+            'uses hooks featureFlags/conditionIdHooks without requiring a version of them',
+        ],
+    ])('drops an entry that needs %s', (_name, change, reason) => {
+        const loaded = loadCatalog(catalogWith(change, HOOKED_TOOL))
+
+        expect(loaded).toMatchObject({
+            ok: true,
+            dropped: [{ name: HOOKED_TOOL, reason: expect.stringContaining(reason) }],
+        })
+    })
+
+    it('keeps an entry that needs the version of a hook this build has', () => {
+        const entry = buildCliCatalog(null).tools.find((tool) => tool.name === HOOKED_TOOL)!
+
+        expect(entry.requires).toEqual(['hook:featureFlags/conditionIdHooks@1'])
+        expect(loadCatalog(catalogWith(() => {}, HOOKED_TOOL))).toMatchObject({ ok: true, dropped: [] })
     })
 
     it('ignores a catalog in another format version', () => {

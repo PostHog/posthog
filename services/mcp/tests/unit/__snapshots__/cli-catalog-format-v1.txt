@@ -469,9 +469,28 @@
         ],
         "additionalProperties": false
     },
+    "capabilities": {
+        "hook:<name>@<its version>": true,
+        "hook:<name>@<another version>": false,
+        "hook:<name>": false,
+        "hook:<unknown name>@1": false,
+        "validator:<unknown name>": false,
+        "<anything else>": false
+    },
     "runs": [
         {
             "name": "list-with-csv-query",
+            "parsed": {
+                "tags": [
+                    "a",
+                    "b"
+                ],
+                "limit": 50,
+                "expand": [
+                    "detail"
+                ],
+                "since": "2026-01-02T03:04:05+01:00"
+            },
             "requests": [
                 {
                     "method": "GET",
@@ -499,6 +518,14 @@
         },
         {
             "name": "create-with-body-and-aliases",
+            "parsed": {
+                "name": "Thing",
+                "label": "a",
+                "count": 3,
+                "fields": [
+                    "id"
+                ]
+            },
             "requests": [
                 {
                     "method": "POST",
@@ -518,6 +545,9 @@
         },
         {
             "name": "soft-delete-with-path-and-fallback",
+            "parsed": {
+                "id": "x/y"
+            },
             "requests": [
                 {
                     "method": "PATCH",
@@ -544,6 +574,11 @@
         },
         {
             "name": "list-with-item-links",
+            "parsed": {
+                "kind": {
+                    "type": "a"
+                }
+            },
             "requests": [
                 {
                     "method": "GET",
