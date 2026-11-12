@@ -8,7 +8,7 @@ import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
-import { QUEUE_DEPTH_SQL } from './due-rows-sql'
+import { QUEUE_DEPTH_SQL, cappedQueueDepthSql } from './due-rows-sql'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -243,7 +243,7 @@ export class CyclotronV2Manager {
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
         this.backgroundDepthCheck = config.backgroundDepthCheck ?? false
-        this.depthRefreshSql = `SET LOCAL statement_timeout = ${Math.max(1, Math.floor(this.depthCheckIntervalMs))}; ${QUEUE_DEPTH_SQL}`
+        this.depthRefreshSql = `SET LOCAL statement_timeout = ${Math.max(1, Math.floor(this.depthCheckIntervalMs))}; ${cappedQueueDepthSql(this.depthLimit)}`
         this.reschedule = {
             floorSeconds: config.rescheduleFloorSeconds ?? 600,
             wakeRatePerSecond: config.rescheduleWakeRatePerSecond ?? 200,

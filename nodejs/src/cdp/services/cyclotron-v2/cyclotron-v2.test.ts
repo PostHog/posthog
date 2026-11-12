@@ -21,7 +21,7 @@ import {
     HogInvocationResultsService,
     HogInvocationResultsServiceOutput,
 } from '../monitoring/hog-invocation-results.service'
-import { FAIR_DEQUEUE_CANDIDATE_CAP, QUEUE_DEPTH_SQL } from './due-rows-sql'
+import { FAIR_DEQUEUE_CANDIDATE_CAP, QUEUE_DEPTH_SQL, cappedQueueDepthSql } from './due-rows-sql'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
 import { createCyclotronPool } from './pg-pool'
@@ -812,7 +812,10 @@ describe('Cyclotron V2', () => {
             const stillPendingAfter = (pending: Promise<unknown>, ms: number): Promise<boolean> =>
                 Promise.race([pending.then(() => false), sleep(ms).then(() => true)])
 
-            function holdDepthQueries(target: CyclotronV2Manager): {
+            function holdDepthQueries(
+                target: CyclotronV2Manager,
+                depthSql: string
+            ): {
                 entered: () => Promise<void>
                 release: () => Promise<void>
             } {
@@ -822,7 +825,7 @@ describe('Cyclotron V2', () => {
                 let entered = createPromise()
                 let held: Promise<unknown>[] = []
                 pool.query = ((text: unknown, ...rest: unknown[]) => {
-                    if (typeof text !== 'string' || !text.endsWith(QUEUE_DEPTH_SQL)) {
+                    if (typeof text !== 'string' || !text.endsWith(depthSql)) {
                         return passThrough(text, ...rest)
                     }
                     entered.resolve()
@@ -869,7 +872,10 @@ describe('Cyclotron V2', () => {
                 const m = createManager({ depthCheckIntervalMs: intervalMs, ...overrides })
                 await m.connect()
                 cleanups.push(() => m.disconnect())
-                const depth = holdDepthQueries(m)
+                const backgroundDepthSql = cappedQueueDepthSql(
+                    (overrides.depthLimit as number | undefined) ?? 1_000_000
+                )
+                const depth = holdDepthQueries(m, overrides.backgroundDepthCheck ? backgroundDepthSql : QUEUE_DEPTH_SQL)
                 cleanups.push(() => depth.release())
                 const first = m.createJob({ teamId: 1, queueName: QUEUE })
                 await depth.entered()
@@ -970,6 +976,22 @@ describe('Cyclotron V2', () => {
                 await releaseLock()
                 await afterStall
                 expect(await storedJobs()).toBe(1)
+            })
+
+            it('the background depth count stops at the depth limit in each queue class', async () => {
+                const insertDue = (queueName: string, priority: number, count: number): Promise<unknown> =>
+                    assertPool.query(
+                        `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
+                         SELECT gen_random_uuid(), 1, $1, 'available', $2, NOW() - interval '1 minute', NOW(), NOW()
+                         FROM generate_series(1, $3)`,
+                        [queueName, priority, count]
+                    )
+                await insertDue(QUEUE, 0, 5)
+                await insertDue(QUEUE, 1, 1)
+
+                const result = await assertPool.query<{ count: string }>(cappedQueueDepthSql(3))
+
+                expect(Number(result.rows[0].count)).toBe(4)
             })
 
             it('without the background depth check, holds an enqueue until its expired depth check returns', async () => {
