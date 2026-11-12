@@ -515,6 +515,11 @@ class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+@extend_schema_serializer(component_name="DataQualityFailingCheckCount")
+class FailingCheckCountSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Enabled checks whose last run reported a failure.")
+
+
 @extend_schema_serializer(component_name="DataQualitySubjectHealth")
 class SubjectHealthSerializer(serializers.Serializer):
     """Per-subject rollup, the same rule the information_schema.data_quality_health table uses."""
