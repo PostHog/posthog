@@ -311,6 +311,11 @@ CONSTANCE_CONFIG = {
         "Used to enable the running of experimental async migrations",
         bool,
     ),
+    "LOGIN_TURNSTILE_MODE": (
+        get_from_env("LOGIN_TURNSTILE_MODE", "off"),
+        "Turnstile check on password login from new browsers: off or shadow. Shadow records the result and never blocks a login.",
+        str,
+    ),
     "RATE_LIMIT_ENABLED": (
         get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool),
         "Whether rate limiting is enabled",
@@ -438,6 +443,7 @@ CONSTANCE_CONFIG = {
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
+    "LOGIN_TURNSTILE_MODE",
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
     "GROWTH_RESCORE_WEBHOOK_SECRET",

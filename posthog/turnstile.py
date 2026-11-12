@@ -9,7 +9,6 @@ signup attempts.
 import time
 import uuid
 import hashlib
-from dataclasses import dataclass
 from enum import StrEnum
 
 from django.conf import settings
@@ -17,6 +16,7 @@ from django.conf import settings
 import requests
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.egress.cloudflare_turnstile import TURNSTILE_SITEVERIFY_URL, turnstile_siteverify_request
 from posthog.redis import get_client
 
@@ -44,7 +44,7 @@ class SiteverifyResult(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
-@dataclass(frozen=True)
+@frozen
 class SiteverifyOutcome:
     result: SiteverifyResult
     error_codes: tuple[str, ...] = ()
@@ -123,7 +123,7 @@ def validate_and_consume_nonce(nonce: str, email: str, ip_address: str) -> bool:
 
 def verify_login_turnstile_token(token: str, remote_ip: str) -> SiteverifyOutcome:
     if len(token) > TURNSTILE_TOKEN_MAX_LENGTH:
-        return SiteverifyOutcome(SiteverifyResult.REJECTED, ("token-too-long",))
+        return SiteverifyOutcome(result=SiteverifyResult.REJECTED, error_codes=("token-too-long",))
 
     secret_key = settings.CLOUDFLARE_TURNSTILE_SECRET_KEY
     start = time.perf_counter()
@@ -139,14 +139,16 @@ def verify_login_turnstile_token(token: str, remote_ip: str) -> SiteverifyOutcom
     duration_seconds = time.perf_counter() - start
 
     if not isinstance(data, dict):
-        return SiteverifyOutcome(SiteverifyResult.UNAVAILABLE, (), duration_seconds)
+        return SiteverifyOutcome(result=SiteverifyResult.UNAVAILABLE, duration_seconds=duration_seconds)
 
     error_codes = tuple(str(code) for code in data.get("error-codes") or [])
     if not data.get("success"):
         result = SiteverifyResult.UNAVAILABLE if "internal-error" in error_codes else SiteverifyResult.REJECTED
-        return SiteverifyOutcome(result, error_codes, duration_seconds)
+        return SiteverifyOutcome(result=result, error_codes=error_codes, duration_seconds=duration_seconds)
 
     if secret_key not in CLOUDFLARE_TEST_SECRET_KEYS and data.get("action") != LOGIN_TURNSTILE_ACTION:
-        return SiteverifyOutcome(SiteverifyResult.REJECTED, ("action-mismatch",), duration_seconds)
+        return SiteverifyOutcome(
+            result=SiteverifyResult.REJECTED, error_codes=("action-mismatch",), duration_seconds=duration_seconds
+        )
 
-    return SiteverifyOutcome(SiteverifyResult.ACCEPTED, (), duration_seconds)
+    return SiteverifyOutcome(result=SiteverifyResult.ACCEPTED, duration_seconds=duration_seconds)
