@@ -1,17 +1,24 @@
 import { LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { SignalReportArtefact } from '../../types'
 import { artefactAttributionLabel, NoteContent, ScoutNoteLeftContent } from './artefactTypes'
+import { QuillReportNoteRow } from './QuillReportNoteRow'
 import { ScoutNoteAudience } from './ScoutNoteAudience'
 import { ScoutNoteStatus } from './ScoutNoteStatus'
 
 export function ReportNoteRow({ reportId, note }: { reportId: string; note: SignalReportArtefact }): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const scoutNote = note.type === 'scout_note_left' ? (note.content as ScoutNoteLeftContent) : null
     const text = scoutNote ? scoutNote.note : (note.content as NoteContent).note
     const author = artefactAttributionLabel(note) ?? 'Someone'
+
+    if (todayRailNav) {
+        return <QuillReportNoteRow reportId={reportId} note={note} author={author} text={text} scoutNote={scoutNote} />
+    }
 
     return (
         <div className="flex gap-2.5 border-b border-primary px-3 py-2.5 last:border-b-0">

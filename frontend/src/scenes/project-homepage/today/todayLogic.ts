@@ -94,7 +94,7 @@ export interface TodayReportOpenContext {
 }
 
 /** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
-export type TodayAskSource = 'walk_through' | 'report_page'
+export type TodayAskSource = 'walk_through' | 'report_page' | 'inbox_report'
 
 export type TodayList = 'for_you' | 'recents'
 

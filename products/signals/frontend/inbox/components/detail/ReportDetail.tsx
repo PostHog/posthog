@@ -4,6 +4,8 @@ import { ReactNode } from 'react'
 
 import {
     IconArrowLeft,
+    IconCode,
+    IconDocument,
     IconEllipsis,
     IconExternal,
     IconSearch,
@@ -48,6 +50,7 @@ import { PrChecksSection } from './PrChecksSection'
 import { PrCommentsSection } from './PrCommentsSection'
 import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleton } from './PullRequestDiffPanel'
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
+import { QuillReportDetail } from './QuillReportDetail'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { ReportChartsContext } from './reportChartsContext'
@@ -296,9 +299,11 @@ export function InboxDetailFrame({
         (section) => section.kind === 'solution'
     )
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const implementButtonVariant = peekFeatureFlag(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
     const hasImplementButton = !primaryAction && (showCreatePr || !!reportTaskToOpen)
     if (
+        !todayRailNav &&
         hasImplementButton &&
         summaryHasSolution &&
         (implementButtonVariant === 'control' || implementButtonVariant === 'test')
@@ -390,53 +395,59 @@ export function InboxDetailFrame({
         ) : null
     const planBlock = report.plan ? <ReportPlanBlock reportId={report.id} plan={report.plan} /> : null
 
+    const dataOnlyBanner = report.research_context?.mode === 'data_only' && (
+        <LemonBanner type="info">
+            This report uses only your PostHog data. Without code access, agents can find problems but can't trace them
+            to the underlying code, so findings may be less specific.{' '}
+            <Link to={urls.settings('environment-integrations', 'integration-github')}>GitHub access</Link> helps agents
+            investigate root causes and pinpoint what to change.
+        </LemonBanner>
+    )
+
+    const reportBody = (bodyImplementButton: JSX.Element | null): JSX.Element => (
+        <ReportChartsContext.Provider value={chartsById}>
+            <div>
+                {report.summary ? (
+                    <ReportSummaryBody
+                        summary={report.summary}
+                        chartPlacements={chartPlacements}
+                        implementButton={bodyImplementButton}
+                        pullRequestNote={pullRequestNote}
+                        impactMetrics={impactMetrics}
+                        expectedImpact={expectedImpact}
+                        planBlock={planBlock}
+                    />
+                ) : (
+                    <div className="flex flex-col gap-6">
+                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                            No summary yet. An agent is still investigating.
+                        </p>
+                        {pullRequestNote}
+                        {impactMetrics}
+                        {expectedImpact}
+                        {planBlock}
+                    </div>
+                )}
+                {trailingCharts.length > 0 && (
+                    <div className="flex flex-col gap-4 mt-5">
+                        {trailingCharts.map((chart) => (
+                            <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
+                        ))}
+                    </div>
+                )}
+            </div>
+        </ReportChartsContext.Provider>
+    )
+
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
-            {report.research_context?.mode === 'data_only' && (
-                <LemonBanner type="info">
-                    This report uses only your PostHog data. Without code access, agents can find problems but can't
-                    trace them to the underlying code, so findings may be less specific.{' '}
-                    <Link to={urls.settings('environment-integrations', 'integration-github')}>GitHub access</Link>{' '}
-                    helps agents investigate root causes and pinpoint what to change.
-                </LemonBanner>
-            )}
+            {dataOnlyBanner}
             <div className="flex flex-col gap-2">
                 {titleHeading}
                 {claimPill}
             </div>
 
-            <ReportChartsContext.Provider value={chartsById}>
-                <div>
-                    {report.summary ? (
-                        <ReportSummaryBody
-                            summary={report.summary}
-                            chartPlacements={chartPlacements}
-                            implementButton={implementButtonInHeader ? null : implementButton}
-                            pullRequestNote={pullRequestNote}
-                            impactMetrics={impactMetrics}
-                            expectedImpact={expectedImpact}
-                            planBlock={planBlock}
-                        />
-                    ) : (
-                        <div className="flex flex-col gap-6">
-                            <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                                No summary yet. An agent is still investigating.
-                            </p>
-                            {pullRequestNote}
-                            {impactMetrics}
-                            {expectedImpact}
-                            {planBlock}
-                        </div>
-                    )}
-                    {trailingCharts.length > 0 && (
-                        <div className="flex flex-col gap-4 mt-5">
-                            {trailingCharts.map((chart) => (
-                                <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </ReportChartsContext.Provider>
+            {reportBody(implementButtonInHeader ? null : implementButton)}
             {/* The notes and the rating close out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
                 {notesEnabled && <ReportNotesSection report={report} />}
@@ -481,86 +492,83 @@ export function InboxDetailFrame({
 
     const isMonitoring = (currentReport ?? report).status === SignalReportStatus.MONITORING
 
+    const railSections = (
+        <>
+            <ReportStatusSection
+                report={currentReport ?? report}
+                onPriorityChange={(priority) => {
+                    captureInboxReportAction({
+                        report,
+                        actionType: 'change_priority',
+                        surface: 'detail_pane',
+                        extra: { new_priority: priority },
+                    })
+                    updatePriority(priority)
+                }}
+                prioritySaving={prioritySaving}
+            />
+            {isMonitoring && <ReportChecksSection report={report} />}
+            {/* The observation leads, then the evidence its claims rest on. */}
+            {primaryMetric && (
+                <DetailSection
+                    icon={<IconTrends />}
+                    title="Observation"
+                    collapsible
+                    onToggleCollapsed={captureSectionToggle('observation')}
+                >
+                    <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
+                </DetailSection>
+            )}
+            {hasEvidence && (
+                <DetailSection
+                    icon={<IconSearch />}
+                    title="Evidence"
+                    collapsible
+                    onToggleCollapsed={captureSectionToggle('evidence')}
+                >
+                    {reportSignalsLoading && reportSignals === null ? (
+                        <EvidenceSkeleton count={evidenceCount} />
+                    ) : (
+                        <div className="flex flex-col gap-3">
+                            {(evidenceExpanded ? signals : signals.slice(0, 2)).map((signal: SignalNode) => (
+                                <SignalCard key={signal.signal_id} signal={signal} />
+                            ))}
+                            {signals.length > 2 && (
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
+                                >
+                                    {evidenceExpanded ? 'Show less' : 'Show more'}
+                                </LemonButton>
+                            )}
+                            {report.source_suggestion && (
+                                <ReportSourceSuggestion report={report} suggestion={report.source_suggestion} />
+                            )}
+                        </div>
+                    )}
+                </DetailSection>
+            )}
+            {/* The pull request picker (when present), then reviewers, runs, and activity. */}
+            {children}
+            <SuggestedReviewersSection report={report} />
+            <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
+                <ReportSpendSection reportId={report.id} />
+            </FlaggedFeature>
+            <ReportTasksSection report={report} />
+            {!isMonitoring && <ReportChecksSection report={report} />}
+            <ReportActivitySection report={report} />
+            {asideFooter}
+        </>
+    )
+
     // Bound rather than passed as props so a chart can reach the logic by id alone. `ReportChart`
     // building the logic itself would have to pass `report` back in, and kea treats that as a props
     // change on the mounted instance.
     const overviewBody = (
         <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
             <div className={DETAIL_CONTAINER_CLASS}>
-                {!evidenceRailCollapsed && (
-                    <aside className={DETAIL_ASIDE_CLASS}>
-                        <ReportStatusSection
-                            report={currentReport ?? report}
-                            onPriorityChange={(priority) => {
-                                captureInboxReportAction({
-                                    report,
-                                    actionType: 'change_priority',
-                                    surface: 'detail_pane',
-                                    extra: { new_priority: priority },
-                                })
-                                updatePriority(priority)
-                            }}
-                            prioritySaving={prioritySaving}
-                        />
-                        {isMonitoring && <ReportChecksSection report={report} />}
-                        {/* The observation leads, then the evidence its claims rest on. */}
-                        {primaryMetric && (
-                            <DetailSection
-                                icon={<IconTrends />}
-                                title="Observation"
-                                collapsible
-                                onToggleCollapsed={captureSectionToggle('observation')}
-                            >
-                                <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
-                            </DetailSection>
-                        )}
-                        {hasEvidence && (
-                            <DetailSection
-                                icon={<IconSearch />}
-                                title="Evidence"
-                                collapsible
-                                onToggleCollapsed={captureSectionToggle('evidence')}
-                            >
-                                {reportSignalsLoading && reportSignals === null ? (
-                                    <EvidenceSkeleton count={evidenceCount} />
-                                ) : (
-                                    <div className="flex flex-col gap-3">
-                                        {(evidenceExpanded ? signals : signals.slice(0, 2)).map(
-                                            (signal: SignalNode) => (
-                                                <SignalCard key={signal.signal_id} signal={signal} />
-                                            )
-                                        )}
-                                        {signals.length > 2 && (
-                                            <LemonButton
-                                                type="tertiary"
-                                                size="small"
-                                                onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
-                                            >
-                                                {evidenceExpanded ? 'Show less' : 'Show more'}
-                                            </LemonButton>
-                                        )}
-                                        {report.source_suggestion && (
-                                            <ReportSourceSuggestion
-                                                report={report}
-                                                suggestion={report.source_suggestion}
-                                            />
-                                        )}
-                                    </div>
-                                )}
-                            </DetailSection>
-                        )}
-                        {/* The pull request picker (when present), then reviewers, runs, and activity. */}
-                        {children}
-                        <SuggestedReviewersSection report={report} />
-                        <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
-                            <ReportSpendSection reportId={report.id} />
-                        </FlaggedFeature>
-                        <ReportTasksSection report={report} />
-                        {!isMonitoring && <ReportChecksSection report={report} />}
-                        <ReportActivitySection report={report} />
-                        {asideFooter}
-                    </aside>
-                )}
+                {!evidenceRailCollapsed && <aside className={DETAIL_ASIDE_CLASS}>{railSections}</aside>}
 
                 <main className={DETAIL_MAIN_CLASS}>
                     {showFilesTab ? (
@@ -617,7 +625,7 @@ export function InboxDetailFrame({
         </BindLogic>
     )
 
-    return (
+    const lemonFrame = (
         <div className={DETAIL_PAGE_CLASS}>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div className="-ml-4 flex items-center gap-1">
@@ -674,6 +682,52 @@ export function InboxDetailFrame({
             {overviewBody}
         </div>
     )
+
+    if (todayRailNav) {
+        return (
+            <QuillReportDetail
+                report={report}
+                backUrl={backOverride ?? urls.inbox('reports')}
+                backLabel={backLabel}
+                actions={reportActions}
+                notesEnabled={notesEnabled}
+                fallback={lemonFrame}
+            >
+                <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
+                    <div className="flex flex-col gap-5 text-sm">
+                        {dataOnlyBanner}
+                        {railSections}
+                        <DetailSection
+                            icon={<IconDocument />}
+                            title="Full report"
+                            afterTitle={<SignalReportBillingBadge report={report} />}
+                            meta={generatedAt}
+                            collapsible
+                            defaultCollapsed
+                            onToggleCollapsed={captureSectionToggle('full_report')}
+                        >
+                            {reportBody(null)}
+                        </DetailSection>
+                        {showFilesTab && (
+                            <DetailSection
+                                icon={<IconCode />}
+                                title="Files changed"
+                                afterTitle={diffStat}
+                                collapsible
+                                defaultCollapsed
+                                onToggleCollapsed={captureSectionToggle('files_changed')}
+                            >
+                                {diffSection}
+                            </DetailSection>
+                        )}
+                        <ReportFeedbackFooter report={report} align="end" />
+                    </div>
+                </BindLogic>
+            </QuillReportDetail>
+        )
+    }
+
+    return lemonFrame
 }
 
 /** Point a PR URL at its diff/files tab, without double-appending if it's already there. */

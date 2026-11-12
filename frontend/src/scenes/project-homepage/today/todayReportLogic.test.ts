@@ -201,6 +201,27 @@ describe('todayReportLogic', () => {
         expect(reportGet).toHaveBeenCalledTimes(fetches)
     })
 
+    test('a report change from another surface shows without a new fetch', async () => {
+        const report = makeReport({ status: SignalReportStatus.READY })
+        const reportGet = jest.fn(() => [200, report])
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/': reportGet,
+                '/api/projects/:team_id/today/reports/:id/page/': () => [200, PAGE],
+            },
+        })
+        initKeaTests()
+        const logic = todayReportLogic({ reportId: report.id })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFullReportSuccess']).toFinishAllListeners()
+
+        logic.actions.reportChanged({ ...report, status: SignalReportStatus.RESOLVED })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.currentReport?.status).toEqual(SignalReportStatus.RESOLVED)
+        expect(reportGet).toHaveBeenCalledTimes(1)
+    })
+
     test('asks Jev once per mark while a request is in flight and hides the marks when the flag turns off', async () => {
         const report = makeReport({ actionability: 'immediately_actionable', status: SignalReportStatus.READY })
         const calls = { keyClauses: 0, figureMarks: 0 }

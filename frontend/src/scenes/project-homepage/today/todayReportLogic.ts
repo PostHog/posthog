@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { businessKnowledgeRepositoriesFileRetrieve } from 'products/business_knowledge/frontend/generated/api'
 import type { RepositoryFileApi } from 'products/business_knowledge/frontend/generated/api.schemas'
 import {
+    type InboxReportActionSurface,
     type InboxReportLinkSource,
     captureInboxReportAction,
     captureTodayReportOpened,
@@ -139,7 +140,7 @@ export interface todayReportLogicActions {
     implementReport: (
         report: SignalReport,
         feedback: string | undefined,
-        surface: import('products/signals/frontend/inbox/inboxAnalytics').InboxReportActionSurface,
+        surface: InboxReportActionSurface,
         openedFromLink?: boolean | undefined,
         repository?: string | undefined
     ) => {
@@ -147,7 +148,7 @@ export interface todayReportLogicActions {
         openedFromLink: boolean
         report: SignalReport
         repository: string | undefined
-        surface: import('products/signals/frontend/inbox/inboxAnalytics').InboxReportActionSurface
+        surface: InboxReportActionSurface
     } // inboxTaskKickoffLogic
     openReportDiscussion: (
         report: SignalReport,
@@ -168,8 +169,12 @@ export interface todayReportLogicActions {
     setReportOpenContext: (context: TodayReportOpenContext | null) => {
         context: TodayReportOpenContext | null
     } // todayLogic
-    askAboutReport: (question: string) => {
+    askAboutReport: (
+        question: string,
+        surface?: InboxReportActionSurface
+    ) => {
         question: string
+        surface: InboxReportActionSurface
     }
     codeQuoteCleared: (signalId: string) => {
         signalId: string
@@ -270,14 +275,17 @@ export interface todayReportLogicActions {
         files: CodeFileApi[]
         signal: SignalViewApi
     }
+    reportChanged: (report: SignalReport) => {
+        report: SignalReport
+    }
     reportVisited: () => {
         value: true
     }
     setDraft: (draft: string) => {
         draft: string
     }
-    startWithPostHog: () => {
-        value: true
+    startWithPostHog: (surface?: InboxReportActionSurface) => {
+        surface: InboxReportActionSurface
     }
 }
 
@@ -350,14 +358,15 @@ export const todayReportLogic = kea<todayReportLogicType>([
         codeQuoteRead: (signalId: string, quote: TodayCodeQuoteState) => ({ signalId, quote }),
         codeQuoteCleared: (signalId: string) => ({ signalId }),
         codeQuotePicksCleared: true,
-        askAboutReport: (question: string) => ({ question }),
+        askAboutReport: (question: string, surface: InboxReportActionSurface = 'today') => ({ question, surface }),
         expandEvidence: (signalId: string) => ({ signalId }),
         collapseEvidence: (signalId: string) => ({ signalId }),
         openComposer: true,
         setDraft: (draft: string) => ({ draft }),
-        startWithPostHog: true,
+        startWithPostHog: (surface: InboxReportActionSurface = 'today') => ({ surface }),
         markOpened: (kind: TodayMarkKind) => ({ kind }),
         reportVisited: true,
+        reportChanged: (report: SignalReport) => ({ report }),
     }),
     loaders(({ props, values, cache }) => ({
         fullReport: [
@@ -425,6 +434,10 @@ export const todayReportLogic = kea<todayReportLogicType>([
         ],
     })),
     reducers({
+        // The inbox changes a report in its own logic, so it sends the result here to keep the state current.
+        fullReport: {
+            reportChanged: (state, { report }) => (state ? { ...state, ...report } : state),
+        },
         reportFailed: [
             false,
             {
@@ -647,7 +660,7 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 const chosen = pick === null || !values.asksJev ? null : choices[pick]
                 actions.codeQuoteRead(signal.signal_id, chosen ? { ...quote, ...chosen } : quote)
             },
-            askAboutReport: ({ question }) => {
+            askAboutReport: ({ question, surface }) => {
                 const report = values.currentReport
                 if (!report || !question || values.askingAi) {
                     return
@@ -655,24 +668,24 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 captureInboxReportAction({
                     report,
                     actionType: 'discuss',
-                    surface: 'today',
+                    surface,
                     extra: discussQuestionProperties({ source: 'typed', suggestionCount: 0 }),
                 })
-                actions.askAi(question, 'report_page', report)
+                actions.askAi(question, surface === 'today' ? 'report_page' : 'inbox_report', report)
             },
-            startWithPostHog: () => {
+            startWithPostHog: ({ surface }) => {
                 const report = values.currentReport
                 if (!report) {
                     return
                 }
                 if (reportWorkKind(report) === 'implement') {
-                    actions.implementReport(report, undefined, 'today')
+                    actions.implementReport(report, undefined, surface)
                     return
                 }
                 captureInboxReportAction({
                     report,
                     actionType: 'discuss',
-                    surface: 'today',
+                    surface,
                     extra: discussQuestionProperties({ source: 'preset', suggestionCount: 0 }),
                 })
                 actions.openReportDiscussion(report, values.reportUrl)
