@@ -222,6 +222,12 @@ describe('load', () => {
             'invariants.1.name: bounced_suppressed needs a ses.reject entry with type bounce',
         ],
         [
+            'transactional traffic with no verdict on intake refusals',
+            { ...card, drive: { ...card.drive, traffic: [{ name: 'transactional_email' }] } },
+            { ...profile, traffic: { transactional_email: { ratePerSecond: 2 } } },
+            'invariants: transactional_email counts a unit its intake refused as offered, so the card needs refused_at_intake',
+        ],
+        [
             'a profile without the traffic a card drives',
             card,
             { ...profile, traffic: {} },

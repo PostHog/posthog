@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
 import { durationMs } from '../duration'
+import { TRAFFIC } from '../generator/traffic'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile } from './schema'
 
@@ -143,6 +144,18 @@ function checkSuppression(card: Card): string[] {
     )
 }
 
+const ANSWERED_AT_INTAKE = TRAFFIC.filter(({ intake }) => intake !== 'event').map(({ name }) => name)
+
+function checkIntakeVerdict(card: Card): string[] {
+    const unjudged = card.drive.traffic.filter(({ name }) => ANSWERED_AT_INTAKE.includes(name))
+    if (unjudged.length === 0 || card.invariants.some(({ name }) => name === 'refused_at_intake')) {
+        return []
+    }
+    return [
+        `invariants: ${unjudged.map(({ name }) => name).join(', ')} counts a unit its intake refused as offered, so the card needs refused_at_intake`,
+    ]
+}
+
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
     const rolesRead = (name: string): boolean => Object.hasOwn(defaults, name) || PROCESS_ENV_SETTINGS.includes(name)
     const loadProducerReads = (name: string): boolean => name.startsWith(LOAD_PRODUCER_SETTING_PREFIX)
@@ -191,6 +204,7 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
         ...checkSchedules(card),
         ...checkStallBound(card, config),
         ...checkSuppression(card),
+        ...checkIntakeVerdict(card),
         ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults) : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {
