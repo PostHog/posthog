@@ -1,7 +1,13 @@
+import type { languages } from 'monaco-editor'
+
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 
 import { performQuery } from '~/queries/query'
 import { HogLanguage } from '~/queries/schema/schema-general'
+
+jest.mock('monaco-editor', () => ({
+    languages: { CompletionItemKind: { Method: 0, Function: 1 } },
+}))
 
 jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
@@ -16,7 +22,7 @@ describe('hogQLAutocompleteProvider', () => {
         text: string,
         position: { lineNumber: number; column: number },
         word: { word: string; startColumn: number; endColumn: number }
-    ): Promise<void> => {
+    ): Promise<languages.CompletionList | null | undefined> => {
         const lineStarts = [0]
         for (const line of text.split('\n')) {
             lineStarts.push(lineStarts[lineStarts.length - 1] + line.length + 1)
@@ -29,13 +35,43 @@ describe('hogQLAutocompleteProvider', () => {
             getWordUntilPosition: () => word,
         }
 
-        await hogQLAutocompleteProvider(HogLanguage.hogQL).provideCompletionItems?.(
+        return await hogQLAutocompleteProvider(HogLanguage.hogQL).provideCompletionItems?.(
             model as any,
             position as any,
             {} as any,
             {} as any
         )
     }
+
+    it('exposes the complete function signature in suggestion details without changing insertion', async () => {
+        jest.mocked(performQuery).mockResolvedValueOnce({
+            suggestions: [
+                {
+                    label: 'quantileExactWeighted',
+                    detail: '(level)(value, weight)',
+                    kind: 'Function',
+                    insertText: 'quantileExactWeighted()',
+                    documentation: 'Calculate an exact weighted quantile.',
+                },
+            ],
+            incomplete_list: false,
+        })
+        const result = await completeAt(
+            'SELECT quant',
+            { lineNumber: 1, column: 13 },
+            {
+                word: 'quant',
+                startColumn: 8,
+                endColumn: 13,
+            }
+        )
+        expect(result?.suggestions[0]).toEqual(
+            expect.objectContaining({
+                detail: 'quantileExactWeighted(level)(value, weight)',
+                insertText: 'quantileExactWeighted()',
+            })
+        )
+    })
 
     it('returns an empty completion list when the autocomplete query fails', async () => {
         jest.mocked(performQuery).mockRejectedValueOnce(new Error("trailing tokens after expression: 'is'"))
