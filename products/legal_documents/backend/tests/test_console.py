@@ -92,6 +92,7 @@ class TestLegalDocumentsConsolePanel(BaseTest):
             "company_name": "Acme, Inc.",
             "company_address": "1 Analytics Way",
             "representative_email": "ada@acme.example",
+            "reason": "Counter-signed offline",
         }
         if pdf is not None:
             data["signed_pdf"] = pdf

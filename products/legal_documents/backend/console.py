@@ -84,6 +84,7 @@ def _upload_form(document_types: list[str]) -> type[forms.Form]:
             validators=[FileExtensionValidator(allowed_extensions=["pdf"])],
             help_text="The counter-signed PDF, at most 25 MB.",
         )
+        reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
 
         def clean_signed_pdf(self) -> UploadedFile:
             pdf: UploadedFile = self.cleaned_data["signed_pdf"]
@@ -211,6 +212,8 @@ class LegalDocumentsPanel(Panel):
                     description="For a document signed outside PandaDoc, such as a counter-signed MSA. Saves it as "
                     "signed, and the customer can download the PDF. A BAA also turns off AI data processing and "
                     "AI training for the organization.",
+                    undo_hint="Delete the document to remove it. AI settings stay off after a BAA is deleted, and the "
+                    "organization's owners turn them back on in organization settings.",
                 )
             )
         if refetchable:
