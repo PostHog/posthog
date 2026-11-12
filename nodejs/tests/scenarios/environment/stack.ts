@@ -190,6 +190,16 @@ export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string
 
 export const cyclotronUrlOf = (spec: RoleSpec): string => spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl
 
+export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[] {
+    const urls = [
+        postgresUrl,
+        ...Object.entries(spec.env)
+            .filter(([name, url]) => name.endsWith('DATABASE_URL') && url?.startsWith('postgres'))
+            .map(([, url]) => url!),
+    ]
+    return urls.filter((url, i) => urls.findIndex((other) => new URL(other).host === new URL(url).host) === i)
+}
+
 export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> {
     await withPostgres(
         (client) => client.query("DELETE FROM cyclotron_jobs WHERE status IN ('available', 'running')"),

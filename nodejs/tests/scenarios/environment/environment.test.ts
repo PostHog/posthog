@@ -34,7 +34,16 @@ import {
     terminate,
 } from './processes'
 import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
-import { STACK, forgetSesBucket, membersOf, pingRedis, scratchSchema, seekFailures, withPostgres } from './stack'
+import {
+    STACK,
+    forgetSesBucket,
+    membersOf,
+    pingRedis,
+    postgresServersOf,
+    scratchSchema,
+    seekFailures,
+    withPostgres,
+} from './stack'
 import { createSupervisor } from './supervisor'
 
 const SELF = 100
@@ -334,6 +343,28 @@ describe('scenario environment', () => {
             EXTERNAL_REQUEST_PROXY_TEAMS: '2',
         }
         const specs = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR)
+
+        it.each<[string, string, string[]]>([
+            [
+                'one server when Cyclotron shares it',
+                'postgres://posthog:posthog@localhost:5432/cyclotron',
+                ['postgres://posthog:posthog@localhost:5432/posthog'],
+            ],
+            [
+                'both servers when a profile moves Cyclotron to another',
+                'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron',
+                [
+                    'postgres://posthog:posthog@localhost:5432/posthog',
+                    'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron',
+                ],
+            ],
+        ])('lists the Postgres servers the roles reach: %s', (_story, cyclotronUrl, servers) => {
+            const [spec] = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, {
+                CYCLOTRON_NODE_DATABASE_URL: cyclotronUrl,
+            })
+
+            expect(postgresServersOf(spec, 'postgres://posthog:posthog@localhost:5432/posthog')).toEqual(servers)
+        })
 
         it('gives every role its own port, cdp-api the one Django calls', () => {
             const ports = Object.fromEntries(specs.map((spec) => [spec.role, spec.env.HTTP_SERVER_PORT]))

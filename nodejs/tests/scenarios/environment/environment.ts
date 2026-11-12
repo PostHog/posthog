@@ -19,6 +19,7 @@ import {
     forgetSesBucket,
     groupMembers,
     missingTemplates,
+    postgresServersOf,
     rolesNotReady,
     seekToEnd,
     startStack,
@@ -100,6 +101,7 @@ export function createEnvironment({
         restartBackoffMs: ROLE_RESTART_BACKOFF_MS,
     })
     let edge: ProviderEdge | undefined
+    let postgresServers = [postgresUrl]
     let releaseLock: (() => Promise<void>) | undefined
 
     const logOf = (role: Role): string => path.join(stateDir, `${role}.log`)
@@ -153,7 +155,10 @@ export function createEnvironment({
                 case 'freeze':
                     return supervisor.freeze(action.role, FREEZE_OBSERVED_WITHIN_MS)
                 case 'pg.terminate': {
-                    const terminated = await terminateRoleConnections(postgresUrl, action.share)
+                    let terminated = 0
+                    for (const server of postgresServers) {
+                        terminated += await terminateRoleConnections(server, action.share)
+                    }
                     return { observed: () => Promise.resolve(terminated > 0), release: () => Promise.resolve() }
                 }
             }
@@ -189,6 +194,7 @@ export function createEnvironment({
             PROBE_INTERVAL_MS
         )
         edge.clearFaults()
+        postgresServers = postgresServersOf(specs[0], postgresUrl)
         await deleteUnfinishedJobs(cyclotronUrlOf(specs[0]))
         await forgetSesBucket(sesRateLimiterValkey)
         for (const group of groups) {
