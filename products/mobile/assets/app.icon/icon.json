@@ -15,7 +15,11 @@
                         { "appearance": "dark", "value": 0 },
                         { "appearance": "tinted", "value": 0 }
                     ]
-                },
+                }
+            ]
+        },
+        {
+            "layers": [
                 {
                     "glass-specializations": [{ "value": true }, { "appearance": "dark", "value": false }],
                     "image-name": "logo-mono.png",
@@ -25,7 +29,11 @@
                         { "appearance": "dark", "value": 0 },
                         { "appearance": "tinted", "value": 1 }
                     ]
-                },
+                }
+            ]
+        },
+        {
+            "layers": [
                 {
                     "glass": false,
                     "image-name": "logo-dark.png",
