@@ -1824,6 +1824,16 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                         "not_of_not_of_equal",
                         "SELECT {j}.distinct_id FROM {source} WHERE NOT (NOT ({j}.event = '$feature_flag_called'))",
                     ),
+                    (
+                        "not_of_and_of_not_equals",
+                        "SELECT {j}.distinct_id FROM {source} "
+                        "WHERE NOT ({j}.event != '$feature_flag_called' AND {j}.event != '$pageview')",
+                    ),
+                    (
+                        "not_of_a_function_over_not_equal",
+                        "SELECT {j}.distinct_id FROM {source} "
+                        "WHERE NOT if({j}.distinct_id = '', 0, {j}.event != '$feature_flag_called')",
+                    ),
                 ]
             ),
             *[
@@ -1978,6 +1988,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                         (
                             "not_of_in",
                             "SELECT {j}.distinct_id FROM {source} WHERE NOT ({j}.event IN ('$feature_flag_called'))",
+                            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                        ),
+                        (
+                            "not_of_or_of_equals",
+                            "SELECT {j}.distinct_id FROM {source} "
+                            "WHERE NOT ({j}.event = '$feature_flag_called' OR {j}.event = '$pageview')",
                             FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                         ),
                     )

@@ -195,43 +195,64 @@ def _negated_operand(expr: ast.Expr) -> ast.Expr | None:
     return None
 
 
+_AS_WRITTEN = frozenset({True})
+_NEGATED = frozenset({False})
+_EITHER = frozenset({True, False})
+
+
 class _JoinEventComparisonFinder(SyntaxVisitor):
+    """Finds a comparison that keeps only `$feature_flag_called` on the join's `event`. Each comparison is read with
+    the NOTs above it: a NOT flips the comparisons under it, through AND and OR as De Morgan's laws do."""
+
     def __init__(self, reads_join_event: Callable[[ast.Expr], bool]) -> None:
         super().__init__()
         self.reads_join_event = reads_join_event
         self.found = False
+        # True reads a comparison as written, and False reads it negated.
+        self.polarities = _AS_WRITTEN
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         self._check(node)
-        super().visit_compare_operation(node)
+        self._visit_opaque([node.left, node.right])
 
     def visit_not(self, node: ast.Not) -> None:
-        self._visit_negation(node)
+        self._visit_with(frozenset(not p for p in self.polarities), [node.expr])
 
     def visit_call(self, node: ast.Call) -> None:
+        name = node.name.lower()
         if _negated_operand(node) is not None:
-            self._visit_negation(node)
-            return
-        self._check(node)
-        super().visit_call(node)
+            self._visit_with(frozenset(not p for p in self.polarities), node.args)
+        elif name in ("and", "or"):
+            super().visit_call(node)
+        elif comparison_of(node) is not None:
+            self._check(node)
+            self._visit_opaque(node.args)
+        else:
+            self._visit_opaque([*node.args, *(node.params or [])])
 
-    def _visit_negation(self, expr: ast.Expr) -> None:
-        # Only NOTs stacked directly over a comparison change which values it keeps. A NOT over AND or OR leaves each
-        # comparison inside it checked as written.
-        negated = False
-        while (operand := _negated_operand(expr)) is not None:
-            expr, negated = operand, not negated
-        comparison = comparison_of(expr)
-        if comparison is None or not negated:
-            self.visit(expr)
-            return
-        flipped = _POSITIVE_OF_NEGATED.get(comparison.op)
-        if flipped is not None:
-            self._check(ast.CompareOperation(op=flipped, left=comparison.left, right=comparison.right))
-        self.visit(comparison.left)
-        self.visit(comparison.right)
+    def _visit_opaque(self, exprs: list[ast.Expr]) -> None:
+        # Under a NOT, a node other than AND, OR and NOT can keep a comparison's values or their complement, so both
+        # readings count. Without a NOT, a comparison is read as written, as the swap reads it.
+        self._visit_with(_AS_WRITTEN if self.polarities == _AS_WRITTEN else _EITHER, exprs)
+
+    def _visit_with(self, polarities: frozenset[bool], exprs: list[ast.Expr]) -> None:
+        outer, self.polarities = self.polarities, polarities
+        try:
+            for expr in exprs:
+                self.visit(expr)
+        finally:
+            self.polarities = outer
 
     def _check(self, expr: ast.Expr) -> None:
-        values = compared_values(expr, self.reads_join_event)
-        if values is not None and any(is_flag_called(value) for value in values):
-            self.found = True
+        comparison = comparison_of(expr)
+        if comparison is None:
+            return
+        for as_written in self.polarities:
+            op = comparison.op if as_written else _POSITIVE_OF_NEGATED.get(comparison.op)
+            if op is None:
+                continue
+            values = compared_values(
+                ast.CompareOperation(op=op, left=comparison.left, right=comparison.right), self.reads_join_event
+            )
+            if values is not None and any(is_flag_called(value) for value in values):
+                self.found = True
