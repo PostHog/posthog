@@ -614,6 +614,12 @@ function isRecordableToolName(name: string, isKnownToolName: (name: string) => b
 // successor through `superseded_by` and is answered by `flagGatedToolMessage`
 // instead of by an entry here.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
+    'notebooks-create': () =>
+        'Tool "notebooks-create" was removed. Use "notebooks-create-markdown" with title and optional markdown instead of content JSON. Add executable cells with "notebooks-add-cell".',
+    'notebooks-retrieve': () =>
+        'Tool "notebooks-retrieve" was removed. Use "notebooks-get" with the same short_id to read the notebook, cells, and kernel state. It requires notebook:read and query:read.',
+    'notebook-edit': () =>
+        'Tool "notebook-edit" was removed. Use "notebooks-get" to find cell node_ids, then "notebooks-update-cell" or "notebooks-add-cell" with notebook_id. Text replacement arguments are no longer supported.',
     // Removed in favor of SQL-based schema discovery via `system.information_schema.*`.
     'read-data-warehouse-schema': () =>
         'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for patterns.',
