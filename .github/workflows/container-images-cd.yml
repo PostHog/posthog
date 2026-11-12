@@ -435,6 +435,9 @@ jobs:
                   aws configure set default.s3.max_concurrent_requests 50
 
             # The extract step leaves out every .map file, so a retained sourcemap stays private.
+            # The upload never replaces an object that exists. The name of a content-hashed file comes from
+            # its content, so an existing object needs no update. The upload role can then be denied every
+            # overwrite, and these credentials cannot change a file that browsers already load.
             # The build marker is written last: a pod-start gate reads it as proof that every file above
             # is in the bucket.
             #
@@ -454,7 +457,7 @@ jobs:
                   BUCKET: posthog-cloud-dev-us-east-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-us static-assets role
@@ -470,7 +473,7 @@ jobs:
                   BUCKET: posthog-cloud-prod-us-east-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-eu static-assets role
@@ -486,7 +489,7 @@ jobs:
                   BUCKET: posthog-cloud-prod-eu-central-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             # The role action exports its session keys to the job environment, where they stay until the
