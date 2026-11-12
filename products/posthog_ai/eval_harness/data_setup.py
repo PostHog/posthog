@@ -121,7 +121,9 @@ def create_isolated_demo_data(
 
 
 def _case_org_name(label: str, suffix: str) -> str:
-    max_label = Organization._meta.get_field("name").max_length - len(f"Hedgebox (-{suffix})")
+    max_length = Organization._meta.get_field("name").max_length
+    assert max_length is not None
+    max_label = max_length - len(f"Hedgebox (-{suffix})")
     return f"Hedgebox ({label[:max_label]}-{suffix})"
 
 
