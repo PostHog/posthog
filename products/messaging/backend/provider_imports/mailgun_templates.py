@@ -44,7 +44,7 @@ _ENTITY = re.compile(r"&(?:\w+|#\d+|#[xX][0-9a-fA-F]+);")
 _ARGUMENT = re.compile(r"""\[[^\]]*\]|"[^"]*"|'[^']*'|\S+""")
 # Syntax Handlebars can't parse, for a version whose engine field is blank.
 _GO_ONLY = re.compile(r"\{\{-?\s*(?:\.[A-Za-z_]|end\b|range\b|\$)")
-_ELSE_TOKEN = re.compile(r"\{\{~?-?\s*(?:else\b|\^\s*~?-?\}\})")
+_ELSE_TOKEN = re.compile(r"\{\{~?-?\s*(?:else|\^)(?:\s+[^{}]*?)?\s*~?-?\}\}")
 
 Engine = Literal["handlebars", "go"]
 
@@ -281,7 +281,7 @@ class _Converter:
             _, ended = self.tag_branches.pop()
             states = [*ended, (self.in_tag, self.tag_quote)]
             self.in_tag, self.tag_quote = next((state for state in states if state[0]), states[-1])
-        elif _ELSE_TOKEN.match(token) and self.tag_branches:
+        elif _ELSE_TOKEN.fullmatch(token) and self.tag_branches:
             opened, ended = self.tag_branches[-1]
             ended.append((self.in_tag, self.tag_quote))
             self.in_tag, self.tag_quote = opened
