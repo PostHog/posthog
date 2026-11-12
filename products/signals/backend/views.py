@@ -238,6 +238,11 @@ from products.signals.backend.report_metric_refresh import (
 )
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.report_monitoring_summary import ReportMonitoringSummary, monitoring_summaries
+from products.signals.backend.report_note_mentions import (
+    note_text,
+    parse_note_mentions,
+    schedule_note_mention_notifications,
+)
 from products.signals.backend.report_plan import report_plan
 from products.signals.backend.report_priority import latest_priority_rank, update_report_priority
 from products.signals.backend.report_read_state import (
@@ -7234,6 +7239,13 @@ class SignalReportArtefactViewSet(
                 )
             except ArtefactContentValidationError as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if isinstance(parsed_content, NoteArtefact):
+            schedule_note_mention_notifications(
+                team_id=self.team.id,
+                artefact_id=str(artefact.id),
+                attribution=attribution,
+                mentions=parse_note_mentions(parsed_content.note),
+            )
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
 
     def _capture_canonical_reviewer_state(self, report_id: str) -> None:
@@ -7307,6 +7319,7 @@ class SignalReportArtefactViewSet(
                 {"error": f"Artefact type '{artefact.type}' is read-only and cannot be edited through the API."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        previous_content = artefact.content
         try:
             parsed_content = parse_artefact_content(artefact.type, request.validated_data["content"])
             if isinstance(parsed_content, ChannelAssignment):
@@ -7316,6 +7329,16 @@ class SignalReportArtefactViewSet(
             return Response(
                 {"error": f"content does not match the '{artefact.type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        if isinstance(parsed_content, NoteArtefact):
+            # An edit pings only the people it adds, so fixing a typo does not ping everyone again.
+            schedule_note_mention_notifications(
+                team_id=self.team.id,
+                artefact_id=str(artefact.id),
+                attribution=resolve_request_attribution(request, self.team.id),
+                mentions=parse_note_mentions(parsed_content.note).added_since(
+                    parse_note_mentions(note_text(artefact.type, previous_content) or "")
+                ),
             )
         if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             # Editing a reviewers row can change the report's canonical reviewer set in place.

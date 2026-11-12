@@ -76,6 +76,9 @@ from products.signals.backend.report_generation.repo_activity import (
 )
 from products.signals.backend.report_inbox_state import reconcile_report_inbox_state, teams_with_reports
 from products.signals.backend.report_monitoring_signals import emit_due_monitoring_research
+from products.signals.backend.report_note_mentions import (
+    send_report_note_mention_notifications as send_report_note_mention_notifications,
+)
 from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands

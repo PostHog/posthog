@@ -331,15 +331,19 @@ def _team_notification_target(team_id: int, *, priority: str | None) -> tuple[In
         priority, config.default_slack_notification_min_priority
     ):
         return None
+    integration = _team_notification_integration(team_id, config)
+    return (integration, channel) if integration is not None else None
+
+
+def _team_notification_integration(team_id: int, config: SignalTeamConfig) -> IntegrationRecord | None:
     # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
     slack_rows = IntegrationManager.slack.any
     bound_id = config.default_slack_notification_integration_id
     if bound_id is not None and (integration := slack_rows.get_many(team_id, [bound_id]).get(bound_id)):
-        return integration, channel
+        return integration
     # A channel saved before the binding existed, or bound to a removed workspace, keeps the old
     # routing through the oldest workspace.
-    legacy = slack_rows.find(team_id)
-    return (legacy, channel) if legacy is not None else None
+    return slack_rows.find(team_id)
 
 
 def _channel_display_name(value: str) -> str:
@@ -956,4 +960,83 @@ def dispatch_reviewer_added_notifications(
         "dispatch_reviewer_added_notifications: complete",
         extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},
     )
+    return sent
+
+
+def _note_mention_destination(
+    user: User, own_config: _OwnTarget | None, team_integration: IntegrationRecord | None
+) -> _Destination | None:
+    """Where one mentioned person hears about a note mention.
+
+    Their own Slack target answers first, with no min-priority filter, because a mention is a direct
+    ping and not a report digest. Without one, a direct message through the team's inbox workspace
+    reaches them when their PostHog email matches a workspace member. The team channel is never
+    used, so one mention does not ping the whole team.
+    """
+    if own_config is not None and own_config.channel:
+        return _Destination(integration=own_config.integration, channel=own_config.channel, is_team_channel=False)
+    if team_integration is None:
+        return None
+    member_id = lookup_slack_user_id_by_email(SlackIntegration(team_integration, source="signals_inbox"), user.email)
+    if member_id is None:
+        return None
+    return _Destination(integration=team_integration, channel=member_id, is_team_channel=False)
+
+
+def _note_mention_blocks(
+    report: SignalReport, *, author_name: str, recipient_label: str, text: str
+) -> tuple[list[dict], str]:
+    url = build_report_url(report.team_id, report.id, ReportLinkSource.SLACK)
+    title = _escape_mrkdwn(_display_title(report.title))
+    headline = f"*{_escape_mrkdwn(author_name)}* mentioned {recipient_label} on <{url}|{title}>"
+    quoted = "\n".join(f">{line}" for line in _escape_mrkdwn(text).splitlines() or [""])
+    body = truncate_slack_text(f"{headline}\n{quoted}", 2900)
+    fallback = f"{author_name} mentioned {recipient_label} on a report: {report.title or 'Untitled report'}"
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": body}}], fallback
+
+
+def deliver_report_note_mention_to_slack(
+    report: SignalReport, users: Collection[User], *, author_name: str, text: str
+) -> int:
+    """Tell each mentioned person about a note mention in Slack, where Slack is set up for them.
+
+    The caller has already checked each person's Inbox access. Best effort per person; returns the
+    number of messages sent.
+    """
+    if not users:
+        return 0
+    config = (
+        SignalTeamConfig.objects.filter(team_id=report.team_id)
+        .only("default_slack_notification_channel", "default_slack_notification_integration_id")
+        .first()
+    )
+    inbox_slack_set_up = config is not None and (
+        config.default_slack_notification_integration_id is not None
+        or bool((config.default_slack_notification_channel or "").strip())
+    )
+    team_integration = _team_notification_integration(report.team_id, config) if config and inbox_slack_set_up else None
+    own_configs = _own_target_configs_by_user(report.team_id, {user.id for user in users})
+
+    sent = 0
+    for user in users:
+        try:
+            destination = _note_mention_destination(user, own_configs.get(user.id), team_integration)
+            if destination is None:
+                continue
+            channel_id = _channel_id_from_target(destination.channel)
+            is_direct_message = is_slack_member_target(destination.channel)
+            recipient_label = "you" if is_direct_message else _escape_mrkdwn(_posthog_user_display_name(user))
+            blocks, fallback = _note_mention_blocks(
+                report, author_name=author_name, recipient_label=recipient_label, text=text
+            )
+            SlackIntegration(destination.integration, source="signals_inbox").client.chat_postMessage(
+                channel=channel_id, blocks=blocks, text=fallback
+            )
+            sent += 1
+        except Exception:
+            logger.warning(
+                "Failed to send a report note mention to Slack",
+                extra={"report_id": str(report.id), "team_id": report.team_id},
+                exc_info=True,
+            )
     return sent

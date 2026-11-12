@@ -2383,6 +2383,47 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
         assert artefact.created_by_id is None
         assert response.json()["task_id"] == str(task.id)
 
+    @parameterized.expand([("person", False, [[5]]), ("task", True, [])])
+    def test_post_note_pings_mentions_only_for_a_person(self, _name, with_task_header, expected_user_ids):
+        report = self._create_report()
+        headers = {"X-PostHog-Task-Id": str(self._create_task().id)} if with_task_header else {}
+        with (
+            patch(
+                "products.signals.backend.report_note_mentions.send_report_note_mention_notifications.delay"
+            ) as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                self._list_url(str(report.id)),
+                data=json.dumps({"artefact_type": "note", "content": {"note": "@member:5 can you look"}}),
+                content_type="application/json",
+                headers=headers,
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [call.kwargs["user_ids"] for call in delay.call_args_list] == expected_user_ids
+
+    def test_patch_note_pings_only_the_mentions_it_adds(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "note", "content": {"note": "@member:5 look"}}),
+            content_type="application/json",
+        )
+        artefact_id = response.json()["id"]
+        with (
+            patch(
+                "products.signals.backend.report_note_mentions.send_report_note_mention_notifications.delay"
+            ) as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"{self._list_url(str(report.id))}{artefact_id}/",
+                data=json.dumps({"content": {"note": "@member:5 and @member:6 look"}}),
+                content_type="application/json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [call.kwargs["user_ids"] for call in delay.call_args_list] == [[6]]
+
     def test_post_with_foreign_team_task_header_returns_400(self):
         report = self._create_report()
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
