@@ -53,11 +53,14 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     return (
         <LemonMarkdown.Container className={className}>
             {blocks.map((block, index) => (
+                // Messages come from the agent or from a person, so an external image must not load
+                // on its own: that request would leak each viewer's address to the image host.
                 <LemonMarkdown.Renderer
                     key={`${id}-block_${index}`}
                     components={components}
                     renderCodeBlock={renderCodeBlock}
                     literalHtml={literalTags}
+                    disableImages
                 >
                     {block}
                 </LemonMarkdown.Renderer>
