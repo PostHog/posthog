@@ -18,7 +18,12 @@ import {
     visionScannersList,
     visionScannersStatsRetrieve,
 } from '../generated/api'
-import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
+import type {
+    ReplayScannerApi,
+    ScannerStatsResponseApi,
+    UserBasicApi,
+    VisionScannersListParams,
+} from '../generated/api.schemas'
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { csvParam, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
@@ -30,6 +35,7 @@ import {
     ScannerType,
     ReplayScanner,
     createdByLabel,
+    scannerFromApi,
     scannersFromApi,
 } from './types'
 
@@ -268,8 +274,12 @@ export interface replayScannersLogicActions {
     toggleScannerEnabled: (id: string) => {
         id: string
     }
-    toggleScannerEnabledDone: (id: string) => {
+    toggleScannerEnabledDone: (
+        id: string,
+        saved: ReplayScannerApi
+    ) => {
         id: string
+        saved: ReplayScannerApi
     }
     toggleScannerEnabledStarted: (id: string) => {
         id: string
@@ -327,7 +337,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         setScannerDuplicating: (id: string, duplicating: boolean) => ({ id, duplicating }),
         toggleScannerEnabled: (id: string) => ({ id }),
         toggleScannerEnabledStarted: (id: string) => ({ id }),
-        toggleScannerEnabledDone: (id: string) => ({ id }),
+        toggleScannerEnabledDone: (id: string, saved: ReplayScannerApi) => ({ id, saved }),
         revertScannerEnabled: (id: string) => ({ id }),
         setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setScannersFilters: (filters: Partial<ScannersFilters>, replace: boolean = false) => ({ filters, replace }),
@@ -382,6 +392,9 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                     state.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l)),
                 revertScannerEnabled: (state, { id }) =>
                     state.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l)),
+                // A turn-on can take the scanner over or clear free-only, and every toggle moves its reason.
+                toggleScannerEnabledDone: (state, { id, saved }) =>
+                    state.map((l) => (l.id === id ? { ...l, ...scannerFromApi(saved) } : l)),
             },
         ],
         scannersTotal: [
@@ -585,15 +598,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                     actions.revertScannerEnabled(id)
                     return
                 }
-                actions.toggleScannerEnabledDone(id)
-                if (
-                    enabled &&
-                    ((saved.created_by?.id ?? null) !== (scanner.created_by?.id ?? null) ||
-                        saved.free_only !== scanner.free_only)
-                ) {
-                    // A take-over moves the creator, and a paid turn-on clears free-only; the rows show both.
-                    actions.loadScanners()
-                }
+                actions.toggleScannerEnabledDone(id, saved)
             } catch (error: any) {
                 const verb = enabled ? 'enable' : 'disable'
                 lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
