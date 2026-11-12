@@ -77,6 +77,17 @@ UNTAGGED_CHANNEL = HogQLQueryModifiers(
     ]
 )
 
+PARTNER_URL_CHANNEL = CustomChannelRule(
+    id="partner",
+    channel_type="Partner",
+    combiner=FilterLogicalOperator.AND_,
+    items=[
+        CustomChannelCondition(
+            id="ref", key=CustomChannelField.URL, op=CustomChannelOperator.ICONTAINS, value="ref=partner"
+        )
+    ],
+)
+
 
 class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
     def setUp(self):
@@ -148,6 +159,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                     "$viewport_width": 1280,
                     "$viewport_height": 720,
                     "$pathname": "/blog",
+                    "$current_url": "https://blog.example.com/blog?ref=partner",
                 },
             )
             flush_persons_and_events()
@@ -338,6 +350,51 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert runner.used_preaggregated_tables is expect_v2
         if expect_v2:
             assert runner.query_strategy() == "stats_table_preaggregated"
+
+    @parameterized.expand(
+        [
+            (
+                "breakdown",
+                WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                [],
+                {"Partner": (1.0, 1.0), "Unknown": (2.0, 3.0)},
+            ),
+            (
+                "filter",
+                WebStatsBreakdown.DEVICE_TYPE,
+                [SessionPropertyFilter(key="$channel_type", value="Partner", operator=PropertyOperator.EXACT)],
+                {"Desktop": (1.0, 1.0)},
+            ),
+        ]
+    )
+    def test_team_channel_rules_are_served_once_rebuilt(self, _name, breakdown, properties, expected_counts):
+        self.team.modifiers = {"customChannelTypeRules": [PARTNER_URL_CHANNEL.model_dump(mode="json")]}
+        self.team.save()
+
+        def run():
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                    properties=properties,
+                    breakdownBy=breakdown,
+                    limit=100,
+                    webQueryModifiers=OPT_IN,
+                ),
+            )
+            return runner, self._sort_results(runner.calculate().results)
+
+        stale_runner, _ = run()
+        assert ready_dimensional_job_ids(stale_runner, DIMENSIONAL_READ_TABLES) is None
+
+        ensure_web_stats_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        runner, dimensional = run()
+
+        assert runner.used_preaggregated_tables
+        assert runner.query_strategy() == "stats_table_dimensional"
+        assert dimensional == self._run_live(breakdown, properties)
+        assert self._counts(dimensional) == expected_counts
 
     @parameterized.expand(
         [
