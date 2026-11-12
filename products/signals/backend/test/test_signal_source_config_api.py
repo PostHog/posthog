@@ -588,6 +588,33 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.config == {"hogql_filter": saved, "steering": "Skip"}
 
+    @parameterized.expand([("writable", True, True), ("flag_off", False, True), ("not_eligible", True, False)])
+    def test_filter_catalogs_list_only_sources_this_project_can_filter(
+        self, _name: str, flag_enabled: bool, eligible: bool
+    ) -> None:
+        self._linear_filter_catalog(eligible=eligible)
+
+        with patch("products.signals.backend.source_filters.feature_enabled_or_false", return_value=flag_enabled):
+            response = self.client.get(f"{self._url()}filter_catalogs/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        expected = (
+            [
+                {
+                    "source_product": "linear",
+                    "source_type": "issue",
+                    "catalog_version": 1,
+                    "filter_fields": [
+                        {"name": "project_name", "type": "string", "description": "Name of the issue's project."}
+                    ],
+                    "starter_expressions": [],
+                }
+            ]
+            if flag_enabled and eligible
+            else []
+        )
+        assert response.json() == {"results": expected}
+
     @parameterized.expand(
         [
             ("flag_off", False, "project_name = 'Core'"),

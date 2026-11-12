@@ -111893,6 +111893,32 @@ export namespace Schemas {
     }
 
     /**
+     * * `string` - string
+     * * `integer` - integer
+     * * `number` - number
+     * * `boolean` - boolean
+     * * `datetime` - datetime
+     * * `array<string>` - array<string>
+     * * `array<integer>` - array<integer>
+     * * `array<number>` - array<number>
+     * * `array<boolean>` - array<boolean>
+     */
+    export type SignalFilterFieldTypeEnum = typeof SignalFilterFieldTypeEnum[keyof typeof SignalFilterFieldTypeEnum];
+
+
+    export const SignalFilterFieldTypeEnum = {
+      String: 'string',
+      Integer: 'integer',
+      Number: 'number',
+      Boolean: 'boolean',
+      Datetime: 'datetime',
+      ArrayString: 'array<string>',
+      ArrayInteger: 'array<integer>',
+      ArrayNumber: 'array<number>',
+      ArrayBoolean: 'array<boolean>',
+    } as const;
+
+    /**
      * Body for appending an artefact to a report.
      *
      * Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
@@ -114053,6 +114079,417 @@ export namespace Schemas {
          * @nullable
          */
       edit_index: number | null;
+    }
+
+    export interface SourceFilterCatalogField {
+      /** Name to use for this field in a filter expression. */
+      name: string;
+      /** Type of the field's value. Compare it with values of the same type.
+       *
+       * * `string` - string
+       * * `integer` - integer
+       * * `number` - number
+       * * `boolean` - boolean
+       * * `datetime` - datetime
+       * * `array<string>` - array<string>
+       * * `array<integer>` - array<integer>
+       * * `array<number>` - array<number>
+       * * `array<boolean>` - array<boolean> */
+      type: SignalFilterFieldTypeEnum;
+      /** What the field holds, and its value when the record has none (null, or an empty array). */
+      description: string;
+    }
+
+    export interface SourceFilterCatalog {
+      /** Source product the filter applies to.
+       *
+       * * `session_replay` - Session replay
+       * * `llm_analytics` - LLM analytics
+       * * `github` - GitHub
+       * * `linear` - Linear
+       * * `jira` - Jira
+       * * `zendesk` - Zendesk
+       * * `conversations` - Conversations
+       * * `error_tracking` - Error tracking
+       * * `pganalyze` - pganalyze
+       * * `signals_scout` - Signals scout
+       * * `signals_check` - Report check
+       * * `user_authored` - Team member
+       * * `logs` - Logs
+       * * `health_checks` - Health checks
+       * * `endpoints` - Endpoints
+       * * `replay_vision` - Replay Vision
+       * * `analytics` - Product analytics
+       * * `freshdesk` - Freshdesk
+       * * `freshservice` - Freshservice
+       * * `front` - Front
+       * * `gorgias` - Gorgias
+       * * `kustomer` - Kustomer
+       * * `dixa` - Dixa
+       * * `plain` - Plain
+       * * `gitlab` - GitLab
+       * * `gitea` - Gitea
+       * * `shortcut` - Shortcut
+       * * `sentry` - Sentry
+       * * `rollbar` - Rollbar
+       * * `bugsnag` - Bugsnag
+       * * `honeybadger` - Honeybadger
+       * * `raygun` - Raygun
+       * * `datadog` - Datadog
+       * * `snyk` - Snyk
+       * * `sonarqube` - SonarQube
+       * * `semgrep` - Semgrep
+       * * `rapid7_insightvm` - Rapid7 InsightVM
+       * * `featurebase` - Featurebase
+       * * `frill` - Frill
+       * * `aha` - Aha
+       * * `uservoice` - UserVoice
+       * * `productboard` - Productboard
+       * * `canny` - Canny
+       * * `asknicely` - AskNicely
+       * * `retently` - Retently
+       * * `appfigures` - Appfigures
+       * * `appfollow` - AppFollow
+       * * `judgeme_reviews` - Judge.me
+       * * `intercom` - Intercom
+       * * `hubspot` - HubSpot
+       * * `engineering_analytics` - Engineering analytics
+       * * `google_search_console` - Google Search Console
+       * * `pagerduty` - PagerDuty
+       * * `opsgenie` - Opsgenie
+       * * `incident_io` - incident.io
+       * * `firehydrant` - FireHydrant
+       * * `squadcast` - Squadcast
+       * * `servicenow` - ServiceNow
+       * * `solarwinds_service_desk` - SolarWinds Service Desk
+       * * `grafana_irm` - Grafana IRM
+       * * `xmatters` - xMatters
+       * * `betterstack` - Better Stack
+       * * `newrelic` - New Relic
+       * * `trigger_dev` - Trigger.dev
+       * * `checkly` - Checkly
+       * * `roark` - Roark
+       * * `monte_carlo` - Monte Carlo
+       * * `bigeye` - Bigeye
+       * * `aws_security_hub` - AWS Security Hub
+       * * `aws_guardduty` - AWS GuardDuty
+       * * `aws_inspector` - AWS Inspector
+       * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+       * * `clickup` - ClickUp
+       * * `wrike` - Wrike
+       * * `trello` - Trello
+       * * `bugherd` - BugHerd
+       * * `dynamics365` - Dynamics 365
+       * * `zoho_crm` - Zoho CRM
+       * * `planhat` - Planhat
+       * * `trustpilot` - Trustpilot
+       * * `okendo` - Okendo
+       * * `sleekplan` - Sleekplan
+       * * `bettermode` - Bettermode
+       * * `discourse` - Discourse
+       * * `mintlify` - Mintlify
+       * * `langsmith` - LangSmith
+       * * `sprig` - Sprig
+       * * `gainsight_px` - Gainsight PX
+       * * `dynatrace` - Dynatrace
+       * * `statuspage` - Statuspage
+       * * `cronitor` - Cronitor
+       * * `instatus` - Instatus
+       * * `asana` - Asana
+       * * `monday` - monday.com
+       * * `plane` - Plane
+       * * `azure_devops` - Azure DevOps
+       * * `helpscout` - Help Scout
+       * * `decagon` - Decagon
+       * * `vitally` - Vitally
+       * * `usersnap` - Usersnap
+       * * `typeform` - Typeform
+       * * `qualtrics` - Qualtrics
+       * * `surveymonkey` - SurveyMonkey
+       * * `formbricks` - Formbricks
+       * * `survicate` - Survicate
+       * * `surveysparrow` - SurveySparrow
+       * * `lacework` - Lacework
+       * * `orca_security` - Orca Security
+       * * `tenable_vulnerability_management` - Tenable Vulnerability Management
+       * * `google_play_console` - Google Play Console
+       * * `azure_application_insights` - Azure Application Insights
+       * * `appsignal` - AppSignal
+       * * `cursor` - Cursor */
+      source_product: SignalSourceProductEnum;
+      /** Source type the filter applies to.
+       *
+       * * `session_analysis_cluster` - Session analysis cluster
+       * * `evaluation_report` - Evaluation report
+       * * `issue` - Issue
+       * * `ticket` - Ticket
+       * * `issue_created` - Issue created
+       * * `issue_reopened` - Issue reopened
+       * * `issue_spiking` - Issue spiking
+       * * `cross_source_issue` - Cross source issue
+       * * `alert_state_change` - Alert state change
+       * * `health_issue` - Health issue
+       * * `endpoint_execution_failed` - Endpoint execution failed
+       * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+       * * `scanner_finding` - Scanner finding
+       * * `anomaly_investigation` - Anomaly investigation
+       * * `feedback` - Feedback
+       * * `review` - Review
+       * * `ci_flaky_check` - CI flaky check
+       * * `ci_broken_default_branch` - CI broken default branch
+       * * `ci_duration_regression` - CI duration regression
+       * * `search_opportunity` - Search opportunity
+       * * `incident` - Incident */
+      source_type: SignalSourceConfigSourceTypeEnum;
+      /** Catalog version a filter saved now is pinned to. A saved filter keeps the meaning of its version. */
+      catalog_version: number;
+      /** Fields a filter expression can use. */
+      filter_fields: SourceFilterCatalogField[];
+      /** Example expressions that are valid for this source. */
+      starter_expressions: string[];
+    }
+
+    export interface SourceFilterCatalogList {
+      /** One entry per source whose filter this project can set. A source that is missing does not take a filter. */
+      results: SourceFilterCatalog[];
+    }
+
+    /**
+     * Each catalog field's value for this record. A malformed value reads as null, or an empty array.
+     */
+    export type SourceFilterPreviewRecordFieldValues = {[key: string]: string | number | string[] | null};
+
+    export interface SourceFilterPreviewRecord {
+      /** The record's id in the source. */
+      id: string;
+      /**
+         * Short identifier people use for the record.
+         * @nullable
+         */
+      identifier: string | null;
+      /**
+         * The record's title.
+         * @nullable
+         */
+      title: string | null;
+      /**
+         * Link to the record in the source.
+         * @nullable
+         */
+      url: string | null;
+      /**
+         * When the record was created, as emission reads it.
+         * @nullable
+         */
+      created_at: string | null;
+      /** True when a field the expression uses holds a value that cannot be read, so the record never passes. */
+      malformed: boolean;
+      /** Each catalog field's value for this record. A malformed value reads as null, or an empty array. */
+      field_values: SourceFilterPreviewRecordFieldValues;
+    }
+
+    export interface SourceFilterPreviewRequest {
+      /** Source product of the filter to preview.
+       *
+       * * `session_replay` - Session replay
+       * * `llm_analytics` - LLM analytics
+       * * `github` - GitHub
+       * * `linear` - Linear
+       * * `jira` - Jira
+       * * `zendesk` - Zendesk
+       * * `conversations` - Conversations
+       * * `error_tracking` - Error tracking
+       * * `pganalyze` - pganalyze
+       * * `signals_scout` - Signals scout
+       * * `signals_check` - Report check
+       * * `user_authored` - Team member
+       * * `logs` - Logs
+       * * `health_checks` - Health checks
+       * * `endpoints` - Endpoints
+       * * `replay_vision` - Replay Vision
+       * * `analytics` - Product analytics
+       * * `freshdesk` - Freshdesk
+       * * `freshservice` - Freshservice
+       * * `front` - Front
+       * * `gorgias` - Gorgias
+       * * `kustomer` - Kustomer
+       * * `dixa` - Dixa
+       * * `plain` - Plain
+       * * `gitlab` - GitLab
+       * * `gitea` - Gitea
+       * * `shortcut` - Shortcut
+       * * `sentry` - Sentry
+       * * `rollbar` - Rollbar
+       * * `bugsnag` - Bugsnag
+       * * `honeybadger` - Honeybadger
+       * * `raygun` - Raygun
+       * * `datadog` - Datadog
+       * * `snyk` - Snyk
+       * * `sonarqube` - SonarQube
+       * * `semgrep` - Semgrep
+       * * `rapid7_insightvm` - Rapid7 InsightVM
+       * * `featurebase` - Featurebase
+       * * `frill` - Frill
+       * * `aha` - Aha
+       * * `uservoice` - UserVoice
+       * * `productboard` - Productboard
+       * * `canny` - Canny
+       * * `asknicely` - AskNicely
+       * * `retently` - Retently
+       * * `appfigures` - Appfigures
+       * * `appfollow` - AppFollow
+       * * `judgeme_reviews` - Judge.me
+       * * `intercom` - Intercom
+       * * `hubspot` - HubSpot
+       * * `engineering_analytics` - Engineering analytics
+       * * `google_search_console` - Google Search Console
+       * * `pagerduty` - PagerDuty
+       * * `opsgenie` - Opsgenie
+       * * `incident_io` - incident.io
+       * * `firehydrant` - FireHydrant
+       * * `squadcast` - Squadcast
+       * * `servicenow` - ServiceNow
+       * * `solarwinds_service_desk` - SolarWinds Service Desk
+       * * `grafana_irm` - Grafana IRM
+       * * `xmatters` - xMatters
+       * * `betterstack` - Better Stack
+       * * `newrelic` - New Relic
+       * * `trigger_dev` - Trigger.dev
+       * * `checkly` - Checkly
+       * * `roark` - Roark
+       * * `monte_carlo` - Monte Carlo
+       * * `bigeye` - Bigeye
+       * * `aws_security_hub` - AWS Security Hub
+       * * `aws_guardduty` - AWS GuardDuty
+       * * `aws_inspector` - AWS Inspector
+       * * `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps
+       * * `clickup` - ClickUp
+       * * `wrike` - Wrike
+       * * `trello` - Trello
+       * * `bugherd` - BugHerd
+       * * `dynamics365` - Dynamics 365
+       * * `zoho_crm` - Zoho CRM
+       * * `planhat` - Planhat
+       * * `trustpilot` - Trustpilot
+       * * `okendo` - Okendo
+       * * `sleekplan` - Sleekplan
+       * * `bettermode` - Bettermode
+       * * `discourse` - Discourse
+       * * `mintlify` - Mintlify
+       * * `langsmith` - LangSmith
+       * * `sprig` - Sprig
+       * * `gainsight_px` - Gainsight PX
+       * * `dynatrace` - Dynatrace
+       * * `statuspage` - Statuspage
+       * * `cronitor` - Cronitor
+       * * `instatus` - Instatus
+       * * `asana` - Asana
+       * * `monday` - monday.com
+       * * `plane` - Plane
+       * * `azure_devops` - Azure DevOps
+       * * `helpscout` - Help Scout
+       * * `decagon` - Decagon
+       * * `vitally` - Vitally
+       * * `usersnap` - Usersnap
+       * * `typeform` - Typeform
+       * * `qualtrics` - Qualtrics
+       * * `surveymonkey` - SurveyMonkey
+       * * `formbricks` - Formbricks
+       * * `survicate` - Survicate
+       * * `surveysparrow` - SurveySparrow
+       * * `lacework` - Lacework
+       * * `orca_security` - Orca Security
+       * * `tenable_vulnerability_management` - Tenable Vulnerability Management
+       * * `google_play_console` - Google Play Console
+       * * `azure_application_insights` - Azure Application Insights
+       * * `appsignal` - AppSignal
+       * * `cursor` - Cursor */
+      source_product: SignalSourceProductEnum;
+      /** Source type of the filter to preview.
+       *
+       * * `session_analysis_cluster` - Session analysis cluster
+       * * `evaluation_report` - Evaluation report
+       * * `issue` - Issue
+       * * `ticket` - Ticket
+       * * `issue_created` - Issue created
+       * * `issue_reopened` - Issue reopened
+       * * `issue_spiking` - Issue spiking
+       * * `cross_source_issue` - Cross source issue
+       * * `alert_state_change` - Alert state change
+       * * `health_issue` - Health issue
+       * * `endpoint_execution_failed` - Endpoint execution failed
+       * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+       * * `scanner_finding` - Scanner finding
+       * * `anomaly_investigation` - Anomaly investigation
+       * * `feedback` - Feedback
+       * * `review` - Review
+       * * `ci_flaky_check` - CI flaky check
+       * * `ci_broken_default_branch` - CI broken default branch
+       * * `ci_duration_regression` - CI duration regression
+       * * `search_opportunity` - Search opportunity
+       * * `incident` - Incident */
+      source_type: SignalSourceConfigSourceTypeEnum;
+      /**
+         * Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through.
+         * @maxLength 16384
+         */
+      expression: string;
+    }
+
+    /**
+     * * `ok` - ok
+     * * `invalid_expression` - invalid_expression
+     * * `not_connected` - not_connected
+     * * `not_synced` - not_synced
+     * * `access_denied` - access_denied
+     * * `incompatible_table` - incompatible_table
+     * * `query_failed` - query_failed
+     */
+    export type SourceFilterPreviewStatusEnum = typeof SourceFilterPreviewStatusEnum[keyof typeof SourceFilterPreviewStatusEnum];
+
+
+    export const SourceFilterPreviewStatusEnum = {
+      Ok: 'ok',
+      InvalidExpression: 'invalid_expression',
+      NotConnected: 'not_connected',
+      NotSynced: 'not_synced',
+      AccessDenied: 'access_denied',
+      IncompatibleTable: 'incompatible_table',
+      QueryFailed: 'query_failed',
+    } as const;
+
+    export interface SourceFilterPreviewResponse {
+      /** `ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. `not_connected` when the project has no syncing import for the source. `not_synced` when the import has not finished a first sync. `access_denied` when you cannot read the source's warehouse table. `incompatible_table` when the table does not have the columns the filter fields read. `query_failed` when the preview query did not run.
+       *
+       * * `ok` - ok
+       * * `invalid_expression` - invalid_expression
+       * * `not_connected` - not_connected
+       * * `not_synced` - not_synced
+       * * `access_denied` - access_denied
+       * * `incompatible_table` - incompatible_table
+       * * `query_failed` - query_failed */
+      status: SourceFilterPreviewStatusEnum;
+      /**
+         * Why the status is not `ok`, when there is a reason.
+         * @nullable
+         */
+      error: string | null;
+      /** Catalog version the expression was checked against. */
+      catalog_version: number;
+      /** The preview reads records created in this many past days. */
+      lookback_days: number;
+      /** Records in the window that emission would read before the filter. 0 unless `status` is `ok`. */
+      total_count: number;
+      /** Records in the window that pass the filter. */
+      passing_count: number;
+      /** Records in the window that the filter excludes. */
+      excluded_count: number;
+      /** Excluded records that hold a value the filter cannot read. Included in `excluded_count`. */
+      malformed_count: number;
+      /** The newest records that pass the filter, at most 10. */
+      passing: SourceFilterPreviewRecord[];
+      /** The newest records that the filter excludes, at most 10. */
+      excluded: SourceFilterPreviewRecord[];
     }
 
     export interface SourceMappingSuggestion {

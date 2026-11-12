@@ -140,6 +140,7 @@ from products.signals.backend.enums import ReportPriority, ReportTaskActionKind,
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.facade.source_configs import AlertNamePatterns, evaluate_alert_filter
 from products.signals.backend.feedback_notes import forward_feedback_note
+from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.hybrid_search import SearchMode, SemanticSearchUnavailable
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
@@ -332,6 +333,9 @@ from products.signals.backend.serializers import (
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
+    SourceFilterCatalogListSerializer,
+    SourceFilterPreviewRequestSerializer,
+    SourceFilterPreviewResponseSerializer,
     personal_ranking_payload,
 )
 from products.signals.backend.signal_metadata import (
@@ -345,6 +349,8 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
+from products.signals.backend.source_filter_preview import preview_source_filter
+from products.signals.backend.source_filters import writable_sources
 from products.signals.backend.source_issues import source_issues_by_report
 from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.spend_reporting import SpendReporting
@@ -655,6 +661,66 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 }
             ).data
         )
+
+    @extend_schema(
+        responses={200: OpenApiResponse(response=SourceFilterCatalogListSerializer)},
+        summary="List source filter catalogs",
+        description=(
+            "List the sources whose filter this project can set, each with the fields a filter expression can use and "
+            "example expressions. A filter is a boolean expression saved in a source config's `config.hogql_filter`. "
+            "It excludes records before any AI processing. Available before the source is connected or synced."
+        ),
+    )
+    @action(
+        detail=False, methods=["get"], url_path="filter_catalogs", required_scopes=["inbox:read"], pagination_class=None
+    )
+    def filter_catalogs(self, request: Request, **kwargs: Any) -> Response:
+        catalogs = [
+            {
+                "source_product": source.source_product,
+                "source_type": source.source_type,
+                "catalog_version": source.catalog_version,
+                "filter_fields": [
+                    {"name": field.name, "type": field.type, "description": field.description}
+                    for field in source.bundle.fields
+                ],
+                "starter_expressions": source.bundle.starter_expressions,
+            }
+            for source in writable_sources(str(self.team.organization_id))
+        ]
+        return Response(SourceFilterCatalogListSerializer({"results": catalogs}).data)
+
+    @validated_request(
+        request_serializer=SourceFilterPreviewRequestSerializer,
+        responses={200: OpenApiResponse(response=SourceFilterPreviewResponseSerializer)},
+        summary="Preview a source filter",
+        description=(
+            "Check a filter expression before saving it, and see what it does to the source's records created in the "
+            "last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission "
+            "would read, with the source's saved team allowlist, and runs with your own warehouse access. Records "
+            "that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="filter_preview",
+        # The preview returns warehouse rows, so the caller needs the query read scope too.
+        required_scopes=["inbox:read", "query:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def filter_preview(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        try:
+            preview = preview_source_filter(
+                team=self.team,
+                user=cast(User, request.user),
+                source_product=request.validated_data["source_product"],
+                source_type=request.validated_data["source_type"],
+                expression=request.validated_data["expression"],
+            )
+        except FilterValidationError as error:
+            raise serializers.ValidationError({"source_type": str(error)})
+        return Response(SourceFilterPreviewResponseSerializer(preview).data)
 
     def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
         return (

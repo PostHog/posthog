@@ -192,6 +192,9 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SourceFilterCatalogListApi,
+    SourceFilterPreviewRequestApi,
+    SourceFilterPreviewResponseApi,
     SourceSpendApi,
     SpendOverviewApi,
     SubmitMonitoringResultRequestApi,
@@ -3484,6 +3487,45 @@ export const signalsSourceConfigsAlertPatternPreviewCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(alertPatternPreviewRequestApi),
+    })
+}
+
+export const getSignalsSourceConfigsFilterCatalogsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/filter_catalogs/`
+}
+
+/**
+ * List the sources whose filter this project can set, each with the fields a filter expression can use and example expressions. A filter is a boolean expression saved in a source config's `config.hogql_filter`. It excludes records before any AI processing. Available before the source is connected or synced.
+ * @summary List source filter catalogs
+ */
+export const signalsSourceConfigsFilterCatalogsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SourceFilterCatalogListApi> => {
+    return apiMutator<SourceFilterCatalogListApi>(getSignalsSourceConfigsFilterCatalogsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsSourceConfigsFilterPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/filter_preview/`
+}
+
+/**
+ * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist, and runs with your own warehouse access. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
+ * @summary Preview a source filter
+ */
+export const signalsSourceConfigsFilterPreviewCreate = async (
+    projectId: string,
+    sourceFilterPreviewRequestApi: SourceFilterPreviewRequestApi,
+    options?: RequestInit
+): Promise<SourceFilterPreviewResponseApi> => {
+    return apiMutator<SourceFilterPreviewResponseApi>(getSignalsSourceConfigsFilterPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sourceFilterPreviewRequestApi),
     })
 }
 
