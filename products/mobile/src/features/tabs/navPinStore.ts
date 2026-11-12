@@ -5,25 +5,18 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 
 import { createPersistHydrationGate } from '@/lib/persistHydration'
 
+import { MAX_NAV_PINS } from './navPinSlot'
+
 // Which lists sit in the nav pill after Views. A device preference: it holds no account data, so sign-out keeps it,
 // like the pin hint, and it applies to every project.
 
-export type NavPin = 'errors' | 'replay' | 'web_analytics' | 'live'
+// Live is Home, so it is not a pin, and a saved Live pin is dropped when the list loads.
+export type NavPin = 'errors' | 'replay' | 'web_analytics'
 
-export const NAV_PINS: readonly NavPin[] = ['errors', 'replay', 'web_analytics', 'live']
+export const NAV_PINS: readonly NavPin[] = ['errors', 'replay', 'web_analytics']
 
 /** How a pinnable screen draws: as its navigation tab, or pushed above the tabs. */
 export type NavChrome = 'tab' | 'stack'
-
-/**
- * How many pin slots the pill draws after Views. The store keeps a list, so a larger cap needs no change to the saved
- * format. The slot was retired when Home became Live, so the cap is 0: the pin code stays, dormant, until the decision
- * to remove it. A saved list stays on the device and loads as no pins.
- */
-export const MAX_NAV_PINS = 0
-
-/** False while the slot is retired, which hides every "Pin to navigation" and "Unpin from navigation" item. */
-export const NAV_PINS_ENABLED = MAX_NAV_PINS > 0
 
 const NO_PINS: readonly NavPin[] = []
 

@@ -8,7 +8,6 @@ import { ErrorTriangleIcon } from '@/ui/icons/ErrorTriangleIcon'
 import { GlobeIcon } from '@/ui/icons/GlobeIcon'
 import { HomeIcon } from '@/ui/icons/HomeIcon'
 import { InboxIcon } from '@/ui/icons/InboxIcon'
-import { LiveIcon } from '@/ui/icons/LiveIcon'
 import { RecordingIcon } from '@/ui/icons/RecordingIcon'
 import { SpacesIcon } from '@/ui/icons/SpacesIcon'
 import type { IconProps } from '@/ui/icons/types'
@@ -54,15 +53,10 @@ function WebAnalyticsNavIcon(props: IconProps): ReactElement {
     return <GlobeIcon strokeWidth={2} {...props} />
 }
 
-function LiveNavIcon(props: IconProps): ReactElement {
-    return <LiveIcon strokeWidth={2} {...props} />
-}
-
 const PIN_SLOTS: Record<NavPin, { label: string; Icon: ComponentType<IconProps> }> = {
     errors: { label: 'Errors', Icon: ErrorsNavIcon },
     replay: { label: 'Sessions', Icon: ReplayNavIcon },
     web_analytics: { label: 'Web analytics', Icon: WebAnalyticsNavIcon },
-    live: { label: 'Live', Icon: LiveNavIcon },
 }
 
 interface SlotIconProps {

@@ -55,12 +55,18 @@ function savedPage(persisted: unknown): unknown {
 }
 
 /**
- * Version 0 opened on the inbox and saved it for every person whose organization approved AI, so a saved inbox is not
- * a choice the person made. Web analytics is no longer a tab. Both go back to no choice, which opens Home.
+ * Version 0 saved Inbox on its own for every person whose organization approved AI, so a saved inbox is not a choice
+ * the person made, and it goes back to no choice, which opens Home. Version 0 also saved Views on its own when the
+ * organization had not approved AI, but most saved Views values were chosen in Settings, so Views stays. Web analytics
+ * is no longer a start page. A later version's page, after a downgrade, is kept when this version has it.
  */
-function migrateDefaultPage(persisted: unknown): PersistedDefaultPage {
+function migrateDefaultPage(persisted: unknown, version: number): PersistedDefaultPage {
     const from = savedPage(persisted)
-    const page = from === 'inbox' || from === 'web_analytics' || !isDefaultPage(from) ? null : from
+    const known = isDefaultPage(from) ? from : null
+    if (version !== 0) {
+        return { page: known }
+    }
+    const page = from === 'inbox' ? null : known
     if (typeof from === 'string' && from !== page) {
         trackWhenReady('mobile_default_page_migrated', { from, to: effectiveDefaultPage(page) })
     }

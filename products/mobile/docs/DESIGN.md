@@ -297,6 +297,7 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   Until the person picks one, the app opens Home.
   A start page that an earlier version saved as Inbox or Web analytics goes back to no choice once, and sends `mobile_default_page_migrated` (`from`, `to`),
   because that version saved Inbox on its own for every organization that approved AI.
+  A saved Views stays: that version also saved Views on its own for organizations without AI approval, but most saved Views values were chosen in Settings.
 - **Errors list** (`features/errors/ErrorsListScreen.tsx`): one body in two chromes. Pushed from the Views Browse
   row, it draws the Back chip and More over a 28pt "Errors" title and the "Most users first · updated 5m ago" line; as
   a pinned tab, the tabs header draws the title and that line. Under them sit the 24h and 7d `SegmentedPill` and the New,

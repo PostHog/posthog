@@ -1,6 +1,8 @@
 import { type BottomTabBarProps, Tabs } from 'expo-router/js-tabs'
-import { type ReactElement, useEffect, useLayoutEffect } from 'react'
+import { type ReactElement, useEffect, useLayoutEffect, useRef } from 'react'
 import { Platform, View } from 'react-native'
+import { useInboxHasUnread } from '@/features/inbox/useInboxHasUnread'
+import { trackLiveOpened } from '@/features/live/analytics'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { useToasts } from '@/features/views/ViewsToast'
 import { track } from '@/lib/analytics'
@@ -31,13 +33,19 @@ function TabBar({ state, navigateToTab }: BottomTabBarProps): ReactElement {
     }, [tab])
 
     // The bar stays mounted across tab switches, so it counts each open once, unlike a focus effect in the screen,
-    // which also fires when a pushed report, Settings or the chat sheet closes. Home (Live) and the pinned lists count
-    // their own opens, because the same screens also open pushed from Views.
+    // which also fires when a pushed report, Settings or the chat sheet closes. The pinned lists count their own opens,
+    // because the same screens also open pushed from Views.
+    // The open event reads the dot as it was when the tab changed, so the dot is not an effect dependency.
+    const inboxUnread = useInboxHasUnread()
+    const inboxUnreadRef = useRef(inboxUnread)
+    inboxUnreadRef.current = inboxUnread
     useEffect(() => {
-        if (tab === 'chats') {
+        if (tab === 'live') {
+            trackLiveOpened({ from: 'tab', chrome: 'tab' })
+        } else if (tab === 'chats') {
             track('mobile_chats_opened')
         } else if (tab === 'inbox') {
-            track('mobile_inbox_opened')
+            track('mobile_inbox_opened', { had_unread: inboxUnreadRef.current })
         }
     }, [tab])
     useViewsOpenedEvent(focused === 'views')

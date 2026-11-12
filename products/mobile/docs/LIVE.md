@@ -4,8 +4,9 @@ The Live screen mirrors the web's Web analytics → Live tab: users online, acti
 It reads the web's HogQL polling transport, not the event stream, so it needs no backend change.
 
 Live is the Home tab (`app/(tabs)/live/`, `/live`): the first slot of the bottom bar and the start page until the person picks another in Settings.
-It also opens as a pushed screen at `/views/live?from={entry}` (`app/views/live.tsx`) with the usual Back and More chrome, from the Browse row (`views-browse-live`) and from the Live chip on Web analytics (`from=web_analytics`).
-More has "Open on web", which opens `/web/live`. Its "Pin to navigation" item is hidden while the pin slot is retired (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
+The Browse row (`views-browse-live`) switches to Home.
+Live also opens as a pushed screen at `/views/live?from={entry}` (`app/views/live.tsx`) with the usual Back and More chrome, from the Live chip on Web analytics (`from=web_analytics`) and from deep links.
+More has "Open on web", which opens `/web/live`. Live is not a navigation pin, because it is Home.
 `LiveScreen({ from, chrome })` draws both: on Home (`chrome="tab"`) the tabs header draws the title "Live" alone, the content starts with one row (the dot, the status line, the Pause pill), and the tabs menu has Open on web.
 Deep link: `posthog://views/live` opens the pushed screen.
 Live needs `query:read`, so it reuses the Views access check (`useFeatureAccess('views')`) and `ViewsReauthState`.
@@ -94,17 +95,17 @@ Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the
 
 ## Analytics
 
-| Event                            | Properties                                                                                                            |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `mobile_live_opened`             | `from` (the `ViewEntry`; `web_analytics` for the chip, `tab` for Home), `chrome`: `tab` or `stack`. Each focus counts |
-| `mobile_live_opened_in_web`      |                                                                                                                       |
-| `mobile_live_error_shown`        | `kind`: `load_failed` or `refresh_failed`, once per streak                                                            |
-| `mobile_live_refreshed`          | `trigger`: `pull` or `resume`                                                                                         |
-| `mobile_live_paused`             | `trigger`: `button` or `background`                                                                                   |
-| `mobile_live_resumed`            | `trigger`: `button` or `foreground`                                                                                   |
-| `mobile_live_breakdown_changed`  | `breakdown`: `devices`, `browsers` or `countries`                                                                     |
-| `mobile_live_event_sheet_opened` | `kind`: `pageview`, `screen` or `other`                                                                               |
-| `mobile_live_event_action_taken` | `action`: `view_person`, `watch_recording`, `copy_distinct_id`                                                        |
+| Event                            | Properties                                                                                                                                                                       |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mobile_live_opened`             | `from` (the `ViewEntry`; `web_analytics` for the chip, `tab` for Home), `chrome`: `tab` or `stack`. The bar counts Home once per tab switch; the pushed screen counts each focus |
+| `mobile_live_opened_in_web`      |                                                                                                                                                                                  |
+| `mobile_live_error_shown`        | `kind`: `load_failed` or `refresh_failed`, once per streak                                                                                                                       |
+| `mobile_live_refreshed`          | `trigger`: `pull` or `resume`                                                                                                                                                    |
+| `mobile_live_paused`             | `trigger`: `button` or `background`                                                                                                                                              |
+| `mobile_live_resumed`            | `trigger`: `button` or `foreground`                                                                                                                                              |
+| `mobile_live_breakdown_changed`  | `breakdown`: `devices`, `browsers` or `countries`                                                                                                                                |
+| `mobile_live_event_sheet_opened` | `kind`: `pageview`, `screen` or `other`                                                                                                                                          |
+| `mobile_live_event_action_taken` | `action`: `view_person`, `watch_recording`, `copy_distinct_id`                                                                                                                   |
 
 The chart also sends the shared `mobile_chart_*` events with the `view` context.
 

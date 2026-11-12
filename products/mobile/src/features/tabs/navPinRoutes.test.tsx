@@ -16,6 +16,7 @@ jest.mock('react-native-worklets', () => jest.requireActual('react-native-workle
 function TabsStub(): ReactElement {
     return (
         <Tabs>
+            <Tabs.Screen name="live" />
             <Tabs.Screen name="inbox" />
             <Tabs.Screen name="views" />
             {NAV_PINS.map((pin) => (
@@ -29,6 +30,7 @@ function NativeTabsStub(): ReactElement {
     const pins = useNavPins()
     return (
         <NativeTabs>
+            <NativeTabs.Trigger name="live" />
             <NativeTabs.Trigger name="inbox" />
             <NativeTabs.Trigger name="views" />
             {NAV_PINS.map((pin) => (
@@ -49,12 +51,11 @@ function Screen(): ReactElement {
 describe('pinnable list navigation', () => {
     afterEach(() => act(() => restoreNavPins([])))
 
-    // Web analytics and Live open their pushed `/views/...` screens, which carry the entry for their open event.
+    // Web analytics opens its pushed `/views/...` screen, which carries the entry for its open event.
     const PINS: readonly { pin: NavPin; stack: string[]; params: Record<string, string> }[] = [
         { pin: 'errors', stack: ['(stack)', 'errors'], params: {} },
         { pin: 'replay', stack: ['(stack)', 'replay'], params: {} },
         { pin: 'web_analytics', stack: ['views', 'web-analytics'], params: { from: 'browse' } },
-        { pin: 'live', stack: ['views', 'live'], params: { from: 'browse' } },
     ]
 
     test.each([

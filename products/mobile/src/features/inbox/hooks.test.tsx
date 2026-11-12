@@ -263,15 +263,20 @@ describe('inbox hooks', () => {
             <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
         )
         const screen = renderHook(() => useInboxItems(), { wrapper })
+        const savedRead = (): boolean | undefined =>
+            queryClient.getQueryData<SavedInbox>(inboxCacheKey(scope))?.items[0]?.read
         await waitFor(() => expect(screen.result.current.data?.[0]?.read).toBe(true))
         await waitFor(() => expect(answerRead).toBeDefined())
+        expect(savedRead()).toBeUndefined()
         await act(async () => answerRead?.(jsonResponse({ states: { r1: false } })))
         await waitFor(() => expect(screen.result.current.data?.[0]?.read).toBe(false))
+        await waitFor(() => expect(savedRead()).toBe(false))
         globalThis.fetch = jest.fn(async () => jsonResponse({}, 404)) as typeof fetch
         await act(async () => {
             await queryClient.refetchQueries({ queryKey: key })
         })
         await waitFor(() => expect(screen.result.current.data?.[0]?.read).toBe(true))
+        expect(savedRead()).toBe(false)
     })
 
     test('polls every thirty seconds only while focused and foregrounded', async () => {

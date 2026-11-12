@@ -70,13 +70,15 @@ describe('default page store', () => {
         expect(store.getState().page).toBeNull()
     })
 
-    test.each<[string, DefaultPage | null, boolean]>([
-        ['inbox', null, true],
-        ['web_analytics', null, true],
-        ['live', 'live', false],
-        ['chats', 'chats', false],
-    ])('moves a saved %s page from version 0 to %s once', async (saved, page, migrated) => {
-        await save(saved, 0)
+    test.each<[string, number, DefaultPage | null, boolean]>([
+        ['inbox', 0, null, true],
+        ['web_analytics', 0, null, true],
+        ['views', 0, 'views', false],
+        ['live', 0, 'live', false],
+        ['chats', 0, 'chats', false],
+        ['inbox', 2, 'inbox', false],
+    ])('moves a saved %s page from version %s to %s once', async (saved, version, page, migrated) => {
+        await save(saved, version)
         const { store, analytics } = await loadModules()
 
         expect(store.getState().page).toBe(page)
@@ -85,6 +87,7 @@ describe('default page store', () => {
         )
         await waitFor(async () => expect(await AsyncStorage.getItem(STORAGE_KEY)).toContain('"version":1'))
 
+        // Every isolated registry gets the same analytics mock, so the restart starts from an empty call list.
         jest.mocked(analytics.trackWhenReady).mockClear()
         const restarted = await loadModules()
         expect(restarted.store.getState().page).toBe(page)

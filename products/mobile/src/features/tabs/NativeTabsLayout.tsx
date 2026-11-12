@@ -2,6 +2,7 @@ import { useSegments } from 'expo-router'
 import { NativeTabs } from 'expo-router/native-tabs'
 import { type ReactElement, useRef } from 'react'
 import { useInboxHasUnread } from '@/features/inbox/useInboxHasUnread'
+import { trackLiveOpened } from '@/features/live/analytics'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { track } from '@/lib/analytics'
 import { useMobileProductFlags } from '@/lib/featureFlags'
@@ -9,7 +10,7 @@ import { nativeIcons } from '@/ui/icons/nativeIcons'
 import { useNavigationOverlayStore } from '@/ui/overlayDismiss'
 import { useColors } from '@/ui/theme'
 import { useNativeRail } from '@/ui/useNativeRail'
-import { NAV_PINS, useNavPins } from './navPinStore'
+import { isNavPin, NAV_PINS, useNavPins } from './navPinStore'
 import { type TabKey, useTabHeaderStore } from './tabHeaderStore'
 import { BAR_TABS, tabForRoute, tabRouteName } from './tabRoutes'
 import { visibleNavPins } from './visibleNavPins'
@@ -53,11 +54,12 @@ export function NativeTabsLayout(): ReactElement {
     const segments: readonly string[] = useSegments()
     const [group, route] = segments
     const inboxUnread = useInboxHasUnread()
+    // The navigator may keep the first listeners it gets, so the focus listener reads the dot through a ref.
+    const inboxUnreadRef = useRef(inboxUnread)
+    inboxUnreadRef.current = inboxUnread
     const shownPins = visibleNavPins(pins, group === '(tabs)' ? tabForRoute(route) : focused, flags)
-    // Every pinnable tab stays registered, the shown pin first so it takes the slot after Views. Live is pinnable too,
-    // but it is Home, so it keeps the first slot.
-    const pinTabs = new Set([...shownPins, ...NAV_PINS].filter((pin) => !BAR_TABS.includes(pin)))
-    const tabs: TabKey[] = [...BAR_TABS, ...pinTabs]
+    // Every pinnable tab stays registered, the shown pin first so it takes the slot after Views.
+    const tabs: TabKey[] = [...BAR_TABS, ...new Set([...shownPins, ...NAV_PINS])]
     useViewsOpenedEvent(focused === 'views')
     return (
         <NativeTabs
@@ -73,7 +75,8 @@ export function NativeTabsLayout(): ReactElement {
                     useTabHeaderStore.getState().setFocused(tab)
                     if (lastFocused.current === tab) return
                     lastFocused.current = tab
-                    if (tab === 'inbox') track('mobile_inbox_opened')
+                    if (tab === 'live') trackLiveOpened({ from: 'tab', chrome: 'tab' })
+                    if (tab === 'inbox') track('mobile_inbox_opened', { had_unread: inboxUnreadRef.current })
                     if (tab === 'chats') track('mobile_chats_opened')
                 },
             })}
@@ -83,7 +86,7 @@ export function NativeTabsLayout(): ReactElement {
                     key={tab}
                     name={tabRouteName(tab)}
                     disabled={blocked}
-                    hidden={!BAR_TABS.includes(tab) && !shownPins.some((pin) => pin === tab)}
+                    hidden={isNavPin(tab) && !shownPins.includes(tab)}
                     testID={TEST_IDS[tab]}
                     accessibilityLabel={LABELS[tab]}
                     disableAutomaticContentInsets

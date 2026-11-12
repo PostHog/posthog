@@ -2,7 +2,8 @@ import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
 
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
-import { NAV_PINS_ENABLED, type NavPin } from '@/features/tabs/navPinStore'
+import { NAV_PINS_ENABLED } from '@/features/tabs/navPinSlot'
+import type { NavPin } from '@/features/tabs/navPinStore'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { DashboardIcon } from '@/ui/icons/DashboardIcon'
 import { ErrorTriangleIcon } from '@/ui/icons/ErrorTriangleIcon'
@@ -32,7 +33,6 @@ export const BROWSE_ENTRIES: readonly BrowseEntry[] = ['dashboards', 'insights',
 
 const PINS: Partial<Record<BrowseEntry, NavPin>> = {
     web: 'web_analytics',
-    live: 'live',
     replay: 'replay',
     errors: 'errors',
 }

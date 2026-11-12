@@ -56,8 +56,8 @@ products/mobile/
       tabs/               TabsLayout (Home, Inbox, Chats and Views tab navigator; Home is the Live screen),
                           BottomBar and TabsHeader (each rendered once), tabHeaderStore (each tab's header state),
                           tabRoutes (tab keys to route names, BAR_TABS), NavMenu (the More menu),
-                          navPinStore (Errors, Sessions, Web analytics or Live pinned to the nav pill, a device
-                          preference; dormant while MAX_NAV_PINS is 0), navPinRoutes (openNavTarget: the explicit
+                          navPinSlot (MAX_NAV_PINS, 0 while the pin slot is retired), navPinStore (Errors, Sessions
+                          or Web analytics pinned to the nav pill, a device preference), navPinRoutes (openNavTarget: the explicit
                           (tabs) route when pinned, the pushed screen when not, without selecting a hidden native
                           tab), navPinActions (pin change with toast and Undo), NavPinMenu (the Views row menu),
                           TabHeaderPublisher (a pinned screen's status line), useTabVisit (counts tab visits)

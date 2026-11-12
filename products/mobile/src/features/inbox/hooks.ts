@@ -107,11 +107,21 @@ async function fetchReadStates(
     return Object.assign({}, ...responses.map((response: ReadStatesApi) => response.states))
 }
 
-function mergeReadStates(results: UseQueryResult<Record<string, boolean>>[]): Record<string, boolean> {
-    return Object.assign(
-        {},
-        ...results.map((result) => (result.isFetchedAfterMount && !result.isError ? (result.data ?? {}) : {}))
-    )
+interface LoadedReadStates {
+    states: Record<string, boolean>
+    /** The first page's read states answered on this mount. Until then every row counts as read. */
+    firstPageLoaded: boolean
+}
+
+function freshReadStates(result: UseQueryResult<Record<string, boolean>> | undefined): boolean {
+    return result?.isFetchedAfterMount === true && !result.isError
+}
+
+function mergeReadStates(results: UseQueryResult<Record<string, boolean>>[]): LoadedReadStates {
+    return {
+        states: Object.assign({}, ...results.map((result) => (freshReadStates(result) ? (result.data ?? {}) : {}))),
+        firstPageLoaded: freshReadStates(results[0]),
+    }
 }
 
 function nextOffset(lastPage: InboxPageApi, _pages: InboxPageApi[], lastOffset: number): number | undefined {
@@ -173,7 +183,7 @@ function useLiveInboxItems(
                 .filter((ids) => ids.length > 0),
         [list.data]
     )
-    const readStates = useQueries({
+    const { states: readStates, firstPageLoaded } = useQueries({
         queries: pageIds.map((ids) => ({
             queryKey: reportKeys.readStates(scope, ids),
             queryFn: async ({ signal }: { signal: AbortSignal }) => {
@@ -206,8 +216,11 @@ function useLiveInboxItems(
                 : undefined,
         [firstPage, readStates]
     )
+    // The saved copy feeds the Inbox tab's dot and the next launch, so it waits for real read states: an all-read copy
+    // would hide the dot until the inbox loads again.
+    const readStatesLoaded = firstPageLoaded || firstPage?.results.length === 0
     useEffect(() => {
-        if (!active || !scope || !list.isSuccess || !savedItems || !capturedAt) return
+        if (!active || !scope || !list.isSuccess || !savedItems || !capturedAt || !readStatesLoaded) return
         const key = inboxCacheKey(scope)
         const previous = queryClient.getQueryData<SavedInbox>(key)
         if (previous?.items === savedItems && previous.sourceUpdatedAt === capturedAt) return
@@ -216,7 +229,7 @@ function useLiveInboxItems(
             { items: savedItems, signalCounts: savedCounts, sourceUpdatedAt: capturedAt },
             { updatedAt: capturedAt }
         )
-    }, [active, scope, list.isSuccess, capturedAt, savedItems, savedCounts, queryClient])
+    }, [active, scope, list.isSuccess, capturedAt, savedItems, savedCounts, readStatesLoaded, queryClient])
 
     const polling = active && appActive && refreshWhileVisible
     const wasPolling = useRef(polling)

@@ -15,7 +15,8 @@ import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
 import { NativeTabChrome } from './NativeTabChrome'
 import { NavMenu } from './NavMenu'
 import { changeNavPin } from './navPinActions'
-import { isNavPin, NAV_PINS_ENABLED, useNavPins } from './navPinStore'
+import { NAV_PINS_ENABLED } from './navPinSlot'
+import { isNavPin, useNavPins } from './navPinStore'
 import { useNavToasts } from './navToasts'
 import { TabsHeader } from './TabsHeader'
 import { useFocusedTabHeader } from './tabHeaderStore'
@@ -57,7 +58,8 @@ export function TabsChrome(): ReactElement {
     // An unpinned list's tab (a start page, or just unpinned) offers Pin instead of Unpin.
     const list = isNavPin(tab) && navPinEnabled(tab, productFlags) ? tab : null
     const listPinned = list !== null && pins.includes(list)
-    const listUrl = list ? navListWebUrl(scope, list) : undefined
+    const webList = tab === 'live' ? tab : list
+    const listUrl = webList ? navListWebUrl(scope, webList) : undefined
     const webUrl = listUrl ? safeHttpsUrl(listUrl) : undefined
     const pinRow =
         list && NAV_PINS_ENABLED
@@ -70,10 +72,10 @@ export function TabsChrome(): ReactElement {
               }
             : null
     const openWeb =
-        list && webUrl
+        webList && webUrl
             ? () => {
                   setMenuOpen(false)
-                  track('mobile_nav_tab_web_opened', { tab: list })
+                  track('mobile_nav_tab_web_opened', { tab: webList })
                   Linking.openURL(webUrl).catch(() => undefined)
               }
             : null
