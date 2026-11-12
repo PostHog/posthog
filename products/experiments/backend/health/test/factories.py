@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import TypedDict
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
+from products.experiments.backend.health.bucketing_changes import GroupTypeNames
 from products.experiments.backend.health.context import (
     ChangeWindow,
     ExposureEvents,
@@ -81,16 +82,22 @@ def flag_history(
     exposed_during_overrides: Mapping[ChangeWindow, bool | None] | None = None,
     exposed_units_before_last: Mapping[ExperimentHealthFlagChangeKind, int | None] | None = None,
     counts_groups: bool = False,
+    group_type_names: GroupTypeNames | None = None,
 ) -> FlagHistory | FlagHistoryNotChecked:
     # Every change counts from the first, as when someone was exposed before it.
     if not_checked is not None:
         return FlagHistoryNotChecked(
-            reason=not_checked, start_date=start_date, team_timezone="Europe/Berlin", changes=tuple(changes)
+            reason=not_checked,
+            start_date=start_date,
+            team_timezone="Europe/Berlin",
+            changes=tuple(changes),
+            group_type_names=group_type_names or {},
         )
     return FlagHistory(
         start_date=start_date,
         team_timezone="Europe/Berlin",
         changes=tuple(changes),
+        group_type_names=group_type_names or {},
         counted_since=changes[0].changed_at if changes else None,
         exposed_before_first=exposed_before_first,
         exposed_between=exposed_between or {},

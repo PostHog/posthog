@@ -245,3 +245,9 @@ class TestSeverityRuleAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         rule.refresh_from_db()
         assert rule.severity == "low"
+
+    @parameterized.expand([("get",), ("patch",), ("delete",)])
+    def test_non_uuid_rule_id_returns_404(self, method: str) -> None:
+        response = getattr(self.client, method)(self._url("0"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
