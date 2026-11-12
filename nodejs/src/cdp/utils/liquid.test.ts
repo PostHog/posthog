@@ -485,14 +485,19 @@ describe('LiquidRenderer', () => {
                 'utf8'
             )
         )
+        // Engines spell entities differently. Keep markup characters escaped so escaped text never equals real tags.
+        const markupEntities: Record<string, string> = { '<': '&lt;', '>': '&gt;', '&': '&amp;' }
+        const namedEntities: Record<string, string> = { quot: '"', apos: "'", lt: '<', gt: '>', amp: '&' }
         const decodeEntities = (text: string): string =>
-            text
-                .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-                .replace(/&#(\d+);/g, (_, decimal) => String.fromCodePoint(Number(decimal)))
-                .replace(/&quot;/g, '"')
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>')
-                .replace(/&amp;/g, '&')
+            text.replace(/&(#x[0-9a-f]+|#\d+|quot|apos|lt|gt|amp);/gi, (_, entity: string) => {
+                const lower = entity.toLowerCase()
+                const character = lower.startsWith('#x')
+                    ? String.fromCodePoint(parseInt(lower.slice(2), 16))
+                    : lower.startsWith('#')
+                      ? String.fromCodePoint(Number(lower.slice(1)))
+                      : namedEntities[lower]
+                return markupEntities[character] ?? character
+            })
 
         it.each(cases.map((testCase) => [testCase.name, testCase] as const))('renders %s', (_name, testCase) => {
             const rendered = decodeEntities(

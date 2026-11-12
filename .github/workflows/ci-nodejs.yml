@@ -119,6 +119,8 @@ jobs:
                         # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
                         - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
+                        # liquid.test.ts reads the importers' template fixtures with readFileSync.
+                        - 'products/messaging/backend/tests/fixtures/*render*.json'
                         # The Jest shared-fixtures suite pins the native replay anonymizer against
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
                         - 'rust/replay-anonymizer/**'
@@ -183,6 +185,7 @@ jobs:
                       node_full:
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
                         - 'products/cdp/backend/filter_globals.json'
+                        - 'products/messaging/backend/tests/fixtures/*render*.json'
                         - 'common/hogvm/typescript/src/**'
                         - '**/crosslang/**'
                         - '.github/scripts/jest-retries.cjs'
