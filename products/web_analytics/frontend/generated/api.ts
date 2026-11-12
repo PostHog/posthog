@@ -29,6 +29,9 @@ import type {
     AEOPromptSuggestionJobApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
+    AEOSetupContextApi,
+    AEOSetupJobApi,
+    AEOSetupRequestApi,
     AEOVisibilityDashboardApi,
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
@@ -732,6 +735,61 @@ export const getAeoPromptsTopicsUrl = (projectId: string) => {
  */
 export const aeoPromptsTopics = async (projectId: string, options?: RequestInit): Promise<AEOPromptTopicApi[]> => {
     return apiMutator<AEOPromptTopicApi[]>(getAeoPromptsTopicsUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoSetupCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_setup/`
+}
+
+/**
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, has PostHog suggest 20 keywords and saves them, then queues a first citation check run with the default engines. A step the project already covers is skipped: an own brand exists, 10 or more active prompts, 10 or more keywords, or any check already recorded. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * @summary Set up AI visibility
+ */
+export const aeoSetupCreate = async (
+    projectId: string,
+    aEOSetupRequestApi: AEOSetupRequestApi,
+    options?: RequestInit
+): Promise<AEOSetupJobApi> => {
+    return apiMutator<AEOSetupJobApi>(getAeoSetupCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOSetupRequestApi),
+    })
+}
+
+export const getAeoSetupRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_setup/${id}/`
+}
+
+/**
+ * Gets a setup job started with POST aeo_setup/, with the state of each step. Jobs expire an hour after their last update.
+ * @summary Get AEO setup job
+ */
+export const aeoSetupRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AEOSetupJobApi> => {
+    return apiMutator<AEOSetupJobApi>(getAeoSetupRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoSetupContextUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_setup/context/`
+}
+
+/**
+ * Gets what PostHog already knows about the project for AI visibility setup: the domains it may be about, from its own brands, authorized URLs, recording domains and pageview hosts, and how many prompts, keywords and checks it has. Use the first website as the default domain for POST aeo_setup/.
+ * @summary Get AEO setup context
+ */
+export const aeoSetupContext = async (projectId: string, options?: RequestInit): Promise<AEOSetupContextApi> => {
+    return apiMutator<AEOSetupContextApi>(getAeoSetupContextUrl(projectId), {
         ...options,
         method: 'GET',
     })

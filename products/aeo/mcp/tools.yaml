@@ -421,3 +421,47 @@ tools:
             id:
                 description: The prompt id (a UUID), from `aeo-prompts-list`.
         feature_flag: aeo-citation-tracking
+    aeo-setup-context-get:
+        operation: aeo_setup_context
+        enabled: false
+        disabled_reason: Enable together with aeo-setup-start, after the aeo_setup route is deployed.
+        title: Get what PostHog knows for AI visibility setup
+        description: >
+            Get the domains the project may be about, the most likely first, each with its `source` (`own_brand`,
+            `app_urls`, `recording_domains` or `pageviews`), plus how many active prompts, keywords and checks the
+            project has, whether AI data processing is approved and whether the first run can be queued. Call it
+            before `aeo-setup-start`, and confirm the domain with the user when there is more than one candidate.
+        feature_flag: aeo-citation-tracking
+    aeo-setup-get:
+        operation: aeo_setup_retrieve
+        enabled: false
+        disabled_reason: Enable together with aeo-setup-start, after the aeo_setup route is deployed.
+        title: Get an AI visibility setup job
+        description: >
+            Get a setup job started with `aeo-setup-start`, by its `id`. `status` is `pending` while PostHog works,
+            then `completed` or `failed` with an `error`. `steps` lists `brand`, `prompts`, `keywords` and `first_run`,
+            each with a `status` (`pending`, `running`, `done`, `skipped` or `failed`), how many items it `added` and a
+            `detail`. A failed `keywords` step does not fail the job. Jobs expire an hour after their last update.
+        param_overrides:
+            id:
+                description: The setup job id, from `aeo-setup-start`.
+        feature_flag: aeo-citation-tracking
+    aeo-setup-start:
+        operation: aeo_setup_create
+        enabled: false
+        disabled_reason: Enable after the aeo_setup route is deployed, so MCP never serves a tool whose route 404s.
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set up AI visibility tracking
+        description: >
+            Set up AI visibility tracking for the project from its site's `domain`, with an optional `brand` and
+            `description`. In one job PostHog adds the site as the own brand, suggests and saves 20 prompts, suggests
+            and saves 20 keywords, then queues a first citation check run with the default engines. Steps the project
+            already covers are skipped, so running it again only fills the gaps. Unlike `aeo-prompts-suggest` and
+            `aeo-keywords-suggest`, this saves what PostHog suggests, so confirm the domain with the user first. Returns
+            a pending job right away; poll `aeo-setup-get` with the `id` until `status` is `completed` or `failed`,
+            which takes a few minutes. Then show the user the prompts and keywords it added.
+        requires_ai_consent: true
+        feature_flag: aeo-citation-tracking
