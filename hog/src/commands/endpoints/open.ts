@@ -1,5 +1,6 @@
 import { defineCommand } from '@/core/command'
 import { HogError } from '@/core/errors'
+import { escapeControls } from '@/core/output'
 import { getEndpoint } from '@/endpoints/api'
 
 import { SCOPES_READ } from './shared'
@@ -21,6 +22,13 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        out.line(result.opened ? `Opened ${result.url}` : `Open ${result.url}`)
+        if (result.opened) {
+            out.report({
+                result: `Opened ${escapeControls(result.name)} in the browser`,
+                effects: [escapeControls(result.url)],
+            })
+            return
+        }
+        out.line(`Open ${escapeControls(result.url)}`)
     },
 })
