@@ -50,7 +50,7 @@ def _cdp_answers(status_code: int, body: dict[str, Any]) -> dict[str, Any]:
 
 @patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
 @patch(
-    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    "products.messaging.backend.presentation.views.transactional_email_access.posthoganalytics.feature_enabled",
     return_value=True,
 )
 @patch("posthog.plugins.plugin_server_api.internal_requests.post")

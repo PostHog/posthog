@@ -23,7 +23,7 @@ OPTED_OUT = PreferenceStatus.OPTED_OUT.value
 
 
 @patch(
-    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    "products.messaging.backend.presentation.views.transactional_email_access.posthoganalytics.feature_enabled",
     return_value=True,
 )
 class TestTopicPreferences(APIBaseTest):

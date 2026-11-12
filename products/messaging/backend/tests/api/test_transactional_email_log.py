@@ -46,7 +46,7 @@ NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
 
 @time_machine.travel(NOW, tick=False)
 @patch(
-    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    "products.messaging.backend.presentation.views.transactional_email_access.posthoganalytics.feature_enabled",
     return_value=True,
 )
 class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
