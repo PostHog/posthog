@@ -752,16 +752,35 @@ describe('SourceWebhooksConsumer', () => {
                     expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
                 })
 
-                it('releases the key when queueing fails so a retry queues the run', async () => {
-                    mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
+                it.each([
+                    [
+                        'queueing fails',
+                        () => mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable')),
+                        2,
+                    ],
+                    [
+                        'the quota lookup fails',
+                        () =>
+                            jest
+                                .spyOn(hub.quotaLimiting, 'isTeamQuotaLimited')
+                                .mockRejectedValueOnce(new Error('team cache unavailable')),
+                        1,
+                    ],
+                ])('releases the key when %s so a retry queues the run', async (_name, failOnce, queueCalls) => {
+                    const billableHogFlow = await insertHogFlow(hub.postgres, {
+                        ...hogFlow,
+                        id: new UUIDT().toString(),
+                        billable_action_types: ['function'],
+                    })
+                    failOnce()
 
-                    const failed = await postWithKey(hogFlow.id, 'escalation-3')
-                    const retried = await postWithKey(hogFlow.id, 'escalation-3')
+                    const failed = await postWithKey(billableHogFlow.id, 'escalation-3')
+                    const retried = await postWithKey(billableHogFlow.id, 'escalation-3')
 
                     expect(failed.status).toEqual(500)
                     expect(retried.status).toEqual(201)
                     expect(retried.body.status).toEqual('queued')
-                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(queueCalls)
                 })
 
                 it('tells a retry to wait while the first request is still queueing', async () => {

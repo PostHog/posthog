@@ -383,10 +383,18 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     }
                 }
 
-                if (await this.isHogFlowQuotaLimited(hogFlow)) {
+                const releaseReservation = async (): Promise<void> => {
                     if (scopedIdempotencyKey) {
                         await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, invocationId)
                     }
+                }
+
+                const quotaLimited = await this.isHogFlowQuotaLimited(hogFlow).catch(async (error) => {
+                    await releaseReservation()
+                    throw error
+                })
+                if (quotaLimited) {
+                    await releaseReservation()
                     addLog('warn', `Started no run: ${HOG_FLOW_QUOTA_LIMITED_MESSAGE}`)
                     functionResult.finished = false
                     if (hogFlow.trigger?.type !== 'tracking_pixel') {
@@ -414,9 +422,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 try {
                     await this.hogflowQueue.queueInvocations([hogFlowInvocation])
                 } catch (error) {
-                    if (scopedIdempotencyKey) {
-                        await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, invocationId)
-                    }
+                    await releaseReservation()
                     throw error
                 }
                 queuedInvocationId = invocationId
