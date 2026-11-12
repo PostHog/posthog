@@ -1,0 +1,232 @@
+import dataclasses
+from concurrent.futures import CancelledError, Future
+from dataclasses import field, replace
+from threading import Event, Lock
+from uuid import uuid4
+
+from prometheus_client import Counter
+
+from posthog.schema import HogQLQueryResponse
+
+from posthog.hogql import ast
+from posthog.hogql.batch import BatchQueryResult
+from posthog.hogql.constants import LimitContext, get_max_limit_for_context
+from posthog.hogql.multi_query import ExecutionGroup, MultiQueryPlanner, SharingQuery
+from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.sharing_rules import CountFusionRule, SameAggregationTopNRule
+from posthog.hogql.visitor import clone_expr
+
+from posthog.dataclasses import frozen
+
+from products.dashboards.backend.query_sharing_debug import DashboardSharingOutcome, sharing_debug
+
+SHARING_EXECUTIONS = Counter(
+    "posthog_dashboard_sharing_executions_total",
+    "Dashboard query executions by sharing outcome",
+    ["outcome"],
+)
+MATCH_WINDOW_SECONDS = 0.05
+
+
+@dataclasses.dataclass(frozen=False, kw_only=True)
+class _CancellableExecutor(HogQLQueryExecutor):
+    cancelled: Event | None = None
+
+    def _execute_clickhouse_query(self) -> None:
+        # Compiling takes long enough that a disconnect can arrive before ClickHouse knows the query ID to kill.
+        if self.cancelled is not None and self.cancelled.is_set():
+            raise CancelledError()
+        super()._execute_clickhouse_query()
+
+
+@frozen
+class _WaitingQuery:
+    query: SharingQuery
+    result: Future[HogQLQueryResponse | None]
+    tile_id: int | None = None
+    shared_failed: Event = field(default_factory=Event)
+
+
+class DashboardQuerySharing:
+    def __init__(self, *, match_window_seconds: float | None = None) -> None:
+        self.cancelled = Event()
+        self._lock = Lock()
+        self._pending: dict[str, _WaitingQuery] = {}
+        self._scope = str(uuid4())
+        self._match_window_seconds = MATCH_WINDOW_SECONDS if match_window_seconds is None else match_window_seconds
+        self._planner = MultiQueryPlanner([SameAggregationTopNRule(), CountFusionRule()])
+
+    def cancel(self) -> None:
+        self.cancelled.set()
+        with self._lock:
+            for waiting in self._pending.values():
+                waiting.result.set_result(None)
+            self._pending.clear()
+
+    def _execute_separately(self, executor: HogQLQueryExecutor, reason: str) -> HogQLQueryResponse:
+        if self.cancelled.is_set():
+            raise CancelledError()
+        SHARING_EXECUTIONS.labels(outcome="separate").inc()
+        if debug := sharing_debug.get():
+            debug.record(outcome=DashboardSharingOutcome.SEPARATE, tile_ids=[debug.tile_id], reason=reason)
+        return executor.execute()
+
+    @staticmethod
+    def _lift_pagination_limit(query: SharingQuery) -> SharingQuery:
+        node = query.query
+        if (
+            isinstance(node, ast.SelectQuery)
+            and (node.offset is None or (isinstance(node.offset, ast.Constant) and node.offset.value == 0))
+            and not node.limit_percent
+            and not node.limit_with_ties
+            and isinstance(node.limit, ast.Constant)
+            and type(node.limit.value) is int
+            and node.limit.value > 0
+        ):
+            unbounded = clone_expr(node)
+            unbounded.limit = None
+            unbounded.offset = None
+            # A scalar count returns one row, so only grouped counts need the runner's page size applied after routing.
+            candidate = replace(query, query=unbounded, default_limit=node.limit.value if node.group_by else None)
+            probe = MultiQueryPlanner([CountFusionRule()]).plan(
+                [candidate, replace(candidate, query_id=f"{query.query_id}-probe")]
+            )
+            if len(probe.groups) == 1:
+                return candidate
+        return query
+
+    def _execute_group(self, executor: HogQLQueryExecutor, group: ExecutionGroup) -> dict[str, HogQLQueryResponse]:
+        settings = executor.clickhouse_settings.model_copy() if executor.clickhouse_settings else None
+        if settings is not None:
+            settings.read_overflow_mode = "throw"
+            settings.timeout_overflow_mode = "throw"
+        query = clone_expr(group.query)
+        row_cap = get_max_limit_for_context(executor.limit_context or LimitContext.QUERY)
+        # Without its own LIMIT the shared query would get the default page size and drop rows a member needs.
+        if isinstance(query, ast.SelectQuery) and query.limit is None:
+            query.limit = ast.Constant(value=row_cap)
+        shared = _CancellableExecutor(
+            cancelled=self.cancelled,
+            query=query,
+            team=executor.team,
+            user=executor.user,
+            user_access_control=executor.context.user_access_control,
+            modifiers=executor.query_modifiers,
+            settings=settings,
+            workload=executor.workload,
+            ch_user=executor.ch_user,
+            limit_context=executor.limit_context,
+        ).execute()
+        if (
+            shared.error
+            or shared.hasMore
+            or shared.results is None
+            or shared.types is None
+            or len(shared.results) >= row_cap
+        ):
+            raise ValueError("Incomplete shared query result")
+        split = group.split(
+            BatchQueryResult(
+                columns=tuple(shared.columns or []),
+                types=tuple(column[1] for column in shared.types),
+                rows=tuple(tuple(row) for row in shared.results),
+            )
+        )
+        # The shared response's SQL and metadata hold every member's predicates, and each result is cached per query.
+        return {
+            query_id: HogQLQueryResponse(
+                results=list(result.rows),
+                columns=list(result.columns),
+                types=list(zip(result.columns, result.types)),
+                hasMore=False,
+            )
+            for query_id, result in split.items()
+        }
+
+    def execute(self, executor: HogQLQueryExecutor) -> HogQLQueryResponse:
+        if self.cancelled.is_set():
+            raise CancelledError()
+        if executor.query_type != "HogQLQuery" or executor.connection_id or executor.send_raw_query:
+            return self._execute_separately(executor, "This query type or connection does not support sharing.")
+        query_id = str(uuid4())
+        original_query = clone_expr(executor.query) if isinstance(executor.query, ast.AST) else executor.query
+        eligible = False
+        try:
+            query = executor.prepare_for_sharing(query_id=query_id, scope_key=self._scope)
+            query = self._lift_pagination_limit(query)
+            # An identical partner probes eligibility without waiting on unsupported queries.
+            probe = self._planner.plan([query, replace(query, query_id=f"{query_id}-probe")])
+            eligible = len(probe.groups) == 1
+        except Exception:
+            eligible = False
+        finally:
+            executor.query = original_query
+        if not eligible:
+            return self._execute_separately(executor, "No sharing rule supports this query shape or context.")
+
+        debug = sharing_debug.get()
+        waiting = _WaitingQuery(query=query, result=Future(), tile_id=debug.tile_id if debug else None)
+        group: ExecutionGroup | None = None
+        members: dict[str, _WaitingQuery] = {}
+        with self._lock:
+            if self.cancelled.is_set():
+                raise CancelledError()
+            self._pending[query_id] = waiting
+            plan = self._planner.plan([entry.query for entry in self._pending.values()])
+            group = next((g for g in plan.groups if len(g.query_ids) > 1 and query_id in g.query_ids), None)
+            if group:
+                members = {member: self._pending.pop(member) for member in group.query_ids}
+
+        if group:
+            try:
+                if self.cancelled.is_set():
+                    raise CancelledError()
+                results = self._execute_group(executor, group)
+                if results.keys() != members.keys():
+                    raise ValueError("Missing shared query consumer result")
+                SHARING_EXECUTIONS.labels(outcome="shared").inc()
+                if debug:
+                    debug.record(
+                        outcome=DashboardSharingOutcome.SHARED,
+                        tile_ids=[entry.tile_id for entry in members.values() if entry.tile_id is not None],
+                        rule=group.rule,
+                    )
+                for member, entry in members.items():
+                    entry.result.set_result(results[member])
+            except Exception:
+                SHARING_EXECUTIONS.labels(outcome="fallback").inc()
+                if debug:
+                    debug.record(
+                        outcome=DashboardSharingOutcome.FALLBACK,
+                        tile_ids=[entry.tile_id for entry in members.values() if entry.tile_id is not None],
+                        rule=group.rule,
+                        reason="Shared execution failed; each tile retries independently.",
+                    )
+                for entry in members.values():
+                    entry.shared_failed.set()
+                    entry.result.set_result(None)
+        else:
+            try:
+                waiting.result.result(timeout=self._match_window_seconds)
+            except TimeoutError:
+                with self._lock:
+                    if self._pending.pop(query_id, None) is not None:
+                        waiting.result.set_result(None)
+
+        result = waiting.result.result()
+        if result is None:
+            return self._execute_separately(
+                executor,
+                "Retry after a failed shared execution."
+                if waiting.shared_failed.is_set()
+                else "No compatible query arrived within the matching window.",
+            )
+        return result.model_copy(
+            update={
+                "query": executor.query if isinstance(executor.query, str) else None,
+                "hogql": executor.hogql,
+                "modifiers": executor.query_modifiers,
+                "limit": executor.limit,
+                "offset": executor.offset,
+            }
+        )
