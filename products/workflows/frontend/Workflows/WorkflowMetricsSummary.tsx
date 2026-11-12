@@ -102,7 +102,9 @@ export function WorkflowMetricsSummary({
             {
                 title: 'Step',
                 key: 'step',
-                render: (_, row) => <span className="font-medium">{row.email}</span>,
+                render: (_, row) => (
+                    <span className={row.removed ? 'font-medium text-muted' : 'font-medium'}>{row.email}</span>
+                ),
             },
             { title: 'Sent', key: 'sent', align: 'right', render: (_, row) => row.sent.toLocaleString() },
             {
@@ -212,7 +214,7 @@ export function WorkflowMetricsSummary({
                           title: '',
                           key: 'view',
                           align: 'right' as const,
-                          render: (_: unknown, row: EmailMetricRow) => viewMetricsColumn(row.id),
+                          render: (_: unknown, row: EmailMetricRow) => (row.removed ? null : viewMetricsColumn(row.id)),
                       },
                   ]
                 : []),
