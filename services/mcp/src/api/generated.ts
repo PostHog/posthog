@@ -65370,6 +65370,8 @@ export namespace Schemas {
        * * `Running` - Running
        * * `Starting` - Starting */
       status: BatchExportRunStatusEnum;
+      /** When the file download batch export run was created. */
+      created_at: string;
     }
 
     export interface LlmEvalReportSignalExtra {
