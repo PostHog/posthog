@@ -1,5 +1,6 @@
 import http from 'http'
 import { AddressInfo } from 'net'
+import { setTimeout as sleep } from 'timers/promises'
 
 import type { TruthRecord } from '../provider-edge'
 import { watchSesFeedback } from './ses-feedback'
@@ -79,6 +80,22 @@ describe('watchSesFeedback', () => {
             const watch = watchSesFeedback({ edgeUrl: edge.url, lag, withinMs: 1000, pollMs: 5 })
 
             expect(await watch.settled(UNIT, NEVER_ABORTED)).toBe(expected)
+        } finally {
+            await edge.close()
+        }
+    })
+
+    it.each<[string, Feedback[]]>([
+        ['while it waits for feedback', []],
+        ['while it waits for the consumer', [{ unitId: UNIT, status: 200, detail: {} }]],
+    ])('stops at an abort %s', async (_story, feedback) => {
+        const edge = await startEdge(feedback)
+        try {
+            const watch = watchSesFeedback({ edgeUrl: edge.url, lag: () => Promise.resolve(4), pollMs: 5 })
+
+            await expect(
+                Promise.race([watch.settled(UNIT, AbortSignal.timeout(50)), sleep(1000, 'still waiting')])
+            ).rejects.toMatchObject({ name: 'AbortError' })
         } finally {
             await edge.close()
         }
