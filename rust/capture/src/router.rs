@@ -165,13 +165,6 @@ async fn index() -> &'static str {
     "capture"
 }
 
-fn v1_body_limit(capture_mode: CaptureMode, configured: usize) -> usize {
-    match capture_mode {
-        CaptureMode::Ai => configured.max(AI_BODY_SIZE),
-        CaptureMode::Events | CaptureMode::Import | CaptureMode::Recordings => configured,
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 'static>(
     timesource: TZ,
@@ -225,14 +218,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_max_event_bytes,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
-        capture_v1_max_compressed_body_bytes: v1_body_limit(
-            capture_mode,
-            capture_v1_max_compressed_body_bytes,
-        ),
-        capture_v1_max_decompressed_body_bytes: v1_body_limit(
-            capture_mode,
-            capture_v1_max_decompressed_body_bytes,
-        ),
+        capture_v1_max_compressed_body_bytes,
+        capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         ai_events_overflow_limiter,
         ai_byte_rate_limiter,
@@ -520,21 +507,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
 #[cfg(test)]
 mod tests {
     use std::time::Duration as StdDuration;
-
-    use super::{v1_body_limit, AI_BODY_SIZE};
-    use crate::config::CaptureMode;
-
-    #[rstest::rstest]
-    #[case::ai_raises_a_smaller_value(CaptureMode::Ai, 20_971_520, AI_BODY_SIZE)]
-    #[case::ai_keeps_a_larger_value(CaptureMode::Ai, 104_857_600, 104_857_600)]
-    #[case::analytics_keeps_its_value(CaptureMode::Events, 10_485_760, 10_485_760)]
-    fn v1_body_limits_carry_a_ceiling_sized_event_only_on_capture_ai(
-        #[case] mode: CaptureMode,
-        #[case] configured: usize,
-        #[case] expected: usize,
-    ) {
-        assert_eq!(v1_body_limit(mode, configured), expected);
-    }
 
     #[tokio::test]
     async fn test_body_chunk_timeout_fires_on_stalled_upload() {
