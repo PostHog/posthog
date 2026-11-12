@@ -438,18 +438,29 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert comment["source_file"] == "posthog/clickhouse/test/test_query_tagging.py"
         assert comment["source_line"] > 0
 
-    def test_execute_hogql_query_populates_plan_fingerprint_and_read_signature(self):
+    @parameterized.expand([("computed", False), ("signature_fails", True)])
+    def test_execute_hogql_query_populates_plan_fingerprint_and_read_signature(
+        self, _name: str, signature_fails: bool
+    ) -> None:
         marker = str(uuid.uuid4())
         # An explicit LIMIT keeps the executor from adding its default one, so both sides hash the same shape.
         sql = f"SELECT count() FROM events WHERE event = '{marker}' LIMIT 100"  # noqa: S608
         reset_query_tags()
         tag_queries(kind="request", id="test")
-        execute_hogql_query(sql, team=self.team, query_type="HogQLQuery")
+        with patch(
+            "posthog.hogql.query.read_signature",
+            side_effect=RuntimeError("unexpected AST") if signature_fails else read_signature,
+        ):
+            response = execute_hogql_query(sql, team=self.team, query_type="HogQLQuery")
 
         comment = self._get_log_comment(marker)
 
+        assert response.results == [(0,)]
         assert comment["plan_fingerprint"] == fingerprint_query(parse_select(sql))
-        assert comment["read_signature"] == read_signature(parse_select(sql))
+        if signature_fails:
+            assert not comment.get("read_signature")
+        else:
+            assert comment["read_signature"] == read_signature(parse_select(sql))
 
     @parameterized.expand([("flag_on", True), ("flag_off", False)])
     def test_execute_hogql_query_tags_the_team_first_prewhere_setting(self, _name: str, expected: bool) -> None:
