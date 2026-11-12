@@ -203,11 +203,28 @@ class TestChangeMemberEmails(BaseTest):
             assert member.email.endswith("@new.example.com")
             assert LogEntry.objects.filter(object_id=str(member.pk)).exists()
 
-    def test_refuses_a_list_where_nothing_can_change(self, _send: MagicMock) -> None:
-        response = self._preview("outsider@old.example.com")
+    @parameterized.expand(
+        [
+            ("no_listed_email_is_a_member", "outsider@old.example.com", "new.example.com", 400, "members"),
+            ("the_new_domain_is_not_verified", "ada@old.example.com", "unverified.example.com", 400, "new_domain"),
+            (
+                "an_unverified_new_domain_no_line_uses",
+                "ada@old.example.com a.lovelace@new.example.com",
+                "unverified.example.com",
+                200,
+                None,
+            ),
+        ]
+    )
+    def test_preview_refuses_only_what_it_cannot_change(
+        self, _send: MagicMock, _name: str, members: str, new_domain: str, status: int, error_field: str | None
+    ) -> None:
+        response = self._preview(members, new_domain)
 
-        assert response.status_code == 400
-        assert "confirm_token" not in response.context
+        assert response.status_code == status
+        assert ("confirm_token" in response.context) == (status == 200)
+        if error_field is not None:
+            assert error_field in response.context["form"].errors
 
     def test_is_not_offered_without_a_verified_domain(self, _send: MagicMock) -> None:
         OrganizationDomain.objects.filter(organization=self.organization).update(verified_at=None)

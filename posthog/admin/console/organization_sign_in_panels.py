@@ -114,7 +114,8 @@ def preview_member_email_changes(request: HttpRequest, obj: Model, form: forms.F
     assert isinstance(obj, Organization)
     new_domain = form.cleaned_data["new_domain"]
     verified = MemberEmailMigration.verified_domains(obj)
-    if new_domain and new_domain not in verified:
+    uses_new_domain = any(request.new_email is None for request in form.cleaned_data["members"])
+    if uses_new_domain and new_domain not in verified:
         form.add_error(
             "new_domain",
             f"This organization has not verified {new_domain}. Its verified domains: {', '.join(sorted(verified))}.",
