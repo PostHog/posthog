@@ -8,9 +8,18 @@ import { emailDomainLogic } from '../emailDomainLogic'
 import { HedgehogPanic } from '../hoggies'
 
 export function UnavailableStep(): JSX.Element {
-    const { senderLoading, statusLoading } = useValues(emailDomainLogic)
+    const { senderLoading, senderMissing, statusLoading } = useValues(emailDomainLogic)
     const { retry } = useActions(emailDomainLogic)
     const retrying = senderLoading || statusLoading
+    if (senderMissing) {
+        return (
+            <StepHeading
+                Hoggie={HedgehogPanic}
+                title="This sending domain no longer exists"
+                lead="It may have been removed. Go back to Channels to set it up again."
+            />
+        )
+    }
     return (
         <div className="flex flex-col gap-8">
             <StepHeading

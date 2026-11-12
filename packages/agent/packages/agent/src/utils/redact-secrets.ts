@@ -7,6 +7,35 @@ import {
 
 const REDACTED = "[REDACTED]";
 
+function gitlabSecrets(): string[] {
+  const token = process.env.GITLAB_TOKEN?.trim();
+  return token ? [...new Set([token, encodeURIComponent(token)])] : [];
+}
+
+function redactGitlabSecrets(text: string): string {
+  return gitlabSecrets().reduce(
+    (value, secret) => value.replaceAll(secret, REDACTED),
+    text,
+  );
+}
+
+function gitlabPartialPrefixLength(text: string): number {
+  let longest = 0;
+  for (const secret of gitlabSecrets()) {
+    for (
+      let length = Math.min(secret.length - 1, text.length);
+      length > longest;
+      length--
+    ) {
+      if (text.endsWith(secret.slice(0, length))) {
+        longest = length;
+        break;
+      }
+    }
+  }
+  return longest;
+}
+
 interface CompiledRule {
   head: RegExp;
   tail: RegExp;
@@ -111,7 +140,7 @@ export function redactSecrets(value: string | undefined): string | undefined;
 export function redactSecrets(value: unknown): unknown;
 export function redactSecrets(value: unknown): unknown {
   if (typeof value === "string") {
-    return value
+    return redactGitlabSecrets(value)
       .replace(TOKEN, (match) => REDACTED + trailingDots(match))
       .replace(LOOPBACK_PROXY_TOKEN, `$1${REDACTED}`);
   }
@@ -251,6 +280,10 @@ export class SecretEventRedactor {
       if (remainder === dots) heldDots = dots.length;
       else if (remainder.length > 0) this.active = null;
     }
+    text = redactGitlabSecrets(text);
+    const gitlabHeld = gitlabPartialPrefixLength(text);
+    let gitlabSuffix = gitlabHeld ? text.slice(-gitlabHeld) : "";
+    if (gitlabHeld) text = text.slice(0, -gitlabHeld);
     const context = this.context;
     for (const rule of RULES) {
       text = (context + text)
@@ -265,6 +298,12 @@ export class SecretEventRedactor {
         })
         .slice(context.length);
     }
+    if (this.active && gitlabSuffix) {
+      const match = this.active.tail.exec(gitlabSuffix)?.[0] ?? "";
+      gitlabSuffix = gitlabSuffix.slice(match.length);
+      if (gitlabSuffix) this.active = null;
+    }
+    text += gitlabSuffix;
     text = text.replace(
       LOOPBACK_PROXY_TOKEN,
       (match, host: string, offset: number, source: string) => {
@@ -282,7 +321,11 @@ export class SecretEventRedactor {
     );
     const held = this.active
       ? heldDots
-      : Math.max(partialPrefixLength(text), loopbackPrefixLength(text));
+      : Math.max(
+          partialPrefixLength(text),
+          loopbackPrefixLength(text),
+          gitlabPartialPrefixLength(text),
+        );
     this.heldDots = this.active ? heldDots : 0;
     if (held > 0) {
       if (previous) {

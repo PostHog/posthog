@@ -37,6 +37,7 @@ from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     apply_github_credentials_to_sandbox,
     clear_github_credentials_from_sandbox,
+    clear_github_env_from_gitlab_sandbox,
     sandbox_credential_lock,
 )
 from products.tasks.backend.temporal.process_task.utils import (
@@ -769,6 +770,26 @@ def _resolve_live_sandbox(state: dict[str, Any] | None) -> LiveSandboxLookup:
     return LiveSandboxLookup(stopped=True)
 
 
+def _clear_github_from_gitlab_sandbox(
+    run_id: str, actor_user: Any, state: dict[str, Any] | None
+) -> SandboxRebindFailure | None:
+    lookup = _resolve_live_sandbox(state)
+    if lookup.sandbox is None:
+        return SandboxRebindFailure.SANDBOX_NOT_RUNNING if lookup.stopped else SandboxRebindFailure.NO_SANDBOX_HANDLE
+    with sandbox_credential_lock(lookup.sandbox.id) as acquired:
+        if not acquired:
+            return SandboxRebindFailure.CREDENTIAL_LOCK_UNAVAILABLE
+        try:
+            cleared = clear_github_env_from_gitlab_sandbox(lookup.sandbox)
+        except Exception:
+            logger.warning("refresh_github_gitlab_clear_errored", run_id=run_id, user_id=actor_user.id, exc_info=True)
+            return SandboxRebindFailure.LOGOUT_ERRORED
+        if not cleared:
+            return SandboxRebindFailure.LOGOUT_UNCONFIRMED
+        mark_sandbox_github_identity(lookup.sandbox.id, actor_user.id)
+    return None
+
+
 def _refresh_sandbox_github(
     task_run: TaskRun, actor_user: Any, state: dict[str, Any] | None
 ) -> SandboxRebindFailure | None:
@@ -795,13 +816,16 @@ def _refresh_sandbox_github(
     if actor_user is None:
         return None
 
+    run_id = str(task_run.id)
+    task = task_run.task
+    # A provider change must clear even read-only GitHub credentials from the old checkout.
+    if task.repository_integration_id is not None:
+        return _clear_github_from_gitlab_sandbox(run_id, actor_user, state)
+
     # Read-only runs use a team installation grant, not the message actor's identity.
     # The periodic credential refresh rotates that grant without widening its permissions.
     if (state or {}).get("github_read_access") is True or (state or {}).get("github_token_scope"):
         return None
-
-    run_id = str(task_run.id)
-    task = task_run.task
     # A run that started before its actor connected GitHub is bot-authored, and the agent may
     # have been the one that asked them to connect. Promote it so the turn that follows the
     # connection is the one that gets their identity.
