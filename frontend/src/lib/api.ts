@@ -2039,9 +2039,11 @@ function tracingHeaders({ includeDistinctId = false } = {}): Record<string, stri
     }
     const sessionId = getSessionId()
     const distinctId = includeDistinctId ? getDistinctId() : undefined
+    const clientBuild = window.POSTHOG_APP_CONTEXT?.commit_sha
     return {
         ...(sessionId ? { 'X-POSTHOG-SESSION-ID': sessionId } : {}),
         ...(distinctId ? { 'X-POSTHOG-DISTINCT-ID': distinctId } : {}),
+        ...(clientBuild ? { 'X-PostHog-Client-Build': clientBuild } : {}),
     }
 }
 
