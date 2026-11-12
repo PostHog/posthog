@@ -32,7 +32,7 @@ use crate::{
     },
 };
 
-use rule::{Reading, Thresholds};
+use rule::{Reading, Thresholds, MAX_HISTORY_DAYS};
 
 const MAX_CONCURRENT_TEAMS: usize = 256;
 
@@ -64,6 +64,7 @@ type Outcomes = HashMap<&'static str, u64>;
 pub struct AdaptiveIngestionRuntime {
     redis: Arc<dyn ScriptRunner>,
     thresholds: Thresholds,
+    min_history_days: usize,
     ledger: Ledger,
     heal_gate: HealGate,
 }
@@ -91,6 +92,12 @@ impl AdaptiveIngestionRuntime {
                 "invalid adaptive ingestion thresholds".into(),
             ));
         }
+        let min_history_days = config.adaptive_ingestion_min_history_days;
+        if !(1..=MAX_HISTORY_DAYS).contains(&min_history_days) {
+            return Err(UnhandledError::Other(format!(
+                "invalid ADAPTIVE_INGESTION_MIN_HISTORY_DAYS: {min_history_days}"
+            )));
+        }
         let timeout = |ms: u64| (ms != 0).then(|| Duration::from_millis(ms));
         let redis = RedisClient::with_config(
             config.issue_buckets_redis_url.clone(),
@@ -100,13 +107,18 @@ impl AdaptiveIngestionRuntime {
             timeout(config.redis_connection_timeout_ms),
         )
         .await?;
-        Ok(Some(Arc::new(Self::new(Arc::new(redis), thresholds))))
+        Ok(Some(Arc::new(Self::new(
+            Arc::new(redis),
+            thresholds,
+            min_history_days,
+        ))))
     }
 
-    fn new(redis: Arc<dyn ScriptRunner>, thresholds: Thresholds) -> Self {
+    fn new(redis: Arc<dyn ScriptRunner>, thresholds: Thresholds, min_history_days: usize) -> Self {
         Self {
             redis,
             thresholds,
+            min_history_days,
             ledger: Ledger {
                 windows: vec![RECENT, HOURLY, DAILY],
             },
@@ -131,13 +143,14 @@ struct Verdict {
 /// `issues` holds, per event of the team in batch order, the index of its issue in the ledger call.
 fn decide_team(
     thresholds: &Thresholds,
+    min_history_days: usize,
     now: i64,
     counts: &[WindowCounts],
     issues: &[usize],
 ) -> Vec<Verdict> {
     let (recent, hourly, daily) = (&counts[0], &counts[1], &counts[2]);
     let previous_days = &daily.team.counts[1..];
-    let typical_day = rule::typical_day(previous_days);
+    let baseline = rule::typical_day(previous_days, min_history_days);
     let mut project_day = hourly.team.rolling(now);
     let mut issue_hour: Vec<f64> = recent.issues.iter().map(|s| s.rolling(now)).collect();
     let mut issue_day: Vec<f64> = hourly.issues.iter().map(|s| s.rolling(now)).collect();
@@ -148,8 +161,9 @@ fn decide_team(
         .iter()
         .rev()
         .map(|&issue| {
-            let reading = typical_day.map(|typical_day| Reading {
-                typical_day,
+            let reading = baseline.map(|baseline| Reading {
+                typical_day: baseline.typical_day,
+                history_days: baseline.history_days,
                 issue_hour: issue_hour[issue],
                 issue_day: issue_day[issue],
                 project_day,
@@ -205,7 +219,15 @@ async fn apply_shadow(
                 .ledger
                 .record(runtime.redis.as_ref(), team_id, now, &issue_counts)
                 .await
-                .map(|counts| decide_team(&runtime.thresholds, now, &counts, &issues));
+                .map(|counts| {
+                    decide_team(
+                        &runtime.thresholds,
+                        runtime.min_history_days,
+                        now,
+                        &counts,
+                        &issues,
+                    )
+                });
             (team_id, events, verdicts)
         }
     }))
@@ -263,6 +285,10 @@ fn stamp(event: &mut ExceptionEvent<RateChecked>, reading: &Reading) {
             Value::from((value * 100.0).round() / 100.0),
         );
     }
+    event.props.insert(
+        "$adaptive_ingestion_history_days".to_string(),
+        Value::from(reading.history_days),
+    );
 }
 
 #[derive(Clone)]
@@ -365,7 +391,7 @@ mod tests {
     }
 
     fn runtime(redis: Arc<dyn ScriptRunner>) -> Arc<AdaptiveIngestionRuntime> {
-        Arc::new(AdaptiveIngestionRuntime::new(redis, THRESHOLDS))
+        Arc::new(AdaptiveIngestionRuntime::new(redis, THRESHOLDS, 14))
     }
 
     fn enabled() -> HashMap<i32, RateLimitSettings> {
@@ -411,7 +437,7 @@ mod tests {
             },
         ];
 
-        let verdicts = decide_team(&THRESHOLDS, 0, &counts, &[0, 0, 1, 0, 0, 1]);
+        let verdicts = decide_team(&THRESHOLDS, 14, 0, &counts, &[0, 0, 1, 0, 0, 1]);
 
         let over_issue: Vec<bool> = verdicts.iter().map(|v| v.over_issue_line).collect();
         assert_eq!(over_issue, [false, false, false, true, true, false]);
@@ -459,6 +485,7 @@ mod tests {
 
         // 13 days of 240 and one day of 1 give a typical day of 240, so a typical hour of 10 and a line at 120.
         assert_eq!(property(&items[0], "typical_day"), Some(&240.0.into()));
+        assert_eq!(property(&items[0], "history_days"), Some(&14.into()));
         assert_eq!(
             property(&items[119], "issue_hour_ratio"),
             Some(&12.0.into())
