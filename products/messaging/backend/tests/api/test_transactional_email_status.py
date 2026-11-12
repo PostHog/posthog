@@ -1,15 +1,11 @@
 import json
 import base64
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
-
-from django.conf import settings
 
 import requests
 from parameterized import parameterized
@@ -20,7 +16,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
-from posthog.redis import _get_test_fake_server
+from posthog.redis import TEST_redis_down
 from posthog.uuidt import UUIDT
 
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
@@ -430,15 +426,6 @@ class TestManageScheduledEmails(EmailsApiTestBase):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-    @contextmanager
-    def _redis_down(self) -> Iterator[None]:
-        server = _get_test_fake_server(settings.REDIS_URL)
-        server.connected = False
-        try:
-            yield
-        finally:
-            server.connected = True
-
     def _lose_the_answer(self) -> Any:
         def post(*args: Any, **kwargs: Any) -> requests.Response:
             raise requests.Timeout()
@@ -448,7 +435,7 @@ class TestManageScheduledEmails(EmailsApiTestBase):
     def test_a_cancel_reaches_the_pipeline_when_writing_the_mark_fails(self, mock_post, _flag):
         self._job("waiting")
 
-        with self._redis_down():
+        with TEST_redis_down():
             response = self._cancel(mock_post)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -464,7 +451,7 @@ class TestManageScheduledEmails(EmailsApiTestBase):
     def test_a_repeat_cancel_when_reading_the_mark_fails(self, mock_post, _flag, _name, status_rows, expected_status):
         self._status_rows(status_rows)
 
-        with self._redis_down():
+        with TEST_redis_down():
             response = self._cancel(mock_post)
 
         assert response.status_code == expected_status, response.json()

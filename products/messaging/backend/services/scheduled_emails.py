@@ -37,6 +37,7 @@ _WAITING = (EmailSendStatus.SCHEDULED, EmailSendStatus.QUEUED)
 class _CancelMark(StrEnum):
     CANCELED = "canceled"
     ATTEMPTED = "attempted"
+    UNREADABLE = "unreadable"
 
 
 def cancel_email(team_id: int, message_id: UUID) -> None:
@@ -69,7 +70,7 @@ def _answer_a_gone_job(team_id: int, message_id: UUID, queued: datetime) -> None
     email_status = get_email_status(team_id, message_id)
     if email_status is not None and email_status.status == EmailSendStatus.CANCELED:
         return
-    if mark == _CancelMark.ATTEMPTED and _may_still_wait(email_status, queued):
+    if mark in (_CancelMark.ATTEMPTED, _CancelMark.UNREADABLE) and _may_still_wait(email_status, queued):
         raise DeliveryUnavailable()
     raise EmailNotFound()
 
@@ -110,9 +111,9 @@ def _read_cancel_mark(team_id: int, message_id: UUID) -> _CancelMark | None:
         stored = _cancel_marks().get(_cancel_mark_key(team_id, message_id))
     except Exception:
         logger.exception("transactional_email_cancel_mark_read_failed", team_id=team_id, message_id=str(message_id))
-        return _CancelMark.ATTEMPTED
+        return _CancelMark.UNREADABLE
     mark = stored.decode() if isinstance(stored, bytes) else None
-    return _CancelMark(mark) if mark in set(_CancelMark) else None
+    return _CancelMark(mark) if mark in (_CancelMark.CANCELED, _CancelMark.ATTEMPTED) else None
 
 
 def reschedule_email(team_id: int, message_id: UUID, scheduled_at: datetime) -> datetime:
