@@ -193,10 +193,12 @@ class TestTransactionalEmail(APIBaseTest):
         body = {**{k: v for k, v in self.body.items() if k != "identifiers"}, **recipient}
         client = self._psak_client(["hog_flow:write"])
         stages_before = _stage_counts()
+        fallbacks_before = _sandbox_fallbacks("sandbox")
 
         response = self._send(client, route, body)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert _sandbox_fallbacks("sandbox") == fallbacks_before
         stages_after = _stage_counts()
         assert {stage: stages_after[stage] - stages_before[stage] for stage in stages_after} == dict.fromkeys(
             stages_after, 1
@@ -518,10 +520,12 @@ class TestTransactionalEmail(APIBaseTest):
         self, mock_post, _flag, _capture, pipeline_code, pipeline_status, expected_status, expected_code
     ):
         mock_post.return_value = MagicMock(status_code=pipeline_status, json=lambda: {"error": pipeline_code})
+        refusals_before = _sandbox_fallbacks("recipient_not_member")
 
         response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "key-1"})
 
         assert response.status_code == expected_status
+        assert _sandbox_fallbacks("recipient_not_member") == refusals_before
         assert response.json()["code"] == expected_code
         setup_url = f"{settings.SITE_URL}/project/{self.team.id}/workflows/channels/email/new"
         assert (setup_url in response.json()["detail"]) == pipeline_code.startswith("sandbox_")
@@ -1138,6 +1142,39 @@ class TestTransactionalEmail(APIBaseTest):
         (warning,) = response.json()["warnings"]
         assert "members of your organization" in warning["message"]
         assert setup_url in warning["agent_action"]
+
+    @parameterized.expand(
+        [
+            ("queued", {"return_value": (202, {"invocation_id": "i-1", "sender_kind": "email_sandbox"})}, "sandbox"),
+            ("replayed", {"return_value": (202, {"invocation_id": "i-1", "replayed": True})}, None),
+            (
+                "outsider_refused",
+                {"return_value": (422, {"error": "sandbox_recipient_not_member"})},
+                "recipient_not_member",
+            ),
+            ("pipeline_unavailable", {"return_value": (503, {"error": "unavailable"})}, None),
+            ("timeout", {"side_effect": requests.ReadTimeout()}, None),
+        ]
+    )
+    def test_counts_a_sandbox_code_send_by_the_pipelines_answer(
+        self, mock_post, _flag, _capture, _name, answer, counted
+    ):
+        self._without_a_verified_sender(unverified_sender=False)
+        if "return_value" in answer:
+            status_code, body = answer["return_value"]
+            mock_post.return_value = MagicMock(status_code=status_code, json=lambda: body)
+        else:
+            mock_post.side_effect = answer["side_effect"]
+        outcomes = ("sandbox", "recipient_not_member")
+        before = {outcome: _sandbox_fallbacks(outcome) for outcome in outcomes}
+
+        self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(), format="json", headers={"Idempotency-Key": "welcome:user-1"}
+        )
+
+        assert {outcome: _sandbox_fallbacks(outcome) - before[outcome] for outcome in outcomes} == {
+            outcome: 1 if outcome == counted else 0 for outcome in outcomes
+        }
 
     @parameterized.expand([("the_default_sender", True, 1), ("the_oldest_without_a_default", False, 0)])
     def test_the_sandbox_warning_links_the_unverified_sender_to_verify(

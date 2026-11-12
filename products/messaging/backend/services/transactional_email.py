@@ -105,8 +105,10 @@ CDP_SEND_RESULTS = Counter(
 )
 SANDBOX_FALLBACKS = Counter(
     "messaging_transactional_email_sandbox_fallback_total",
-    "Code sends from projects without a verified sender, by outcome: sandbox (sent from the sandbox sender) or "
-    "fields_unsupported (refused because the sandbox sender cannot send a field the request set).",
+    "Code sends from projects without a verified sender, by outcome: sandbox (the pipeline queued a first send from "
+    "the sandbox sender; replays are not counted), recipient_not_member (the pipeline refused the recipient, who is "
+    "not a member of the organization), or fields_unsupported (refused before the request because the sandbox sender "
+    "cannot send a field the request set).",
     labelnames=["outcome"],
 )
 
@@ -711,7 +713,6 @@ def _code_send_sender(team: Team, email: CodeEmail) -> tuple[dict[str, Any], Sen
             setup_url = sending_domain_setup(team.id).setup_url
             raise SandboxFieldsUnsupported(SANDBOX_FIELDS_UNSUPPORTED.format(setup_url=setup_url), attr=field) from e
         sandbox_sender_id = provision_sandbox_sender(team, None).id
-        SANDBOX_FALLBACKS.labels(outcome="sandbox").inc()
         logger.info("transactional_email_sandbox_sender_fallback", team_id=team.id, key=email.key)
         return {"integrationId": sandbox_sender_id}, _sandbox_sender_warning(team.id)
     return {"integrationId": sender_id, "email": address, "name": name}, None
@@ -768,6 +769,8 @@ def _queue(
             "large images and files instead of embedding them."
         )
     if response.status_code != 202:
+        if sandbox_warning is not None and refusal_code == "sandbox_recipient_not_member":
+            SANDBOX_FALLBACKS.labels(outcome="recipient_not_member").inc()
         unknown_field = _send_field_an_older_pipeline_refused(refusal_code) if response.status_code == 400 else None
         if unknown_field is not None:
             logger.warning(
@@ -799,9 +802,12 @@ def _queue(
         raise error
 
     sent_from_sandbox = answer.get("sender_kind") == SANDBOX_SENDER_KIND
+    replayed = bool(answer.get("replayed", False))
+    if sandbox_warning is not None and not replayed:
+        SANDBOX_FALLBACKS.labels(outcome="sandbox").inc()
     return QueuedEmail(
         message_id=str(answer["invocation_id"]),
-        replayed=bool(answer.get("replayed", False)),
+        replayed=replayed,
         attachment_bytes=_attachment_bytes(answer),
         warnings=(sandbox_warning,) if sandbox_warning and sent_from_sandbox else (),
     )
