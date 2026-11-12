@@ -138,7 +138,12 @@ describe('hog ci setup', () => {
     })
 
     test.each([
-        ['an admin waits at the terminal until they approve it', true, 'Approved.', 2],
+        [
+            'an admin waits at the terminal until they approve it',
+            true,
+            'Fake CI jobs can now use hog in this project',
+            2,
+        ],
         [
             'a member gets the link to send an admin and does not wait',
             false,
@@ -391,7 +396,9 @@ describe('hog ci setup', () => {
                     : policyApi()(url),
         })
 
-        expect(run.error()).toMatchObject({ message: 'No repository acme/web that PostHog can see.' })
+        expect(run.error()).toMatchObject({
+            message: 'PostHog answered with HTTP 404: No repository acme/web that PostHog can see.',
+        })
         expect(run.error().hint).toContain('--subject-id')
     })
 })

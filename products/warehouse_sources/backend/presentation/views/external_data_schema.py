@@ -35,7 +35,6 @@ from products.data_warehouse.backend.facade.api import (
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
     is_any_external_data_schema_paused,
-    is_cdc_enabled_for_team,
     pause_external_data_schedule,
     reconcile_webhook_events,
     sync_cdc_extraction_schedule,
@@ -621,7 +620,8 @@ def _apply_primary_key_columns(
 ) -> None:
     """Apply primary_key_columns from request data to the sync_type_config payload.
 
-    Raises ValidationError if an established PK changed after data has been synced, or if no PK is set.
+    Raises ValidationError if an established PK changed after data has been synced, or if a switch to
+    this sync type leaves no PK set.
     """
     new_pk = data.get("primary_key_columns")
     if new_pk:
@@ -634,7 +634,9 @@ def _apply_primary_key_columns(
                 "Delete the synced data first, then change the primary key."
             )
         payload["primary_key_columns"] = new_pk
-    elif not payload.get("primary_key_columns"):
+    # A table already on this sync type keeps taking edits without a key: the sync resolves one
+    # from the source, or fails with its own error when the table has none.
+    elif not payload.get("primary_key_columns") and data.get("sync_type") != instance.sync_type:
         raise ValidationError(
             f"{label} requires a primary key on table '{instance.name}'. "
             "Select its primary key columns when you choose the sync method, "
@@ -1666,12 +1668,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # save a `cdc` label that nothing can read a change stream for.
             if not source_type_supports_cdc(instance.source.source_type):
                 raise ValidationError(f"CDC is not supported for {instance.source.source_type} sources.")
-
-            from posthog.models import Team
-
-            team = Team.objects.get(id=self.context["team_id"])
-            if not is_cdc_enabled_for_team(team):
-                raise ValidationError("CDC is not enabled for this team")
 
         # Close the enum-exposure window: `XMIN` is a valid `SyncType` choice, so the field accepts
         # "xmin" the moment the foundation lands. Reject it unless the source is Postgres and the table
@@ -3449,7 +3445,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(SourceInputsStore.load_settings(source).get("cdc_enabled"))
         source_impl = SourceRegistry.get_source(source.source_type)
-        cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
+        cdc_available = schema.supports_cdc if source_cdc_enabled else None
         # xmin is source-capability-gated, mirroring the database_schema endpoint.
         xmin_available = schema.supports_xmin if source_impl.supports_xmin else None
 

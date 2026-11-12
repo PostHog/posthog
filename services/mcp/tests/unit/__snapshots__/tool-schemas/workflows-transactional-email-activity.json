@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "expand": {
+            "description": "Optional list of response fields to include that the response omits by default, each a dot-path. Omit to keep the response small.",
+            "items": {
+                "enum": ["before.*.elements_chain", "after.*.elements_chain"],
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "id": {
+            "description": "The `message_id` that the send returned.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

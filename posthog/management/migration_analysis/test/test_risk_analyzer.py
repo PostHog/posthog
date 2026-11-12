@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.db import migrations, models
@@ -15,6 +15,7 @@ from posthog.management.migration_analysis.policies import (
     GeneratedNameDropPolicy,
     HotTableAlterPolicy,
     LockPhaseTransactionPolicy,
+    NonDbAlterFieldPolicy,
     OrphanedForeignKeyPolicy,
 )
 from posthog.management.migration_analysis.utils import _model_name_for_table
@@ -3162,3 +3163,82 @@ class TestGeneratedNameDropPolicy:
 
         assert len(violations) == 1
         assert "DropIndexConcurrently drops posthog_x_owner_id_5a6b7c8d" in violations[0]
+
+
+class TestNonDbAlterFieldPolicy:
+    def _state(self):
+        state = ProjectState()
+        state.add_model(
+            ModelState(
+                app_label="posthog",
+                name="Task",
+                fields=[
+                    ("id", models.AutoField(primary_key=True)),
+                    ("status", models.CharField(max_length=20, choices=[("open", "Open")])),
+                    ("owner", models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)),
+                ],
+            )
+        )
+        return state
+
+    @parameterized.expand(
+        [
+            (
+                "new_choice",
+                migrations.AlterField(
+                    "task", "status", models.CharField(max_length=20, choices=[("open", "Open"), ("done", "Done")])
+                ),
+                1,
+            ),
+            (
+                "help_text_wrapped_to_dodge_the_hot_table_check",
+                migrations.SeparateDatabaseAndState(
+                    state_operations=[
+                        migrations.AlterField(
+                            "task",
+                            "status",
+                            models.CharField(max_length=20, choices=[("open", "Open")], help_text="Lifecycle"),
+                        )
+                    ]
+                ),
+                1,
+            ),
+            (
+                "column_change",
+                migrations.AlterField("task", "status", models.CharField(max_length=40, choices=[("open", "Open")])),
+                0,
+            ),
+            (
+                "default_change",
+                migrations.AlterField(
+                    "task", "status", models.CharField(max_length=20, choices=[("open", "Open")], default="open")
+                ),
+                0,
+            ),
+            (
+                "foreign_key_repoint_after_a_model_move",
+                migrations.SeparateDatabaseAndState(
+                    state_operations=[
+                        migrations.AlterField(
+                            "task",
+                            "owner",
+                            models.ForeignKey("posthog.Project", on_delete=models.CASCADE, db_constraint=False),
+                        )
+                    ]
+                ),
+                0,
+            ),
+        ]
+    )
+    def test_flags_only_alter_fields_the_database_never_sees(self, _name, operation, expected):
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.operations = [operation]
+        state = self._state()
+
+        with patch.object(NonDbAlterFieldPolicy, "_state_before", lambda _self, _migration: state):
+            migration_risk = RiskAnalyzer().analyze_migration(migration, "posthog/migrations/0001_test.py")
+
+        assert len([message for message in migration_risk.info_messages if "AlterField" in message]) == expected
+        assert not any("AlterField" in violation for violation in migration_risk.policy_violations)
