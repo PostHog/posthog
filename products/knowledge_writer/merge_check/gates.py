@@ -6,6 +6,7 @@ from anthropic import Anthropic, APIError
 
 from ..backend.facade.contracts import CriterionResult, MergeCheckReport
 from ..backend.facade.enums import CriterionEffect, DocsChangeKind
+from .deadline import CheckDeadline
 from .facts import DOCS_DOC_IMPACTS, FACTS_MODEL, Audience, DocImpact, MergeFacts, ReleaseState, verified_page_findings
 from .gather import MergeEvidence
 from .judge import Decision
@@ -139,6 +140,7 @@ def decide_with_rules(
     facts: MergeFacts | None,
     page_text_by_key: dict[str, str],
     is_final_attempt: bool,
+    deadline: CheckDeadline | None = None,
 ) -> Decision:
     if facts is None:
         return rules_decision(False, None, (), reason="facts_unavailable", low_confidence=True)
@@ -154,7 +156,9 @@ def decide_with_rules(
         return rules_decision(True, change_kind, named_page_keys, reason="named_pages_unread", low_confidence=True)
     unread_page_keys = tuple(key for key in named_page_keys if key not in readable_pages)
     try:
-        verified_findings = verified_page_findings(anthropic_client, evidence, page_text_by_key=readable_pages)
+        verified_findings = verified_page_findings(
+            anthropic_client, evidence, page_text_by_key=readable_pages, deadline=deadline
+        )
     except APIError:
         if not is_final_attempt:
             raise

@@ -20,6 +20,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
 from ...merge_check.check import run_merge_check
+from ...merge_check.deadline import CheckDeadline, CheckDeadlineExceeded, DeadlineGitHub, deadline_http
 from ...merge_check.judge import judge_client
 from ...merge_check.sources import LandedChange, UnexpectedGitHubResponse
 from ..adapters.registry import REGISTRY
@@ -41,7 +42,14 @@ GITHUB_READ_ERRORS = (
     GitHubRateLimitError,
     GitHubEgressBudgetExhausted,
 )
-MERGE_CHECK_RETRYABLE_ERRORS = (*GITHUB_READ_ERRORS, httpx.HTTPError, APIError, UnexpectedGitHubResponse)
+MERGE_CHECK_RETRYABLE_ERRORS = (
+    *GITHUB_READ_ERRORS,
+    httpx.HTTPError,
+    APIError,
+    UnexpectedGitHubResponse,
+    CheckDeadlineExceeded,
+)
+SITEMAP_TIMEOUT_SECONDS = 30
 
 
 LEGACY_MERGE_CHECK_REPOSITORY = "PostHog/posthog"  # inputs started before pushes named the repository
@@ -119,8 +127,13 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
     except ValueError:
         record_merge_check_failed(inputs, MergeCheckFailure.JUDGE_CLIENT_UNAVAILABLE)
         return
+    deadline = CheckDeadline.starting_now()
     try:
-        with httpx.Client(timeout=30) as http, anthropic_client:
+        with (
+            anthropic_client,
+            deadline_http(deadline, timeout_seconds=SITEMAP_TIMEOUT_SECONDS) as http,
+            anthropic_client.with_options(http_client=http) as deadline_anthropic_client,
+        ):
             report = run_merge_check(
                 LandedChange(
                     repository=inputs.repository,
@@ -128,11 +141,12 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
                     pull_request_number=inputs.pull_request_number,
                 ),
                 is_final_attempt=is_final_attempt,
-                github=github,
+                github=DeadlineGitHub(github, deadline),
                 http=http,
-                anthropic_client=anthropic_client,
+                anthropic_client=deadline_anthropic_client,
                 source=docs_source(),
                 writer_login=github_app_login(),
+                deadline=deadline,
             )
     except MERGE_CHECK_RETRYABLE_ERRORS as error:
         if not is_final_attempt:
@@ -158,7 +172,8 @@ class MergeCheckWorkflow:
         await workflow.execute_activity(
             run_merge_check_activity,
             inputs,
-            start_to_close_timeout=timedelta(minutes=10),
+            start_to_close_timeout=timedelta(minutes=5),
+            schedule_to_close_timeout=timedelta(minutes=20),
             heartbeat_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(
                 initial_interval=MERGE_CHECK_RETRY_INTERVAL, maximum_attempts=MERGE_CHECK_ATTEMPTS

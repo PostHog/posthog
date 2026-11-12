@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Literal, TypeVar
 
 import structlog
-from anthropic import Anthropic
+from anthropic import Anthropic, APIConnectionError
 from anthropic.types import TextBlockParam
 from pydantic import BaseModel, Field, ValidationError
 
@@ -12,6 +12,7 @@ from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, trace_
 
 from ..backend.facade.contracts import CriterionResult
 from ..backend.facade.enums import CriterionEffect, DocsChangeKind
+from .deadline import CheckDeadline, CheckDeadlineExceeded
 from .gather import MergeEvidence
 
 logger = structlog.get_logger(__name__)
@@ -75,7 +76,11 @@ def judge_client(commit_sha: str) -> Anthropic:
 
 
 def decide_with_judge(
-    anthropic_client: Anthropic, evidence: MergeEvidence, *, page_text_by_key: dict[str, str]
+    anthropic_client: Anthropic,
+    evidence: MergeEvidence,
+    *,
+    page_text_by_key: dict[str, str],
+    deadline: CheckDeadline | None = None,
 ) -> Decision:
     docs_page_paths = evidence.docs_page_paths
     verdict = judge_merge(
@@ -84,6 +89,7 @@ def decide_with_judge(
         judged_diff=evidence.judged_diff,
         docs_page_paths=docs_page_paths,
         page_text_by_key=page_text_by_key,
+        deadline=deadline,
     )
     is_flagged = verdict.needs_docs and verdict.change_kind is not None
     judge_row = CriterionResult(
@@ -140,6 +146,7 @@ def judge_merge(
     judged_diff: str,
     docs_page_paths: list[str],
     page_text_by_key: dict[str, str],
+    deadline: CheckDeadline | None = None,
 ) -> JudgeVerdict:
     page_texts = page_tags(page_text_by_key, separator="\n\n")
     parsed = parse_structured_output(
@@ -150,6 +157,7 @@ def judge_merge(
         max_retries=JUDGE_MAX_RETRIES,
         system=system_with_cached_page_list(JUDGE_INSTRUCTIONS, docs_page_paths),
         content=f"Commit title: {title}\n\n{page_texts}<diff>\n{judged_diff[:MAX_DIFF_CHARACTERS]}\n</diff>",
+        deadline=deadline,
     )
     if isinstance(parsed, Declined):
         logger.warning("knowledge_writer_judge_declined", cause=parsed.cause)
@@ -166,15 +174,25 @@ def parse_structured_output(
     max_retries: int,
     system: str | list[TextBlockParam],
     content: str,
+    deadline: CheckDeadline | None = None,
 ) -> ParsedOutput | Declined:
+    timeout_or_time_left_seconds = timeout_seconds if deadline is None else deadline.seconds_left(timeout_seconds)
+    # The SDK sleeps up to 60 seconds on a retry-after reply before retrying, outside any deadline.
+    sdk_retries = max_retries if deadline is None else 0
     try:
-        response = anthropic_client.with_options(timeout=timeout_seconds, max_retries=max_retries).messages.parse(
+        response = anthropic_client.with_options(
+            timeout=timeout_or_time_left_seconds, max_retries=sdk_retries
+        ).messages.parse(
             model=model,
             max_tokens=4096,
             system=system,
             messages=[{"role": "user", "content": content}],
             output_format=output_format,
         )
+    except APIConnectionError as error:
+        if isinstance(error.__cause__, CheckDeadlineExceeded):
+            raise error.__cause__
+        raise
     except ValidationError:
         return Declined("validation_error")
     if response.stop_reason == "refusal":

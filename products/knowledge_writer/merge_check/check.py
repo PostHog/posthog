@@ -3,6 +3,7 @@ from anthropic import Anthropic, APIError
 
 from ..backend.facade.contracts import CriterionResult, MergeCheckReport
 from ..backend.settings import DocsSource
+from .deadline import CheckDeadline
 from .facts import extract_facts, verify_quotes
 from .gates import decide_with_rules, fact_gates, gate_row, rule_gates, with_existing_docs_pull_requests
 from .gather import MergeEvidence, gather_merge
@@ -35,6 +36,7 @@ def run_merge_check(
     source: DocsSource | None,
     writer_login: str | None,
     variant: Variant = Variant.JUDGE,
+    deadline: CheckDeadline | None = None,
 ) -> MergeCheckReport:
     report_by_variant = merge_reports_by_variant(
         change,
@@ -45,6 +47,7 @@ def run_merge_check(
         source=source,
         writer_login=writer_login,
         variants=(variant,),
+        deadline=deadline,
     )
     return report_by_variant[variant]
 
@@ -60,6 +63,7 @@ def merge_reports_by_variant(
     writer_login: str | None,
     variants: tuple[Variant, ...],
     is_pinned_to_merge: bool = False,
+    deadline: CheckDeadline | None = None,
 ) -> dict[Variant, MergeCheckReport]:
     commit_sha = change.after
     listed = read_numbered_pull_request(github, change)
@@ -98,7 +102,7 @@ def merge_reports_by_variant(
         )
         return dict.fromkeys(variants, gated_report)
     try:
-        extracted_facts = extract_facts(anthropic_client, evidence)
+        extracted_facts = extract_facts(anthropic_client, evidence, deadline=deadline)
     except APIError:
         if not is_final_attempt:
             raise
@@ -138,9 +142,10 @@ def merge_reports_by_variant(
                 facts=facts,
                 page_text_by_key=page_text_by_key,
                 is_final_attempt=is_final_attempt,
+                deadline=deadline,
             )
             if variant == Variant.RULES
-            else decide_with_judge(anthropic_client, evidence, page_text_by_key=page_text_by_key)
+            else decide_with_judge(anthropic_client, evidence, page_text_by_key=page_text_by_key, deadline=deadline)
         )
         report_by_variant[variant] = decided_report(
             evidence, decision, gate_rows=gate_rows, low_confidence=low_confidence

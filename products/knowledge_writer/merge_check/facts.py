@@ -7,6 +7,7 @@ import structlog
 from anthropic import Anthropic
 from pydantic import BaseModel
 
+from .deadline import CheckDeadline
 from .gather import MergeEvidence, PathClass
 from .judge import (
     MIN_QUOTE_CHARACTERS,
@@ -101,7 +102,9 @@ class MergeFacts(BaseModel):
     changed_pages: list[ChangedPage]
 
 
-def extract_facts(anthropic_client: Anthropic, evidence: MergeEvidence) -> MergeFacts | None:
+def extract_facts(
+    anthropic_client: Anthropic, evidence: MergeEvidence, *, deadline: CheckDeadline | None = None
+) -> MergeFacts | None:
     parsed = parse_structured_output(
         anthropic_client,
         MergeFacts,
@@ -110,6 +113,7 @@ def extract_facts(anthropic_client: Anthropic, evidence: MergeEvidence) -> Merge
         max_retries=0,
         system=system_with_cached_page_list(FACTS_INSTRUCTIONS, evidence.docs_page_paths),
         content=facts_request(evidence),
+        deadline=deadline,
     )
     if isinstance(parsed, Declined):
         logger.warning("knowledge_writer_facts_declined", cause=parsed.cause)
@@ -197,7 +201,11 @@ class PageCheck(BaseModel):
 
 
 def verified_page_findings(
-    anthropic_client: Anthropic, evidence: MergeEvidence, *, page_text_by_key: dict[str, str]
+    anthropic_client: Anthropic,
+    evidence: MergeEvidence,
+    *,
+    page_text_by_key: dict[str, str],
+    deadline: CheckDeadline | None = None,
 ) -> list[PageFinding] | None:
     diff = facts_diff(evidence)
     page_texts = page_tags(page_text_by_key, separator="\n")
@@ -209,6 +217,7 @@ def verified_page_findings(
         max_retries=0,
         system=PAGE_CHECK_INSTRUCTIONS,
         content=f"Title: {evidence.title}\n\n{page_texts}\n<diff>\n{diff[:MAX_FACTS_DIFF_CHARACTERS]}\n</diff>",
+        deadline=deadline,
     )
     if isinstance(parsed, Declined):
         logger.warning("knowledge_writer_page_check_declined", cause=parsed.cause)

@@ -19,6 +19,7 @@ from products.knowledge_writer.merge_check.check import (
     merge_reports_by_variant,
     run_merge_check,
 )
+from products.knowledge_writer.merge_check.deadline import CheckDeadline, CheckDeadlineExceeded
 from products.knowledge_writer.merge_check.facts import (
     Audience,
     AudienceFact,
@@ -156,6 +157,7 @@ def check_merge(
     is_final_attempt: bool = False,
     variant: Variant = Variant.JUDGE,
     is_pinned_to_merge: bool = False,
+    deadline: CheckDeadline | None = None,
 ) -> MergeCheckReport:
     if is_pinned_to_merge:
         return merge_reports_by_variant(
@@ -178,6 +180,7 @@ def check_merge(
         source=DOCS_SOURCE,
         writer_login=WRITER_LOGIN,
         variant=variant,
+        deadline=deadline,
     )
 
 
@@ -548,6 +551,22 @@ def test_the_decision_reads_named_pages_and_trusts_only_quoted_sentences(
 
     assert (report.needs_docs, report.page_urls, report.low_confidence) == expected
     assert all(OUTDATED_SENTENCE in request["messages"][0]["content"] for request in judge_requests)
+
+
+def test_a_check_past_its_deadline_stops_before_a_model_call() -> None:
+    commit_sha = "5" * 40
+    model_requests: list[dict] = []
+
+    def parse(**request: object) -> object:
+        model_requests.append(request)
+        return SimpleNamespace(stop_reason="end_turn", parsed_output=merge_facts())
+
+    with pytest.raises(CheckDeadlineExceeded):
+        check_merge(
+            commit_sha, FakePostHogGitHub(commit_sha), judge_with_parse(parse), deadline=CheckDeadline(expires_at=0)
+        )
+
+    assert model_requests == []
 
 
 @pytest.mark.parametrize(
