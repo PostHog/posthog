@@ -117,7 +117,7 @@ class MemberEmailMigration:
             had_pending_email = bool(user.pending_email)
             try:
                 with transaction.atomic():
-                    user.email = change.new_email
+                    user.email = EmailNormalizer.normalize(change.new_email)
                     user.pending_email = None
                     user.save(update_fields=["email", "pending_email"])
                     # Delete social auth so the identity at the old provider can't keep logging in.
