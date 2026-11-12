@@ -1261,6 +1261,7 @@ def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
                     "description": request.description,
                     "run_first_check": request.run_first_check,
                     "only_first_run": request.only_first_run,
+                    "activate_paused_prompts": request.activate_paused_prompts,
                 },
             ),
             expires=auto_setup.SETUP_START_WINDOW_SECONDS,

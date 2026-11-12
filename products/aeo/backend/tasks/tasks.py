@@ -242,6 +242,7 @@ def set_up_aeo_task(team_id: int, job_id: str, request: dict) -> None:
                 # A task queued before this field existed carries no key and queues no run.
                 run_first_check=request.get("run_first_check", False),
                 only_first_run=request.get("only_first_run", False),
+                activate_paused_prompts=request.get("activate_paused_prompts", False),
             ),
         )
     except Exception:

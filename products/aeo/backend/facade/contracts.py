@@ -779,6 +779,8 @@ class SetupContext:
     websites: tuple[WebsiteCandidate, ...]
     own_domains: tuple[str, ...]
     active_prompts: int
+    # Unarchived prompts that are turned off, which no run checks.
+    paused_prompts: int
     keywords: int
     has_checks: bool
     ai_data_processing_approved: bool
@@ -826,6 +828,8 @@ class SetupRequest:
     engines: tuple[str, ...] | None = None
     # Queue the first run and nothing else: no brand, prompts or keywords, and no engine change.
     only_first_run: bool = False
+    # With only_first_run, turn on every paused prompt first, such as the ones a configure-only setup saved.
+    activate_paused_prompts: bool = False
 
 
 @frozen
