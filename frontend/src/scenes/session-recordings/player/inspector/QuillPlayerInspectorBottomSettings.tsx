@@ -29,7 +29,6 @@ export function QuillPlayerInspectorBottomSettings(): JSX.Element {
     const noEventsReason =
         hasEventsToDisplay && hasEventsFiltersSelected ? undefined : 'There are no events in the list'
 
-    // pinned: data-attr values are shared with the classic settings bar and feed autocapture dashboards
     return (
         <div
             data-quill

@@ -35,12 +35,10 @@ interface InspectorFilterType {
     type: FilterableInspectorListItemTypes
     label: string
     icon: JSX.Element
-    // pinned: data-attr values are shared with the classic controls and feed autocapture dashboards
     dataAttr: string
     tooltip?: string
     disabledReason?: string
     loading?: boolean
-    /** Shown beside a type that has no items because its capture is off. */
     setup?: { label: string; to: string; dataAttr: string }
 }
 
@@ -73,12 +71,10 @@ export function QuillPlayerInspectorControls(): JSX.Element {
 
     useEffect(() => {
         if (!window.IMPERSONATED_SESSION && !featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
-            // ensure we've not left the doctor active
             setMiniFilter('doctor', false)
         }
     }, [featureFlags, setMiniFilter])
 
-    // pinned: analytics event name and property, shared with the classic controls
     useEffect(() => {
         if (showNetworkUpsell) {
             posthog.capture('recording inspector upsell shown', { type: 'network' })
@@ -178,7 +174,6 @@ export function QuillPlayerInspectorControls(): JSX.Element {
     const hasSubFilters = (type: FilterableInspectorListItemTypes): boolean =>
         subFiltersFor(type).length > 1 && itemCount(type) > 1
 
-    // Until a type is clicked, the second row belongs to the first type that is switched on.
     const subFilterType =
         types.find((x) => x.type === focusedType)?.type ??
         types.find((x) => isEnabled(x.type) && hasSubFilters(x.type))?.type
