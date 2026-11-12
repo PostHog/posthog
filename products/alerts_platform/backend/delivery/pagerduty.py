@@ -94,12 +94,18 @@ def pagerduty_body(message: AlertMessage, *, routing_key: str, severity: PagerDu
         "severity": severity.value,
         "timestamp": rfc3339(transition.occurred_at),
         "custom_details": {
-            **{detail.label: detail.value for detail in message.details},
+            # The platform's details come last, so a rule entry with the same name cannot replace one.
+            **{detail.label: detail.value for detail in (*message.rule_details, *message.details)},
             "delivered_by": SOURCE,
             "configuration_id": message.configuration_id,
         },
     }
     return body
+
+
+# Every destination posts to the same endpoint, which answers a bad routing key and a malformed
+# event both with 400. Only the routing key is the owner's to fix.
+_OWNER_REFUSALS: Final = {400: b"invalid routing key"}
 
 
 class PagerDutyTransport:
@@ -125,6 +131,13 @@ class PagerDutyTransport:
         except ValueError:
             raise DeliveryError("This PagerDuty destination has an unknown region or severity.") from None
         body = pagerduty_body(message, routing_key=routing_key, severity=severity)
-        post_json(ENDPOINTS[region], body, display_name="PagerDuty")
+        post_json(
+            ENDPOINTS[region],
+            body,
+            display_name="PagerDuty",
+            # An uncompressed answer, so the refusal check can read its error text.
+            headers={"Accept-Encoding": "identity"},
+            owner_refusals=_OWNER_REFUSALS,
+        )
         # PagerDuty answers with the dedup key, which this transport derives again for the resolve.
         return None

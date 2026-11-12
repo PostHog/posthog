@@ -403,6 +403,30 @@ class NoUnaskedAnswer(Scorer):
         )
 
 
+NEEDS_REPO_KEY = "needs_repo"
+
+
+class NeedsRepoMatch(Scorer):
+    """Did the classifier decide about opening a repository the way an engineer reading the ask would?"""
+
+    def _name(self) -> str:
+        return NEEDS_REPO_KEY
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(NEEDS_REPO_KEY) or {}
+        if "needs_repo" not in want:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("needs_repo")
+        return Score(
+            name=self._name(),
+            score=1.0 if got == want["needs_repo"] else 0.0,
+            metadata={"expected": want["needs_repo"], "actual": got, "probability": (output or {}).get("probability")},
+        )
+
+
 FEATURE_TIP_KEY = "feature_tip"
 
 

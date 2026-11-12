@@ -121,6 +121,7 @@ describe('buildToolDomainsBlock', () => {
     it('trims lifecycle and capability actions from singleton domains', () => {
         const trailingActions = [
             'accept',
+            'add',
             'archive',
             'calculate',
             'cancel',
@@ -129,6 +130,7 @@ describe('buildToolDomainsBlock', () => {
             'complete',
             'compose',
             'copy',
+            'describe',
             'disable',
             'discard',
             'dismiss',
@@ -148,6 +150,7 @@ describe('buildToolDomainsBlock', () => {
             'pause',
             'publish',
             'record',
+            'refresh',
             'rename',
             'reset',
             'restore',
@@ -156,6 +159,7 @@ describe('buildToolDomainsBlock', () => {
             'save',
             'ship',
             'show',
+            'skip',
             'start',
             'submit',
             'test',
@@ -163,6 +167,7 @@ describe('buildToolDomainsBlock', () => {
             'unarchive',
             'unfreeze',
             'upload',
+            'validate',
         ]
         const tools = trailingActions.map((action, index) => ({
             name: `resource${index}-${action}`,

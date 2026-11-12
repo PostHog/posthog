@@ -50,6 +50,77 @@ export const castBooleanToString = (v: unknown): unknown => (typeof v === 'boole
 export const castObjectToJsonString = (v: unknown): unknown =>
     v !== null && typeof v === 'object' && !Array.isArray(v) ? JSON.stringify(v) : v
 
+const SYNC_FREQUENCY_BY_MINUTES: Record<number, string> = {
+    5: '5min',
+    15: '15min',
+    30: '30min',
+    60: '1hour',
+    360: '6hour',
+    720: '12hour',
+    1440: '24hour',
+    10080: '7day',
+    43200: '30day',
+}
+
+const SYNC_FREQUENCY_WORDS: Record<string, string> = {
+    hourly: '1hour',
+    daily: '24hour',
+    weekly: '7day',
+    monthly: '30day',
+}
+
+const MINUTES_PER_UNIT: Record<string, number> = {
+    m: 1,
+    min: 1,
+    mins: 1,
+    minute: 1,
+    minutes: 1,
+    h: 60,
+    hr: 60,
+    hrs: 60,
+    hour: 60,
+    hours: 60,
+    d: 1440,
+    day: 1440,
+    days: 1440,
+    w: 10080,
+    wk: 10080,
+    week: 10080,
+    weeks: 10080,
+    mo: 43200,
+    month: 43200,
+    months: 43200,
+}
+
+/**
+ * Map common spellings of a warehouse sync frequency ("daily", "60min", "1h", "1week") to the
+ * canonical enum value ("24hour", "1hour", "7day"); anything unrecognised passes through so the
+ * enum check still rejects it and lists the valid values. Mirrors `normalize_sync_frequency` in
+ * `products/warehouse_sources/backend/presentation/sync_frequency_field.py`, which the API applies
+ * to every caller. This cast exists because the tool's schema is an enum, which would reject the
+ * spelling before the request is sent.
+ *
+ * Wired up declaratively via `param_overrides: { sync_frequency: { cast: 'sync-frequency' } }`.
+ */
+export const castSyncFrequency = (v: unknown): unknown => {
+    if (typeof v !== 'string') {
+        return v
+    }
+    const key = v.trim().toLowerCase()
+    if (Object.values(SYNC_FREQUENCY_BY_MINUTES).includes(key)) {
+        return key
+    }
+    if (key in SYNC_FREQUENCY_WORDS) {
+        return SYNC_FREQUENCY_WORDS[key]
+    }
+    const match = /^(?:every[\s_-]*)?(\d{1,6})[\s_-]*([a-z]+)$/.exec(key)
+    const unitMinutes = match ? MINUTES_PER_UNIT[match[2]!] : undefined
+    if (match && unitMinutes !== undefined) {
+        return SYNC_FREQUENCY_BY_MINUTES[Number(match[1]) * unitMinutes] ?? v
+    }
+    return v
+}
+
 /**
  * Normalize alternate key spellings to a canonical param name before validation.
  *

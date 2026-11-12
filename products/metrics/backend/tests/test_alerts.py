@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
@@ -45,6 +45,7 @@ from products.metrics.backend.alerts.freshness import (
     IngestionReach,
     fetch_metrics_freshness,
     fetch_partition_checkpoint,
+    freshness_workload,
 )
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
@@ -143,6 +144,18 @@ def _response(status_code: int, body: dict[str, Any]) -> requests.Response:
     response.status_code = status_code
     response._content = json.dumps(body).encode()
     return response
+
+
+class TestFreshnessWorkload(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("promql_still_on_logs_snuffle", "http://snuffle-logs:9091", Workload.LOGS),
+            ("promql_on_metrics_snuffle", "http://snuffle-metrics:9091", Workload.METRICS),
+        ]
+    )
+    def test_reads_the_cluster_promql_reads(self, _name: str, metrics_url: str, expected: Workload) -> None:
+        with override_settings(SNUFFLE_APM_URL="http://snuffle-logs:9091", SNUFFLE_METRICS_URL=metrics_url):
+            assert freshness_workload() == expected
 
 
 class TestMetricsFreshnessRead(ClickhouseTestMixin, APIBaseTest):
@@ -271,6 +284,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert self._kinds(first) == {"a": AlertEventKind.FIRING, "b": AlertEventKind.FIRING}
         assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - timedelta(seconds=30)).timestamp())
         assert self.snuffle.call_args.kwargs["ch_user"] == ClickHouseUser.ALERTS_PLATFORM_METRICS
+        assert self.snuffle.call_args.kwargs["workload"] == Workload.METRICS
 
         self._next_check(first)
         self.snuffle.return_value = _response(

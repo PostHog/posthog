@@ -423,10 +423,22 @@ jobs:
             test_paths: ${{ steps.classify.outputs.test_paths }}
             matrix_include: ${{ steps.classify.outputs.matrix_include }}
         steps:
+            # Fetch the working tree at depth 1 to avoid a second request for all its blobs.
+            # The selector adds blobless history after checkout, as backend discovery does.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
+
+            - name: Fetch history without file contents
+              shell: bash
+              run: |
+                  for attempt in 1 2 3; do
+                      if git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"; then
+                          exit 0
+                      fi
+                      if [ "$attempt" -lt 3 ]; then
+                          sleep 10
+                      fi
+                  done
+                  exit 1
 
             - name: Install uv
               uses: ./.github/actions/setup-uv

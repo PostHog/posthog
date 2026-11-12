@@ -24,7 +24,6 @@ import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalF
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
-import { ReplayFilterBar } from './ReplayFilterBar'
 import { isFeedReplayLayout, isNewReplayLayout } from './replayLayout'
 import { ReplayListColumn } from './ReplayListColumn'
 import { replayListColumnLogic } from './replayListColumnLogic'
@@ -52,6 +51,7 @@ export function SessionRecordingsPlaylist({
         ...props,
         autoPlay: props.autoPlay ?? true,
         onlyPinned: props.type === 'collection',
+        watchLayout,
     }
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { canOverrideLayout, staffLayoutOverride } = useValues(playerSettingsLogic)
@@ -86,15 +86,7 @@ export function SessionRecordingsPlaylist({
     )
     const columnsClassName = cn('w-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')
 
-    const layout =
-        feedLayout && props.type !== 'collection' ? (
-            <div className="w-full h-full flex flex-col gap-2">
-                <FeedFilterBar />
-                <div className={cn(columnsClassName, 'flex-1 min-h-0')}>{columns}</div>
-            </div>
-        ) : (
-            <div className={cn(columnsClassName, 'h-full')}>{columns}</div>
-        )
+    const layout = <div className={cn(columnsClassName, 'h-full')}>{columns}</div>
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
@@ -158,7 +150,7 @@ function WatchPlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Elemen
 function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const playlistRef = useRef<HTMLDivElement>(null)
 
-    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-horizontal',
@@ -187,7 +179,7 @@ function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
                     isPlaylistCollapsed
                         ? {}
                         : {
-                              width: desiredSize ?? 320,
+                              width: desiredSize ?? (isNewReplayLayout(replayLayout) ? 400 : 320),
                               minWidth: 'min-content',
                               maxWidth: '50%',
                           }
@@ -249,22 +241,6 @@ function FeedHorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Eleme
                 )}
             </div>
         </>
-    )
-}
-
-function FeedFilterBar(): JSX.Element {
-    const { filters, totalFiltersCount, activeSessionRecordingId } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
-
-    return (
-        <ReplayFilterBar
-            filters={filters}
-            setFilters={setFilters}
-            totalFiltersCount={totalFiltersCount}
-            currentSessionRecordingId={activeSessionRecordingId}
-            onReload={() => maybeLoadSessionRecordings()}
-            savedFilterChips
-        />
     )
 }
 

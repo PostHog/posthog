@@ -236,6 +236,8 @@ export interface NodeApi {
     readonly suspended: NodeApiSuspended
     /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
     readonly endpoint: NodeEndpointApi | null
+    /** Whether you get failure notifications for this node. The creator of a view watches it until they unwatch it, and anyone else watches it after they watch it. */
+    readonly watching: boolean
 }
 
 export interface PaginatedNodeListApi {
@@ -325,6 +327,8 @@ export interface PatchedNodeApi {
     readonly suspended?: PatchedNodeApiSuspended
     /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
     readonly endpoint?: NodeEndpointApi | null
+    /** Whether you get failure notifications for this node. The creator of a view watches it until they unwatch it, and anyone else watches it after they watch it. */
+    readonly watching?: boolean
 }
 
 /**
@@ -435,6 +439,16 @@ export interface NodeRunApi {
 export interface NodeRunResponseApi {
     /** The nodes included in the dependency run. */
     node_ids: string[]
+}
+
+export interface NodeWatchingApi {
+    /** Whether you now get failure notifications for this node. */
+    watching: boolean
+}
+
+export interface NodeAttentionCountApi {
+    /** Models whose last serving run failed or whose scheduled runs are suspended, each counted once. */
+    count: number
 }
 
 export interface LineageResponseApi {

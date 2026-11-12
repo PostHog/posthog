@@ -65,7 +65,7 @@ export interface DerivedSchemaRequirements {
 
 export interface SqlxMigrationDir {
     database: SqlxDatabase
-    versions: number[]
+    identifiersByVersion: Map<number, Set<string>>
     tables: Set<string>
 }
 
@@ -276,22 +276,23 @@ export function readSqlxMigrationDir(repoRoot: string, database: SqlxDatabase): 
     if (!existsSync(dir)) {
         throw new Error(`${dir} does not exist`)
     }
-    const versions = new Set<number>()
+    const identifiersByVersion = new Map<number, Set<string>>()
     const tables = new Set<string>()
     for (const fileName of readdirSync(dir)) {
         const version = fileName.match(SQLX_MIGRATION_FILE)?.[1]
         if (version === undefined) {
             continue
         }
-        versions.add(Number(version))
-        for (const table of matchAll(readFileSync(path.join(dir, fileName), 'utf8'), CREATE_TABLE)) {
+        const sql = readFileSync(path.join(dir, fileName), 'utf8')
+        identifiersByVersion.set(Number(version), new Set(sql.toLowerCase().match(LOWERCASE_IDENTIFIER)))
+        for (const table of matchAll(sql, CREATE_TABLE)) {
             tables.add(table.toLowerCase())
         }
     }
-    if (versions.size === 0) {
+    if (identifiersByVersion.size === 0) {
         throw new Error(`${dir} has no sqlx migrations`)
     }
-    return { database, versions: [...versions].sort((a, b) => a - b), tables }
+    return { database, identifiersByVersion, tables }
 }
 
 export function deriveSchemaRequirements(repoRoot: string): DerivedSchemaRequirements {
@@ -343,7 +344,17 @@ export function deriveSchemaRequirements(repoRoot: string): DerivedSchemaRequire
             continue
         }
         tablesByRequirement.set(`sqlx:${database}`, tables)
-        sqlxRequirements.push({ kind: 'sqlx', database, versions: migrationDir.versions })
+        // A version is skipped only when every table it names is one Node does not read, for example a drop
+        // of a table whose Node reader is gone. A version that names no table, such as `DROP INDEX <name>`,
+        // can still change how Node's queries behave, so it stays required.
+        const versions = [...migrationDir.identifiersByVersion]
+            .filter(([, identifiers]) => {
+                const namedTables = [...migrationDir.tables].filter((table) => identifiers.has(table))
+                return namedTables.length === 0 || namedTables.some((table) => tables.includes(table))
+            })
+            .map(([version]) => version)
+            .sort((a, b) => a - b)
+        sqlxRequirements.push({ kind: 'sqlx', database, versions })
     }
 
     const findings = findUncoveredTables(

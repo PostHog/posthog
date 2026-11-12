@@ -23,6 +23,7 @@ import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePrevi
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -44,6 +45,7 @@ import { FeedTabContent } from './components/Feed/FeedTabContent'
 import { FeedbackButton } from './components/FeedbackButton'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
+import { ProductUsageTabContent } from './components/ProductUsageGrid/ProductUsageTabContent'
 import { TaskDigestButton } from './components/TaskDigest/TaskDigestButton'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
@@ -72,6 +74,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)
     const { businessType, activeTab, sceneName, todayPeopleRowKey } = useValues(customerAnalyticsSceneLogic)
+    const { peoplePaneLinksTabs } = useValues(todayShellLogic)
     const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { location, searchParams } = useValues(router)
@@ -108,6 +111,14 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
     if (
         (activeTab === 'accounts' || activeTab === 'notes' || activeTab === 'announcements' || activeTab === 'feed') &&
         !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]
+    ) {
+        return <NotFound object="page" />
+    }
+
+    if (
+        activeTab === 'product_activity' &&
+        (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] ||
+            !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX])
     ) {
         return <NotFound object="page" />
     }
@@ -172,6 +183,14 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             content: <AccountsTabContent />,
             link: tabLink(urls.customerAnalyticsAccounts(), 'accounts'),
         })
+        if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX]) {
+            tabs.push({
+                key: 'product_activity',
+                label: 'Product activity',
+                content: <ProductUsageTabContent />,
+                link: tabLink(urls.customerAnalyticsProductActivity(), 'product_activity'),
+            })
+        }
         tabs.push({
             key: 'notes',
             label: 'Notes',
@@ -220,7 +239,6 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         })
     }
 
-    // The Today rail's People pane links to every tab, so the shell shows only the open tab's content.
     const activeTabEntry = tabs.find((tab) => tab.key === activeTab)
     const activeTabContent = activeTabEntry && 'content' in activeTabEntry ? activeTabEntry.content : dashboardContent
     const tabBar =
@@ -229,7 +247,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         ) : (
             dashboardContent
         )
-    const tabsContent = todayRailNav ? activeTabContent : tabBar
+    const tabsContent = peoplePaneLinksTabs ? activeTabContent : tabBar
     const isFeatureRequestDetail =
         activeTab === 'feature_requests' && /\/customer_analytics\/feature-requests\/[^/]+\/?$/.test(location.pathname)
 

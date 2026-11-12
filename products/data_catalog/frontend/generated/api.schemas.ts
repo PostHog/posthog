@@ -197,6 +197,11 @@ export interface DataCatalogMetricApi {
     readonly status: string
     /** True when the definition has drifted from its linked source insight (or the insight is gone). */
     readonly is_drifted: boolean
+    /**
+     * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+     * @nullable
+     */
+    readonly match_reason: string | null
     /** @nullable */
     readonly approved_at: string | null
     /** User who approved this metric as canonical, or null. */
@@ -222,13 +227,6 @@ export interface DataCatalogMetricApi {
      * @maxLength 128
      */
     ai_model?: string
-    /**
-     * AI author's confidence in the proposal, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
     /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
     reasoning?: string
     /** User who first created this metric. */
@@ -300,6 +298,11 @@ export interface DataCatalogMetricCreateApi {
     readonly status: string
     /** True when the definition has drifted from its linked source insight (or the insight is gone). */
     readonly is_drifted: boolean
+    /**
+     * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+     * @nullable
+     */
+    readonly match_reason: string | null
     /** @nullable */
     readonly approved_at: string | null
     /** User who approved this metric as canonical, or null. */
@@ -325,13 +328,6 @@ export interface DataCatalogMetricCreateApi {
      * @maxLength 128
      */
     ai_model?: string
-    /**
-     * AI author's confidence in the proposal, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
     /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
     reasoning?: string
     /** User who first created this metric. */
@@ -427,6 +423,11 @@ export interface PatchedDataCatalogMetricApi {
     readonly status?: string
     /** True when the definition has drifted from its linked source insight (or the insight is gone). */
     readonly is_drifted?: boolean
+    /**
+     * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+     * @nullable
+     */
+    readonly match_reason?: string | null
     /** @nullable */
     readonly approved_at?: string | null
     /** User who approved this metric as canonical, or null. */
@@ -452,13 +453,6 @@ export interface PatchedDataCatalogMetricApi {
      * @maxLength 128
      */
     ai_model?: string
-    /**
-     * AI author's confidence in the proposal, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
     /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
     reasoning?: string
     /** User who first created this metric. */
@@ -589,6 +583,83 @@ export interface DataCatalogMetricRunApi {
 }
 
 /**
+ * Direct runs of the metric in the window, keyed by the surface that ran it: web, api, mcp, slack, posthog_ai, or posthog_code. Scout runs are not included.
+ */
+export type MetricRunCountsApiDirectRuns = { [key: string]: number }
+
+export interface MetricRunCountsApi {
+    /** ID of the catalog metric. */
+    metric_id: string
+    /** Direct runs of the metric in the window, keyed by the surface that ran it: web, api, mcp, slack, posthog_ai, or posthog_code. Scout runs are not included. */
+    direct_runs: MetricRunCountsApiDirectRuns
+    /** Distinct people who ran the metric directly, without scouts. */
+    direct_people: number
+    /** Direct runs by scouts (scheduled agents), kept apart because one scout can run a metric many times a day. */
+    scout_runs: number
+}
+
+/**
+ * * `serves` - Serves
+ * * `slice` - Slice
+ * * `different` - Different
+ */
+export type JudgeRelationEnumApi = (typeof JudgeRelationEnumApi)[keyof typeof JudgeRelationEnumApi]
+
+export const JudgeRelationEnumApi = {
+    Serves: 'serves',
+    Slice: 'slice',
+    Different: 'different',
+} as const
+
+export interface AdjustedRunApi {
+    /** ID of the catalog metric the agent query re-derived. */
+    metric_id: string
+    /** True when the agent read this metric in the catalog before it wrote the query. */
+    read_metric_first: boolean
+    /** serves: the query computes the metric. slice: it computes the metric with an extra filter. Never different: the scan drops the queries the judge marks different.
+     *
+     * * `serves` - Serves
+     * * `slice` - Slice
+     * * `different` - Different */
+    relation: JudgeRelationEnumApi
+    /** What the agent said it was trying to answer. */
+    intent: string
+    /** The SQL the agent ran. */
+    sql: string
+    /** Why the judge matched the query to the metric. */
+    reasoning: string
+    /** When the agent ran the query. */
+    occurred_at: string
+    /**
+     * Agent session of the query, when known.
+     * @nullable
+     */
+    session_id: string | null
+    /** True when a scout (scheduled agent) ran the query. */
+    is_scout: boolean
+}
+
+export interface MetricUsageApi {
+    /** ID of the catalog metric. */
+    metric_id: string
+    /** The usage scan these numbers come from. */
+    snapshot_id: string
+    /** Start of the scanned window. */
+    window_start: string
+    /** End of the scanned window. */
+    window_end: string
+    /**
+     * When the scan finished.
+     * @nullable
+     */
+    computed_at: string | null
+    /** Run counts. Null when the metric had no runs. */
+    runs: MetricRunCountsApi | null
+    /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
+    adjusted_runs: AdjustedRunApi[]
+}
+
+/**
  * Input for giving many metrics one owner.
  */
 export interface DataCatalogMetricBulkChangeOwnerRequestApi {
@@ -657,6 +728,15 @@ export interface DataCatalogMetricBulkDeleteApi {
     deleted: string[]
     /** Requested metrics that were not deleted, with reasons. */
     skipped: DataCatalogMetricBulkSkipApi[]
+}
+
+export interface PendingReviewCountsApi {
+    /** Proposed metrics you can see that wait for approval. */
+    metrics: number
+    /** Proposed joins that wait to be accepted or rejected. */
+    relationships: number
+    /** Proposed certifications that wait for review. */
+    certifications: number
 }
 
 export interface DataCatalogRelationshipProposalApi {
@@ -731,6 +811,167 @@ export interface RelationshipRejectApi {
     rejection_reason?: string
 }
 
+/**
+ * * `computing` - Computing
+ * * `done` - Done
+ * * `error` - Error
+ */
+export type UsageSnapshotStatusEnumApi = (typeof UsageSnapshotStatusEnumApi)[keyof typeof UsageSnapshotStatusEnumApi]
+
+export const UsageSnapshotStatusEnumApi = {
+    Computing: 'computing',
+    Done: 'done',
+    Error: 'error',
+} as const
+
+export interface UsageSnapshotSummaryApi {
+    /** ID of the usage scan. */
+    id: string
+    /** computing while the scan runs, then done or error.
+     *
+     * * `computing` - Computing
+     * * `done` - Done
+     * * `error` - Error */
+    status: UsageSnapshotStatusEnumApi
+    /** Why the scan failed, when status is error. */
+    error_message: string
+    /** Start of the scanned window. */
+    window_start: string
+    /** End of the scanned window. */
+    window_end: string
+    /** Model that judged adjusted runs in this scan. */
+    judge_model: string
+    /**
+     * When the scan finished.
+     * @nullable
+     */
+    computed_at: string | null
+    /** When the scan started. */
+    created_at: string
+}
+
+export interface TopicCoverageApi {
+    /** Sessions that ran a catalog metric directly. */
+    canonical: number
+    /** Sessions that read a catalog metric, then changed it. */
+    adapted: number
+    /** Sessions that re-derived a catalog metric without consulting it. */
+    silent: number
+    /** Sessions that ran SQL that matches no catalog metric. */
+    raw_sql_only: number
+    /** Sessions that ran no query. */
+    no_sql: number
+}
+
+export interface TopicClusterApi {
+    /** Short name of the topic, written by a model from sample intents. */
+    title: string
+    /** Agent sessions in the topic. Scout sessions are not clustered. */
+    session_count: number
+    /** How the topic's sessions got their numbers. */
+    coverage: TopicCoverageApi
+    /** A few intents from the topic's sessions. */
+    sample_intents: string[]
+}
+
+/**
+ * * `covered` - Covered
+ * * `slice` - Slice
+ * * `uncovered` - Uncovered
+ */
+export type ShapeOutcomeEnumApi = (typeof ShapeOutcomeEnumApi)[keyof typeof ShapeOutcomeEnumApi]
+
+export const ShapeOutcomeEnumApi = {
+    Covered: 'covered',
+    Slice: 'slice',
+    Uncovered: 'uncovered',
+} as const
+
+export interface UncoveredGroupApi {
+    /** Stable ID of the measure the queries compute. */
+    fingerprint_digest: string
+    /** Readable description of the measure. */
+    measure: string
+    /** covered: a catalog metric computes it. slice: a catalog metric computes it without the extra filters. uncovered: no catalog metric computes it.
+     *
+     * * `covered` - Covered
+     * * `slice` - Slice
+     * * `uncovered` - Uncovered */
+    outcome: ShapeOutcomeEnumApi
+    /**
+     * The matching catalog metric, for covered and slice.
+     * @nullable
+     */
+    matched_metric_id: string | null
+    /** Distinct people who ran the measure, without scouts. */
+    distinct_people: number
+    /** Query runs of the measure, without scouts. */
+    runs: number
+    /** One query that computes the measure. */
+    sample_sql: string
+    /**
+     * Proposed metric name, when one was drafted.
+     * @nullable
+     */
+    draft_name: string | null
+    /**
+     * Proposed metric description, when one was drafted.
+     * @nullable
+     */
+    draft_description: string | null
+}
+
+export interface UsageSnapshotPayloadApi {
+    /**
+     * Run counts per metric. Null until the scan counts runs.
+     * @nullable
+     */
+    metric_runs: MetricRunCountsApi[] | null
+    /**
+     * Agent queries that re-derived a metric. Null until judged.
+     * @nullable
+     */
+    adjusted_runs: AdjustedRunApi[] | null
+    /**
+     * Agent session topics. Null until clustered.
+     * @nullable
+     */
+    topics: TopicClusterApi[] | null
+    /**
+     * Recurring query shapes and their catalog outcome. Null until grouped.
+     * @nullable
+     */
+    uncovered: UncoveredGroupApi[] | null
+}
+
+export interface UsageSnapshotApi {
+    /** ID of the usage scan. */
+    id: string
+    /** computing while the scan runs, then done or error.
+     *
+     * * `computing` - Computing
+     * * `done` - Done
+     * * `error` - Error */
+    status: UsageSnapshotStatusEnumApi
+    /** Why the scan failed, when status is error. */
+    error_message: string
+    /** Start of the scanned window. */
+    window_start: string
+    /** End of the scanned window. */
+    window_end: string
+    /** Model that judged adjusted runs in this scan. */
+    judge_model: string
+    /**
+     * When the scan finished.
+     * @nullable
+     */
+    computed_at: string | null
+    /** When the scan started. */
+    created_at: string
+    /** The scan result, one key per section. */
+    payload: UsageSnapshotPayloadApi
+}
+
 export type DataCatalogCertificationsListParams = {
     /**
      * Number of results to return per page.
@@ -764,7 +1005,7 @@ export type DataCatalogMetricsListParams = {
      */
     offset?: number
     /**
-     * A search term.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string
     /**

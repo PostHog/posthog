@@ -259,6 +259,12 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     from posthog.utils import absolute_uri
 
     response = _exceptions_hog_handler(exc, context)
+    if response is not None and isinstance(exc, PermissionDenied) and exc.get_codes() == "ip_not_allowed":
+        # Keep IP diagnostics consistent with denials from middleware without importing auth at startup.
+        from posthog.ip_restrictions import get_restriction_client_ip  # noqa: PLC0415
+
+        request = context.get("request")
+        response.data["ip"] = get_restriction_client_ip(getattr(request, "_request", request))
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
         # A view may pin its own challenge (e.g. the skills marketplace git endpoints, which
         # git clients can only satisfy with Basic — they cannot complete a Bearer/OAuth flow).

@@ -6,8 +6,8 @@ appeared, or users are showing up under multiple variants.
 ## Before diagnosing
 
 Read three values first.
-The first two come from the exposure data of the Step 1.5 snapshot (`exposures` in `experiment-results-get`), the third from `experiment-get`.
-`experiment-results-get` runs queries: call it once, after the stored results and the change history of the snapshot, and reuse its `exposures` for every check in this file.
+The first two come from the exposure data of the Step 1.5 snapshot (`exposures` in `experiment-health-get`), the third from `experiment-get`.
+`experiment-health-get` runs the exposure query: call it once, after the stored results and the change history of the snapshot, and reuse its `exposures` for every check in this file.
 The first two are computed on the population the experiment analyzes, which a query of your own does not reproduce.
 
 1. **The sample ratio test: `exposures.sample_ratio_mismatch.p_value`.**
@@ -590,6 +590,10 @@ The exposure event does not arrive evenly, because the arms differ in what happe
 - **One code path reads the flag early.**
   The code reads the flag before the SDK has loaded the flags and falls back to a hardcoded variant, or it reads the flag through a call that sends no exposure (B1 in `empty-experiment.md`).
   In posthog-js an early read returns nothing only when no flags are cached from an earlier page load, so this loss falls on people with no cached flags, mostly first visits.
+- **The code records its fallback value as the variant.**
+  A default that the code sends when the flag returns no variant counts as an exposure of that variant, also while the flag is off or gives the variant no share.
+  The `unserved_variant_exposures` finding counts the people first exposed after the flag's last save in a variant that the flag's setup can't serve.
+  It is a warning when one variant holds 90% or more of them, and info when they spread over the variants like an assignment outside PostHog.
 - **One arm is slower or fails more often**, so people leave before the event is sent.
 - **A cached page carries the assignment** `[LOW]`.
   A page that is cached with a variant or an identifier inside hands one assignment to many browsers.

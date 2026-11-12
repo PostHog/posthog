@@ -1270,6 +1270,35 @@ class TestLoginCustomerIdRecovery:
         ]
         assert client.login_customer_id is None
 
+    @pytest.mark.parametrize(
+        "accessible, manager_of, customer_id, expected_valid",
+        [
+            # The account picker offers client accounts under a manager; the MCC toggle stays off.
+            ([_MANAGER_CUSTOMER_ID], {_MANAGER_CUSTOMER_ID: [_CLIENT_CUSTOMER_ID]}, "123-456-7890", True),
+            ([_CLIENT_CUSTOMER_ID], {}, _CLIENT_CUSTOMER_ID, True),
+            ([_MANAGER_CUSTOMER_ID], {_MANAGER_CUSTOMER_ID: ["9999999999"]}, _CLIENT_CUSTOMER_ID, False),
+            ([], {}, _CLIENT_CUSTOMER_ID, False),
+        ],
+        ids=["client_under_manager", "directly_accessible", "no_manager_reaches_it", "no_accounts"],
+    )
+    def test_validate_credentials_accepts_a_client_account_reachable_through_a_manager(
+        self, accessible, manager_of, customer_id, expected_valid
+    ):
+        client = _FakeGoogleAdsClient(accessible=accessible, manager_of=manager_of, page=_single_page())
+        config = GoogleAdsSourceConfig(customer_id=customer_id, google_ads_integration_id=1)
+
+        with mock.patch(f"{_GOOGLE_ADS_MODULE}.google_ads_client", return_value=client):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is expected_valid
+        if expected_valid:
+            assert message is None
+        else:
+            assert message is not None
+            assert "can't access this customer ID" in message
+            assert customer_id not in message
+        assert client.login_customer_id is None
+
 
 class _FlakyFieldService:
     """Raises a transient error for the first ``fail_times`` calls, then returns a fields pager."""

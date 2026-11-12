@@ -1361,9 +1361,10 @@ class OrphanedTestFilesCheck(ProductCheck):
 class WatchedChannelsCheck(ProductCheck):
     """Hold the modules that outside suites run without an import edge in the contract-check inputs.
 
-    watched_channels.py finds them: receivers on a sender the product does not own, and modules that
-    outside tests name by dotted path. Only a product with 'backend:contract-check' skips the suite,
-    so no other product runs this check.
+    watched_channels.py finds them: receivers on a sender the product does not own, modules that
+    outside tests or core settings name by dotted path, modules core loads by name, backend/apps.py
+    and what it imports, and registrations into another boundary's hook. Only a product with
+    'backend:contract-check' skips the suite, so no other product runs this check.
     """
 
     label = "watched channels"

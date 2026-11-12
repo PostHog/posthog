@@ -17,9 +17,8 @@ from products.warehouse_sources.sources.sdk import (
     retry_with_deadline,
 )
 from products.warehouse_sources.sources.tailscale.settings import (
-    AUDIT_LOG_RETENTION_DAYS,
-    AUDIT_LOG_WINDOW_DAYS,
-    AUDIT_LOGS_ENDPOINT,
+    SERVICE_DEVICES_ENDPOINT,
+    SERVICES_ENDPOINT,
     TAILSCALE_ENDPOINTS,
     TailscaleEndpointConfig,
 )
@@ -47,8 +46,8 @@ class TailscaleAuthError(Exception):
 
 @dataclasses.dataclass(frozen=False)
 class TailscaleResumeConfig:
-    # Start of the next unfetched audit-log window (RFC 3339). Only the audit log
-    # endpoint checkpoints — the other endpoints are single unpaginated requests.
+    # Start of the next unfetched log window (RFC 3339). Only the log endpoints
+    # checkpoint — the other endpoints are single unpaginated requests or small fan-outs.
     window_start: str
 
 
@@ -58,10 +57,12 @@ def normalize_tailnet(tailnet: str | None) -> str:
     return normalized if normalized else "-"
 
 
-def _endpoint_url(config: TailscaleEndpointConfig, tailnet: str | None) -> str:
+def _endpoint_url(config: TailscaleEndpointConfig, tailnet: str | None, **path_params: str) -> str:
     # The tailnet is user input placed in the URL path (often a domain like `example.com`),
-    # so quote it to keep it a single path segment.
-    return f"{BASE_URL}{config.path.format(tailnet=quote(normalize_tailnet(tailnet), safe=''))}"
+    # so quote it to keep it a single path segment. Service names keep their literal
+    # `svc:` prefix, which is valid inside a path segment.
+    quoted = {name: quote(value, safe=":") for name, value in path_params.items()}
+    return f"{BASE_URL}{config.path.format(tailnet=quote(normalize_tailnet(tailnet), safe=''), **quoted)}"
 
 
 class TailscaleAuth:
@@ -220,7 +221,42 @@ def _key_rows(
         yield [detail if isinstance(detail, dict) else key]
 
 
-def _audit_log_rows(
+def _service_device_rows(
+    auth: TailscaleAuth,
+    config: TailscaleEndpointConfig,
+    tailnet: str | None,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[TailscaleResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over the tailnet's services and list the devices hosting each one."""
+    services_response = _fetch(auth, _endpoint_url(TAILSCALE_ENDPOINTS[SERVICES_ENDPOINT], tailnet))
+    services_response.raise_for_status()
+    services = _extract_rows(services_response.json(), TAILSCALE_ENDPOINTS[SERVICES_ENDPOINT].data_key)
+    logger.debug(f"Tailscale: listed {len(services)} services for {config.name}")
+
+    for service in services:
+        service_name = service.get("name") if isinstance(service, dict) else None
+        if not service_name:
+            continue
+        response = _fetch(auth, _endpoint_url(config, tailnet, serviceName=str(service_name)))
+        if response.status_code == 404:
+            # The service was deleted between the list and hosts calls.
+            logger.debug(f"Tailscale: service {service_name} disappeared mid-sync, skipping")
+            resumable_source_manager.safe_point()
+            continue
+        response.raise_for_status()
+        hosts = [
+            {**host, "serviceName": service_name}
+            for host in _extract_rows(response.json(), config.data_key)
+            if isinstance(host, dict)
+        ]
+        if hosts:
+            yield hosts
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _log_rows(
     auth: TailscaleAuth,
     config: TailscaleEndpointConfig,
     tailnet: str | None,
@@ -229,7 +265,7 @@ def _audit_log_rows(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Walk the configuration audit log in ascending time windows.
+    """Walk a log endpoint (configuration audit or network flow logs) in ascending time windows.
 
     The endpoint requires inclusive `start`/`end` params and returns everything in the
     window (no pagination), so each window is one request, yielded as one batch, then
@@ -237,9 +273,12 @@ def _audit_log_rows(
     boundary) would re-fetch the records at the boundary timestamp — a client-side
     cursor drops those already-seen rows.
     """
+    time_field, log_window, retention_days = config.time_field, config.log_window, config.retention_days
+    if not (time_field and log_window and retention_days):
+        raise ValueError(f"Tailscale endpoint {config.name} is not a log endpoint")
     url = _endpoint_url(config, tailnet)
     now = datetime.now(UTC)
-    retention_floor = now - timedelta(days=AUDIT_LOG_RETENTION_DAYS)
+    retention_floor = now - timedelta(days=retention_days)
 
     cursor: datetime | None = None
     start = retention_floor
@@ -256,25 +295,25 @@ def _audit_log_rows(
         resume_start = _parse_datetime(resume_config.window_start) if resume_config else None
         if resume_start is not None and resume_start > start:
             start = resume_start
-            logger.debug(f"Tailscale: resuming audit log sync from {_format_rfc3339(resume_start)}")
+            logger.debug(f"Tailscale: resuming {config.name} sync from {_format_rfc3339(resume_start)}")
 
     while start < now:
-        window_end = min(start + timedelta(days=AUDIT_LOG_WINDOW_DAYS), now)
+        window_end = min(start + log_window, now)
         response = _fetch(auth, url, {"start": _format_rfc3339(start), "end": _format_rfc3339(window_end)})
         response.raise_for_status()
 
         rows = _extract_rows(response.json(), config.data_key)
         fresh: list[tuple[datetime | None, dict[str, Any]]] = []
         for row in rows:
-            event_time = _parse_datetime(row.get("eventTime"))
-            # Rows with an unparsable eventTime are kept — dropping audit records is
+            event_time = _parse_datetime(row.get(time_field))
+            # Rows with an unparsable timestamp are kept — dropping log records is
             # worse than a rare duplicate.
             if cursor is not None and event_time is not None and event_time <= cursor:
                 continue
             fresh.append((event_time, row))
 
         # sort_mode="asc" lets the pipeline checkpoint the watermark per batch, so rows
-        # must be yielded in ascending eventTime order.
+        # must be yielded in ascending time order.
         fresh.sort(key=lambda item: item[0] or datetime.min.replace(tzinfo=UTC))
 
         resumable_source_manager.save_state(TailscaleResumeConfig(window_start=_format_rfc3339(window_end)))
@@ -303,8 +342,8 @@ def get_rows(
     config = TAILSCALE_ENDPOINTS[endpoint]
     auth = TailscaleAuth(api_key=api_key, client_id=client_id, client_secret=client_secret)
 
-    if endpoint == AUDIT_LOGS_ENDPOINT:
-        yield from _audit_log_rows(
+    if config.time_field:
+        yield from _log_rows(
             auth,
             config,
             tailnet,
@@ -315,6 +354,8 @@ def get_rows(
         )
     elif endpoint == "keys":
         yield from _key_rows(auth, config, tailnet, logger)
+    elif endpoint == SERVICE_DEVICES_ENDPOINT:
+        yield from _service_device_rows(auth, config, tailnet, logger, resumable_source_manager)
     else:
         yield from _list_rows(auth, config, tailnet, logger)
 
@@ -345,9 +386,9 @@ def tailscale_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
-        primary_keys=[endpoint_config.primary_key] if endpoint_config.primary_key else None,
-        # Audit log windows advance forward in time and each window is sorted ascending;
-        # the other endpoints are single full-refresh responses where order is irrelevant.
+        primary_keys=endpoint_config.primary_keys,
+        # Log windows advance forward in time and each window is sorted ascending;
+        # the other endpoints are full-refresh reads where order is irrelevant.
         sort_mode="asc",
         partition_count=1 if endpoint_config.partition_key else None,
         partition_size=1 if endpoint_config.partition_key else None,
@@ -361,14 +402,17 @@ def _probe_url_and_params(schema_name: str | None, tailnet: str | None) -> tuple
     """A cheap request proving the credential can reach `schema_name` (or the tailnet at all).
 
     The keys list is the default probe: it is small on every tailnet (devices can be
-    huge and the API has no `limit` param). The audit log probe uses a 1-hour window
-    to satisfy the required start/end params without pulling real volume.
+    huge and the API has no `limit` param). Log probes use a short window to satisfy
+    the required start/end params without pulling real volume. The service devices
+    probe lists services, since a hosts call needs a service name.
     """
     config = TAILSCALE_ENDPOINTS.get(schema_name or "") or TAILSCALE_ENDPOINTS["keys"]
+    if config.name == SERVICE_DEVICES_ENDPOINT:
+        config = TAILSCALE_ENDPOINTS[SERVICES_ENDPOINT]
     url = _endpoint_url(config, tailnet)
-    if config.name == AUDIT_LOGS_ENDPOINT:
+    if config.time_field:
         now = datetime.now(UTC)
-        return url, {"start": _format_rfc3339(now - timedelta(hours=1)), "end": _format_rfc3339(now)}
+        return url, {"start": _format_rfc3339(now - config.probe_window), "end": _format_rfc3339(now)}
     if config.name == "devices":
         # Probe with the lighter default field set.
         return url, {}

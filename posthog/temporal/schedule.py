@@ -52,10 +52,6 @@ from posthog.temporal.alerts.schedule import (
 )
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.experiments.schedule import (
-    create_experiment_regular_metrics_schedules,
-    create_experiment_saved_metrics_schedules,
-)
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
@@ -79,6 +75,10 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.ai_observability.backend.facade.temporal import (
+    EVAL_SUGGESTIONS_SCHEDULE_ID,
+    create_eval_suggestions_schedule,
+)
 from products.alerts_platform.backend.facade.temporal import (
     create_alerts_platform_expired_holds_schedule,
     create_alerts_platform_inventory_schedule,
@@ -97,6 +97,8 @@ from products.customer_analytics.backend.facade.temporal import (
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
     create_membership_coordinator_schedule,
+    create_membership_deletion_schedule,
+    create_membership_discovery_schedule,
     create_ownership_claims_coordinator_schedule,
 )
 from products.data_catalog.backend.facade.temporal import create_data_catalog_weekly_digest_schedule
@@ -115,9 +117,11 @@ from products.error_tracking.backend.facade.temporal import (
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
 )
-from products.experiments.backend.temporal.schedule import (
+from products.experiments.backend.facade.temporal import (
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_regular_metrics_schedules,
+    create_experiment_saved_metrics_schedules,
     create_experiment_scheduled_recalculation_schedules,
 )
 from products.growth.backend.temporal.signup_enrichment.schedule import (
@@ -127,7 +131,10 @@ from products.growth.backend.temporal.signup_enrichment.schedule import (
 from products.knowledge_writer.backend.facade.temporal import create_knowledge_writer_merge_reconcile_schedule
 from products.logs.backend.facade.temporal import disable_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
-from products.metrics.backend.facade.temporal import create_suggested_dashboards_discovery_schedule
+from products.metrics.backend.facade.temporal import (
+    create_metrics_recording_rules_schedule,
+    create_suggested_dashboards_discovery_schedule,
+)
 from products.product_analytics.backend.facade.temporal import UpgradeQueriesWorkflowInputs
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
@@ -150,6 +157,7 @@ from products.signals.backend.facade.temporal import (
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
 )
+from products.slack_app.backend.temporal.schedule import create_slack_app_daily_focus_sweep_schedule
 from products.subscriptions.backend.facade.temporal import create_schedule_all_subscriptions_schedule
 from products.today.backend.facade.temporal import delete_today_briefing_schedule
 from products.warehouse_suggestions.backend.facade.temporal import create_warehouse_suggestions_schedule
@@ -700,7 +708,7 @@ async def cleanup_cohort_calculation_schedules(client: Client):
 
 
 async def cleanup_non_cloud_ai_observability_schedules(client: Client):
-    """Reap the AI observability clustering and summarization schedules on non-cloud deployments.
+    """Reap the AI observability clustering, summarization and eval suggestion schedules on non-cloud deployments.
 
     These coordinators reach the cloud-only guard in
     ``posthog.temporal.ai_observability.llm_endpoint``, so they register only where that guard lets
@@ -717,6 +725,7 @@ async def cleanup_non_cloud_ai_observability_schedules(client: Client):
         trace_summarization_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
         trace_clustering_constants.COORDINATOR_SCHEDULE_ID,
         trace_clustering_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
+        EVAL_SUGGESTIONS_SCHEDULE_ID,
     ]
     for schedule_id in schedule_ids:
         if await a_schedule_exists(client, schedule_id):
@@ -945,6 +954,7 @@ schedules = [
     create_run_quota_limiting_schedule,
     create_schedule_due_billing_alert_checks_schedule,
     create_context_layer_dream_schedule,
+    create_slack_app_daily_focus_sweep_schedule,
     create_upgrade_queries_schedule,
     create_count_all_playlists_schedule,
     create_error_tracking_recommendations_refresh_schedule,
@@ -1003,6 +1013,8 @@ schedules = [
     create_channel_summary_coordinator_schedule,
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
+    create_membership_discovery_schedule,
+    create_membership_deletion_schedule,
     create_ownership_claims_coordinator_schedule,
     create_membership_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
@@ -1021,17 +1033,20 @@ schedules = [
     create_warehouse_suggestions_schedule,
     create_sync_access_rules_schedule,
     create_suggested_dashboards_discovery_schedule,
+    create_metrics_recording_rules_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in
 # posthog/temporal/ai_observability/llm_endpoint.py, which permits cloud and local DEBUG installs.
 # Anywhere else these coordinators discover teams, spawn the labeling activity, and fail on that
-# guard every run, so gate registration on the condition the guard itself uses.
+# guard every run, so gate registration on the condition the guard itself uses. Eval suggestions run as
+# a cloud experiment behind a feature flag, so they register under the same condition.
 if settings.DEBUG or is_cloud():
     schedules.append(create_batch_trace_summarization_schedule)
     schedules.append(create_batch_generation_summarization_schedule)
     schedules.append(create_trace_clustering_coordinator_schedule)
     schedules.append(create_generation_clustering_coordinator_schedule)
+    schedules.append(create_eval_suggestions_schedule)
 
 if settings.CLOUD_DEPLOYMENT:
     # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this

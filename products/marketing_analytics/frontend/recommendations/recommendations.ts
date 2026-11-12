@@ -2,6 +2,7 @@ import { marketingSourceName } from 'scenes/web-analytics/tabs/marketing-analyti
 
 import {
     MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationCpaBenchmarkSource,
     MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsSource,
 } from '~/queries/schema/schema-general'
@@ -20,20 +21,38 @@ export const RECOMMENDATION_RULE_LABELS: Record<MarketingAnalyticsRecommendation
     keyword_gap: 'Keyword gap',
     spend_without_conversions: 'Spend without conversions',
     striking_distance: 'Striking distance',
+    keyword_tracking: 'Keyword tracking',
 }
 
 export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationRule, string> = {
-    budget_constrained: 'Google Ads limits these campaigns by budget and suggests a higher daily budget.',
+    budget_constrained:
+        'Conversions cost no more than the benchmark CPA, but Google Ads limits the campaign by budget and suggests a higher one.',
     brand_leak: 'Campaigns that are not about your brand spend on searches for your brand name.',
-    scale_campaign: 'Conversions cost less than your average, but the campaign loses impressions to budget or ad rank.',
-    review_campaign: 'Conversions cost much more than your average across campaigns that are not about your brand.',
+    scale_campaign:
+        'Conversions cost less than the benchmark CPA, but the campaign loses impressions to budget or ad rank.',
+    review_campaign: 'Conversions cost much more than the benchmark CPA.',
     policy_limited: 'Google limits some ads in these campaigns for policy reasons, so they show less often.',
     brand_overlap: 'You pay for brand searches where your site already ranks in the top 3 organically.',
     content_gap: 'Searches that convert cheaply in ads, where your site ranks below position 10 or not at all.',
     keyword_gap: 'Popular organic searches you do not bid on, made of words that already convert in your ads.',
-    spend_without_conversions:
-        'Search terms that cost at least twice your average cost per conversion and never converted.',
+    spend_without_conversions: 'Search terms that cost at least twice the benchmark CPA and never converted.',
     striking_distance: 'Searches where your site ranks between positions 5 and 20. The top 3 gets most of the clicks.',
+    keyword_tracking:
+        'Visits from your Google Ads clicks have no utm_term, so conversion goals cannot be tied to the keyword that brought them.',
+}
+
+// Completes "Benchmark $40, ...".
+export const BENCHMARK_SOURCE_LABELS: Record<MarketingAnalyticsRecommendationCpaBenchmarkSource, string> = {
+    target_cpa: "the campaign's target CPA",
+    campaign: "the campaign's non-brand CPA",
+    account: "the account's non-brand CPA",
+}
+
+export const BENCHMARK_SOURCE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationCpaBenchmarkSource, string> = {
+    target_cpa: 'The target CPA this campaign bids to in Google Ads.',
+    campaign: 'This campaign has enough conversions in the selected dates to compare its search terms with it.',
+    account:
+        'The cost per conversion of your non-brand Search campaigns, or of every non-brand campaign if you have no Search campaigns. Brand searches cost less, so they are left out.',
 }
 
 export type RecommendationCategory = 'waste' | 'grow' | 'organic' | 'fix'
@@ -49,6 +68,7 @@ const RULE_CATEGORIES: Record<MarketingAnalyticsRecommendationRule, Recommendati
     content_gap: 'organic',
     striking_distance: 'organic',
     policy_limited: 'fix',
+    keyword_tracking: 'fix',
 }
 
 export const RECOMMENDATION_CATEGORY_LABELS: Record<RecommendationCategory, string> = {

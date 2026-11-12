@@ -23,6 +23,7 @@ from products.batch_exports.backend.service import sync_batch_export
 if TYPE_CHECKING:
     from uuid import UUID
 
+    from posthog.integrations import IntegrationRecord
     from posthog.integrations.accessors import AuthAccessor
 
 logger = structlog.get_logger(__name__)
@@ -107,16 +108,26 @@ def _plan(destination: BatchExportDestination, export: BatchExport) -> _Destinat
         return _DestinationPlan(outcome="skipped_incomplete")
 
     existing = credentials.accessor.find(export.team_id, external_id=credentials.external_id)
-    if existing is not None:
-        if existing.config != credentials.config or existing.sensitive_config != credentials.sensitive_config:
+    separate = False
+    if existing is not None and not _matches(existing, credentials):
+        # The shared row stays untouched. This destination gets its own row, keyed by its id.
+        separate = True
+        credentials = replace(credentials, external_id=f"{credentials.external_id}-{destination.id}")
+        existing = credentials.accessor.find(export.team_id, external_id=credentials.external_id)
+        if existing is not None and not _matches(existing, credentials):
             return _DestinationPlan(outcome="skipped_conflict", needs_integration=True)
+    if existing is not None:
         credentials = replace(credentials, existing_id=existing.id)
 
-    return _DestinationPlan(
-        credentials=credentials,
-        outcome="integration_reused" if credentials.existing_id is not None else "integration_created",
-        needs_integration=True,
-    )
+    if credentials.existing_id is not None:
+        outcome = "integration_reused"
+    else:
+        outcome = "integration_created_separate" if separate else "integration_created"
+    return _DestinationPlan(credentials=credentials, outcome=outcome, needs_integration=True)
+
+
+def _matches(existing: IntegrationRecord, credentials: _Credentials) -> bool:
+    return existing.config == credentials.config and existing.sensitive_config == credentials.sensitive_config
 
 
 def _batches(

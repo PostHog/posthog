@@ -1,140 +1,60 @@
 from datetime import UTC
 
 from django import forms
-from django.apps import apps
 from django.conf import settings
-from django.contrib import admin, messages
-from django.core.exceptions import PermissionDenied
-from django.core.management import call_command
-from django.core.management.base import CommandError
-from django.http import HttpRequest, HttpResponse
-from django.shortcuts import redirect, render
+from django.contrib import admin
 from django.template.loader import render_to_string
-from django.template.response import TemplateResponse
-from django.urls import path, reverse
+from django.urls import reverse
 from django.utils import timezone
-from django.utils.decorators import method_decorator
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
-from django.views.decorators.http import require_http_methods
 
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
-from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.admin.console.moved import MovedToConsole
-from posthog.admin.console.usage_reports_tool import ReportDateForm
+from posthog.admin.console.organization_deletion_panels import data_tool_url
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
 from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
+from posthog.admin.inlines.organization_ip_restrictions_inline import OrganizationIPRestrictionsInline
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.project_inline import ProjectInline
 from posthog.admin.inlines.proxy_record_inline import ProxyRecordInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
-from posthog.person_db_router import PERSONS_DB_MODELS
-from posthog.tasks.ai_observability_usage_report import internal_reporting_team_id
-
-from products.ai_observability.backend.facade.admin import dataset_retention_enabled, set_dataset_retention_enabled
-from products.batch_exports.backend.facade import api as batch_exports_api
-from products.batch_exports.backend.facade.contracts import BATCH_EXPORT_MODEL_LABEL
-
-# Registry of default-db models to count for bulk-delete report.
-# Format: (app_label.ModelName, filter_field, display_name)
-# This mirrors delete_bulky_postgres_data() in posthog/models/team/util.py
-# When bulk-delete changes, update this list accordingly.
-# Note: BatchExport requires special handling (see below)
-BULK_DELETE_MODEL_REGISTRY: tuple[tuple[str, str, str], ...] = (
-    ("early_access_features.EarlyAccessFeature", "team_id", "Early Access Features"),
-    ("error_tracking.ErrorTrackingIssueFingerprintV2", "team_id", "Error Tracking Fingerprints"),
-)
-
-# Subset of persons-db models that are part of the bulk-delete path.
-# Maps model_name (lowercase, matching person_db_router.PERSONS_DB_MODELS) to display name.
-BULK_DELETE_PERSONS_DB_MODELS: dict[str, str] = {
-    "cohortpeople": "Cohort People",
-    "featureflaghashkeyoverride": "Feature Flag Overrides",
-    "group": "Groups",
-    "grouptypemapping": "Group Type Mappings",
-    "person": "Persons",
-    "persondistinctid": "Person Distinct IDs",
-}
 
 
-def get_model_counts_for_organization(organization: Organization) -> list[dict]:
-    """
-    Returns counts of all bulk-delete models for teams in this organization.
-    Models in the persons database are listed but not counted.
-    """
-    team_ids = list(organization.teams.values_list("id", flat=True))
-    if not team_ids:
-        return []
+class DatalistTextInput(forms.TextInput):
+    """A text input that suggests values from a list, and still takes any text."""
 
-    results = []
-    for model_label, filter_field, display_name in BULK_DELETE_MODEL_REGISTRY:
-        try:
-            model_class = apps.get_model(model_label)
-            # nosemgrep: orm-field-injection -- filter_field from hardcoded BULK_DELETE_MODEL_REGISTRY, not user input
-            count = model_class.objects.filter(**{f"{filter_field}__in": team_ids}).count()
-            results.append(
-                {
-                    "name": display_name,
-                    "count": count,
-                    "model": model_class._meta.label,
-                }
+    def __init__(self, suggestions: list[str], attrs: dict[str, str] | None = None) -> None:
+        super().__init__(attrs)
+        self.suggestions = suggestions
+
+    def render(self, name, value, attrs=None, renderer=None):
+        list_id = f"{(attrs or {}).get('id', name)}_suggestions"
+        text_input = super().render(name, value, {**(attrs or {}), "list": list_id}, renderer)
+        options = format_html_join(
+            "", '<option value="{}"></option>', ((suggestion,) for suggestion in self.suggestions)
+        )
+        return format_html('{}<datalist id="{}">{}</datalist>', text_input, list_id, options)
+
+
+class OrganizationAdminForm(forms.ModelForm):
+    class Meta:
+        model = Organization
+        fields = "__all__"
+        widgets = {
+            "is_not_active_reason": DatalistTextInput(
+                suggestions=list(Organization.DeactivationReason.values), attrs={"size": "60"}
             )
-        except Exception as e:
-            results.append(
-                {
-                    "name": display_name,
-                    "count": f"Error: {e}",
-                    "model": model_label,
-                }
-            )
-
-    # Not in the registry above, because the count must leave out deleted exports, as team deletion does.
-    try:
-        results.append(
-            {
-                "name": "Batch Exports",
-                "count": batch_exports_api.count_batch_exports_for_teams(team_ids),
-                "model": BATCH_EXPORT_MODEL_LABEL,
-            }
-        )
-    except Exception as e:
-        results.append(
-            {
-                "name": "Batch Exports",
-                "count": f"Error: {e}",
-                "model": BATCH_EXPORT_MODEL_LABEL,
-            }
-        )
-
-    for model_name, display_name in BULK_DELETE_PERSONS_DB_MODELS.items():
-        if model_name not in PERSONS_DB_MODELS:
-            raise ValueError(f"{model_name} is listed in BULK_DELETE_PERSONS_DB_MODELS but not in PERSONS_DB_MODELS")
-        results.append(
-            {
-                "name": display_name,
-                "count": None,
-                "persons_db": True,
-            }
-        )
-
-    return sorted(results, key=lambda x: x["name"])
-
-
-class DatasetRetentionForm(forms.Form):
-    enabled = forms.TypedChoiceField(
-        label="Dataset cleanup",
-        choices=[("enabled", "Enabled"), ("disabled", "Disabled")],
-        coerce=lambda value: value == "enabled",
-        widget=forms.RadioSelect,
-    )
+        }
 
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
+    form = OrganizationAdminForm
     show_full_result_count = False  # prevent count() queries to show the no of filtered results
     paginator = NoCountPaginator  # prevent count() queries and return a fix page count instead
     fields = [
@@ -169,6 +89,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         OrganizationMemberInline,
         OrganizationInviteInline,
         OrganizationDomainInline,
+        OrganizationIPRestrictionsInline,
         ProxyRecordInline,
         OrganizationEventsRetentionConfigInline,
     ]
@@ -205,13 +126,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         # Inlines other apps registered for Organization, so a product can show a panel on
         # this page without core importing it. See posthog.admin.inline_registry.
         return [*super().get_inlines(request, obj), *extra_inlines_for(Organization)]
-
-    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
-        extra_context = {
-            **(extra_context or {}),
-            "deactivation_reason_presets": list(Organization.DeactivationReason.values),
-        }
-        return super().changeform_view(request, object_id, form_url, extra_context)
 
     def members_count(self, organization: Organization):
         return organization.members.count()
@@ -263,8 +177,6 @@ class OrganizationAdmin(admin.ModelAdmin):
             else:
                 info["usage_quota_limited_until_formatted"] = "-"
 
-        # Access request stored during change_view
-        request = getattr(self, "_current_request", None)
         # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
@@ -276,7 +188,6 @@ class OrganizationAdmin(admin.ModelAdmin):
                         "organization", organization, "billing", "Limit and unlimit"
                     ),
                 },
-                request=request,
             )
         )
 
@@ -323,14 +234,11 @@ class OrganizationAdmin(admin.ModelAdmin):
                 "limit_raw": data.get("limit"),
             }
 
-        # Access request stored during change_view
-        request = getattr(self, "_current_request", None)
         # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
                 "admin/organization/usage_display.html",
                 {"usage_data": formatted_data, "period_info": period_info},
-                request=request,
             )
         )
 
@@ -338,8 +246,9 @@ class OrganizationAdmin(admin.ModelAdmin):
     def bulk_delete_data_display(self, organization: Organization):
         if not organization.pk:
             return "-"
-        url = reverse("admin:organization_model_counts", args=[organization.pk])
-        return format_html('<a class="button" href="{}">View counts</a>', url)
+        return format_html(
+            '<a href="{}">Child model counts: now in PostHog Admin &#8599;</a>', data_tool_url(organization)
+        )
 
     @admin.display(description="AI training opt-in history")
     def ai_training_opt_in_history_display(self, organization: Organization):
@@ -362,200 +271,4 @@ class OrganizationAdmin(admin.ModelAdmin):
     def trigger_deletion_display(self, organization: Organization):
         if not organization.pk:
             return "-"
-        request = getattr(self, "_current_request", None)
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/deletion_button.html",
-                {
-                    "action_url": reverse("admin:organization_trigger_deletion", args=[organization.pk]),
-                    "button_label": "Trigger deletion",
-                    "confirm_message": (
-                        f'Trigger deletion for organization "{organization.name}" ({organization.pk})? '
-                        "This starts an irreversible Temporal workflow that deletes the organization and all its data."
-                    ),
-                    "notice": (
-                        "Before triggering, make sure no Temporal deletion workflow is already running for this "
-                        "organization. Starting a second one while another is mid-flight can cause clashing deletes."
-                    ),
-                },
-                request=request,
-            )
-        )
-
-    def trigger_deletion_view(self, request, organization_id):
-        from temporalio.exceptions import WorkflowAlreadyStartedError
-
-        from posthog.event_usage import report_organization_deleted, report_organization_deletion_initiated
-        from posthog.temporal.delete_teams.dispatch import start_delete_organization_workflow
-
-        change_url = reverse("admin:posthog_organization_change", args=[organization_id])
-
-        try:
-            organization = Organization.objects.get(id=organization_id)
-        except Organization.DoesNotExist:
-            messages.error(request, f"Organization with id {organization_id} not found.")
-            return redirect(reverse("admin:posthog_organization_changelist"))
-
-        if request.method != "POST":
-            return redirect(change_url)
-
-        # Staff access alone must not authorize a destructive delete; require explicit
-        # membership in the deletion-authorized group (Django's model permissions are not a
-        # real gate here — User.is_superuser mirrors is_staff, so every staff user passes).
-        if not can_trigger_admin_deletion(request):
-            messages.error(request, "You do not have permission to delete this organization.")
-            return redirect(change_url)
-
-        if settings.DISABLE_BULK_DELETES:
-            messages.error(
-                request, "Bulk deletes are temporarily disabled during a database migration. Try again later."
-            )
-            return redirect(change_url)
-
-        if organization.is_pending_deletion:
-            messages.error(request, f"Organization {organization.name} ({organization.pk}) is already being deleted.")
-            return redirect(change_url)
-
-        teams = list(organization.teams.only("id", "name").all())
-        team_ids = [team.pk for team in teams]
-        project_names = [team.name for team in teams]
-
-        user = request.user
-        report_organization_deleted(user, organization)
-        report_organization_deletion_initiated(user, organization)
-
-        # Mark pending before dispatch so the org is locked out even if this write and the
-        # workflow start race; mirrors the API deletion path.
-        organization.is_pending_deletion = True
-        organization.save(update_fields=["is_pending_deletion"])
-
-        try:
-            start_delete_organization_workflow(
-                team_ids=team_ids,
-                organization_id=str(organization.pk),
-                user_id=user.id,
-                organization_name=organization.name,
-                project_names=project_names,
-            )
-        except WorkflowAlreadyStartedError:
-            messages.error(
-                request,
-                f"A deletion workflow is already running for organization {organization.name} ({organization.pk}).",
-            )
-            return redirect(change_url)
-        except Exception as e:
-            # Dispatch failed, so no workflow is running; unlock the org so it can be retried.
-            organization.is_pending_deletion = False
-            organization.save(update_fields=["is_pending_deletion"])
-            messages.error(request, f"Failed to start deletion workflow: {e}")
-            return redirect(change_url)
-
-        messages.success(
-            request, f"Started deletion workflow for organization {organization.name} ({organization.pk})."
-        )
-        return redirect(change_url)
-
-    def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path(
-                "send-ai-observability-usage-report/",
-                self.admin_site.admin_view(self.send_ai_observability_usage_report_view),
-                name="send-ai-observability-usage-report",
-            ),
-            path(
-                "ai-observability-dataset-retention/",
-                self.admin_site.admin_view(self.dataset_retention_view),
-                name="ai-observability-dataset-retention",
-            ),
-            path(
-                "<path:organization_id>/model-counts/",
-                self.admin_site.admin_view(self.model_counts_view),
-                name="organization_model_counts",
-            ),
-            path(
-                "<path:organization_id>/trigger-deletion/",
-                self.admin_site.admin_view(self.trigger_deletion_view),
-                name="organization_trigger_deletion",
-            ),
-        ]
-        return custom_urls + urls
-
-    def model_counts_view(self, request, organization_id):
-        organization = Organization.objects.get(id=organization_id)
-        counts = get_model_counts_for_organization(organization)
-        total = sum(c["count"] for c in counts if isinstance(c["count"], int))
-        has_persons_db_models = any(c.get("persons_db") for c in counts)
-
-        return render(
-            request,
-            "admin/organization/model_counts.html",
-            {
-                "organization": organization,
-                "counts": counts,
-                "total": total,
-                "has_persons_db_models": has_persons_db_models,
-            },
-        )
-
-    def send_ai_observability_usage_report_view(self, request):
-        # Staff-only on purpose, unlike the sibling billing view: nothing here is customer-facing, and
-        # the task now skips organizations that already have a report for the period.
-        if request.method == "POST":
-            form = ReportDateForm(request.POST)
-            if form.is_valid():
-                report_date = form.cleaned_data["report_date"]
-                try:
-                    call_command(
-                        "send_ai_observability_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async"
-                    )
-                except CommandError as e:
-                    # Surfacing this matters: a swallowed refusal would report success for a run that
-                    # never started, so the operator would stop looking for the missing reports.
-                    messages.error(request, str(e))
-                else:
-                    messages.success(request, f"AI observability usage report for date {report_date} was queued.")
-                return redirect(reverse("admin:posthog_organization_changelist"))
-        else:
-            form = ReportDateForm()
-
-        return render(
-            request,
-            "admin/posthog/organization/send_ai_observability_usage_report.html",
-            {"form": form, "can_skip_existing_reports": internal_reporting_team_id() is not None},
-        )
-
-    @method_decorator(require_http_methods(["GET", "POST"]))
-    def dataset_retention_view(self, request: HttpRequest) -> HttpResponse:
-        user_id = request.user.pk
-        if user_id is None or not request.user.has_perm("posthog.change_instancesetting"):
-            raise PermissionDenied
-        enabled = dataset_retention_enabled()
-        form = DatasetRetentionForm(
-            request.POST if request.method == "POST" else None,
-            initial={"enabled": "enabled" if enabled else "disabled"},
-        )
-        if request.method == "POST" and form.is_valid():
-            new_enabled = form.cleaned_data["enabled"]
-            set_dataset_retention_enabled(enabled=new_enabled, user_id=user_id)
-            messages.success(
-                request, f"Dataset cleanup is now {'enabled' if new_enabled else 'disabled'} in this region."
-            )
-            return redirect(reverse("admin:ai-observability-dataset-retention"))
-        return TemplateResponse(
-            request,
-            "admin/posthog/organization/ai_observability_dataset_retention.html",
-            {
-                **self.admin_site.each_context(request),
-                "title": "AI observability dataset retention",
-                "form": form,
-                "enabled": enabled,
-            },
-        )
-
-    def change_view(self, request, object_id, form_url="", extra_context=None):
-        extra_context = extra_context or {}
-        # Store request for access in display methods (needed for CSRF tokens in templates)
-        self._current_request = request
-        return super().change_view(request, object_id, form_url, extra_context=extra_context)
+        return MovedToConsole.action("organization", organization, "deletion", "Trigger deletion")

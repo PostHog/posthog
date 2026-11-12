@@ -98,7 +98,24 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "-created_at"],
                 name="idx_extdatajob_pipe_created",
             ),
+            # Serves the "newest jobs of a schema" reads: equality on schema and team, ordered by
+            # created_at DESC with LIMIT. Without it Postgres reads every job the schema has run
+            # and sorts them. Team is in the key because the planner treats the schema filter and
+            # the team filter as independent. With team outside the key it expects almost no
+            # matching rows, and it keeps the bitmap scan of the full job history of the schema.
+            models.Index(
+                fields=["schema", "team", "-created_at"],
+                name="idx_extdatajob_schema_team",
+            ),
         ]
+
+    @classmethod
+    def latest_completed_job_subquery(cls, team_id: int, field: str) -> Subquery:
+        return Subquery(
+            cls.objects.filter(pipeline=OuterRef("pk"), team_id=team_id, status=ExternalDataJobStatus.COMPLETED)
+            .order_by("-created_at")
+            .values(field)[:1]
+        )
 
     def folder_path(self) -> str:
         if self.schema:
@@ -133,11 +150,7 @@ def latest_completed_job_subquery(team_id: int, field: str) -> Subquery:
     to a LEFT OUTER JOIN onto the job table plus a GROUP BY, so Postgres reads and sorts every
     completed job the team has ever run to produce one timestamp per source.
     """
-    return Subquery(
-        ExternalDataJob.objects.filter(pipeline=OuterRef("pk"), team_id=team_id, status=ExternalDataJobStatus.COMPLETED)
-        .order_by("-created_at")
-        .values(field)[:1]
-    )
+    return ExternalDataJob.latest_completed_job_subquery(team_id, field)
 
 
 def latest_completed_job_prefetch(

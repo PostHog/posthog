@@ -115,3 +115,12 @@ class TestEnforceSelfDrivingRunQuotaActivity:
         cancel.assert_not_called()
         test_task_run.refresh_from_db()
         assert test_task_run.status == TaskRun.Status.IN_PROGRESS
+
+    @pytest.mark.django_db(transaction=True)
+    def test_trial_costs_keep_refreshing_without_interrupting_work(
+        self, activity_environment, test_task, test_task_run
+    ) -> None:
+        _make_self_driving_run(test_task, test_task_run)
+        with patch("products.signals.backend.facade.trial.refresh_trial_run_spend", return_value=True) as check:
+            assert _run_activity(activity_environment, test_task_run) == "proceed"
+        check.assert_called_once_with(team_id=test_task.team_id, run_id=test_task_run.id)

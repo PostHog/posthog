@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 
+import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
+
 import { type ExperimentExposureQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
 import { userEvent } from 'storybook/test'
@@ -37,6 +39,7 @@ const passed = (key: HealthPanelCheck['key'], name: string): ExperimentHealthChe
     reason: null,
     values: {},
     rule: null,
+    rows: [],
 })
 
 const skipped = (
@@ -52,6 +55,7 @@ const skipped = (
     reason,
     values: {},
     rule: null,
+    rows: [],
 })
 
 const FLAG_SETUP_CHECKS = [
@@ -128,6 +132,7 @@ const found = (key: HealthPanelCheck['key'], name: string): ExperimentHealthChec
     reason: null,
     values: {},
     rule: null,
+    rows: [],
 })
 
 export const ChecksThatCouldNotRun: Story = {
@@ -170,6 +175,7 @@ const UNEVEN_SPLIT_EXPOSURES: ExperimentExposureQueryResponse = {
     kind: NodeKind.ExperimentExposureQuery,
     timeseries: [],
     total_exposures: { control: 4790, test: 2420, 'test-2': 2392, $multiple: 403 },
+    exposed_by_library: { web: 8204, 'posthog-node': 1601, [BREAKDOWN_NULL_STRING_LABEL]: 200 },
     date_range: { date_from: '2026-10-19T00:00:00Z' },
     sample_ratio_mismatch: { expected: { control: 4801, test: 2400.5, 'test-2': 2400.5 }, p_value: 0.71 },
     health_checks: [
@@ -299,6 +305,100 @@ export const NarrowWithAnIssue: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(
             await within(canvasElement).findByRole('button', { name: /The uneven split may bias the results/ })
+        )
+    },
+}
+
+const CHECKS_WITH_ROWS: HealthPanelCheck[] = [
+    ...READ_CHECKS,
+    {
+        ...passed('early_significance', 'Significance on a small sample'),
+        values: { metric_name: 'Checkout completed', sample_count: 9602, planned_sample_count: 14800 },
+        rows: [
+            { variant: 'test', difference_percentage: 14.2, detectable_difference_percentage: 9.8, significant: true },
+            {
+                variant: 'test-2',
+                difference_percentage: 3.1,
+                detectable_difference_percentage: 9.9,
+                significant: false,
+            },
+        ],
+    },
+    {
+        ...passed('forced_variant_release_condition', 'Release conditions that force a variant'),
+        values: {
+            forced_condition_count: 1,
+            matched_count: 4277,
+            traffic_since_at: '2026-10-27T12:00:00Z',
+            flag_service_call_percentage: 92.4,
+        },
+        rows: [
+            { variant: 'control', variant_matched_count: 2140, forced_count: 0, forced_percentage: 0 },
+            { variant: 'test', variant_matched_count: 1075, forced_count: 9, forced_percentage: 0.84 },
+            { variant: 'test-2', variant_matched_count: 1062, forced_count: 0, forced_percentage: 0 },
+        ],
+    },
+    {
+        ...passed('release_conditions_changed_mid_run', 'Release condition changes since launch'),
+        rows: [
+            {
+                changed_at: '2026-10-19T07:05:00Z',
+                before: 'Set 1: 100%, filters on email, forces "test"\nSet 2: 50%',
+                after: 'Set 1: 100%, filters on email, forces "test"\nSet 2: 100%',
+                before_exposure: true,
+            },
+            {
+                changed_at: '2026-10-24T12:10:00Z',
+                before: 'Set 1: 100%, filters on email, forces "test"\nSet 2: 100%',
+                after: 'Set 1: 100%, filters on email\nSet 2: 100%',
+                before_exposure: false,
+            },
+        ],
+    },
+    {
+        ...passed('stale_experiment', 'Experiment running past 60 days'),
+        values: { since_start_hours: 363, daily_calculation_ends_at: '2026-12-18T09:00:00Z' },
+        rule: { value: 'since_start_hours', threshold: 1440, warns: 'above', test: null, minimum: null },
+    },
+    {
+        ...skipped(
+            'metric_all_zero',
+            'Metrics at zero in every variant',
+            'not_applicable',
+            'Runs once a primary metric at 0 has 1,000 users and 72 hours of data'
+        ),
+        rows: [
+            {
+                metric_name: 'Checkout completed',
+                metric_role: 'primary',
+                ratio_side: null,
+                sample_count: 412,
+                data_hours: 31,
+            },
+        ],
+    },
+]
+
+export const PassedCheckDetailsWithRows: Story = {
+    args: {
+        checks: CHECKS_WITH_ROWS,
+        findings: [],
+        exposures: UNEVEN_SPLIT_EXPOSURES,
+        isDraft: false,
+        exposureChecksMissing: false,
+    },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(
+            await within(canvasElement).findByRole('button', { name: /Significance on a small sample/ })
+        )
+    },
+}
+
+export const FlagChangeDetails: Story = {
+    args: PassedCheckDetailsWithRows.args,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(
+            await within(canvasElement).findByRole('button', { name: /Release condition changes since launch/ })
         )
     },
 }

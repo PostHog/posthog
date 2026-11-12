@@ -21,12 +21,17 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.singular.settings import (
     DAILY_REPORT,
     DATE_FIELD,
+    FILTERS,
+    FILTERS_PATH,
+    FIXED_REPORTS,
     HISTORY_DAYS,
     LOOKUPS,
+    SingularFixedReportConfig,
     SingularLookupConfig,
 )
 
 BASE_URL = "https://api.singular.net"
+DAILY_REPORT_PATH = "/api/{api_version}/create_async_report"
 REQUEST_TIMEOUT_SECONDS = 60
 DOWNLOAD_TIMEOUT_SECONDS = 300
 CREATE_MAX_ATTEMPTS = 5
@@ -73,6 +78,7 @@ class SingularReportQuery:
     metrics: tuple[str, ...]
     cohort_metrics: tuple[str, ...] = ()
     cohort_periods: tuple[str, ...] = ()
+    extra_params: tuple[tuple[str, str], ...] = ()
 
 
 def parse_field_list(value: Optional[str], default: tuple[str, ...] = ()) -> tuple[str, ...]:
@@ -108,6 +114,7 @@ def report_request_payload(query: SingularReportQuery, day: dt.date) -> dict[str
         payload["cohort_metrics"] = ",".join(query.cohort_metrics)
     if query.cohort_periods:
         payload["cohort_periods"] = ",".join(query.cohort_periods)
+    payload.update(query.extra_params)
     return payload
 
 
@@ -183,23 +190,28 @@ class SingularClient:
             reraise=True,
         )
 
-    def get(self, path: str, params: Optional[dict[str, str]] = None, capture: bool = True) -> dict[str, Any]:
+    def get(
+        self,
+        path: str,
+        params: Optional[dict[str, str]] = None,
+        capture: bool = True,
+        timeout: int = REQUEST_TIMEOUT_SECONDS,
+    ) -> dict[str, Any]:
         session = self.session if capture else self.status_session
-        return _response_value(session.get(f"{BASE_URL}{path}", params=params, timeout=REQUEST_TIMEOUT_SECONDS))
+        return _response_value(session.get(f"{BASE_URL}{path}", params=params, timeout=timeout))
 
-    def _post_report(self, query: SingularReportQuery, day: dt.date) -> dict[str, Any]:
+    def _post_report(self, path: str, query: SingularReportQuery, day: dt.date) -> dict[str, Any]:
         return _response_value(
             self.session.post(
-                f"{BASE_URL}/api/{self.api_version}/create_async_report",
-                data=report_request_payload(query, day),
-                timeout=REQUEST_TIMEOUT_SECONDS,
+                f"{BASE_URL}{path}", data=report_request_payload(query, day), timeout=REQUEST_TIMEOUT_SECONDS
             )
         )
 
-    def create_report(self, query: SingularReportQuery, day: dt.date) -> str:
+    def create_report(self, query: SingularReportQuery, day: dt.date, path: str) -> str:
+        path = path.format(api_version=self.api_version)
         try:
             with request_deadline():
-                value = self._create_retrying(self._post_report, query, day)
+                value = self._create_retrying(self._post_report, path, query, day)
         except SingularRateLimitError as error:
             # Singular does not document how it reports a used-up daily row quota. A 429 that
             # outlasts the retries is the closest signal, and waiting longer inside one run cannot
@@ -273,13 +285,46 @@ def report_start_date(
     return today - dt.timedelta(days=HISTORY_DAYS)
 
 
-def _report_rows(
+def _async_report_day(
     client: SingularClient,
     query: SingularReportQuery,
+    path: str,
+    safe_point: Callable[[], None],
+) -> Callable[[dt.date], list[dict[str, Any]]]:
+    def fetch(day: dt.date) -> list[dict[str, Any]]:
+        report_id = client.create_report(query, day, path)
+        url = client.await_download_url(report_id, day, safe_point)
+        return client.download_report(url)
+
+    return fetch
+
+
+def _sync_report_day(
+    client: SingularClient, query: SingularReportQuery, path: str
+) -> Callable[[dt.date], list[dict[str, Any]]]:
+    def fetch(day: dt.date) -> list[dict[str, Any]]:
+        value = client.get(
+            path.format(api_version=client.api_version),
+            params=report_request_payload(query, day),
+            timeout=DOWNLOAD_TIMEOUT_SECONDS,
+        )
+        return report_rows(value)
+
+    return fetch
+
+
+def _fill_null_keys(rows: list[dict[str, Any]], key_fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    # A null key never matches on merge, so the row would be inserted again on each sync.
+    return [{**row, **{field: "" for field in key_fields if row.get(field) is None}} for row in rows]
+
+
+def _report_rows(
+    fetch_day: Callable[[dt.date], list[dict[str, Any]]],
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SingularResumeConfig],
     db_incremental_field_last_value: Optional[Any],
     history_start: Optional[dt.datetime],
+    null_key_fields: tuple[str, ...] = (),
 ) -> Iterator[list[dict[str, Any]]]:
     today = dt.datetime.now(dt.UTC).date()
     day = report_start_date(today, db_incremental_field_last_value, history_start)
@@ -290,9 +335,9 @@ def _report_rows(
 
     # Singular recommends one report per day when pulling daily data.
     while day <= today:
-        report_id = client.create_report(query, day)
-        url = client.await_download_url(report_id, day, resumable_source_manager.safe_point)
-        rows = client.download_report(url)
+        rows = fetch_day(day)
+        if null_key_fields:
+            rows = _fill_null_keys(rows, null_key_fields)
         logger.debug(f"Singular report for {day.isoformat()} returned {len(rows)} rows")
 
         for chunk in batched(rows, ROWS_PER_BATCH, strict=False):
@@ -300,12 +345,52 @@ def _report_rows(
 
         day += dt.timedelta(days=1)
         resumable_source_manager.save_state(SingularResumeConfig(next_date=day.isoformat()))
+        if not rows:
+            # A run of empty days on the synchronous report is a run of requests with no yield.
+            resumable_source_manager.safe_point()
 
 
 def _lookup_rows(client: SingularClient, config: SingularLookupConfig) -> Iterator[list[dict[str, Any]]]:
     rows = client.get(config.path).get(config.data_key) or []
     if rows:
         yield rows
+
+
+def filter_rows(value: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten the filters response to one row per dimension value."""
+    rows: list[dict[str, Any]] = []
+    for dimension in value.get("dimensions") or []:
+        for item in dimension.get("values") or []:
+            rows.append(
+                {
+                    "dimension": dimension.get("name"),
+                    "dimension_display_name": dimension.get("display_name"),
+                    # Value names mix numbers (OS codes) and strings (source names) across dimensions.
+                    "name": str(item.get("name")),
+                    "display_name": item.get("display_name"),
+                }
+            )
+    return rows
+
+
+def _filter_rows(client: SingularClient) -> Iterator[list[dict[str, Any]]]:
+    rows = filter_rows(client.get(FILTERS_PATH.format(api_version=client.api_version)))
+    if rows:
+        yield rows
+
+
+def fixed_report_query(config: SingularFixedReportConfig) -> SingularReportQuery:
+    return SingularReportQuery(dimensions=config.dimensions, metrics=config.metrics, extra_params=config.params)
+
+
+def _primary_keys(endpoint: str, query: SingularReportQuery) -> list[str]:
+    if endpoint == DAILY_REPORT:
+        return [DATE_FIELD, *query.dimensions]
+    if endpoint in FIXED_REPORTS:
+        return [DATE_FIELD, *FIXED_REPORTS[endpoint].dimensions]
+    if endpoint == FILTERS:
+        return ["dimension", "name"]
+    return [LOOKUPS[endpoint].primary_key]
 
 
 def singular_source(
@@ -318,20 +403,39 @@ def singular_source(
     db_incremental_field_last_value: Optional[Any] = None,
     history_start: Optional[dt.datetime] = None,
 ) -> SourceResponse:
-    is_report = endpoint == DAILY_REPORT
+    is_report = endpoint == DAILY_REPORT or endpoint in FIXED_REPORTS
 
     def items() -> Iterator[list[dict[str, Any]]]:
         client = SingularClient(api_key, api_version)
-        if is_report:
+        if endpoint == DAILY_REPORT:
+            fetch_day = _async_report_day(client, query, DAILY_REPORT_PATH, resumable_source_manager.safe_point)
             return _report_rows(
-                client, query, logger, resumable_source_manager, db_incremental_field_last_value, history_start
+                fetch_day, logger, resumable_source_manager, db_incremental_field_last_value, history_start
             )
+        if endpoint in FIXED_REPORTS:
+            report = FIXED_REPORTS[endpoint]
+            report_query = fixed_report_query(report)
+            fetch_day = (
+                _async_report_day(client, report_query, report.path, resumable_source_manager.safe_point)
+                if report.is_async
+                else _sync_report_day(client, report_query, report.path)
+            )
+            return _report_rows(
+                fetch_day,
+                logger,
+                resumable_source_manager,
+                db_incremental_field_last_value,
+                history_start,
+                null_key_fields=report.dimensions,
+            )
+        if endpoint == FILTERS:
+            return _filter_rows(client)
         return _lookup_rows(client, LOOKUPS[endpoint])
 
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=[DATE_FIELD, *query.dimensions] if is_report else [LOOKUPS[endpoint].primary_key],
+        primary_keys=_primary_keys(endpoint, query),
         partition_mode="datetime" if is_report else None,
         partition_format="month" if is_report else None,
         partition_keys=[DATE_FIELD] if is_report else None,

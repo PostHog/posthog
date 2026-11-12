@@ -93,12 +93,14 @@ __all__ = [
     "list_revenue_source_settings",
     "get_schema",
     "list_schemas_for_source",
+    "github_repositories_syncing",
     "list_imported_schema_snapshots",
     "source_locations_for_tables",
     "get_table",
     "get_queryable_table",
     "resolve_object_by_name",
     "direct_access_table_ids",
+    "team_has_had_direct_query_source",
     "discard_backing_table",
     "record_table_row_count",
     "allowed_table_ids",
@@ -107,6 +109,8 @@ __all__ = [
     "write_table_level_description",
     "denied_table_ids",
     "pending_source_ids_for_tables",
+    "registered_history_table_for",
+    "copy_access_rules_to_history_table",
     "tables_awaiting_first_sync",
     "all_queryable_tables",
     "all_queryable_table_columns",
@@ -399,6 +403,40 @@ def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.Ext
     return [_to_schema(s) for s in qs]
 
 
+def github_repositories_syncing(team_id: int, endpoint: str) -> frozenset[str]:
+    """The repositories, lowercased `owner/repo`, whose `endpoint` a live GitHub source of this team syncs."""
+    # Imported here to keep the source registry and the credential stores off the `django.setup()` path.
+    from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore  # noqa: PLC0415
+    from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import (  # noqa: PLC0415
+        normalize_repository,
+        schema_repo_endpoint,
+    )
+
+    schemas = (
+        _ExternalDataSchema.objects.filter(
+            team_id=team_id, should_sync=True, source__source_type=ExternalDataSourceType.GITHUB
+        )
+        .exclude(deleted=True)
+        .exclude(source__deleted=True)
+        .select_related("source")
+    )
+    repositories: set[str] = set()
+    for schema in schemas:
+        repository, schema_endpoint = schema_repo_endpoint(schema.schema_metadata, schema.name, None)
+        if schema_endpoint != endpoint:
+            continue
+        # Only a bare single-repository row keeps its repository in encrypted inputs, so decrypt just those.
+        if repository is None:
+            try:
+                legacy = str(SourceInputsStore.load(schema.source).get("repository") or "")
+            except contracts.UnreadableSourceInputsError:
+                continue
+            repository = normalize_repository(legacy).lower() or None
+        if repository:
+            repositories.add(repository)
+    return frozenset(repositories)
+
+
 def list_imported_schema_snapshots(team_id: int) -> list[contracts.ImportedSchemaSnapshot]:
     rows = _ExternalDataSchema.objects.filter(
         team_id=team_id,
@@ -511,6 +549,19 @@ def direct_access_table_ids(team_id: int) -> set[UUID]:
         .values_list("id", flat=True)
     )
     return set(rows)
+
+
+def team_has_had_direct_query_source(team_id: int) -> bool:
+    """Whether any source in this team, deleted ones included, was set up for queries over a direct connection.
+
+    A view saved on a source keeps its connection id after the source is deleted, so deleted rows count too.
+    It can return True for a source that `is_direct_capable` refuses, such as one whose type maps to no engine.
+    """
+    return (
+        _ExternalDataSource.objects.filter(team_id=team_id)
+        .filter(Q(access_method=_ExternalDataSource.AccessMethod.DIRECT) | Q(direct_query_enabled=True))
+        .exists()
+    )
 
 
 def allowed_table_ids(
@@ -923,3 +974,60 @@ def list_column_statistics(team_id: int) -> list[contracts.ColumnStatistics]:
         )
         for table_id, column_name, null_fraction, min_value, max_value in qs
     ]
+
+
+def _history_table_ref(
+    history_table: _DataWarehouseTable, user_access_control: "UserAccessControl"
+) -> contracts.HistoryTableRef:
+    # Imported here to keep HogQL off the `django.setup()` import path.
+    from posthog.hogql.database.database import get_data_warehouse_table_name
+
+    return contracts.HistoryTableRef(
+        id=history_table.id,
+        name=get_data_warehouse_table_name(history_table.external_data_source, history_table.name),
+        user_can_manage_access=user_access_control.check_can_modify_access_levels_for_object(history_table),
+    )
+
+
+def _live_table(team_id: int, table_id: UUID) -> _DataWarehouseTable | None:
+    return _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id, deleted=False).first()
+
+
+def _registered_history_table(table: _DataWarehouseTable | None) -> _DataWarehouseTable | None:
+    # Imported here to keep the history-table modules off the `django.setup()` import path.
+    from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import registered_history_table
+
+    return registered_history_table(table) if table is not None else None
+
+
+def registered_history_table_for(
+    *, team_id: int, table_id: UUID, user_access_control: "UserAccessControl"
+) -> contracts.HistoryTableRef | None:
+    """The table's registered history table, or None when it has none or the caller can't view it."""
+    history_table = _registered_history_table(_live_table(team_id, table_id))
+    if history_table is None or not user_access_control.check_access_level_for_object(
+        history_table, required_level="viewer"
+    ):
+        return None
+    return _history_table_ref(history_table, user_access_control)
+
+
+def copy_access_rules_to_history_table(
+    *, team_id: int, table_id: UUID, user_id: int, user_access_control: "UserAccessControl"
+) -> contracts.HistoryTableRef:
+    """Replace the access rules of the table's history table with the table's own rules.
+
+    Raises `NoHistoryTableError` when the table has none, `HistoryAccessRulesNotAllowedError` when the user
+    can't manage access to both tables, and the access control facade's `InvalidObjectAccessControlError`
+    at the cap on objects with rules.
+    """
+    from posthog.models import User
+
+    from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import copy_access_rules_now
+
+    table = _live_table(team_id, table_id)
+    history_table = _registered_history_table(table)
+    if table is None or history_table is None:
+        raise contracts.NoHistoryTableError("This table has no history table.")
+    copy_access_rules_now(User.objects.get(id=user_id), table, history_table)
+    return _history_table_ref(history_table, user_access_control)

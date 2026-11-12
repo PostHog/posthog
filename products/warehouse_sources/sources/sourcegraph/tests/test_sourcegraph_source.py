@@ -20,13 +20,11 @@ class TestSourcegraphSource:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
 
-    def test_all_schemas_are_full_refresh_only(self):
-        # No Sourcegraph connection has a server-side updated-since filter; advertising
-        # incremental sync would silently re-fetch everything each run.
-        for schema in self.source.get_schemas(self.config, self.team_id):
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
+    def test_only_endpoints_that_can_skip_synced_rows_offer_incremental_sync(self):
+        # Most connections have no server-side filter; advertising incremental sync there would
+        # silently re-fetch everything each run.
+        incremental = {s.name for s in self.source.get_schemas(self.config, self.team_id) if s.supports_incremental}
+        assert incremental == {"commits", "exported_events"}
 
     @pytest.mark.parametrize("endpoint", ["users", "organizations"])
     def test_admin_scoped_schemas_mention_site_admin(self, endpoint):

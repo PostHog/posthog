@@ -1,11 +1,13 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { router } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
+import { getRouterContext } from 'kea-router/lib/router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -502,6 +504,134 @@ describe('broadcastWizardLogic', () => {
 
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
         expect(router.values.searchParams).toEqual({ step: 'content' })
+    })
+
+    it('opens the email editor on the content step when the review preview asks to modify content', async () => {
+        latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
+        router.actions.push('/broadcasts/broadcast-1', { utm_source: 'test' })
+        const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+        draftLogic.mount()
+        await expectLogic(draftLogic).toFinishAllListeners()
+        draftLogic.actions.setStep('review')
+
+        draftLogic.actions.editEmailContent()
+
+        expect(draftLogic.values.currentStep).toBe('content')
+        expect(router.values.searchParams).toEqual({ utm_source: 'test', editor: 'email' })
+        draftLogic.unmount()
+    })
+
+    it('opens the email editor on the draft URL when an unsaved broadcast asks to modify content from review', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('review')
+
+        logic.actions.editEmailContent()
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.searchParams).toEqual({ step: 'content', editor: 'email' })
+    })
+
+    it('closes the email editor on back after an unsaved broadcast opened it from review', async () => {
+        router.actions.push('/broadcasts/new')
+        const browserHistory = [router.values.location.pathname]
+        const { history } = getRouterContext()
+        if (!history) {
+            throw new Error('The router has no history in this test')
+        }
+        history.pushState = (_state: unknown, _title: string, url: string): void => {
+            browserHistory.push(url)
+        }
+        history.replaceState = (_state: unknown, _title: string, url: string): void => {
+            browserHistory[browserHistory.length - 1] = url
+        }
+        logic.actions.setStep('review')
+        logic.actions.editEmailContent()
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+        const editor = emailTemplaterLogic({
+            value: { design: null, html: '<p>Hi</p>', subject: 'Spring sale', text: 'Hi', from: '', to: '' },
+            onChange: jest.fn(),
+            type: 'native_email',
+        })
+        editor.mount()
+        expect(editor.values.isModalOpen).toBe(true)
+
+        browserHistory.pop()
+        const { pathname, search } = new URL(browserHistory[browserHistory.length - 1], 'https://example.com')
+        router.actions.locationChanged({
+            method: 'POP',
+            pathname,
+            search,
+            searchParams: decodeParams(search, '?'),
+            hash: '',
+            hashParams: {},
+            url: pathname + search,
+        })
+        await expectLogic(editor).toFinishAllListeners()
+
+        expect(editor.values.isModalOpen).toBe(false)
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        editor.unmount()
+    })
+
+    it('saves the draft and its send time before modify content retries after a failed schedule save', async () => {
+        const createdSchedules: Record<string, any>[] = []
+        const savedDrafts: string[] = []
+        let failSchedules = 1
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
+                    savedDrafts.push(JSON.stringify(await request.json()))
+                    return [200, savedBroadcast({ name: '', subject: '', updatedAt: '2026-09-24T10:00:05Z' })]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/hog_flows/:id/schedules/': async ({ request }) => {
+                    if (failSchedules > 0) {
+                        failSchedules -= 1
+                        return [500, { detail: 'Simulated outage' }]
+                    }
+                    const body = (await request.json()) as Record<string, any>
+                    createdSchedules.push(body)
+                    return [201, { id: 'schedule-1', ...body }]
+                },
+            },
+        })
+        const sendAt = dayjs().add(1, 'day').startOf('minute').toISOString()
+        router.actions.push('/broadcasts/new')
+        logic.actions.setScheduleMode('later')
+        logic.actions.setSendAt(sendAt)
+        logic.actions.setStep('review')
+        logic.actions.editEmailContent()
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.location.pathname).toContain('/broadcasts/new')
+        expect(logic.values.savingForEmailEditor).toBe(false)
+        logic.actions.setAudienceProperties(LOCAL_AUDIENCE)
+
+        logic.actions.editEmailContent()
+        logic.actions.editEmailContent()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(savedDrafts).toEqual([expect.stringContaining('"plan"')])
+        expect(createdSchedules).toEqual([expect.objectContaining({ starts_at: sendAt })])
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.searchParams).toEqual({ step: 'content', editor: 'email' })
+    })
+
+    it('keeps the step a person picks while the draft that modify content asked for still saves', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('review')
+        logic.actions.editEmailContent()
+
+        logic.actions.setStep('schedule')
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.searchParams).toEqual({ step: 'schedule' })
     })
 
     it.each([

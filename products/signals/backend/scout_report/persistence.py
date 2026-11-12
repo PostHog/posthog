@@ -45,6 +45,7 @@ from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.dataclasses import frozen
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.team.team import Team
 
 from products.signals.backend.artefact_schemas import (
@@ -72,11 +73,15 @@ from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
     ArtefactAttribution,
+    SignalActorKind,
     SignalReport,
     SignalReportArtefact,
+    SignalReportPullRequest,
     SignalScoutRun,
 )
+from products.signals.backend.pull_requests import apply_report_completion, link_pull_request
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
+from products.signals.backend.report_assignments import InvalidPullRequestUrl, PullRequestDetails, _pull_request_details
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerPayloadIndex, bounded_reviewer_reason
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
@@ -84,12 +89,13 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.report_tags import set_report_tags
-from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
+from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, contains_reviewer
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.source_issues import append_source_issues
 from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
+from products.signals.backend.trial.funding import direct_report_funding_snapshot
 
 if TYPE_CHECKING:
     from products.signals.backend.supersession import ImplementationResearchContext
@@ -203,6 +209,7 @@ def create_scout_report(
     created_by_id: int | None = None,
     proposed_reviewer_count: int | None = None,
     reviewer_outcome: str | None = None,
+    funded_report_id: uuid.UUID | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
 
@@ -281,13 +288,14 @@ def create_scout_report(
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
 
-    report_id = str(uuid.uuid4())
+    report_id = str(funded_report_id or uuid.uuid4())
     assignment = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     try:
         with transaction.atomic():
             report = SignalReport.objects.create(
                 id=report_id,
                 team_id=team_id,
+                self_driving_funding=direct_report_funding_snapshot(team_id),
                 status=status,
                 title=title,
                 summary=summary,
@@ -829,6 +837,147 @@ def append_report_source_issues(
     return len(written)
 
 
+SCOUT_PULL_REQUEST_LINK_AGENT = "PostHog scout"
+
+
+def decided_report_repository(report_id: str) -> str | None:
+    """The report's stored repository when it is a decision, or None.
+
+    A selection that is not `autostart_eligible` does not count, because that is the set
+    `_refresh_inferred_repository` re-derives from rewritten text after an edit commits.
+    """
+    selection = persisted_repo_selection(report_id)
+    if selection is None or not selection.autostart_eligible:
+        return None
+    return selection.repository
+
+
+def _linked_pull_request_keys(team_id: int, report_id: str) -> set[tuple[str, int]]:
+    return set(
+        SignalReportArtefact.objects.filter(
+            team_id=team_id, report_id=report_id, pull_request__isnull=False
+        ).values_list("pull_request__repository", "pull_request__number")
+    )
+
+
+def resolve_scout_report_pull_requests(
+    *, team_id: int, report_id: str, pull_request_urls: Sequence[str], report_repository: str | None
+) -> list[PullRequestDetails]:
+    """Read the GitHub state of the pull requests the report does not link yet.
+
+    Call it before the edit transaction opens, because each pull request costs one GitHub API call. A
+    pull request the report already links is skipped here, so a retried edit makes no GitHub calls.
+
+    `report_repository` is the decided repository the report targets once the edit lands. A link changes the
+    report's inbox status, so only a pull request in that repository, in a state GitHub confirmed, is
+    accepted. An `unknown` state is refused rather than stored, because a stored link is never looked up
+    again and would leave the report unresolved for good. A pull request closed without merging is
+    refused too: it is not a fix, and linking it could only suppress the report.
+    """
+    _validate_report_id(report_id)
+    if not pull_request_urls:
+        return []
+    if not report_repository:
+        raise InvalidScoutReportError(
+            "pull requests can only be linked to a report with a decided repository; set `repository` in the same edit"
+        )
+    linked = _linked_pull_request_keys(team_id, report_id)
+    details: list[PullRequestDetails] = []
+    for url in pull_request_urls:
+        parsed = GitHubIntegrationBase.parse_pull_request_url(url)
+        if parsed is None:
+            raise InvalidScoutReportError(f"pull request {url!r} is not a GitHub pull request URL")
+        if parsed.repository.lower() != report_repository.lower():
+            raise InvalidScoutReportError(
+                f"pull request {url!r} is not in the report's repository {report_repository!r}"
+            )
+        if (parsed.repository.lower(), parsed.number) in linked:
+            continue
+        try:
+            pull_request = _pull_request_details(team_id, url)
+        except InvalidPullRequestUrl as err:
+            raise InvalidScoutReportError(f"pull request {url!r}: {err}")
+        if pull_request.state == SignalReportPullRequest.State.UNKNOWN:
+            raise InvalidScoutReportError(
+                f"pull request {url!r} could not be read from GitHub; retry later, or check that the team's "
+                "GitHub integration covers the repository"
+            )
+        if pull_request.state == SignalReportPullRequest.State.CLOSED:
+            raise InvalidScoutReportError(
+                f"pull request {url!r} was closed without merging, so it does not fix the report"
+            )
+        details.append(pull_request)
+    return details
+
+
+def link_scout_report_pull_requests(
+    *,
+    team_id: int,
+    report_id: str,
+    pull_requests: Sequence[PullRequestDetails],
+    attribution: ArtefactAttribution,
+) -> int:
+    """Link pull requests to an existing report, returning how many the report did not link before.
+
+    Additive and deduplicated by repository and number, like `append_report_source_issues`. A link
+    makes the pull request part of the report's completion: the report resolves when every linked pull
+    request is closed or merged and at least one merged, which `apply_report_completion` checks at once
+    and the GitHub webhook checks again on each later state change.
+
+    The link holds no claim and starts no reviewer side effects. A scout links a pull request that a
+    person or another agent opened, so marking it ready for review, labelling it, or assigning its
+    reviewers would change work that the scout does not own.
+
+    The stored link is attributed as an external agent with no task. Later workers read that
+    attribution, not this call's arguments: a task or system link gets reviewer assignment on each
+    webhook refresh and is closed when the report is suppressed or snoozed. Neither may touch a pull
+    request the scout did not open.
+    """
+    from products.signals.backend.tasks import (
+        refresh_linked_pull_request_state,  # noqa: PLC0415 - keeps the Celery task module off this module's import path
+    )
+
+    _validate_report_id(report_id)
+    if not pull_requests:
+        return 0
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update(no_key=True).filter(team_id=team_id, id=report_id).first()
+        if report is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        # The GitHub lookup ran before this lock, so a concurrent edit may have repointed the report since.
+        # An earlier write of this same edit is already visible here, so its own `repository` still counts.
+        repository = decided_report_repository(report_id)
+        for pr in pull_requests:
+            if repository is None or pr.repository != repository.lower():
+                raise InvalidScoutReportError(
+                    f"pull request {pr.url!r} is not in the report's repository {repository!r}; "
+                    "the report's repository changed during this edit"
+                )
+        # Read again under the report lock, so two concurrent edits that name one pull request link it once.
+        linked = _linked_pull_request_keys(team_id, report_id)
+        new = {(pr.repository, pr.number): pr for pr in pull_requests if (pr.repository, pr.number) not in linked}
+        for _, pr in sorted(new.items()):
+            stored = link_pull_request(
+                report=report, details=pr, actor=attribution, claim_id=None, notify_reviewers=False
+            )
+            SignalReportArtefact.objects.filter(
+                team_id=team_id, report_id=report_id, pull_request_id=stored.id, claim_id__isnull=True
+            ).filter(actor_kind__in=[SignalActorKind.TASK, SignalActorKind.SYSTEM]).update(
+                actor_kind=SignalActorKind.AGENT, actor_agent=SCOUT_PULL_REQUEST_LINK_AGENT, task_id=None
+            )
+            if stored.state != SignalReportPullRequest.State.MERGED:
+                transaction.on_commit(
+                    partial(refresh_linked_pull_request_state.delay, team_id, stored.url), robust=True
+                )
+        if new:
+            apply_report_completion(report)
+    logger.info(
+        "signals_scout.edit_report: pull requests linked",
+        extra={"team_id": team_id, "report_id": report_id, "pull_request_count": len(new)},
+    )
+    return len(new)
+
+
 def record_content_revision(*, team_id: int, report_id: str) -> int:
     """Count one scout rewrite of a report's title or summary and return the report's new total.
 
@@ -1279,6 +1428,11 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
             # leaving autostart's owner exclusion resting on the best-effort tally alone.
             "is_skill_owner": entry.is_skill_owner,
             "source_skill": entry.source_skill,
+            # The supplied entry's own value, which is False for a fresh scout pick. A stored entry sent
+            # back unchanged (`add_scout_report_reviewers`) keeps the flags that bar it from the
+            # autostart identity.
+            "is_research_selected": entry.is_research_selected,
+            "is_default_owner": entry.is_default_owner,
         }
         try:
             merged.append(SuggestedReviewerEntry.model_validate(candidate))
@@ -1350,6 +1504,45 @@ def set_scout_report_reviewers(
             )
         )
     return True
+
+
+def add_scout_report_reviewers(
+    *,
+    team_id: int,
+    report_id: str,
+    additions: Sequence[SuggestedReviewerEntry],
+    max_reviewers: int,
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+    service: ReviewerRules | None = None,
+) -> bool:
+    """Add reviewers the report does not hold yet after its current ones, up to `max_reviewers`.
+
+    The current list is read under the report lock and sent back as the expected state, so the write
+    goes through the report's saved reviewer corrections like any scout selection: a person's removal
+    or confirmed list still wins. A report whose stored reviewers are invalid is left for a person.
+    """
+    _validate_report_id(report_id)
+    service = service or ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
+    with transaction.atomic():
+        SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
+        snapshot = service.read()
+        if snapshot.invalid_reviewers:
+            return False
+        current = snapshot.reviewers
+        room = max(0, max_reviewers - len(current))
+        added = [entry for entry in additions if not contains_reviewer(current, entry)][:room]
+        if not added:
+            return False
+        return set_scout_report_reviewers(
+            team_id=team_id,
+            report_id=report_id,
+            suggested_reviewers=SuggestedReviewers(root=[*current, *added]),
+            attribution=attribution,
+            author=author,
+            proposal=ReviewerProposal(expected_state=snapshot.state, source="scout_edit"),
+            service=service,
+        )
 
 
 def set_scout_report_repository(

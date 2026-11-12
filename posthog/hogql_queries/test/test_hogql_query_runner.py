@@ -47,7 +47,10 @@ from posthog.hogql_queries.sql_freshness.classifier import SqlFreshness, freshne
 from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject, SqlWindowClass
 from posthog.models.utils import UUIDT
 
-from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
+from products.managed_warehouse.backend.facade.query_labels import (
+    MANAGED_TRINO_RAW_QUERY_STATUS_LABEL,
+    MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX,
+)
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -230,6 +233,25 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         self.assertEqual(response.results[0][0], 1)
 
+    @parameterized.expand([("values",), ("variables",)])
+    def test_filters_placeholder_with_values_or_variables(self, source: str) -> None:
+        if source == "values":
+            query = HogQLQuery(
+                query="select count(event) from events where event = {e} and {filters}",
+                values={"e": "clicky-3"},
+                filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+            )
+        else:
+            variable = InsightVariable.objects.create(team=self.team, name="E", code_name="e", type="String")
+            query = HogQLQuery(
+                query="select count(event) from events where event = {variables.e} and {filters}",
+                variables={
+                    str(variable.id): HogQLVariable(code_name="e", variableId=str(variable.id), value="clicky-3")
+                },
+            )
+        response = self._create_runner(query).calculate()
+        self.assertEqual(response.results[0][0], 1)
+
     def test_cache_target_age_is_two_hours_in_future_after_run(self):
         runner = self._create_runner(HogQLQuery(query="select count(event) from events"))
 
@@ -383,6 +405,8 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = self._create_runner(query)
         expected_query_status_labels = [f"{MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{source.id}"]
+        if credential_kind == "duckgres_service":
+            expected_query_status_labels.append(MANAGED_TRINO_RAW_QUERY_STATUS_LABEL)
         self.assertEqual(runner.query_status_labels(), expected_query_status_labels)
         built_in_cache_key = runner.get_cache_key()
         response = cast(
@@ -453,12 +477,12 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = HogQLQuery(query="select 1::int as value", connectionId=str(source.id), sendRawQuery=True)
 
         first_runner = self._create_runner(query)
-        self.assertIsNone(first_runner.query_status_labels())
+        self.assertEqual(first_runner.query_status_labels(), [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL])
         self.assertNotIn("managed_warehouse_sql_mode", first_runner.get_cache_payload())
         first_cache_key = first_runner.get_cache_key()
 
         second_runner = self._create_runner(query)
-        self.assertIsNone(second_runner.query_status_labels())
+        self.assertEqual(second_runner.query_status_labels(), [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL])
         self.assertEqual(second_runner.get_cache_key(), first_cache_key)
 
     @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")

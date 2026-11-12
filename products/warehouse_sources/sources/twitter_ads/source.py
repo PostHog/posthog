@@ -6,6 +6,7 @@ import requests
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSchema,
     ExternalDataSourceType,
     FieldType,
     IntegrationAccount,
@@ -25,6 +26,7 @@ from products.warehouse_sources.sources.sdk import (
     detect,
     incremental_field,
 )
+from products.warehouse_sources.sources.sdk.internals import is_schema_flag_enabled
 from products.warehouse_sources.sources.twitter_ads._config import TwitterAdsSourceConfig
 from products.warehouse_sources.sources.twitter_ads.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.twitter_ads.settings import (
@@ -37,12 +39,18 @@ from products.warehouse_sources.sources.twitter_ads.settings import (
     PRIMARY_KEYS,
     REVOKED_GRANT,
     STATS_TABLES,
+    VIDEO_AND_CONVERSION_FLAG,
 )
 from products.warehouse_sources.sources.twitter_ads.twitter_ads import (
     TwitterAdsClient,
     TwitterAdsResumeConfig,
     twitter_ads_source,
 )
+
+
+def _is_video_and_conversion_enabled(team_id: int, schema_id: str) -> bool:
+    schema = ExternalDataSchema.objects.filter(team_id=team_id, id=schema_id).select_related("source").first()
+    return schema is not None and is_schema_flag_enabled(schema, VIDEO_AND_CONVERSION_FLAG)
 
 
 @SourceRegistry.register
@@ -211,4 +219,5 @@ class TwitterAdsSource(ResumableSource[TwitterAdsSourceConfig, TwitterAdsResumeC
             resumable_source_manager,
             inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None,
             inputs.logger,
+            inputs.schema_name in STATS_TABLES and _is_video_and_conversion_enabled(inputs.team_id, inputs.schema_id),
         )

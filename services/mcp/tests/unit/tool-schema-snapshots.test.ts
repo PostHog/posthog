@@ -92,7 +92,6 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     const featureFlags = {
         'self-driving-usage-display': true,
         tracing: true,
-        'logs-agent-tools': true,
         tasks: true,
         'tasks-mcp-agent-run-start': true,
         loops: true,
@@ -102,8 +101,10 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'signals-report-monitoring': true,
         'inbox-report-actions-mcp': true,
         'inbox-reports-create-mcp': true,
+        'workflows-bulk-suppressions-mcp': true,
         'signals-reviewer-exclusions-mcp': true,
         'ai-observability-offline-evaluations': true,
+        'ai-observability-composite-validation': true,
         'workflows-supabase-auth-emails': true,
         'warehouse-suggestions': true,
         'workflows-destination-suggestion': true,
@@ -117,14 +118,19 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'workflows-transactional-email-api': true,
         'workflows-email-from-code': true,
         'activity-summary': true,
+        'warehouse-migration-import': true,
         'activity-summary-search': true,
+        'inbox-reports-search': true,
         'personal-inbox-ranking': true,
         'aeo-citation-tracking': true,
         'mcp-session-recording-console-logs': true,
         'anomalies-search': true,
         'warehouse-multi-destination': true,
+        'dwh-custom-source-ai-builder': true,
         'feature-flag-rules-v2-mcp': true,
         'discussions-slack-sync': true,
+        'ui-customization': true,
+        'platform-alerts-source-warehouse': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
         a.name.localeCompare(b.name)

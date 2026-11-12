@@ -104,6 +104,98 @@ Native property-removal requests fail when the selected rows retain a requested 
 They also fail when that property class has quarantine diagnostics, because malformed raw data cannot prove that the requested value is absent.
 The gate runs before shard processing and again during verification, with the same event, time-range, and insertion-marker bounds.
 
+## Customer analytics membership
+
+`sharded_person_group_membership` has no age-based TTL.
+It stores distinct IDs and historical group associations, but no person properties.
+The `customer-analytics-membership-discovery` Temporal schedule records missing persons and groups in Postgres.
+It never deletes membership or eligibility config.
+The schedule starts paused and runs hourly when enabled.
+Worker restarts preserve its existing schedule settings.
+
+Discovery checks current distinct-ID mappings and live persons.
+Deleted mappings and deleted persons count as missing identities.
+When ClickHouse reports a person as missing, a strong personhog read confirms the mapping and its owner.
+Discovery decodes JSON escapes in group keys before identity lookups and keeps stored keys in candidates.
+When ClickHouse reports a group as missing, a strong personhog read confirms its absence.
+Group identity reads exclude properties. Malformed JSON keys retain their raw representation.
+Decoded group keys longer than the primary identity column's 400-character limit count as missing without an identity lookup.
+Scan cursors and pending membership keys use ClickHouse external tables so large stored keys do not expand SQL text.
+Deleted teams need no identity reads.
+
+Each batch scans at most 100 membership keys and rechecks 100 saved candidates.
+It saves the next unprocessed key in Postgres so later batches can resume after rows disappear.
+Scan pages also clear recovered candidates outside the recheck page.
+Discovery checks membership for pending keys outside the scan page and removes their candidates after membership erasure.
+Pending-only keys with no membership cannot create new candidates.
+New candidates use bulk inserts and preserve `first_missing_at` on repeated discovery.
+Identity read failures leave candidates and scan positions unchanged.
+A per-team Redis lease prevents overlapping membership batches.
+Discovery renews its 15-second lease every five seconds, including during network reads.
+A busy lease raises a retryable error. Activity retries wait 20 seconds, so a crashed discovery worker's lease expires before retry.
+Renewal failures prevent checkpoint writes. Renewal stops at the batch query deadline.
+Heartbeats report liveness. Postgres stores the checkpoints.
+Postgres transactions contain database writes only.
+
+The coordinator discovers teams from membership, eligibility config, and saved scans.
+It processes at most 10 pages of 25 teams and stops starting teams after 45 minutes.
+Each team processes at most 100 batches and stops starting batches after 10 minutes.
+The coordinator saves each processed team. Team zero holds its cursor and never starts a project scan.
+Cleanup state has no project foreign key, so project deletion cannot remove pending work.
+
+Queries use the SQL editor's `HOGQL_INCREASED_MAX_EXECUTION_TIME` setting, which defaults to 600 seconds.
+Each batch reduces the query timeout to fit its remaining activity budget.
+The activity reserves time for three attempts inside the child workflow deadline.
+Memory, read, thread, and result limits come from the ClickHouse profile.
+Unavailable shards and overflow limits fail queries instead of returning partial results.
+Queries use the `OFFLINE` workload because discovery runs in the background.
+Discovery queries carry the Customer analytics product tag and the data deletion feature tag.
+Per-team queries also pass the team ID to the ClickHouse client so team settings and incident limits apply.
+The `customer_analytics_membership_discovery_` metrics report outcomes, batch duration, and scan duration.
+The scan duration includes waiting between scheduled runs. It is not the duration of one workflow execution.
+Batch histograms cover durations through ten minutes. Scan histograms cover durations through seven days.
+The `customer_analytics_membership_step_seconds` histogram labels each measurement by `job`, `step`, and `outcome`.
+Steps separate membership scans, candidate reads, ClickHouse identity reads, primary identity checks, and checkpoint writes.
+Step measurements include failed operations. Metric labels contain no team IDs or identity values.
+
+Each `membership_discovery_batch` log includes counts, `duration_seconds`, `step_seconds`, `failed_step`, and `has_more`.
+Each team and coordinator emits a `membership_run_summary` log with totals, elapsed seconds, outcome, and `stop_reason`.
+Stop reasons distinguish completed work, time budgets, batch limits, page limits, failures, and cancellation.
+Coordinator totals include successful child workflow results. Failed teams log their own partial totals.
+Temporal adds workflow IDs, run IDs, and attempt numbers to the logs and suppresses workflow logs during replay.
+
+Discovery does not change existing person or group deletion processes.
+The `customer-analytics-membership-deletion` schedule owns erasure and runs independently of discovery.
+It starts paused in dry-run mode. Deletion also requires an explicit team list.
+It selects candidates missing for at least 24 hours and repeats identity checks before each deletion batch.
+Recovered identities clear their candidates. Failed lookups or erasure verification keep work pending.
+Deletion never discovers new candidates.
+
+Both jobs use the same per-team lease. Each schedule has its own batch, team-page, and time limits.
+Deletion keeps its coordinator cursor in team row `-1`, separate from discovery's row `0`.
+Neither coordinator row starts a project sweep.
+Deletion preserves the key held in a discovery cursor until discovery advances past it.
+Its coordinator selects teams from overdue candidates and deleted-team scan state, without scanning membership.
+
+The deletion job uses lightweight deletes on storage shards and verifies that no matching membership survives.
+Deletion predicates use bounded raw-key filters for index pruning and SHA-256 digests for exact matching.
+Keys above 400 characters use prefix filters, so large stored values do not expand query text or erase rows that share a prefix.
+Topology discovery, shard queries, and verification apply per-team query settings and kill-switch ceilings alongside the remaining batch deadline.
+It checks for pending mutations before retrying and skips shards where matching rows are already absent.
+Each deletion resolves fresh shard topology, including sibling clusters.
+Topology discovery caps bootstrap socket waits and query execution by the remaining batch time, including sibling discovery.
+Shard and verification connections use a finite socket timeout of twice the shared query execution limit.
+Query failure logs include the team, stage, and error code, without database exception text or membership keys.
+Candidates are removed only after verified erasure.
+Deleted-team erasure also removes eligibility config and clears scan state after membership is gone.
+Live-team erasure keeps eligibility config and unrelated membership.
+The `customer_analytics_membership_deletion_` metrics report checked candidates, recovery, deletion, and failures.
+Step timings also cover storage resolution, pending mutation checks, per-shard deletes, erasure verification, and checkpoint cleanup.
+Deletion batch logs include `dry_run`, `deletion_enabled`, and a `skip_reason` for dry runs or teams outside the allowlist.
+Team and coordinator summaries include `failed_batches`. A caught deletion failure produces a `partial_failure` summary even when the workflow completes.
+The `deleted` count measures membership keys confirmed erased, not physical ClickHouse rows.
+Event deletion and configured group-property deletion do not repair membership or its activity timestamps.
+
 ## Tables on TTL alone
 
 Listed in `TTL_ONLY_TABLES`.
@@ -338,7 +430,7 @@ Organization admins set the retention in project and organization settings, and 
 `monthly_retention_events_cleanup_job` has six steps:
 
 - `update_plan_deletions` tracks each team's pass period in `TeamEventsPlanDeletion`: the set period, never past the plan's period, else the default period. It gives a row only to the teams where `should_delete_past_default_period` is true, and removes the rows of all other teams. A team without a row gets no pass, and its set period is never capped by its plan.
-  - `should_delete_past_default_period` needs enforcement and the `events-data-retention-deletion` flag. The flag gets each team's plan period and organization, so a rollout can target plans and leave out organizations.
+  - `should_delete_past_default_period` needs the `events-data-retention-deletion` flag on PostHog Cloud, and does not depend on query enforcement. Self-hosted never gets a pass. The flag gets each team's plan period and organization, so a rollout can target plans and leave out organizations.
   - A new row's first pass is at least 3 months out, so a team keeps its events for at least 3 months after the flag turns on.
   - Turning the flag off removes the team's row at the next run. A run that already finished `update_plan_deletions` still deletes for that team.
   - A shorter period, from a downgrade or a change in Django admin, moves the team's next pass to at least 3 months out.
@@ -370,6 +462,8 @@ The Celery beat task `report_upcoming_events_deletions` runs daily at 15:00 UTC.
 On the day the next cleanup is exactly 14 days away, it reschedules the rows due at that cleanup, the same way a settings save does, so a period that got shorter since the pass was set moves the pass instead of announcing it.
 It then sends an `events retention deletion upcoming` event to the admins of each organization with a team still due, one organization at a time, whether the team downgraded or not.
 Every pass gets this event, every 3 months, and only teams behind the deletion flag have rows, so a team that joins the flag after a downgrade hears before its first pass.
+A team whose set period is at or below its pass's period is left out, because the monthly cleanup already deletes everything that pass would.
+A set period above the pass's period still sends.
 Only that one day sends, so nothing records what was sent.
 A failed send fails the task, which retries the same way as the shortened task, and a retry sends again to the organizations already sent.
 Workflows turn both events into emails.

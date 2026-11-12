@@ -15,7 +15,7 @@ from posthog.security.pinned_requests import SSRFBlockedError
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationRefused
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport, alertmanager_body
 from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import (
@@ -57,7 +57,13 @@ class TestAlertmanagerBody(SimpleTestCase):
             "posthog_source_kind": "logs",
             "posthog_event_kind": "firing",
         }
-        annotations = {"summary": "API errors is firing", "description": "Value: 312\nThreshold: > 300", "value": "312"}
+        annotations = {
+            "summary": "API errors is firing",
+            "description": "Value: 312\nThreshold: > 300",
+            "value": "312",
+            "posthog_summary": "API errors is firing",
+            "posthog_description": "Value: 312\nThreshold: > 300",
+        }
         assert body == {
             "version": "4",
             "groupKey": "cfg-1:checkout",
@@ -83,6 +89,31 @@ class TestAlertmanagerBody(SimpleTestCase):
                     "fingerprint": body["alerts"][0]["fingerprint"],
                 }
             ],
+        }
+
+    def test_a_rule_speaks_through_labels_and_annotations_beside_the_platform_text(self) -> None:
+        message = alert_message(
+            headline="API errors is firing",
+            details=(MessageDetail(label="Value", value="312"),),
+            labels={"service": "checkout", "severity": "critical", "alertname": "spoofed"},
+            annotations={
+                "summary": "checkout errors over limit",
+                "runbook_url": "https://runbooks.example.com/api",
+                "value": "spoofed",
+            },
+        )
+
+        alert = alertmanager_body(message)["alerts"][0]
+
+        assert alert["labels"]["severity"] == "critical"
+        assert alert["labels"]["alertname"] == "API errors"
+        assert alert["annotations"] == {
+            "summary": "checkout errors over limit",
+            "description": "Value: 312",
+            "value": "300",
+            "runbook_url": "https://runbooks.example.com/api",
+            "posthog_summary": "API errors is firing",
+            "posthog_description": "Value: 312",
         }
 
     @parameterized.expand(
@@ -188,6 +219,22 @@ class TestWebhookTransport(SimpleTestCase):
                 WebhookTransport().deliver(team_id=2, target=target, message=alert_message())
 
         assert adapter.sent == []
+
+    @parameterized.expand(
+        [
+            ("bad request", 400, True),
+            ("gone", 410, True),
+            ("request timeout", 408, False),
+            ("rate limited", 429, False),
+            ("server error", 503, False),
+        ]
+    )
+    def test_only_a_client_error_a_retry_cannot_fix_is_a_refusal(self, _name: str, status: int, refused: bool) -> None:
+        with pinned_post(status):
+            with pytest.raises(DeliveryError) as raised:
+                WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
+
+        assert isinstance(raised.value, DestinationRefused) is refused
 
     @parameterized.expand(
         [

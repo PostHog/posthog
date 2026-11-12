@@ -32,6 +32,7 @@ from products.tasks.backend.facade.agent_instructions import AGENT_INSTRUCTIONS_
 from products.tasks.backend.facade.api import (
     CHANNEL_INSTRUCTIONS_MAX_BYTES,
     PUBLIC_RUN_OPTIONS,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
     TASK_RUN_FAILURE_ERROR_TYPES,
     create_fields_from_options,
     options_from_request,
@@ -676,6 +677,22 @@ class TaskSerializer(DataclassSerializer):
         required=False,
         help_text="First-party PostHog client that created this task.",
     )
+    last_client = serializers.ChoiceField(
+        choices=tasks_facade.TaskClient.choices,
+        allow_null=True,
+        required=False,
+        help_text="Client the latest person turn on this task came from. Null when no turn came from a known client.",
+    )
+    last_client_at = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+        help_text="When the latest person turn from `last_client` arrived.",
+    )
+    repository_integration = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -707,6 +724,9 @@ class TaskSerializer(DataclassSerializer):
             "slack_thread_references",
             "origin_key",
             "client_provenance",
+            "last_client",
+            "last_client_at",
+            "repository_integration",
         ]
 
 
@@ -746,7 +766,6 @@ class TaskRunResponseSerializer(TaskCreateResponseSerializer):
         fields = [*TaskCreateResponseSerializer.Meta.fields, "run"]
 
 
-TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
 TASK_DESCRIPTION_PREVIEW_HELP_TEXT = (
     f"First {TASK_DESCRIPTION_PREVIEW_LENGTH} characters of the description, so a summary "
     "surface can show a prompt snippet without the full body. Open the task for the complete text."
@@ -792,6 +811,14 @@ def normalized_repository_name(value: str) -> str:
     return value.lower()
 
 
+def normalized_gitlab_project_path(value: str) -> str:
+    parts = value.split("/")
+    if len(parts) < 2 or not all(parts):
+        raise serializers.ValidationError("Repository must be the full GitLab project path, such as group/project")
+
+    return value.lower()
+
+
 def require_unique_repositories(repositories: list[str]) -> list[str]:
     if len(set(repositories)) != len(repositories):
         raise serializers.ValidationError("Repositories must be unique")
@@ -827,7 +854,11 @@ class TaskWriteSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         allow_null=True,
-        help_text="Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
+        help_text=(
+            "Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). "
+            "For GitLab, set `repository_integration` and use the full project path, which can include "
+            "nested groups (e.g. `acme/platform/api`)."
+        ),
     )
     repositories = serializers.ListField(
         child=serializers.CharField(max_length=255),
@@ -840,6 +871,15 @@ class TaskWriteSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="GitHub integration for this task.",
+    )
+    repository_integration = IntegrationReferenceField(
+        kinds=["gitlab"],
+        required=False,
+        allow_null=True,
+        help_text=(
+            "GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. "
+            "Leave `github_integration` and `github_user_integration` empty."
+        ),
     )
     # UserIntegration is scoped to request.user in validate_github_user_integration.
     github_user_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
@@ -1023,11 +1063,22 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
         return value
 
+    def _targets_repository_integration(self) -> bool:
+        initial_data = getattr(self, "initial_data", {})
+        if "repository_integration" in initial_data:
+            return initial_data["repository_integration"] not in (None, "")
+        return (
+            getattr(self.instance, "repository_integration", getattr(self.instance, "repository_integration_id", None))
+            is not None
+        )
+
     def validate_repository(self, value):
         """Validate repository configuration"""
         if not value:
             return value
 
+        if self._targets_repository_integration():
+            return normalized_gitlab_project_path(value)
         return normalized_repository_name(value)
 
     def validate_repositories(self, value: list[str]) -> list[str]:
@@ -1059,22 +1110,46 @@ class TaskWriteSerializer(serializers.Serializer):
             if legacy != (repositories[0] if repositories else None):
                 raise serializers.ValidationError({"repositories": "Conflicts with repository"})
         repositories = attrs.get("repositories")
-        plural_repositories = repositories
         if repositories is None and "repository" in attrs:
-            repositories = [attrs["repository"]] if attrs["repository"] else []
-        if plural_repositories and attrs.get("github_integration") is None:
-            instance_integration = getattr(self.instance, "github_integration", None)
-            if instance_integration is None:
-                raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
-        integration = attrs.get("github_integration") or getattr(self.instance, "github_integration", None)
-        if repositories and integration:
-            inaccessible = tasks_facade.inaccessible_repositories_via_integration(
-                self.context["team"].id, integration.id, repositories
+            current_repositories = getattr(self.instance, "repositories", None) or []
+            repositories = (
+                current_repositories
+                if len(current_repositories) > 1
+                else ([attrs["repository"]] if attrs["repository"] else [])
             )
-            if inaccessible:
-                raise serializers.ValidationError(
-                    {"repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"}
+        if repositories is None:
+            repositories = getattr(self.instance, "repositories", None) or (
+                [self.instance.repository] if self.instance and self.instance.repository else []
+            )
+        gitlab = attrs.get("repository_integration", getattr(self.instance, "repository_integration", None))
+        github = attrs.get("github_integration", getattr(self.instance, "github_integration", None))
+        github_user = attrs.get("github_user_integration", getattr(self.instance, "github_user_integration", None))
+        repository_fields_changed = not attrs.keys().isdisjoint(
+            {"repository", "repositories", "repository_integration", "github_integration", "github_user_integration"}
+        )
+        if gitlab and (github or github_user):
+            raise serializers.ValidationError(
+                {"repository_integration": "Set either a GitHub integration or a GitLab integration, not both."}
+            )
+        if gitlab and repository_fields_changed:
+            if isinstance(gitlab, int):
+                gitlab = self.fields["repository_integration"].run_validation(gitlab)
+            self._validate_gitlab_task({**attrs, "repository_integration": gitlab}, repositories)
+        elif repository_fields_changed:
+            repositories = [normalized_repository_name(repository) for repository in repositories]
+            if repositories and "repositories" in attrs and not github:
+                raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
+            if repositories and github:
+                integration_id = github if isinstance(github, int) else github.id
+                inaccessible = tasks_facade.inaccessible_repositories_via_integration(
+                    self.context["team"].id, integration_id, repositories
                 )
+                if inaccessible:
+                    raise serializers.ValidationError(
+                        {
+                            "repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"
+                        }
+                    )
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
 
@@ -1116,7 +1191,28 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"repository": "Signal report tasks resolve their repository server-side."}
             )
+        # Task keeps a plain id for this connection, and create and update set the fields by name.
+        if "repository_integration" in attrs:
+            repository_integration = attrs.pop("repository_integration")
+            attrs["repository_integration_id"] = repository_integration.id if repository_integration else None
         return attrs
+
+    def _validate_gitlab_task(self, attrs: dict[str, Any], repositories: list[str]) -> None:
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not tasks_facade.gitlab_tasks_enabled(self.context["team"], user):
+            raise serializers.ValidationError(
+                {"repository_integration": "Coding tasks in GitLab projects aren't available for your account yet."}
+            )
+        if attrs.get("github_integration") is not None or attrs.get("github_user_integration") is not None:
+            raise serializers.ValidationError(
+                {"repository_integration": "Set either a GitHub integration or a GitLab integration, not both."}
+            )
+        if len(repositories) != 1:
+            raise serializers.ValidationError({"repository": "Choose one GitLab project for this task."})
+        error = tasks_facade.gitlab_repository_error(attrs["repository_integration"], repositories[0])
+        if error is not None:
+            raise serializers.ValidationError({"repository": error})
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -2487,8 +2583,8 @@ class SandboxCustomImageListQuerySerializer(serializers.Serializer):
         required=False,
         choices=tasks_facade.TaskOriginProduct.choices,
         help_text=(
-            "Return 403 unless tasks from this origin product can run on custom images. "
-            "Leave it out to only check that custom images are enabled."
+            "The list is empty when tasks from this origin product cannot run on custom images. "
+            "Leave it out to list every image you can see."
         ),
     )
 

@@ -62,7 +62,7 @@ class TestMetricsValuesApi(APIBaseTest):
 OPTIONS_SQL = "SELECT DISTINCT service_name FROM posthog.metrics"
 
 
-@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091")
+@override_settings(SNUFFLE_METRICS_URL="http://snuffle.test:9091")
 class TestMetricsVariableOptionsApi(APIBaseTest):
     def _post(self, body: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/metrics/variable_options/", body, format="json")
@@ -513,13 +513,19 @@ class TestMetricQueryBodyValidation(SimpleTestCase):
         serializer = _MetricQueryBodySerializer(data={"promql": "sum(rate(http_requests_total[5m]))"})
         assert serializer.is_valid(), serializer.errors
 
+    def test_capital_m_offset_is_minutes(self) -> None:
+        serializer = _MetricQueryBodySerializer(data={"metricName": "up", "dateFrom": "-30M"})
+        assert serializer.is_valid(), serializer.errors
+        span = serializer.validated_data["dateTo"] - serializer.validated_data["dateFrom"]
+        assert span == timedelta(minutes=30)
+
     def test_builder_query_aggregation_defaults_to_sum(self) -> None:
         serializer = _MetricQueryBodySerializer(data={"metricName": "http_requests_total"})
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["aggregation"] == "sum"
 
 
-@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091")
+@override_settings(SNUFFLE_METRICS_URL="http://snuffle.test:9091")
 class TestMetricsPromqlQueryApi(APIBaseTest):
     def _post(self, query: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/metrics/query/", {"query": query}, format="json")
@@ -587,6 +593,7 @@ class TestMetricsPromqlQueryApi(APIBaseTest):
     @parameterized.expand(
         [
             ("span_over_the_builder_limit", {"dateFrom": "-40d"}, "maximum span is 31 days"),
+            ("lowercase_m_months", {"dateFrom": "-30m"}, "use '-30M' for minutes; lowercase m means months"),
             (
                 "reversed_bounds_in_one_bucket",
                 {"dateFrom": "2026-01-01T10:59:00Z", "dateTo": "2026-01-01T10:58:00Z", "interval": "hour"},
@@ -641,6 +648,18 @@ class TestMetricsPromqlQueryApi(APIBaseTest):
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert response["Retry-After"] == str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS)
         request.assert_not_called()
+
+
+class TestMetricsBuilderQueryApi(APIBaseTest):
+    def test_lowercase_m_offset_too_wide_hints_at_minutes(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query/",
+            {"query": {"metricName": "up", "dateFrom": "-30m"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "use '-30M' for minutes; lowercase m means months" in response.json()["detail"]
 
 
 class TestMetricsErrorSpikesApi(APIBaseTest):

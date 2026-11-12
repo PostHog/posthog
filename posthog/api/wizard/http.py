@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from posthog.api.email_verification import email_verification_pending
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.exceptions_capture import capture_exception
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.llm.wizard_gateway_token import (
     WizardGatewayMintError,
@@ -143,6 +144,9 @@ class SetupWizardCloudRunResponseSerializer(serializers.Serializer):
 
 
 class SetupWizardViewSet(viewsets.ViewSet):
+    # Each action resolves its target from the submitted project or validated OAuth token.
+    _ip_restrictions_use_view_scope = True
+
     permission_classes = ()
 
     def throttled(self, request: Request, wait: float) -> NoReturn:
@@ -232,6 +236,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if team is None:
             # 403: a vanished team is an authorization failure, not a missing route.
             refuse("team_missing", exceptions.PermissionDenied(ERROR_PROJECT_NOT_FOUND), user=user)
+        enforce_ip_restrictions(request, user, authenticator, organization_id=str(team.organization_id))
         posture = wizard_posture(team.organization, team)
 
         # Named ahead of the generic authorization check so the CLI can tell the user what to do.
@@ -398,16 +403,17 @@ class SetupWizardViewSet(viewsets.ViewSet):
         repository = serializer.validated_data["repository"]
         branch = serializer.validated_data.get("branch") or None
 
-        visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
         try:
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check below)
             project = Project.objects.get(id=project_id)
         except Project.DoesNotExist:
             raise serializers.ValidationError({"project_id": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
-        if project.id not in visible_project_ids:
-            raise exceptions.PermissionDenied("You don't have access to this project.")
-
         user = cast(User, request.user)
+        enforce_ip_restrictions(
+            request, user, request.successful_authenticator, organization_id=str(project.organization_id)
+        )
+        if project.id not in UserPermissions(user).project_ids_visible_for_user:
+            raise exceptions.PermissionDenied("You don't have access to this project.")
         # The sandbox this starts mints its own gateway token. Refused before the
         # attempt is reserved, so a ban does not also cost a daily slot.
         try:

@@ -136,6 +136,13 @@ class TestValidateCredentials:
             ("token secret-token is not allowed", "AppsFlyer said: token [redacted] is not allowed"),
             ("<html><body>Forbidden</body></html>", None),
             ("Forbidden: <!DOCTYPE html><html><body>Denied</body></html>", None),
+            ('{"error": "Authentication error"}', "AppsFlyer said: Authentication error"),
+            ('{"message": "token secret-token\\nis not allowed"}', "AppsFlyer said: token [redacted] is not allowed"),
+            ('{"detail": "App not found"}', "AppsFlyer said: App not found"),
+            ('{"error": {"code": 403}}', None),
+            ('{"status": "denied"}', None),
+            ('["denied"]', None),
+            ("{not json", None),
         ],
     )
     def test_validate_credentials_surfaces_appsflyer_reason(self, body: str, expected_reason: str | None) -> None:
@@ -148,6 +155,7 @@ class TestValidateCredentials:
         else:
             assert message.endswith(expected_reason)
         assert "secret-token" not in message
+        assert "{" not in message
 
     @pytest.mark.parametrize("status_code", [403, 429])
     @pytest.mark.parametrize("body", ["Limit reached for daily-report", "  LIMIT REACHED for geo-report\n"])

@@ -299,6 +299,40 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
         assert res.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403, got {res.status_code}: {res.json()}"
 
 
+# The actions viewset serves contracts, so these endpoints reach the action through its ObjectAccessRef.
+class TestObjectAccessControlsOnAContractBackedView(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        from products.actions.backend.facade.testing import create_action
+
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        self.creator = self._create_user("creator@example.com")
+        self.action = create_action(team=self.team, name="test action", created_by=self.creator)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="action",
+            resource_id=str(self.action.id),
+            organization_member=self.organization_membership,
+            access_level="viewer",
+        )
+
+    def test_access_controls_resolve_the_viewer_level(self):
+        res = self.client.get(f"/api/projects/@current/actions/{self.action.id}/access_controls")
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        body = res.json()
+        assert (body["user_access_level"], body["user_can_edit_access_levels"]) == ("viewer", False)
+        assert body["inherited_access"]["source"] == "system_default"
+
+    def test_users_with_access_name_where_each_level_comes_from(self):
+        res = self.client.get(f"/api/projects/@current/actions/{self.action.id}/users_with_access")
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        levels = {user["user_id"]: (user["access_level"], user["access_source"]) for user in res.json()["users"]}
+        assert levels[str(self.user.uuid)] == ("viewer", AccessSource.EXPLICIT_MEMBER.value)
+        assert levels[str(self.creator.uuid)] == ("manager", AccessSource.CREATOR.value)
+
+
 class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
     def setUp(self):
         super().setUp()
@@ -951,6 +985,44 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         assert data["users"][2]["access_level"] == "editor"  # user4 (default)
         assert data["users"][3]["access_level"] == "viewer"  # user2
 
+    def _count_users_with_access_queries(self, expected_total_count: int) -> int:
+        captures = [CaptureQueriesContext(connections[db]) for db in self.databases]
+        with ExitStack() as stack:
+            for capture in captures:
+                stack.enter_context(capture)
+            res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["total_count"] == expected_total_count
+        return sum(len(capture.captured_queries) for capture in captures)
+
+    def test_query_count_does_not_grow_with_member_count(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        RoleMembership.objects.create(
+            user=self.user2,
+            role=self.role,
+            organization_member=self.user2.organization_memberships.get(organization=self.organization),
+        )
+        res = self._put_notebook_access_control(
+            self.notebook.short_id, {"role": str(self.role.id), "access_level": "viewer"}
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        res = self._put_notebook_access_control(
+            self.notebook.short_id,
+            {
+                "organization_member": str(self.user3.organization_memberships.get(organization=self.organization).id),
+                "access_level": "editor",
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        self._get_users_with_access()  # warm one-off caches
+        queries_with_four_members = self._count_users_with_access_queries(expected_total_count=4)
+
+        for index in range(10):
+            self._create_user(f"member{index}@example.com")
+
+        assert self._count_users_with_access_queries(expected_total_count=14) == queries_with_four_members
+
     def test_endpoint_requires_permission(self):
         """Test that the endpoint requires appropriate permissions"""
         # Set project-level access to "none" as admin first
@@ -1491,7 +1563,7 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         with patch("posthog.utils.get_template", return_value=mock_template):
             mock_request = MagicMock()
             mock_request.user = self.user
-            mock_request.GET = {}
+            mock_request.GET = {"deferred_app_context": "0"}
             render_template("index.html", request=mock_request, context={})
 
             # Get the context passed to the template
@@ -2799,9 +2871,8 @@ class TestOrganizationMemberProjectAccess(BaseAccessControlTest):
             team=team, resource="project", resource_id=str(team.id), access_level=access_level, **subject
         )
 
-    def _get(self, member_id=None):
-        url = "/api/organizations/@current/members/project_access"
-        res = self.client.get(url if member_id is None else f"{url}?member_id={member_id}")
+    def _get(self, **query):
+        res = self.client.get("/api/organizations/@current/members/project_access", query)
         assert res.status_code == status.HTTP_200_OK, res.json()
         return res.json()["results"]
 
@@ -2857,15 +2928,35 @@ class TestOrganizationMemberProjectAccess(BaseAccessControlTest):
             str(self.user2_membership.id),
         }
         assert str(hidden_membership.id) not in {m["organization_membership_id"] for m in results}
+        res = self.client.get("/api/organizations/@current/members/project_access", {"email": "hidden@example.com"})
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
-    def test_member_id_narrows_to_one_member_and_unknown_member_is_404(self):
-        results = self._get(self.user2_membership.id)
+    @parameterized.expand(
+        [
+            ("member_id", lambda membership: {"member_id": membership.id}),
+            ("email_case_insensitive", lambda membership: {"email": membership.user.email.upper()}),
+        ]
+    )
+    def test_filter_narrows_to_one_member_and_unknown_member_is_404(self, _name, query_for):
+        results = self._get(**query_for(self.user2_membership))
         assert [m["organization_membership_id"] for m in results] == [str(self.user2_membership.id)]
 
         other_org = Organization.objects.create(name="Other org")
         other_user = User.objects.create_and_join(other_org, "other-org-user@posthog.com", None)
         other_membership = OrganizationMembership.objects.get(user=other_user, organization=other_org)
-        res = self.client.get(f"/api/organizations/@current/members/project_access?member_id={other_membership.id}")
+        res = self.client.get("/api/organizations/@current/members/project_access", query_for(other_membership))
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+    @parameterized.expand([("email_alone", {"email": ""}), ("with_member_id", {"email": "", "member_id": None})])
+    def test_blank_email_filter_is_rejected(self, _name, query):
+        if "member_id" in query:
+            query = {**query, "member_id": self.user2_membership.id}
+        res = self.client.get("/api/organizations/@current/members/project_access", query)
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+    def test_email_filter_does_not_match_a_homoglyph_address(self):
+        self._create_user("owner@\u0131bm.example")
+        res = self.client.get("/api/organizations/@current/members/project_access", {"email": "owner@ibm.example"})
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
     def test_membership_level_decides_without_the_entitlement(self):

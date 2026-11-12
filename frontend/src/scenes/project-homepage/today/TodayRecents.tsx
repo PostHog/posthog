@@ -28,7 +28,7 @@ function RecentObjectRow({
     position: number
     frequent: boolean
 }): JSX.Element {
-    const preview = useMemo(() => objectPreview(entry), [entry])
+    const preview = useMemo(() => objectPreview(entry, 'jump_back'), [entry])
     const { jumpBackOpened } = useActions(todayLogic)
     return (
         <li className="TodayJumpRow">

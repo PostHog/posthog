@@ -360,6 +360,13 @@ export const HarnessLogoInResults: Story = {
     tags: ['harness-result-visual'],
     parameters: {
         pageUrl: urls.sqlEditor({ query: HARNESS_SQL }),
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/mcp_analytics/custom_harnesses/': [],
+                },
+            },
+        },
         testOptions: {
             waitForSelector: '.rdg [data-attr="hogqlx-brand-mark-label"]',
             viewport: { width: 1600, height: 900 },
@@ -383,6 +390,8 @@ export const HarnessLogoInResults: Story = {
             await canvas.findByText('Claude Code', { selector: '.rdg span' }, { timeout: 15000 })
         ).toBeVisible()
         await expect(canvas.getByText('OpenAI Codex')).toBeVisible()
+        const logic = sqlEditorLogic({ tabId: 'default' })
+        dataNodeLogic.findMounted({ key: logic.values.dataLogicKey })!.actions.setElapsedTime(180)
     },
 }
 
@@ -755,7 +764,6 @@ const BI_MODE_WORKSHEET_MOCKS = {
 export const BIModeWorksheet: Story = {
     beforeEach: pinQueryTimer,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         // The editor restores BI state only alongside the query it generated
         pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({
             q: buildBIQuery(BI_WORKSHEET_CONFIG)?.query ?? '',

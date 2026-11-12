@@ -1,5 +1,6 @@
 import dataclasses
-from datetime import date, datetime
+from collections.abc import Callable
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Optional
 
 from requests import Response
@@ -21,11 +22,9 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.surveysparrow.settings import (
     SURVEYSPARROW_ENDPOINTS,
+    FanoutParent,
     SurveySparrowEndpointConfig,
 )
-
-# Page size used when enumerating survey ids for fan-out endpoints (/v3/surveys caps at 100).
-SURVEY_LIST_PAGE_SIZE = 100
 
 
 @dataclasses.dataclass(frozen=False)
@@ -89,6 +88,21 @@ def _format_cutoff(value: Any) -> str:
     return str(value)
 
 
+def _format_datetime_cutoff(value: Any) -> str:
+    """Format the incremental watermark for filters that take ``YYYY-MM-DDTHH:MM:SS``.
+
+    The docs don't say which timezone the filter is read in, so the cutoff starts one day before
+    the watermark. That covers any UTC offset, and merge dedupes the overlap.
+    """
+    if isinstance(value, datetime):
+        moment = value.astimezone(UTC) if value.tzinfo else value
+    elif isinstance(value, date):
+        moment = datetime.combine(value, time.min)
+    else:
+        return str(value)
+    return (moment - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
 def _incremental_config(
     endpoint: str,
     should_use_incremental_field: bool,
@@ -96,8 +110,8 @@ def _incremental_config(
 ) -> IncrementalConfig | None:
     """Server-side date filter (e.g. ``date.gte``), only when we hold a cursor value.
 
-    Mirrors the old behaviour: no filter on a first (full) sync, and the persisted watermark floored
-    to a day the way SurveySparrow's date filters expect.
+    No filter on a first (full) sync. The persisted watermark is formatted the way the endpoint's
+    filter expects: floored to a day, or a full timestamp.
     """
     config = SURVEYSPARROW_ENDPOINTS[endpoint]
     if not should_use_incremental_field or db_incremental_field_last_value is None or not config.cutoff_param:
@@ -105,17 +119,22 @@ def _incremental_config(
     return {
         "start_param": config.cutoff_param,
         "cursor_path": config.default_incremental_field or "completed_time",
-        "convert": _format_cutoff,
+        "convert": _format_datetime_cutoff if config.cutoff_includes_time else _format_cutoff,
     }
 
 
-def _stamp_survey_id(row: dict[str, Any]) -> dict[str, Any]:
-    # ``include_from_parent`` injects the parent survey's id as ``_surveys_id``; expose it under the
-    # ``survey_id`` column the child rows carry. Rows already carry survey_id per the docs, but the
-    # composite primary key must never be null, so stamp it from the parent regardless.
-    if "_surveys_id" in row:
-        row["survey_id"] = row.pop("_surveys_id")
-    return row
+def _parent_id_stamper(parent: FanoutParent) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    # ``include_from_parent`` injects the parent's id as ``_<parent>_id``; expose it under the column
+    # the child rows carry. Rows already carry it per the docs, but the composite primary key must
+    # never be null, so stamp it from the parent regardless.
+    injected_key = f"_{parent.name}_id"
+
+    def stamp(row: dict[str, Any]) -> dict[str, Any]:
+        if injected_key in row:
+            row[parent.child_column] = row.pop(injected_key)
+        return row
+
+    return stamp
 
 
 def _client_config(access_token: str, base_url: str) -> ClientConfig:
@@ -129,49 +148,51 @@ def _client_config(access_token: str, base_url: str) -> ClientConfig:
     }
 
 
-def _simple_resource(config: SurveySparrowEndpointConfig) -> EndpointResource:
-    return {
-        "name": config.name,
-        "endpoint": {
-            "path": config.path,
-            "params": {"limit": config.page_size, **config.extra_params},
-            "data_selector": "data",
-            # The old code raised a retryable error when a 200 body wasn't ``{"data": [...]}``;
-            # keep that defensive treatment of an unexpected shape as transient.
-            "data_selector_malformed_retryable": True,
-        },
+def _simple_resource(config: SurveySparrowEndpointConfig, incremental: IncrementalConfig | None) -> EndpointResource:
+    endpoint: Endpoint = {
+        "path": config.path,
+        "params": {"limit": config.page_size, **config.extra_params} if config.paginated else {**config.extra_params},
+        "data_selector": "data",
+        # The old code raised a retryable error when a 200 body wasn't ``{"data": [...]}``;
+        # keep that defensive treatment of an unexpected shape as transient.
+        "data_selector_malformed_retryable": True,
     }
+    if not config.paginated:
+        endpoint["paginator"] = "single_page"
+    if incremental is not None:
+        endpoint["incremental"] = incremental
+    return {"name": config.name, "endpoint": endpoint}
 
 
-def _parent_surveys_resource() -> EndpointResource:
-    # Fan-out enumerates every survey id via a bare ``/v3/surveys`` listing (no cutoff): the child
-    # endpoints must fan out over ALL surveys, never only the recently-modified slice.
+def _parent_resource(parent: FanoutParent) -> EndpointResource:
+    # The parent listing has no cutoff: children must fan out over ALL parents, never only the
+    # recently-modified slice.
     return {
-        "name": "surveys",
+        "name": parent.name,
         "endpoint": {
-            "path": SURVEYSPARROW_ENDPOINTS["surveys"].path,
-            "params": {"limit": SURVEY_LIST_PAGE_SIZE},
+            "path": parent.path,
+            "params": {"limit": parent.page_size},
             "data_selector": "data",
         },
     }
 
 
 def _fanout_child_resource(
-    config: SurveySparrowEndpointConfig, incremental: IncrementalConfig | None
+    config: SurveySparrowEndpointConfig, parent: FanoutParent, incremental: IncrementalConfig | None
 ) -> EndpointResource:
-    # SurveySparrow scopes /v3/responses and /v3/questions by a ``survey_id`` QUERY param. The
-    # resolve mechanism only substitutes into the path, so embed the query param in the path with
-    # the placeholder; the paginator appends its own page/limit params with ``&``.
+    # The resolve mechanism only substitutes into the path, so a parent id that SurveySparrow takes
+    # as a QUERY param (``survey_id``, ``app_platform_id``) sits in the path with its placeholder;
+    # the paginator appends its own page/limit params with ``&``.
     child_endpoint: Endpoint = {
-        "path": f"{config.path}?survey_id={{survey_id}}",
+        "path": config.path,
         "params": {
-            "survey_id": {"type": "resolve", "resource": "surveys", "field": "id"},
+            parent.child_column: {"type": "resolve", "resource": parent.name, "field": "id"},
             "limit": config.page_size,
             **config.extra_params,
         },
         "data_selector": "data",
-        # The path ends in a {survey_id} placeholder, which the engine would otherwise read as a
-        # single-entity endpoint and force onto SinglePagePaginator; pin the page-number paginator.
+        # A path ending in a placeholder would otherwise be read as a single-entity endpoint and
+        # forced onto SinglePagePaginator; pin the page-number paginator.
         "paginator": HasNextPagePaginator(),
     }
     if incremental is not None:
@@ -180,7 +201,7 @@ def _fanout_child_resource(
         "name": config.name,
         "include_from_parent": ["id"],
         "endpoint": child_endpoint,
-        "data_map": _stamp_survey_id,
+        "data_map": _parent_id_stamper(parent),
     }
 
 
@@ -197,13 +218,14 @@ def surveysparrow_source(
     config = SURVEYSPARROW_ENDPOINTS[endpoint]
     client_config = _client_config(access_token, base_url)
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    incremental = _incremental_config(endpoint, should_use_incremental_field, db_incremental_field_last_value)
 
     resource: Resource
-    if not config.is_fanout:
+    if config.parent is None:
         rest_config: RESTAPIConfig = {
             "client": client_config,
             "resource_defaults": {},
-            "resources": [_simple_resource(config)],
+            "resources": [_simple_resource(config, incremental)],
         }
 
         def save_simple(state: Optional[dict[str, Any]]) -> None:
@@ -221,11 +243,13 @@ def surveysparrow_source(
             initial_paginator_state=(resume.paginator_state if resume is not None else None),
         )
     else:
-        incremental = _incremental_config(endpoint, should_use_incremental_field, db_incremental_field_last_value)
         fanout_config: RESTAPIConfig = {
             "client": client_config,
             "resource_defaults": {},
-            "resources": [_parent_surveys_resource(), _fanout_child_resource(config, incremental)],
+            "resources": [
+                _parent_resource(config.parent),
+                _fanout_child_resource(config, config.parent, incremental),
+            ],
         }
 
         def save_fanout(state: Optional[dict[str, Any]]) -> None:
@@ -246,7 +270,7 @@ def surveysparrow_source(
         name=endpoint,
         items=lambda: resource,
         primary_keys=config.primary_keys,
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

@@ -17,6 +17,7 @@ from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_L
 from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for, content_for
 from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.facade.contracts import (
+    SLACK_IMAGE_SLOT_BLOCK_ID,
     AlertDestinationData,
     AlertEventKind,
     MessageDetail,
@@ -66,6 +67,7 @@ class TestSlackBlocks(SimpleTestCase):
                 headline="API errors could not be checked",
                 details=(MessageDetail(label="Error", value="no column <!channel> in <http://x|table>"),),
                 context=("Services: <!channel>",),
+                rule_details=(MessageDetail(label="description", value="<!here> down"),),
             ),
             project=MessageLink(label="Prod <!channel>", url="https://app.example.com/project/2"),
         )
@@ -74,7 +76,9 @@ class TestSlackBlocks(SimpleTestCase):
         body = blocks[1]["text"]["text"]
         context, project = (element["text"] for element in blocks[2]["elements"])
 
-        assert "<!channel>" not in body + context + project
+        assert "<!" not in body + context + project
+        assert "*description:* &lt;!here&gt; down" in body
+        assert blocks[1]["text"]["verbatim"] is True
         assert "&lt;!channel&gt;" in body
         assert context == "Services: &lt;!channel&gt;"
         assert project == "Project: <https://app.example.com/project/2|Prod &lt;!channel&gt;>"
@@ -283,6 +287,56 @@ class TestSlackAttachmentTransport(SimpleTestCase):
             assert content.attachments[1]["blocks"] == [image, actions]
 
 
+class TestSlackLateImage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("into_its_slot", "divider", None, True),
+            ("without_a_slot", None, None, False),
+            ("already_holding_one", "image", None, False),
+            ("refused_by_slack", "divider", "invalid_blocks", False),
+        ]
+    )
+    def test_a_late_image_replaces_the_opening_message_placeholder(
+        self, _name: str, slot: str | None, refusal: str | None, edited: bool
+    ) -> None:
+        placeholder = {"type": slot or "divider", **({"block_id": SLACK_IMAGE_SLOT_BLOCK_ID} if slot else {})}
+        actions = {"type": "actions", "elements": []}
+        root = MessageHandle(
+            external_ref={"channel": "C-SAMPLE", "ts": "1700000000.1"},
+            root_content={"text": "Fired", "blocks": [], "attachments": [{"blocks": [placeholder, actions]}]},
+        )
+        target = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": 1, "slack_channel_id": "C-SAMPLE"})
+        image = MessageImage(url="https://example.com/chart.png", alt_text="Chart")
+        with (
+            patch.object(SlackTransport, "_integration"),
+            patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as integration,
+        ):
+            update = integration.return_value.client.chat_update
+            if refusal:
+                update.side_effect = SlackApiError(refusal, {"error": refusal})
+
+            def add() -> dict[str, Any] | None:
+                return SlackTransport().add_root_image(
+                    team_id=1, target=target, root=root, image=image, state_line="Still firing"
+                )
+
+            if refusal:
+                with pytest.raises(DeliveryError):
+                    add()
+                assert update.call_count == 1
+                return
+            content = add()
+        if not edited:
+            assert content == (root.root_content if slot else None)
+            update.assert_not_called()
+            return
+        slotted = {"type": "image", "image_url": image.url, "alt_text": "Chart", "block_id": SLACK_IMAGE_SLOT_BLOCK_ID}
+        assert content == {"text": "Fired", "blocks": [], "attachments": [{"blocks": [slotted, actions]}]}
+        sent = update.call_args.kwargs["attachments"][0]["blocks"]
+        assert sent[0] == slotted
+        assert sent[-2]["elements"][0]["text"] == "Still firing"
+
+
 class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
     @parameterized.expand(
         [
@@ -293,7 +347,7 @@ class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
             ("blocks_without_an_action_row", True, True),
         ]
     )
-    def test_untracked_groups_detail_survives_any_renderer_shape(
+    def test_rule_metadata_and_group_limit_survive_any_renderer_shape(
         self, _name: str, blocks_only: bool, without_actions: bool
     ) -> None:
         rendered: list[dict[str, Any]] = [{"type": "divider"}]
@@ -305,12 +359,21 @@ class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
             else SlackMessageContent(text="Alert", blocks=[], attachments=[{"blocks": rendered}])
         )
         message = replace(
-            MESSAGE, details=(MessageDetail(label=UNTRACKED_GROUPS_LABEL, value="2 more groups not tracked"),)
+            MESSAGE,
+            details=(
+                MessageDetail(label="Value", value="300"),
+                MessageDetail(label=UNTRACKED_GROUPS_LABEL, value="2 more groups not tracked"),
+            ),
+            rule_details=(MessageDetail(label="team", value="payments"),),
         )
         with patch("products.alerts_platform.backend.delivery.slack.slack_renderer_for") as renderer:
             renderer.return_value.return_value = content
             result = content_for(team_id=1, message=message)
         blocks = result.blocks if blocks_only else result.attachments[0]["blocks"]
         assert "2 more groups not tracked" in str(blocks)
+        assert "*team:* payments" in str(blocks)
+        notice = next(block for block in blocks if "*team:* payments" in block.get("text", {}).get("text", ""))
+        assert notice["text"]["verbatim"] is True
+        assert "*Value:*" not in str(blocks)
         # Above the buttons when there are buttons, so the notice is never read as one of them.
         assert blocks[-1]["type"] == ("section" if without_actions else "actions")

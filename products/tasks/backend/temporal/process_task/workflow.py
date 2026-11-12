@@ -653,6 +653,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return TaskEvent.CI_FOLLOW_UP
 
     def _self_driving_quota_recheck_scheduled(self) -> bool:
+        if not self._self_driving_quota_checks_active or self._context is None:
+            return False
+        if (self.context.state or {}).get("self_driving_funding", {}).get("funding") == "trial" and workflow.patched(
+            "self-driving-trial-quota-rechecks"
+        ):
+            return True
         return (
             self._self_driving_quota_checks_active
             and self._context is not None
@@ -1412,10 +1418,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             # here as well so loop exit doesn't depend on signal delivery order.
                             if not self._task_completed:
                                 self._completion_status = "cancelled"
-                                self._completion_error = (
-                                    "Stopped automatically: the organization reached its "
-                                    "self-driving pull request limit."
-                                )
+                                self._completion_error = "Stopped automatically: the organization reached its self-driving pull request limit."
                                 self._task_completed = True
                     case TaskEvent.SANDBOX_GONE:
                         await self._mark_sandbox_gone()
@@ -2053,7 +2056,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup", wait=False)
 
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
-        has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
+        has_clone_credentials = (
+            self.context.has_github_credentials
+            or can_clone_without_integration
+            or (self.context.has_gitlab_credentials and workflow.patched("tasks-gitlab-clone-2026-11"))
+        )
 
         repositories_to_clone = [] if used_snapshot or not has_clone_credentials else self.context.repositories
         will_clone = bool(repositories_to_clone)
@@ -2094,6 +2101,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             repository=repository,
                             github_token=prepared.github_token,
                             shallow_clone=prepared.shallow_clone,
+                            gitlab_token=prepared.gitlab_token,
                         ),
                         start_to_close_timeout=timedelta(minutes=5),
                         schedule_to_close_timeout=timedelta(minutes=5),

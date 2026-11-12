@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+
 import {
     IconApps,
     IconBuilding,
@@ -14,7 +16,6 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { productHasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
@@ -23,6 +24,8 @@ import { ProductIconWrapper } from '~/layout/panel-layout/ProjectTree/defaultTre
 import { SIDEBAR_GROUP_META, SidebarProductMeta, sidebarProductCopy } from '~/layout/panel-layout/sidebarProductMeta'
 import type { ResourceType } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlResourceType, FileSystemIconColor } from '~/types'
+
+import { todayShellLogic } from './todayShellLogic'
 
 // pinned: persisted section ids and the `section` property of `people section toggled`.
 export type TodayPeopleSection = 'recents' | 'groups' | 'customer-analytics'
@@ -147,6 +150,20 @@ export const TODAY_PEOPLE_ROWS = {
         href: () => urls.customerAnalyticsJourneys(),
         enabled: withCustomerAnalytics(FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS),
     },
+    product_activity: {
+        label: 'Product activity',
+        icon: <IconPulse />,
+        explainer: {
+            description: 'Compare account activity across products and time periods.',
+            example: 'See which accounts started using a product this week.',
+        },
+        section: 'customer-analytics',
+        href: () => urls.customerAnalyticsProductActivity(),
+        enabled: withCustomerAnalytics(
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX
+        ),
+    },
     notes: {
         label: 'Notes',
         icon: <IconNotebook />,
@@ -228,9 +245,9 @@ export function todayPeopleRowIcon(key: TodayPeopleStaticRowKey): JSX.Element {
     )
 }
 
-/** The name of a page's People pane row under today-rail-nav, else null. For selectors, like breadcrumbs. */
-export function todayPeopleRowLabel(featureFlags: FeatureFlagsSet, key: TodayPeopleStaticRowKey): string | null {
-    return featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] ? rowDefinition(key).label : null
+/** The name of a page's People pane row while that pane is open, else null. For selectors, like breadcrumbs. */
+export function todayPeopleRowLabel(peoplePaneLinksTabs: boolean, key: TodayPeopleStaticRowKey): string | null {
+    return peoplePaneLinksTabs ? rowDefinition(key).label : null
 }
 
 export interface TodayPeopleTitle {
@@ -239,12 +256,12 @@ export interface TodayPeopleTitle {
 }
 
 /**
- * The scene title of a page under today-rail-nav: its People pane row's name and icon, so the header matches the nav.
- * Null with the flag off, so a page keeps its own title. A group type page passes 'group' and keeps its own name.
+ * The scene title of a page while the People pane is open: its row's name and icon, so the header matches the nav.
+ * Null from any other pane, so the page keeps its own title. A group type page passes 'group' and keeps its own name.
  */
 export function useTodayPeopleTitle(key: TodayPeopleStaticRowKey | 'group'): TodayPeopleTitle | null {
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    if (!todayRailNav) {
+    const { peoplePaneLinksTabs } = useValues(todayShellLogic)
+    if (!peoplePaneLinksTabs) {
         return null
     }
     if (key === 'group') {

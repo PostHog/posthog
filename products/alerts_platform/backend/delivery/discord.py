@@ -57,7 +57,7 @@ def _footer(message: AlertMessage) -> str:
 
 def _body(message: AlertMessage, limit: int) -> str:
     headline = f"**{escape_markdown(message.title)}**"
-    lines = [f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.details]
+    lines = [f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.all_details]
     if not lines:
         return headline
     body = f"{headline}\n\n" + "\n".join(lines)
@@ -72,6 +72,9 @@ def _body(message: AlertMessage, limit: int) -> str:
 class DiscordTransport(WebhookUrlTransport):
     provider = PROVIDER
     display_name = "Discord"
+    # 401 is a bad token and 404 a deleted webhook. Discord answers a body it rejects with 400 and a
+    # missing User-Agent with 403, and both of those are PostHog's to fix.
+    owner_refusals = {401: None, 404: None}
 
     def check_url(self, url: str) -> None:
         # The URL shape the HogFunction template accepts, so no destination that works today is refused.

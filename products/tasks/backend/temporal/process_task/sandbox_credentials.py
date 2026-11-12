@@ -2,6 +2,7 @@
 
 import shlex
 import logging
+import textwrap
 import contextlib
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -12,10 +13,11 @@ from django.db import transaction
 import redis
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.redis import get_client
 
+from products.tasks.backend.constants import GITLAB_HOST, SANDBOX_REPOSITORIES_ROOT
 from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxExecutionError
 from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE, OAUTH_ENV_FILE
 from products.tasks.backend.logic.services.run_actor import loop_owner_eligible_for_credentials
@@ -60,11 +62,14 @@ def github_refresh_interval_seconds(token: str) -> float:
     return DEFAULT_REFRESH_INTERVAL_SECONDS
 
 
-def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: str | None) -> bool:
+def set_git_remote_token(
+    sandbox: "SandboxBase", repository: str, github_token: str | None, *, gitlab_token: str | None = None
+) -> bool:
     """Rewrite ``origin`` with the current credential state; git re-reads it on every operation."""
-    org, repo = repository.lower().split("/")
-    repo_path = f"/tmp/workspace/repos/{org}/{repo}"
-    if github_token:
+    repo_path = f"{SANDBOX_REPOSITORIES_ROOT}/{repository.lower()}"
+    if gitlab_token:
+        remote_url = f"https://oauth2:{gitlab_token}@{GITLAB_HOST}/{repository.lower()}.git"
+    elif github_token:
         remote_url = f"https://x-access-token:{github_token}@github.com/{repository}.git"
     else:
         remote_url = f"https://github.com/{repository}.git"
@@ -156,6 +161,45 @@ def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repositories: 
     return remote_cleared and env_cleared
 
 
+def clear_github_env_from_gitlab_sandbox(sandbox: "SandboxBase") -> bool:
+    """Clear GitHub credentials while retaining any GitLab remote configuration."""
+    script = textwrap.dedent("""\
+        import os
+        import re
+        import subprocess
+        import sys
+
+        def fail(error):
+            raise error
+
+        for directory, dirs, files in os.walk(sys.argv[1], onerror=fail):
+            if ".git" not in dirs and ".git" not in files:
+                continue
+            # A checkout root: never walk into its working tree, which can hold huge build output.
+            dirs.clear()
+            command = ["git", "-C", directory, "config", "--local", "--no-includes"]
+            result = subprocess.run(command + ["--null", "--get-regexp", r"^remote\\..*\\.(url|pushurl)$"], capture_output=True)
+            if result.returncode == 1:
+                continue
+            result.check_returncode()
+            values = {}
+            for entry in result.stdout.split(b"\\0"):
+                if entry:
+                    key, value = entry.split(b"\\n", 1)
+                    values.setdefault(key, []).append(value)
+            for key, urls in values.items():
+                cleaned = [re.sub(rb"(?i)^(https?://)[^/@]+@(?=github\\.com(?::[0-9]+)?/)", rb"\\1", url) for url in urls]
+                if cleaned != urls:
+                    subprocess.run(command + ["--unset-all", os.fsdecode(key)], check=True, capture_output=True)
+                    for url in cleaned:
+                        subprocess.run(command + ["--add", os.fsdecode(key), os.fsdecode(url)], check=True, capture_output=True)
+    """)
+    command = f"python3 -c {shlex.quote(script)} {shlex.quote(SANDBOX_REPOSITORIES_ROOT)}"
+    result = sandbox.execute(command, timeout_seconds=CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS)
+    env_cleared = _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, b"")
+    return result.exit_code == 0 and env_cleared
+
+
 def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
     """Whether a persisted legacy loop run's owner may still receive credentials."""
     if (state or {}).get("loop_id") is None:
@@ -226,12 +270,18 @@ def sandbox_credential_lock(sandbox_id: str) -> Iterator[bool]:
         yield acquired
 
 
+def _is_gitlab_task(task_id: str) -> bool:
+    return Task.objects.filter(id=task_id, repository_integration_id__isnull=False).exists()
+
+
 def _apply_token_locked(
     sandbox: "SandboxBase",
     repositories: Sequence[str],
     token: str,
     run_id: str,
     permitted_session_user_id: int | None,
+    *,
+    task_id: str,
 ) -> bool:
     """Apply a token only while the sandbox's session still belongs to the permitted identity.
 
@@ -242,6 +292,11 @@ def _apply_token_locked(
     with sandbox_credential_lock(sandbox.id) as acquired:
         if not acquired:
             logger.warning("token_apply_skipped_lock_unavailable", extra={"run_id": run_id, "sandbox_id": sandbox.id})
+            return False
+        # A GitLab turn clears GitHub credentials under this same lock, so a task that moved to
+        # GitLab is checked here rather than under a task row lock held across the sandbox write.
+        if _is_gitlab_task(task_id):
+            logger.info("token_apply_skipped_gitlab_task", extra={"run_id": run_id, "sandbox_id": sandbox.id})
             return False
         rebound_actor = _actor_rebound_away_from(sandbox.id, permitted_session_user_id)
         if rebound_actor is not None:
@@ -275,6 +330,7 @@ class LiveSandbox(NamedTuple):
     sandbox_id: str
     repository: str | None
     owner_id: int | None
+    task_id: str
 
 
 def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveSandbox]:
@@ -282,6 +338,7 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveS
     runs = TaskRun.objects.filter(
         status=TaskRun.Status.IN_PROGRESS,
         task__github_user_integration_id=user_integration_id,
+        task__repository_integration_id__isnull=True,
     ).select_related("task", "task__team")
     for run in runs:
         sandbox_id = (run.state or {}).get("sandbox_id")
@@ -302,7 +359,7 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveS
         # a different actor, or re-applying it would resurrect the owner's identity for that actor.
         if _actor_rebound_away_from(sandbox_id, run.task.created_by_id) is not None:
             continue
-        rows.append(LiveSandbox(str(run.id), sandbox_id, run.task.repository, run.task.created_by_id))
+        rows.append(LiveSandbox(str(run.id), sandbox_id, run.task.repository, run.task.created_by_id, str(run.task_id)))
     return rows
 
 
@@ -316,7 +373,12 @@ def _propagate_user_token(user_integration_id: int, token: str) -> int:
             # Re-check the actor binding under the per-sandbox lock: the filter above is not atomic
             # with this write, so a transition could have rebound the sandbox in between.
             if sandbox.is_running() and _apply_token_locked(
-                sandbox, [live.repository] if live.repository else [], token, live.run_id, live.owner_id
+                sandbox,
+                [live.repository] if live.repository else [],
+                token,
+                live.run_id,
+                live.owner_id,
+                task_id=live.task_id,
             ):
                 applied += 1
         except Exception:
@@ -391,6 +453,12 @@ class GitHubSandboxCredential:
     kind: str = "github"
 
     def refresh(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> CredentialRefreshOutcome:
+        # A run that started on GitHub keeps this credential in its context after the task moves to
+        # GitLab, and a GitLab sandbox must not get a GitHub token back.
+        if task.repository_integration_id is not None:
+            return CredentialRefreshOutcome(
+                self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
+            )
         # A read-only run must stay read-only for its whole lifetime: without this guard the
         # periodic refresh would resolve the full credential path (the team integration is
         # attached to every task) and silently swap the downscoped token for the write-capable
@@ -482,7 +550,7 @@ class GitHubSandboxCredential:
                 github_user_integration_id=github_user_integration_id,
                 repository=ctx.repository,
             )
-        except (Integration.DoesNotExist, UserIntegration.DoesNotExist) as e:
+        except (IntegrationNotFound, UserIntegration.DoesNotExist) as e:
             raise CredentialUnavailableError(
                 "GitHub integration for this run no longer exists",
                 {"run_id": ctx.run_id, "task_id": ctx.task_id},
@@ -511,7 +579,9 @@ class GitHubSandboxCredential:
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
             )
 
-        applied = _apply_token_locked(sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id)
+        applied = _apply_token_locked(
+            sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id, task_id=ctx.task_id
+        )
         return CredentialRefreshOutcome(
             self.kind, refreshed=applied, next_refresh_seconds=github_refresh_interval_seconds(token)
         )
@@ -536,14 +606,18 @@ class GitHubSandboxCredential:
                 )
             # An installation token is the team's, not a person's, so it may only land in the
             # owner's own session, never in that of someone whose personal token just failed.
-            applied = _apply_token_locked(sandbox, ctx.repositories, fallback, ctx.run_id, task.created_by_id)
+            applied = _apply_token_locked(
+                sandbox, ctx.repositories, fallback, ctx.run_id, task.created_by_id, task_id=ctx.task_id
+            )
             return CredentialRefreshOutcome(
                 self.kind, refreshed=applied, next_refresh_seconds=github_refresh_interval_seconds(fallback)
             )
         if token and _loop_owner_credentials_revoked(task, ctx.state):
             token = None
         applied = (
-            _apply_token_locked(sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id)
+            _apply_token_locked(
+                sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id, task_id=ctx.task_id
+            )
             if token
             else False
         )
@@ -559,8 +633,10 @@ class GitHubSandboxCredential:
                 cause=cause,
             )
         try:
-            return get_github_token(task.github_integration_id, repositories=ctx.github_access_repositories)
-        except Integration.DoesNotExist as e:
+            return get_github_token(
+                task.team_id, task.github_integration_id, repositories=ctx.github_access_repositories
+            )
+        except IntegrationNotFound as e:
             raise CredentialUnavailableError(
                 "GitHub integration for this run no longer exists",
                 {"run_id": ctx.run_id, "task_id": ctx.task_id},
