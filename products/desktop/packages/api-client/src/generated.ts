@@ -10645,6 +10645,18 @@ export namespace Schemas {
      * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
      * * `changed_at` - When a change of the feature flag was saved
      * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+     * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+     * * `before` - What a change of the feature flag changed, as it was before the change, in words
+     * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+     * * `event` - The name of an event that the check looked up
+     * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+     * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+     * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+     * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+     * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+     * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
      */
     export type ExperimentHealthValueKeyEnum =
         | "exposed_count"
@@ -10689,7 +10701,19 @@ export namespace Schemas {
         | "forced_percentage"
         | "traffic_since_at"
         | "changed_at"
-        | "before_exposure";
+        | "before_exposure"
+        | "changed_setting"
+        | "before"
+        | "after"
+        | "flag_service_call_percentage"
+        | "event"
+        | "event_received"
+        | "invalid_metric_count"
+        | "unchecked_metric_count"
+        | "flag_split"
+        | "baseline_variant"
+        | "other_running_experiment_count"
+        | "other_draft_experiment_count";
     /**
      * * `above` - Finding above the threshold
      * * `below` - Finding below the threshold
@@ -10746,6 +10770,18 @@ export namespace Schemas {
          * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
          * * `changed_at` - When a change of the feature flag was saved
          * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+         * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+         * * `before` - What a change of the feature flag changed, as it was before the change, in words
+         * * `after` - What a change of the feature flag changed, as it was after the change, in words
+         * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+         * * `event` - The name of an event that the check looked up
+         * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+         * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+         * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+         * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+         * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+         * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+         * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -10800,6 +10836,18 @@ export namespace Schemas {
          * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
          * * `changed_at` - When a change of the feature flag was saved
          * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
+         * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
+         * * `before` - What a change of the feature flag changed, as it was before the change, in words
+         * * `after` - What a change of the feature flag changed, as it was after the change, in words
+         * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+         * * `event` - The name of an event that the check looked up
+         * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
+         * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
+         * * `unchecked_metric_count` - Metrics whose query the check couldn't compile, because they read data that the reader can't query or the compile failed for a reason other than the metric
+         * * `flag_split` - The feature flag's variants with their rollout percentages, in words
+         * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
+         * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
+         * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
          */
         value: ExperimentHealthValueKeyEnum;
         /**
