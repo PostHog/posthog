@@ -921,11 +921,14 @@ describe('Cyclotron V2', () => {
                         expireInterval()
                         const afterIdle = m.createJob({ teamId: 1, queueName: QUEUE })
                         await depth.entered()
+                        const duringRecount = m.createJob({ teamId: 1, queueName: QUEUE })
                         expect(await stillPendingAfter(afterIdle, 200)).toBe(true)
+                        expect(await stillPendingAfter(duringRecount, 0)).toBe(true)
 
                         await depth.release()
                         await afterIdle
-                        expect(await storedJobs()).toBe(1)
+                        await duringRecount
+                        expect(await storedJobs()).toBe(2)
                     }
                 )
             })

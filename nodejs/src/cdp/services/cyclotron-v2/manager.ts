@@ -272,6 +272,7 @@ export class CyclotronV2Manager {
     private depthCheckPromise: Promise<boolean> | null = null
     private depthCheckExpiresAt = 0
     private lastDepthFull: boolean | null = null
+    private lastDepthCountedAt = 0
     private depthRefresh: Promise<boolean> | null = null
     private readonly depthRefreshSql: string
     private readonly reschedule: {
@@ -1086,7 +1087,7 @@ export class CyclotronV2Manager {
 
     private isFullFromLastDepth(): Promise<boolean> | boolean {
         const now = Date.now()
-        if (this.lastDepthFull === null || now >= this.depthCheckExpiresAt + this.depthCheckIntervalMs) {
+        if (this.lastDepthFull === null || now >= this.lastDepthCountedAt + 2 * this.depthCheckIntervalMs) {
             return this.refreshDepth()
         }
         if (now >= this.depthCheckExpiresAt) {
@@ -1097,10 +1098,12 @@ export class CyclotronV2Manager {
 
     private refreshDepth(): Promise<boolean> {
         if (!this.depthRefresh) {
-            this.depthCheckExpiresAt = Date.now() + this.depthCheckIntervalMs
+            const countedAt = Date.now()
+            this.depthCheckExpiresAt = countedAt + this.depthCheckIntervalMs
             this.depthRefresh = this.queryDepth(this.pool, this.depthRefreshSql)
                 .then((full) => {
                     this.lastDepthFull = full
+                    this.lastDepthCountedAt = countedAt
                     return full
                 })
                 .finally(() => {
