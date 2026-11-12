@@ -254,6 +254,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         hogFunction: HogFunctionType
     ): Promise<HogFlowTriggerOutcome> {
         if (await this.isHogFlowQuotaLimited(hogFlow)) {
+            await this.hogFunctionMonitoringService.flush()
             throw new SourceWebhookError(429, HOG_FLOW_QUOTA_LIMITED_MESSAGE)
         }
 

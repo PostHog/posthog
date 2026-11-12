@@ -1886,6 +1886,10 @@ describe('CDP API', () => {
                 billable_action_types: ['function'],
             })
             const quotaSpy = jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+            const queueMessages = jest.spyOn(
+                api['invocationResultsService'].monitoringService['outputs'],
+                'queueMessages'
+            )
 
             try {
                 const res = await supertest(app)
@@ -1897,8 +1901,20 @@ describe('CDP API', () => {
                 expect(res.status).toEqual(429)
                 expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
+                const produced = queueMessages.mock.calls.flatMap(([, messages]) =>
+                    messages.map((message) => parseJSON(message.value!.toString()))
+                )
+                expect(produced).toContainEqual(
+                    expect.objectContaining({
+                        app_source_id: billableHogFlow.id,
+                        metric_kind: 'failure',
+                        metric_name: 'quota_limited',
+                        count: 1,
+                    })
+                )
             } finally {
                 quotaSpy.mockRestore()
+                queueMessages.mockRestore()
             }
         })
 

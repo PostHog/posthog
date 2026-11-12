@@ -621,6 +621,15 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.status).toEqual(429)
                 expect(res.body).toEqual({ error: 'The project is over its workflow quota' })
                 expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                await waitForBackgroundTasks()
+                expect(getMetrics()).toContainEqual(
+                    expect.objectContaining({
+                        app_source_id: billableHogFlow.id,
+                        metric_kind: 'failure',
+                        metric_name: 'quota_limited',
+                        count: 1,
+                    })
+                )
             })
 
             describe('idempotency key', () => {
