@@ -294,8 +294,8 @@ tools:
             `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability /
             priority, repo_selection, suggested_reviewers; the newest row of each status type is the canonical status),
             work-log entries (code references, commits, task runs, notes), and follow-up check entries (`check_result`
-            verdicts, and `check_observation` interim readings during Monitoring). Read this before re-judging a status or
-            adding to the log. `ranking_score` entries are compact: each model keeps its scores, lifts, and head
+            verdicts, and `check_observation` interim readings during Monitoring). Read this before re-judging a status
+            or adding to the log. `ranking_score` entries are compact: each model keeps its scores, lifts, and head
             readability, but not its training metadata. Use inbox-report-artefacts-retrieve to read one in full.
         agent_note: >
             Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current
@@ -366,9 +366,9 @@ tools:
             `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for the
             report's fix to ship before its clock starts: for Monitoring to start where the organization has it on,
             otherwise for the report to resolve. During Monitoring, `monitoring_timing` gives the end of the check's
-            window, its next interim reading, and its phase once the window ends. Checks are written by scout runs and by the research pipeline, so
-            this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot
-            read the data they describe.
+            window, its next interim reading, and its phase once the window ends. Checks are written by scout runs and
+            by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value`
+            read as null when you cannot read the data they describe.
     inbox-report-checks-replace:
         operation: signals_report_checks_replace_create
         enabled: true
@@ -441,8 +441,8 @@ tools:
         description: >
             Transition up to 100 inbox reports to the same state in one call, the bulk form of
             `inbox-reports-set-state`. It takes the same states, including 'monitoring' and 'ready' where the
-            organization has Monitoring on. Dismissing or resolving closes each report's open implementation PR, if it has
-            one. Each id is processed independently, so the call returns 200 even on partial failure: read `results`
+            organization has Monitoring on. Dismissing or resolving closes each report's open implementation PR, if it
+            has one. Each id is processed independently, so the call returns 200 even on partial failure: read `results`
             (one entry per id, in request order) and the `transitioned_count`, `skipped_count`, `failed_count`, and
             `not_found_count` summary. An id whose current status does not allow the transition comes back as `skipped`,
             and the rest still go through. Before a bulk change, count the matching reports with inbox-reports-list and
@@ -467,12 +467,11 @@ tools:
             actor's active claim requires explicit takeover=true. When another person holds the claim, directly or
             through their agent, do not take it over on your own: tell your user who holds it and since when, and ask
             first. That takeover also needs takeover_claim_id, and the person is notified. Add pull_requests (GitHub PR
-            URLs) in the same call, including when you start work. When every linked PR is closed or merged and at
-            least one merged, the report resolves. Where the organization has Monitoring on and the report has open
-            follow-up checks, it enters monitoring instead, and the checks verify the fix. It is suppressed when all
-            closed without merging. Open, draft, unknown,
-            or no PRs do not complete it. Repositories without a connected GitHub integration keep unknown PR state, so
-            resolve those reports with inbox-reports-set-state.
+            URLs) in the same call, including when you start work. When every linked PR is closed or merged and at least
+            one merged, the report resolves. Where the organization has Monitoring on and the report has open follow-up
+            checks, it enters monitoring instead, and the checks verify the fix. It is suppressed when all closed
+            without merging. Open, draft, unknown, or no PRs do not complete it. Repositories without a connected GitHub
+            integration keep unknown PR state, so resolve those reports with inbox-reports-set-state.
         param_overrides:
             id:
                 aliases:
@@ -781,17 +780,17 @@ tools:
         description: >
             Transition one inbox report to a new state: 'resolved' when the work it asked for is done, 'suppressed' to
             dismiss it, or 'potential' to snooze it or restore it for later review. Where the organization has
-            Monitoring on, two more states apply. 'monitoring' records that the fix shipped and starts verifying it
-            with the report's follow-up checks; a report without open checks resolves instead. 'ready' reopens a
-            report in monitoring or closed, keeping its research, pull requests and checks. Resolving a report in
-            monitoring stops the verification by hand: pass `dismissal_reason` 'verified_manually', 'no_action_needed'
-            or 'already_fixed', and say in `dismissal_note` what you checked. Dismissing or resolving closes the
-            report's open implementation PR, if it has one. A resolved report never reopens: a recurrence starts a fresh
-            report linked to it. `dismissal_reason` and `dismissal_note` are saved as a dismissal artefact, so the
-            rationale survives later transitions. Reason codes need state 'suppressed' or 'resolved', not 'potential'.
-            When the report only reached the wrong person, `inbox-reports-leave-reviewers` keeps it open for everyone
-            else, while `wrong_assignee` closes it for everyone. Returns 409 when the report's current status does not
-            allow the transition. To transition several reports, use `inbox-reports-bulk-set-state`.
+            Monitoring on, two more states apply. 'monitoring' records that the fix shipped and starts verifying it with
+            the report's follow-up checks; a report without open checks resolves instead. 'ready' reopens a report in
+            monitoring or closed, keeping its research, pull requests and checks. Resolving a report in monitoring stops
+            the verification by hand: pass `dismissal_reason` 'verified_manually', 'no_action_needed' or
+            'already_fixed', and say in `dismissal_note` what you checked. Dismissing or resolving closes the report's
+            open implementation PR, if it has one. A resolved report never reopens: a recurrence starts a fresh report
+            linked to it. `dismissal_reason` and `dismissal_note` are saved as a dismissal artefact, so the rationale
+            survives later transitions. Reason codes need state 'suppressed' or 'resolved', not 'potential'. When the
+            report only reached the wrong person, `inbox-reports-leave-reviewers` keeps it open for everyone else, while
+            `wrong_assignee` closes it for everyone. Returns 409 when the report's current status does not allow the
+            transition. To transition several reports, use `inbox-reports-bulk-set-state`.
     inbox-reports-update:
         operation: signals_reports_partial_update
         enabled: true
@@ -1442,9 +1441,10 @@ tools:
             at most five open checks and a second check for the same claim is noise. Pass the `run_id` of your own
             in-progress run. Use `metric_threshold` when a bounded query and a baseline exist, and `agent` for a claim
             no single number settles, which a later scout run answers. `next_run_at` is when to first look, so allow
-            deploy and soak time. On a report that has not resolved yet, the check is stored `pending`, and the gap
-            you left becomes the wait that starts when the fix ships: when Monitoring starts where the organization has
-            it on, otherwise when the report resolves. So a check never measures the days before the fix shipped. The verdict lands on the report as a `check_result` entry in the inbox.
+            deploy and soak time. On a report that has not resolved yet, the check is stored `pending`, and the gap you
+            left becomes the wait that starts when the fix ships: when Monitoring starts where the organization has it
+            on, otherwise when the report resolves. So a check never measures the days before the fix shipped. The
+            verdict lands on the report as a `check_result` entry in the inbox.
     scout-report-check-list:
         operation: signals_scout_report_check_list
         enabled: true
@@ -1459,9 +1459,9 @@ tools:
             Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass
             the `report_id` of the report to read; no `run_id` is needed. Read this before writing a check: a report
             already carrying one for the same claim needs no second, and a report holds at most five open checks at a
-            time. A `pending` check waits for the report's fix to ship before its clock starts; every status other
-            than `pending` and `active` is terminal. `run_state` says where an open check is: `waiting_on_report`,
-            `paused`, `scheduled`, `due`, `queued`, `running`, or `stale`. For an `agent` check, `waiting_on_run`,
+            time. A `pending` check waits for the report's fix to ship before its clock starts; every status other than
+            `pending` and `active` is terminal. `run_state` says where an open check is: `waiting_on_report`, `paused`,
+            `scheduled`, `due`, `queued`, `running`, or `stale`. For an `agent` check, `waiting_on_run`,
             `dispatched_run_id`, and `dispatched_at` name the run the coordinator dispatched and when.
     scout-report-checks-list:
         operation: signals_scout_report_check_list
