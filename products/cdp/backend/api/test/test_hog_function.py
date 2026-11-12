@@ -737,6 +737,63 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == expected, response.json()
 
+    def _email_inputs(self, sender_id: Any) -> dict:
+        return {
+            "email": {
+                "value": {
+                    "from": {"integrationId": sender_id},
+                    "to": {"email": "person@example.com", "name": ""},
+                    "subject": "Hello",
+                    "text": "Hello",
+                }
+            }
+        }
+
+    def _create_email_destination(self, sender_id: Any, enabled: bool) -> HogFunction:
+        self._create_email_template()
+        return HogFunction.objects.create(
+            team=self.team,
+            name="Email destination",
+            type="destination",
+            template_id="template-email-test",
+            enabled=enabled,
+            inputs_schema=[{"key": "email", "type": "native_email", "label": "Email", "required": True}],
+            inputs=self._email_inputs(sender_id),
+            hog="let res := sendEmail(inputs.email)",
+        )
+
+    @parameterized.expand(
+        [
+            ("disable", True, {"enabled": False}),
+            ("delete", True, {"deleted": True}),
+            ("rename_while_disabled", False, {"name": "renamed"}),
+        ]
+    )
+    def test_a_destination_with_a_stored_string_sender_id_can_still_be_cleaned_up(
+        self, _name: str, enabled: bool, patch: dict
+    ) -> None:
+        fn = self._create_email_destination("5", enabled)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{fn.id}/", data=patch, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        fn.refresh_from_db()
+        assert fn.inputs["email"]["value"]["from"] == {"integrationId": "5"}
+
+    def test_a_destination_refuses_a_newly_written_string_sender_id(self) -> None:
+        fn = self._create_email_destination("5", enabled=False)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
+            data={"inputs": self._email_inputs("6")},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "Expected 'from.integrationId' to be an Integration ID" in json.dumps(response.json())
+        fn.refresh_from_db()
+        assert fn.inputs == self._email_inputs("5")
+
     @parameterized.expand(
         [
             # The template carve-out keeps the reserved call a hidden template makes, so a function

@@ -111,6 +111,13 @@ def _is_stored_sender_id(integration_id: object, context: dict) -> bool:
     )
 
 
+def stored_email_from(inputs: object) -> list[dict]:
+    if not isinstance(inputs, dict):
+        return []
+    values = [item.get("value") for item in inputs.values() if isinstance(item, dict)]
+    return [value["from"] for value in values if isinstance(value, dict) and isinstance(value.get("from"), dict)]
+
+
 def _validate_sender_id(from_value: dict, context: dict) -> None:
     integration_id = from_value.get("integrationId")
     if (

@@ -93,6 +93,7 @@ from products.cdp.backend.validation import (
     masked_secret_input_keys,
     require_viewer_access_to_added_actions,
     reserved_functions_used,
+    stored_email_from,
 )
 
 # Maximum size of HOG code as a string in bytes (100KB)
@@ -617,6 +618,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         # Set some context variables that are used in the sub validators
         self.context["function_type"] = data["type"]
+        self.context["existing_email_from"] = stored_email_from(instance.inputs if instance else None)
         # Uncompilable filters only block saves that leave the function enabled - disabling or
         # deleting must stay possible even when e.g. the team's test account filters have since
         # gained a cohort that real-time filters can't evaluate. Coerce via BooleanField so
