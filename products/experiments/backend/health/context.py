@@ -34,6 +34,7 @@ from products.event_definitions.backend.models import PropertyDefinition, effect
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
+    ExperimentHealthReaderAccess,
 )
 from products.experiments.backend.facade.daily_calculation import daily_calculation_end, is_past_daily_calculation
 from products.experiments.backend.facade.enums import ExposuresPath
@@ -590,6 +591,9 @@ class HealthContext:
     archived: bool
     team_timezone: str
     flag: FlagState | None
+    # Whether the reader may read the flag's recorded calls, by `flag_calls_readable`. When False, the `flag_called*`
+    # fields and `flag_last_called_at` are None.
+    can_read_flag_calls: bool
     # Whether PostHog has recorded a call of the flag. None when the experiment has no flag, or when PostHog can't
     # record the calls of this organization's flags.
     flag_called: bool | None
@@ -1124,16 +1128,23 @@ def _configured_baseline_variant_key(stats_config: object) -> str | None:
     return key if isinstance(key, str) and key else None
 
 
+def flag_calls_readable(reader_access: ExperimentHealthReaderAccess) -> bool:
+    # `last_called_at` and whether a flag was called come from the flag's `$feature_flag_called` events, which name
+    # the flag in `$feature_flag`. A reader gets them only when they could query those events themselves.
+    return reader_access.can_query_events and "$feature_flag" not in reader_access.denied_event_properties
+
+
 def load_health_context(
     experiment: Experiment,
     exposures: ExposureTotals | None = None,
     *,
     flag_history: FlagHistory | FlagHistoryNotChecked | None = None,
     can_read_flag_history: bool = False,
+    can_read_flag_calls: bool = False,
 ) -> HealthContext:
     links = saved_metric_links(experiment)
     shared_metric_roles = [saved_metric_link_role(link) for link in links]
-    flag_called = _flag_called(experiment)
+    flag_called = _flag_called(experiment) if can_read_flag_calls else None
     metric_events = _metric_events(experiment, links)
     exposure_events = _exposure_events(experiment)
     events_received, properties_received = _received(experiment, metric_events, exposure_events)
@@ -1147,10 +1158,13 @@ def load_health_context(
         archived=experiment.archived,
         team_timezone=experiment.team.timezone,
         flag=_load_flag_state(experiment),
+        can_read_flag_calls=can_read_flag_calls,
         flag_called=flag_called,
         flag_called_during_run=_flag_called_during_run(experiment, flag_called),
-        flag_called_after_end=_flag_called_after_end(experiment),
-        flag_last_called_at=experiment.feature_flag.last_called_at if experiment.feature_flag_id else None,
+        flag_called_after_end=_flag_called_after_end(experiment) if can_read_flag_calls else None,
+        flag_last_called_at=(
+            experiment.feature_flag.last_called_at if experiment.feature_flag_id and can_read_flag_calls else None
+        ),
         other_experiments_on_flag=_other_experiments_on_flag(experiment),
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None

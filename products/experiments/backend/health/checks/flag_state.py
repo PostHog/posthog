@@ -301,7 +301,8 @@ def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthF
     if ctx.flag_called_after_end is False:
         return _ended_flag_not_called(ended_at, ctx.flag_last_called_at, ctx.team_timezone)
     # Info, because only a recorded call shows that users still get a variant. PostHog can't tell yet in the first
-    # days after the end, and never for an organization whose flag calls it can't read.
+    # days after the end, and never for an organization whose flag calls it can't read or for a reader who can't
+    # read them.
     return _finding(
         code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
         subcode=ENDED_FLAG_CALLS_UNKNOWN,
