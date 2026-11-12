@@ -76,6 +76,20 @@ def bigquery_field_to_clickhouse_type(field_type: str | None, mode: str | None =
     return BIGQUERY_FIELD_TYPE_TO_CLICKHOUSE_TYPE.get(field_type.upper(), "String")
 
 
+# BigQuery names the cause of a failed job in the error reason, and the client library's retry predicate reads
+# the same field (google.cloud.bigquery.retry). These reasons are the ones it retries. A job the statement timeout
+# cancels fails with the reason "stopped", and that timeout is the only cancel this adapter issues.
+_RETRYABLE_BIGQUERY_REASONS = frozenset({"rateLimitExceeded", "backendError", "internalError", "badGateway"})
+_STOPPED_BIGQUERY_REASON = "stopped"
+
+
+def bigquery_error_reason(error: Exception) -> str | None:
+    errors = getattr(error, "errors", None)
+    first = errors[0] if isinstance(errors, list) and errors else None
+    reason = first.get("reason") if isinstance(first, dict) else None
+    return reason if isinstance(reason, str) else None
+
+
 def bigquery_error_to_message(error: Exception) -> str:
     # google.api_core call errors carry the server's message without the "403 GET https://…"
     # prefix str() adds.
@@ -236,10 +250,17 @@ class BigQueryAdapter:
             )
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=message)
+            reason = bigquery_error_reason(error)
             error_class: type[ExposedHogQLError] = ExposedHogQLError
-            if isinstance(error, futures.TimeoutError | google_api_exceptions.DeadlineExceeded):
+            if (
+                isinstance(error, futures.TimeoutError | google_api_exceptions.DeadlineExceeded)
+                or reason == _STOPPED_BIGQUERY_REASON
+            ):
                 error_class = DirectQueryTimeoutError
-            elif isinstance(error, google_api_exceptions.ServerError | google_api_exceptions.TooManyRequests):
+            elif (
+                isinstance(error, google_api_exceptions.ServerError | google_api_exceptions.TooManyRequests)
+                or reason in _RETRYABLE_BIGQUERY_REASONS
+            ):
                 error_class = DirectQueryUnavailableError
             raise error_class(message) from error
 

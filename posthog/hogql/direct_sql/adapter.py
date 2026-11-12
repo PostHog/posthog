@@ -19,8 +19,8 @@ _ConfigT_co = TypeVar("_ConfigT_co", covariant=True)
 
 
 # Both stay ExposedHogQLError, so every caller that shows the message to the user keeps working. A caller
-# that retries, such as the experiment recalculation, needs to tell a warehouse-side failure from a query
-# that is wrong and fails the same way on every attempt.
+# that retries needs to tell a warehouse-side failure from a query that is wrong and fails the same way on
+# every attempt.
 class DirectQueryTimeoutError(ExposedHogQLError):
     """The warehouse did not answer within the statement timeout."""
 

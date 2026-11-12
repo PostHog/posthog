@@ -1,11 +1,13 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from google.cloud.bigquery.table import Row
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -21,7 +23,9 @@ from posthog.schema import (
     MultipleVariantHandling,
 )
 
+from posthog.hogql.direct_connection import RAW_QUERY_TABLE_DENIED_ERROR
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -40,6 +44,8 @@ UNIT = ExperimentWarehouseNativeUnitBinding(unit_type="customer", id_namespace="
 EXPOSURE_QUERY = "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures"
 METRIC_QUERY = "SELECT customer_id AS entity_id, paid_at AS timestamp, amount FROM payments"
 RESULT_COLUMNS = ["variant", "num_users", "total_sum", "total_sum_of_squares"]
+RESULT_TYPES = ["STRING", "INTEGER", "FLOAT", "FLOAT"]
+_SOURCE_MANAGEMENT = "products.warehouse_sources.backend.facade.source_management"
 
 
 class TestWarehouseNativeMetric(APIBaseTest):
@@ -186,6 +192,56 @@ class TestWarehouseNativeMetric(APIBaseTest):
         else:
             self._calculate()
             self.warehouse.assert_called_once()
+
+    @parameterized.expand([("background run declares the bypass", True), ("userless run without it", False)])
+    def test_table_access_enforcement_lets_a_declared_background_run_through(self, _name: str, bypass: bool) -> None:
+        # The recalculation runs without a user. A project that enforces warehouse table access refuses a userless
+        # raw query unless the caller declares the background bypass, as the ClickHouse path does.
+        self.warehouse.side_effect = execute_hogql_query
+        fields = [
+            SimpleNamespace(name=name, field_type=field_type, mode="NULLABLE")
+            for name, field_type in zip(RESULT_COLUMNS, RESULT_TYPES)
+        ]
+        index = {field.name: position for position, field in enumerate(fields)}
+        row_iterator = MagicMock()
+        row_iterator.__iter__.return_value = iter(
+            [Row(("control", 100, 250.0, 750.0), index), Row(("test", 120, 400.0, 1500.0), index)]
+        )
+        row_iterator.schema = fields
+        client = MagicMock()
+        client.query.return_value.result.return_value = row_iterator
+        client_context = MagicMock()
+        client_context.__enter__.return_value = client
+        client_context.__exit__.return_value = False
+        runner = ExperimentQueryRunner(
+            query=ExperimentQuery(experiment_id=self.experiment.id, metric=self.metric),
+            team=self.team,
+            bypass_warehouse_access_control=bypass,
+        )
+
+        with (
+            patch("posthog.hogql.direct_connection.feature_enabled_or_false", return_value=True),
+            patch(
+                "posthog.hogql.direct_sql.bigquery_adapter.BigQueryAdapter.validate_source_config",
+                return_value=(MagicMock(), SimpleNamespace(use_custom_region=None)),
+            ),
+            patch(
+                f"{_SOURCE_MANAGEMENT}.resolve_bigquery_auth",
+                return_value=SimpleNamespace(project_id="acme-project", credentials=MagicMock()),
+            ),
+            patch(f"{_SOURCE_MANAGEMENT}.bigquery_client", return_value=client_context),
+        ):
+            if not bypass:
+                with self.assertRaisesMessage(ExposedHogQLError, RAW_QUERY_TABLE_DENIED_ERROR):
+                    runner.calculate()
+                client.query.assert_not_called()
+                return
+            result = runner.calculate()
+
+        client.query.assert_called_once()
+        assert result.baseline is not None and result.variant_results is not None
+        self.assertEqual((result.baseline.key, result.baseline.number_of_samples), ("control", 100))
+        self.assertEqual([(v.key, v.number_of_samples) for v in result.variant_results], [("test", 120)])
 
     def test_connection_is_checked_at_run_time(self) -> None:
         # The connection can be deleted after the experiment was saved. Nothing may then reach the warehouse.

@@ -277,7 +277,7 @@ class TestMetricCannotCompile(BaseTest):
                 (NOT_CHECKED, "Couldn't check 1 metric"),
             ),
             (
-                "warehouse_native_sources_that_nothing_can_run_yet",
+                "warehouse_native_sources_have_no_hogql_to_compile",
                 {
                     "metrics": [
                         _mean(

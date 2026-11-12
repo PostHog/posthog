@@ -1707,8 +1707,9 @@ class ExperimentService:
 
     @staticmethod
     def _reject_warehouse_native_launch(exposure_criteria: dict | None) -> None:
-        """Nothing runs a warehouse-native query yet, so a launched experiment would only fail every
-        calculation. The exposure stands for the experiment: a warehouse-native experiment always has one."""
+        """A launched experiment runs every recalculation trigger, and which of them may query the customer's
+        warehouse is not decided yet. The exposure stands for the experiment: a warehouse-native experiment
+        always has one."""
         if warehouse_native_exposure_config(exposure_criteria) is not None:
             raise ValidationError("Warehouse-native sources cannot run yet. Use them on a draft experiment only.")
 

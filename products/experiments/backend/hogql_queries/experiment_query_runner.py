@@ -30,7 +30,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError, QueryError, TableAccessDeniedError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, TableAccessDeniedError
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
@@ -55,10 +55,10 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 )
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentPrecomputationContext
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    applies_test_account_filters,
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
     normalize_to_exposure_criteria,
-    resolve_filter_test_accounts,
 )
 from products.experiments.backend.hogql_queries.exposures_precompute import ExposuresPrecompute
 from products.experiments.backend.hogql_queries.metric_events_precompute import (
@@ -583,16 +583,18 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         connection_id = self._validate_warehouse_native_sources(self.user)
         criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
         exposure = criteria.exposure_config if criteria else None
+        # The source check above refuses every other combination, and the schema allows a warehouse-native node
+        # on a mean or ratio metric only. The checks here narrow the types for the builder.
         if (
             connection_id is None
             or not isinstance(exposure, ExperimentWarehouseNativeExposureConfig)
             or not isinstance(self.metric, ExperimentMeanMetric | ExperimentRatioMetric)
         ):
-            raise ExposedHogQLError("Warehouse-native experiments support mean and ratio metrics only.")
+            raise InternalHogQLError("The warehouse-native source check passed an unsupported experiment.")
         # Test account filters match PostHog persons and events. The warehouse rows have neither, so a result
         # that claimed to apply them would be wrong. A save turns the setting off for a warehouse-native exposure,
         # so only an experiment saved before that rule still carries it on.
-        if self.team.test_account_filters and resolve_filter_test_accounts(self.experiment.exposure_criteria):
+        if applies_test_account_filters(self.team, self.experiment.exposure_criteria):
             raise ExposedHogQLError(
                 "Warehouse-native metrics cannot filter test accounts. "
                 "Open the exposure criteria and save them again to turn the filter off."
@@ -611,6 +613,9 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             query=statement,
             team=self.team,
             user=self.user,
+            # A background run has no user. Without the bypass a project that enforces warehouse table access
+            # refuses the statement, as it would on the ClickHouse path.
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             send_raw_query=True,
             connection_id=connection_id,
             timings=self.timings,

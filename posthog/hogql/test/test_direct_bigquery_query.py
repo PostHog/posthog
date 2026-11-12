@@ -149,9 +149,26 @@ class TestDirectBigQueryQuery(APIBaseTest):
     @parameterized.expand(
         [
             ("client_timeout", futures.TimeoutError(), DirectQueryTimeoutError),
-            ("server_timeout", google_api_exceptions.DeadlineExceeded("Deadline exceeded"), DirectQueryTimeoutError),
+            ("api_deadline", google_api_exceptions.DeadlineExceeded("Deadline exceeded"), DirectQueryTimeoutError),
+            (
+                "job_timeout_cancels_the_job",
+                google_api_exceptions.GoogleAPICallError(
+                    "Job execution was cancelled: Job timed out after 600s", errors=[{"reason": "stopped"}]
+                ),
+                DirectQueryTimeoutError,
+            ),
             ("outage", google_api_exceptions.ServiceUnavailable("backendError"), DirectQueryUnavailableError),
-            ("rate_limit", google_api_exceptions.TooManyRequests("rateLimitExceeded"), DirectQueryUnavailableError),
+            ("api_rate_limit", google_api_exceptions.TooManyRequests("rateLimitExceeded"), DirectQueryUnavailableError),
+            (
+                "job_rate_limit",
+                google_api_exceptions.Forbidden("Exceeded rate limits", errors=[{"reason": "rateLimitExceeded"}]),
+                DirectQueryUnavailableError,
+            ),
+            (
+                "quota",
+                google_api_exceptions.Forbidden("Quota exceeded", errors=[{"reason": "quotaExceeded"}]),
+                ExposedHogQLError,
+            ),
             ("bad_sql", google_api_exceptions.BadRequest("Syntax error"), ExposedHogQLError),
         ]
     )
