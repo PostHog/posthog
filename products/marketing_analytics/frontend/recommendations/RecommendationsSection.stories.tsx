@@ -73,6 +73,14 @@ function recommendation(
         impactDirection: 'save',
         impactType: 'measured',
         currency: 'USD',
+        identity: {
+            rule: overrides.rule,
+            source_type: 'google_ads',
+            customer_id: '1234567890',
+            campaign_id: '',
+            subject: overrides.subject,
+        },
+        key: `${overrides.rule}:${overrides.subject}`,
         ...overrides,
     }
 }

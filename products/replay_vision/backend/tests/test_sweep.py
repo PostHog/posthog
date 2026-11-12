@@ -1333,6 +1333,8 @@ def test_free_only_scanner_turns_off_when_the_free_credits_run_out(
         )
         for i, status in enumerate([BackfillStatus.PAUSED_QUOTA, BackfillStatus.COMPLETED])
     ]
+    last_edit = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    ReplayScanner.objects.filter(pk=scanner.pk).update(updated_at=last_edit)
     inputs = CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id)
 
     with (
@@ -1345,6 +1347,7 @@ def test_free_only_scanner_turns_off_when_the_free_credits_run_out(
     assert first.capped is True and second.capped is True
     scanner.refresh_from_db()
     assert scanner.enabled is not expect_turned_off
+    assert (scanner.updated_at > last_edit) is expect_turned_off
     assert scanner.disabled_reason == (ScannerDisabledReason.FREE_CREDITS_USED if expect_turned_off else None)
     assert [ReplayScannerBackfill.objects.for_team(scanner.team_id).get(pk=b.pk).status for b in backfills] == [
         BackfillStatus.CANCELLED if expect_turned_off else BackfillStatus.PAUSED_QUOTA,

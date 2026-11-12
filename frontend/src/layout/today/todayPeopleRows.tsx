@@ -150,6 +150,20 @@ export const TODAY_PEOPLE_ROWS = {
         href: () => urls.customerAnalyticsJourneys(),
         enabled: withCustomerAnalytics(FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS),
     },
+    product_activity: {
+        label: 'Product activity',
+        icon: <IconPulse />,
+        explainer: {
+            description: 'Compare account activity across products and time periods.',
+            example: 'See which accounts started using a product this week.',
+        },
+        section: 'customer-analytics',
+        href: () => urls.customerAnalyticsProductActivity(),
+        enabled: withCustomerAnalytics(
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX
+        ),
+    },
     notes: {
         label: 'Notes',
         icon: <IconNotebook />,

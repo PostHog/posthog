@@ -730,6 +730,15 @@ export interface DataCatalogMetricBulkDeleteApi {
     skipped: DataCatalogMetricBulkSkipApi[]
 }
 
+export interface PendingReviewCountsApi {
+    /** Proposed metrics you can see that wait for approval. */
+    metrics: number
+    /** Proposed joins that wait to be accepted or rejected. */
+    relationships: number
+    /** Proposed certifications that wait for review. */
+    certifications: number
+}
+
 export interface DataCatalogRelationshipProposalApi {
     readonly id: string
     /**
