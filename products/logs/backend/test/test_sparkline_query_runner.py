@@ -81,7 +81,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response), 49)
         self.assertEqual(sum(r["count"] for r in response), 900)
 
-    def _service_sparkline(self, rank_by: str | None = None) -> list:
+    def _service_sparkline(self, rank_by: str | None = None, search_term: str | None = None) -> list:
         query_params = {
             "dateRange": {"date_from": "2026-03-01T00:00:00.000000Z", "date_to": "2026-03-02T00:00:00.000000Z"},
             "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
@@ -89,7 +89,16 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         }
         if rank_by is not None:
             query_params["sparklineRankBy"] = rank_by
+        if search_term is not None:
+            query_params["searchTerm"] = search_term
         return self._make_sparkline_api_request(query_params)
+
+    @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
+    def test_body_search_reads_the_logs_table_not_the_rollup(self):
+        # The rollup has no body column. A rollup read would ignore the search and count every log.
+        response = self._service_sparkline(search_term="text-that-no-fixture-log-contains")
+
+        self.assertEqual(sum(r["count"] for r in response), 0)
 
     @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
     def test_service_breakdown_collapses_the_tail_into_one_other_bucket(self):
@@ -121,9 +130,10 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(self.HEAVY_SERVICE, by_bytes)
 
         expected_bytes = self.BUCKET_COUNT * (self.HEAVY_BYTES_PER_LOG + (self.SERVICE_COUNT - 1) * self.BYTES_PER_LOG)
-        for rank_by in ("count", "bytes"):
-            response = self._service_sparkline(rank_by=rank_by)
-            self.assertEqual(sum(r["bytes_uncompressed"] for r in response), expected_bytes, rank_by)
+        response = self._service_sparkline(rank_by="bytes")
+        self.assertEqual(sum(r["bytes_uncompressed"] for r in response), expected_bytes)
+        # A count ranking over this range reads the volume rollup, which has no byte column.
+        self.assertNotIn("bytes_uncompressed", self._service_sparkline(rank_by="count")[0])
 
     @classmethod
     def _insert_logs_across_services(cls, start: str, bucket_count: int, services: dict[str, int]) -> None:
@@ -135,6 +145,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
             template = json.loads(f.readline())
         start_at = datetime.fromisoformat(start)
         rows = ""
+        rollup_rows = ""
         for service_name, bytes_per_log in services.items():
             for bucket_index in range(bucket_count):
                 log_item = dict(template)
@@ -147,8 +158,18 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 log_item["timestamp"] = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
                 log_item["observed_timestamp"] = log_item["timestamp"]
                 rows += json.dumps(log_item) + "\n"
+                rollup_rows += (
+                    json.dumps({**log_item, "original_expiry_timestamp": "2099-01-01 00:00:00.000000"}) + "\n"
+                )
         sync_execute(f"""
             INSERT INTO logs
             FORMAT JSONEachRow
             {rows}
+        """)
+        # The test `logs` table feeds no volume rollup. The logs34 insert runs the production
+        # materialized view, so logs_volume_buckets holds what ingestion would write.
+        sync_execute(f"""
+            INSERT INTO logs34
+            FORMAT JSONEachRow
+            {rollup_rows}
         """)

@@ -1,3 +1,4 @@
+import datetime as dt
 from functools import cached_property
 from zoneinfo import ZoneInfo
 
@@ -5,13 +6,14 @@ from posthog.schema import LogsSparklineBreakdownBy, LogsSparklineRankBy
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 
-from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunner
+from products.logs.backend.logs_query_runner import COLUMN_FILTER_FACET_FIELDS, LogsQueryResponse, LogsQueryRunner
+from products.logs.backend.services_query_runner import ROLLUP_BUCKET_SECONDS, ROLLUP_RETENTION
 
 # Maps API breakdown type to ClickHouse field name
 BREAKDOWN_DB_FIELD: dict[LogsSparklineBreakdownBy, str] = {
@@ -67,18 +69,135 @@ class SparklineQueryRunner(LogsQueryRunner):
         results = []
         for result in response.results:
             breakdown_value = result[1] if result[1] not in (None, "") else "(no value)"
-            results.append(
-                {
-                    # Tag the bucket time as UTC so it serializes with an offset, matching the log
-                    # row timestamp and the live_logs_checkpoint the frontend compares it against.
-                    "time": result[0].replace(tzinfo=ZoneInfo("UTC")) if result[0] else result[0],
-                    result_key: breakdown_value,
-                    "count": result[2],
-                    "bytes_uncompressed": result[3],
-                }
-            )
+            row = {
+                # Tag the bucket time as UTC so it serializes with an offset, matching the log
+                # row timestamp and the live_logs_checkpoint the frontend compares it against.
+                "time": result[0].replace(tzinfo=ZoneInfo("UTC")) if result[0] else result[0],
+                result_key: breakdown_value,
+                "count": result[2],
+            }
+            if not self._use_rollup:
+                # The rollup has no byte column. A missing key tells the caller that the bytes are
+                # unknown. A zero would tell the caller that the logs have no bytes.
+                row["bytes_uncompressed"] = result[3]
+            results.append(row)
 
         return LogsQueryResponse(results=results)
+
+    @cached_property
+    def _use_rollup(self) -> bool:
+        # logs_volume_buckets holds a log count for each 5-minute bucket, service and severity, and
+        # nothing else from a log row. It can replace the logs table only when the sparkline interval
+        # is a whole number of rollup buckets, the caller does not rank by bytes, and each active
+        # filter is on a column that the rollup has.
+        date_range = self.query_date_range
+        if date_range.interval_name != "minute" or (date_range.interval_count * 60) % ROLLUP_BUCKET_SECONDS != 0:
+            return False
+        if date_range.date_from() < dt.datetime.now(dt.UTC) - ROLLUP_RETENTION:
+            return False
+        if (self.query.sparklineRankBy or DEFAULT_RANK_BY) == LogsSparklineRankBy.BYTES:
+            return False
+        query = self.query
+        if (
+            query.searchTerm
+            or query.resourceFingerprint
+            or query.personId is not None
+            or query.sessionId is not None
+            or query.liveLogsCheckpoint
+            or query.after
+        ):
+            return False
+        filters = self._filter_builder
+        if (
+            filters.resource_attribute_filters
+            or filters.resource_attribute_negative_filters
+            or filters.attribute_filters
+            or filters.attribute_filter_groups
+        ):
+            return False
+        return all(log_filter.key in COLUMN_FILTER_FACET_FIELDS for log_filter in filters.log_filters)
+
+    def _logs_series_query(self) -> ast.SelectQuery:
+        query = parse_select(
+            """
+                SELECT
+                    toStartOfInterval({time_field}, {one_interval_period}) AS time,
+                    {breakdown_field} AS breakdown_value,
+                    count() AS event_count,
+                    sum(_bytes_uncompressed) AS bytes_uncompressed
+                FROM logs
+                WHERE {where} AND time >= {date_from_start_of_interval} AND time <= {date_to}
+                GROUP BY breakdown_value, time
+            """,
+            placeholders={
+                **self.query_date_range.to_placeholders(),
+                # The sparkline projection is aggregated over "toStartOfMinute(timestamp)"
+                # so if we use `timestamp` we don't use the projection (even if we're calling toStartOfInterval on it)
+                # explicitly use toStartOfMinute(timestamp) as the time field unless we're using a sub-minute interval
+                "time_field": ast.Call(name="toStartOfMinute", args=[ast.Field(chain=["timestamp"])])
+                if self.query_date_range.interval_name != "second"
+                else ast.Field(chain=["timestamp"]),
+                "where": self.where(),
+                "breakdown_field": self._breakdown_field,
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _rollup_series_query(self) -> ast.SelectQuery:
+        exprs: list[ast.Expr] = [
+            # These limits select the same sparkline buckets as the logs table query. That query keeps
+            # each bucket that starts in the range, with all the logs of that bucket.
+            parse_expr(
+                "time_bucket >= {date_from_start_of_interval}"
+                " AND time_bucket < {date_to_start_of_interval} + {one_interval_period}",
+                placeholders=self.query_date_range.to_placeholders(),
+            ),
+            *self.column_filter_exprs(),
+        ]
+        if self.query.serviceNames:
+            exprs.append(
+                parse_expr(
+                    "service_name IN {serviceNames}",
+                    placeholders={
+                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
+                    },
+                )
+            )
+        if self.query.severityLevels:
+            exprs.append(
+                parse_expr(
+                    "severity_text IN {severityLevels}",
+                    placeholders={
+                        "severityLevels": ast.Tuple(
+                            exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
+                        )
+                    },
+                )
+            )
+        query = parse_select(
+            """
+                SELECT
+                    toStartOfInterval(time_bucket, {one_interval_period}) AS time,
+                    {breakdown_field} AS breakdown_value,
+                    sum(log_count) AS event_count,
+                    0 AS bytes_uncompressed
+                FROM posthog.logs_volume_buckets
+                WHERE {where}
+                GROUP BY breakdown_value, time
+            """,
+            placeholders={
+                **self.query_date_range.to_placeholders(),
+                "where": ast.And(exprs=exprs),
+                "breakdown_field": self._breakdown_field,
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    @property
+    def _breakdown_field(self) -> ast.Field:
+        return ast.Field(chain=[BREAKDOWN_DB_FIELD[self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN]])
 
     def to_query(self) -> ast.SelectQuery:
         # The row count is bounded by construction: the rollup in the joined subquery leaves at most
@@ -129,16 +248,7 @@ class SparklineQueryRunner(LogsQueryRunner):
                                 event_count,
                                 bytes_uncompressed,
                                 sum({rank_field}) OVER (PARTITION BY breakdown_value) AS breakdown_total
-                            FROM (
-                                SELECT
-                                    toStartOfInterval({time_field}, {one_interval_period}) AS time,
-                                    {breakdown_field} AS breakdown_value,
-                                    count() AS event_count,
-                                    sum(_bytes_uncompressed) AS bytes_uncompressed
-                                FROM logs
-                                WHERE {where} AND time >= {date_from_start_of_interval} AND time <= {date_to}
-                                GROUP BY breakdown_value, time
-                            )
+                            FROM {series}
                         )
                     )
                     GROUP BY time, breakdown_value
@@ -148,16 +258,7 @@ class SparklineQueryRunner(LogsQueryRunner):
         """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
-                # The sparkline projection is aggregated over "toStartOfMinute(timestamp)"
-                # so if we use `timestamp` we don't use the projection (even if we're calling toStartOfInterval on it)
-                # explicitly use toStartOfMinute(timestamp) as the time field unless we're using a sub-minute interval
-                "time_field": ast.Call(name="toStartOfMinute", args=[ast.Field(chain=["timestamp"])])
-                if self.query_date_range.interval_name != "second"
-                else ast.Field(chain=["timestamp"]),
-                "where": self.where(),
-                "breakdown_field": ast.Field(
-                    chain=[BREAKDOWN_DB_FIELD[self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN]]
-                ),
+                "series": self._rollup_series_query() if self._use_rollup else self._logs_series_query(),
                 "rank_field": ast.Field(chain=[RANK_BY_FIELD[self.query.sparklineRankBy or DEFAULT_RANK_BY]]),
                 "top_n": ast.Constant(value=SPARKLINE_TOP_BREAKDOWN_VALUES),
                 "other_label": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
