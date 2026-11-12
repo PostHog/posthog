@@ -6,6 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import { evaluationReportDrawerLogic } from './evaluationReportDrawerLogic'
 import { evaluationReportLogic } from './evaluationReportLogic'
+import { evaluationReportRunsLogic } from './evaluationReportRunsLogic'
 import type { EvaluationReport, EvaluationReportRun } from './types'
 
 const EVALUATION_ID = 'eval-1'
@@ -52,6 +53,7 @@ const SECOND_PAGE = [run('run-1', '2026-11-08T00:00:00Z')]
 describe('evaluationReportDrawerLogic', () => {
     let runsPages: Record<string, { results: EvaluationReportRun[]; next: string | null }>
     let patchBodies: Record<string, unknown>[]
+    let reportsFail: boolean
 
     beforeEach(() => {
         runsPages = {
@@ -59,9 +61,11 @@ describe('evaluationReportDrawerLogic', () => {
             '2': { results: SECOND_PAGE, next: null },
         }
         patchBodies = []
+        reportsFail = false
         useMocks({
             get: {
-                '/api/projects/:teamId/llm_analytics/evaluation_reports/': { results: [REPORT] },
+                '/api/projects/:teamId/llm_analytics/evaluation_reports/': () =>
+                    reportsFail ? [500, {}] : [200, { results: [REPORT] }],
                 '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/runs/': ({ request }) => {
                     const page = runsPages[new URL(request.url).searchParams.get('offset') ?? '0']
                     return page ? [200, page] : [500, {}]
@@ -82,11 +86,11 @@ describe('evaluationReportDrawerLogic', () => {
     })
 
     async function mountWithRuns(): Promise<ReturnType<typeof evaluationReportDrawerLogic.build>> {
-        const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
-        reportLogic.mount()
+        const runsLogic = evaluationReportRunsLogic({ evaluationId: EVALUATION_ID })
+        runsLogic.mount()
         const logic = evaluationReportDrawerLogic({ evaluationId: EVALUATION_ID })
         logic.mount()
-        await expectLogic(reportLogic).toDispatchActions(['loadReportsSuccess', 'loadReportRunsSuccess'])
+        await expectLogic(runsLogic).toDispatchActions(['loadReportsSuccess', 'loadReportRunsSuccess'])
         return logic
     }
 
@@ -97,7 +101,7 @@ describe('evaluationReportDrawerLogic', () => {
 
         expect(router.values.searchParams.report_run).toBe('run-2')
         expect(logic.values.previousRun?.id).toBe('run-3')
-        expect(logic.values.position).toEqual({ index: 1, total: 2 })
+        expect(logic.values.position).toEqual({ index: 1, total: 2, more: true })
 
         logic.actions.stepTo('previous')
         expect(router.values.searchParams.report_run).toBe('run-3')
@@ -187,16 +191,16 @@ describe('evaluationReportDrawerLogic', () => {
 
     it('fetches once more and stops when the report never arrives', async () => {
         await mountWithRuns()
-        const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
+        const runsLogic = evaluationReportRunsLogic({ evaluationId: EVALUATION_ID })
         jest.useFakeTimers()
         try {
-            reportLogic.actions.generateReport(REPORT.id)
-            await expectLogic(reportLogic).toDispatchActions(['generateReportSuccess'])
+            runsLogic.actions.generateReport(REPORT.id)
+            await expectLogic(runsLogic).toDispatchActions(['generateReportSuccess'])
 
             jest.advanceTimersByTime(30 * 60_000 + 15_000)
             jest.useRealTimers()
-            await expectLogic(reportLogic).toDispatchActions(['loadNewestReportRuns', 'stopWaitingForNewReport'])
-            expect(reportLogic.values.waitingForNewReportSince).toBeNull()
+            await expectLogic(runsLogic).toDispatchActions(['loadNewestReportRuns', 'stopWaitingForNewReport'])
+            expect(runsLogic.values.waitingForNewReportSince).toBeNull()
         } finally {
             jest.useRealTimers()
         }
@@ -204,24 +208,24 @@ describe('evaluationReportDrawerLogic', () => {
 
     it('stops polling for good when a hidden tab returns after the deadline', async () => {
         await mountWithRuns()
-        const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
+        const runsLogic = evaluationReportRunsLogic({ evaluationId: EVALUATION_ID })
         const setHidden = (hidden: boolean): void => {
             Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
             document.dispatchEvent(new Event('visibilitychange'))
         }
         jest.useFakeTimers()
         try {
-            reportLogic.actions.generateReport(REPORT.id)
-            await expectLogic(reportLogic).toDispatchActions(['generateReportSuccess'])
+            runsLogic.actions.generateReport(REPORT.id)
+            await expectLogic(runsLogic).toDispatchActions(['generateReportSuccess'])
             setHidden(true)
             jest.advanceTimersByTime(31 * 60_000)
             setHidden(false)
             jest.advanceTimersByTime(0)
-            await expectLogic(reportLogic).toDispatchActions(['loadNewestReportRuns', 'stopWaitingForNewReport'])
-            expect(reportLogic.values.waitingForNewReportSince).toBeNull()
+            await expectLogic(runsLogic).toDispatchActions(['loadNewestReportRuns', 'stopWaitingForNewReport'])
+            expect(runsLogic.values.waitingForNewReportSince).toBeNull()
 
             jest.advanceTimersByTime(60_000)
-            await expectLogic(reportLogic).toNotHaveDispatchedActions(['loadNewestReportRuns'])
+            await expectLogic(runsLogic).toNotHaveDispatchedActions(['loadNewestReportRuns'])
         } finally {
             setHidden(false)
             jest.useRealTimers()
@@ -229,13 +233,44 @@ describe('evaluationReportDrawerLogic', () => {
     })
 
     it('holds "Generate now" until the report history has loaded', async () => {
-        const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
-        reportLogic.mount()
-        await expectLogic(reportLogic).toDispatchActions(['loadReportsSuccess', 'loadReportRuns'])
-        expect(reportLogic.values.reportHistoryReady).toBe(false)
+        const runsLogic = evaluationReportRunsLogic({ evaluationId: EVALUATION_ID })
+        runsLogic.mount()
+        await expectLogic(runsLogic).toDispatchActions(['loadReportsSuccess', 'loadReportRuns'])
+        expect(runsLogic.values.reportHistoryReady).toBe(false)
 
-        await expectLogic(reportLogic).toDispatchActions(['loadReportRunsSuccess'])
-        expect(reportLogic.values.reportHistoryReady).toBe(true)
+        await expectLogic(runsLogic).toDispatchActions(['loadReportRunsSuccess'])
+        expect(runsLogic.values.reportHistoryReady).toBe(true)
+    })
+
+    it('steps older past the loaded page by loading the next one', async () => {
+        const logic = await mountWithRuns()
+        logic.actions.openRun('run-2', 'reports_tab')
+        expect(logic.values.nextRun).toBeNull()
+        expect(logic.values.canStepOlder).toBe(true)
+
+        logic.actions.stepTo('next')
+        await expectLogic(logic).toDispatchActions(['loadOlderReportRunsSuccess'])
+
+        expect(router.values.searchParams.report_run).toBe('run-1')
+        expect(logic.values.canStepOlder).toBe(false)
+    })
+
+    it('retries a failed reports load for a linked report instead of calling it deleted', async () => {
+        reportsFail = true
+        router.actions.push(`/project/997/ai-evals/evaluations/${EVALUATION_ID}`, { report_run: 'run-1' })
+        const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
+        const logic = evaluationReportDrawerLogic({ evaluationId: EVALUATION_ID })
+        logic.mount()
+        await expectLogic(reportLogic).toDispatchActions(['loadReportsFailure'])
+        expect(logic.values.runLoadFailed).toBe(true)
+
+        reportsFail = false
+        logic.actions.retryLoad()
+        await expectLogic(reportLogic).toDispatchActions(['loadReportsSuccess'])
+        await expectLogic(evaluationReportRunsLogic({ evaluationId: EVALUATION_ID })).toDispatchActions([
+            'loadOlderReportRunsSuccess',
+        ])
+        expect(logic.values.openRun?.id).toBe('run-1')
     })
 
     it('offers a retry when a page of a linked report fails to load', async () => {
@@ -243,7 +278,7 @@ describe('evaluationReportDrawerLogic', () => {
         router.actions.push(`/project/997/ai-evals/evaluations/${EVALUATION_ID}`, { report_run: 'run-1' })
         const logic = await mountWithRuns()
 
-        await expectLogic(evaluationReportLogic({ evaluationId: EVALUATION_ID })).toDispatchActions([
+        await expectLogic(evaluationReportRunsLogic({ evaluationId: EVALUATION_ID })).toDispatchActions([
             'loadOlderReportRunsFailure',
         ])
         expect(logic.values.runLoadFailed).toBe(true)
@@ -257,30 +292,31 @@ describe('evaluationReportDrawerLogic', () => {
 
     it('waits for the new report to be delivered after "Generate now" and keeps older pages', async () => {
         await mountWithRuns()
-        const reportLogic = evaluationReportLogic({ evaluationId: EVALUATION_ID })
-        reportLogic.actions.loadOlderReportRuns()
-        await expectLogic(reportLogic).toDispatchActions(['loadOlderReportRunsSuccess'])
+        const runsLogic = evaluationReportRunsLogic({ evaluationId: EVALUATION_ID })
+        runsLogic.actions.loadOlderReportRuns()
+        await expectLogic(runsLogic).toDispatchActions(['loadOlderReportRunsSuccess'])
         jest.useFakeTimers()
         try {
-            reportLogic.actions.generateReport(REPORT.id)
-            await expectLogic(reportLogic).toDispatchActions(['generateReportSuccess'])
-            expect(reportLogic.values.waitingForNewReportSince).not.toBeNull()
+            runsLogic.actions.generateReport(REPORT.id)
+            await expectLogic(runsLogic).toDispatchActions(['generateReportSuccess'])
+            expect(runsLogic.values.waitingForNewReportSince).not.toBeNull()
 
             const newRun = run('run-4', '2026-11-11T00:01:00Z')
-            runsPages['0'] = { results: [{ ...newRun, delivery_status: 'pending' }, ...FIRST_PAGE], next: 'more' }
+            // A pending or failed delivery can still change, so neither ends the wait.
+            runsPages['0'] = { results: [{ ...newRun, delivery_status: 'failed' }, ...FIRST_PAGE], next: 'more' }
             jest.advanceTimersByTime(15_000)
             // The poll has fired. The mocked response resolves on real timers.
             jest.useRealTimers()
-            await expectLogic(reportLogic).toDispatchActions(['loadNewestReportRunsSuccess'])
-            expect(reportLogic.values.waitingForNewReportSince).not.toBeNull()
+            await expectLogic(runsLogic).toDispatchActions(['loadNewestReportRunsSuccess'])
+            expect(runsLogic.values.waitingForNewReportSince).not.toBeNull()
 
             // The next poll, run by hand because the interval lives on the fake clock released above.
             runsPages['0'] = { results: [newRun, ...FIRST_PAGE], next: 'more' }
-            reportLogic.actions.loadNewestReportRuns(REPORT.id)
-            await expectLogic(reportLogic).toDispatchActions(['loadNewestReportRunsSuccess', 'stopWaitingForNewReport'])
+            runsLogic.actions.loadNewestReportRuns(REPORT.id)
+            await expectLogic(runsLogic).toDispatchActions(['loadNewestReportRunsSuccess', 'stopWaitingForNewReport'])
 
-            expect(reportLogic.values.reportRuns.map((run) => run.id)).toEqual(['run-4', 'run-3', 'run-2', 'run-1'])
-            expect(reportLogic.values.reportRuns[0].delivery_status).toBe('delivered')
+            expect(runsLogic.values.reportRuns.map((run) => run.id)).toEqual(['run-4', 'run-3', 'run-2', 'run-1'])
+            expect(runsLogic.values.reportRuns[0].delivery_status).toBe('delivered')
         } finally {
             jest.useRealTimers()
         }

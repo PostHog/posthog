@@ -15,6 +15,7 @@ import { DetailPanel, isDetailPanelFullWidth } from '../../redesign/shared/compo
 import { isOverlayOpen } from '../../redesign/trace/shouldCloseOnEscape'
 import { ReportStepDirection, evaluationReportDrawerLogic } from '../evaluationReportDrawerLogic'
 import { evaluationReportLogic } from '../evaluationReportLogic'
+import { evaluationReportRunsLogic } from '../evaluationReportRunsLogic'
 import { EvaluationReportDrawerToolbar } from './EvaluationReportDrawerToolbar'
 import { EvaluationReportViewer } from './EvaluationReportViewer'
 
@@ -41,16 +42,15 @@ export function EvaluationReportDrawer({
         runLoadFailed,
         position,
         previousRun,
-        nextRun,
+        canStepOlder,
         reportRuns,
     } = useValues(logic)
     const { stepTo, close, retryLoad, searchOlder, openRun: openRunById } = useActions(logic)
     const { searchParams } = useValues(router)
     const traceOpen = !!searchParams.trace
-    const { activeReport, generateResultLoading, waitingForNewReportSince, reportHistoryReady } = useValues(
-        evaluationReportLogic({ evaluationId })
-    )
-    const { generateReport } = useActions(evaluationReportLogic({ evaluationId }))
+    const { activeReport } = useValues(evaluationReportLogic({ evaluationId }))
+    const { isWritingReport: isWriting, reportHistoryReady } = useValues(evaluationReportRunsLogic({ evaluationId }))
+    const { generateReport } = useActions(evaluationReportRunsLogic({ evaluationId }))
     const { mainContentRect } = useValues(panelLayoutLogic)
 
     const containerRef = useRef<HTMLDivElement>(null)
@@ -82,14 +82,13 @@ export function EvaluationReportDrawer({
         intent: 'Older report',
         interaction: 'function',
         callback: () => stepUnlessOverlayOpen('next'),
-        disabled: !openRunId || !nextRun || traceOpen,
+        disabled: !openRunId || !canStepOlder || traceOpen,
     })
 
     if (!openRunId || !mainContentRect) {
         return null
     }
 
-    const isWriting = generateResultLoading || waitingForNewReportSince !== null
     const newestRun = reportRuns[0]
 
     return (
@@ -104,7 +103,7 @@ export function EvaluationReportDrawer({
                 <EvaluationReportDrawerToolbar
                     position={position}
                     onPrevious={previousRun ? () => stepTo('previous') : null}
-                    onNext={nextRun ? () => stepTo('next') : null}
+                    onNext={canStepOlder ? () => stepTo('next') : null}
                     onCopyLink={() => void copyToClipboard(window.location.href, 'link to this report')}
                     onGenerate={activeReport && !isWriting ? () => generateReport(activeReport.id) : null}
                     generateDisabledReason={

@@ -20,7 +20,20 @@ const EVENTS = {
     destinationsSaved: 'llma evaluation report destinations saved',
 } as const
 
-export type ReportDrawerSource = 'link' | 'runs_card' | 'reports_tab'
+export type ReportDrawerSource = 'link' | 'runs_card' | 'reports_tab' | 'overview_card'
+
+// The overview card opens a report by navigating to the evaluation page, so it hands the source over here.
+let pendingDrawerSource: ReportDrawerSource | null = null
+
+export function markNextDrawerSource(source: ReportDrawerSource): void {
+    pendingDrawerSource = source
+}
+
+export function takeNextDrawerSource(): ReportDrawerSource | null {
+    const source = pendingDrawerSource
+    pendingDrawerSource = null
+    return source
+}
 
 export const evaluationReportTracking = {
     tabViewed: (props: { report_count: number; has_destination: boolean; enabled: boolean }): void => {

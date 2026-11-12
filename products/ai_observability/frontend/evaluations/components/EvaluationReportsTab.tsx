@@ -13,6 +13,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { reportText } from '../create/evaluationSummary'
 import { REPORT_RUN_PARAM, evaluationReportDrawerLogic } from '../evaluationReportDrawerLogic'
 import { draftFromReport, evaluationReportLogic } from '../evaluationReportLogic'
+import { evaluationReportRunsLogic } from '../evaluationReportRunsLogic'
 import { evaluationReportTracking } from '../evaluationReportTracking'
 import type { EvaluationReportRun } from '../types'
 import { DeliveryTargetsConfig } from './DeliveryTargetsConfig'
@@ -57,27 +58,27 @@ export function EvaluationReportsTab({
     onConfigureClick,
 }: EvaluationReportsTabProps): JSX.Element {
     const logic = evaluationReportLogic({ evaluationId })
+    const runsLogic = evaluationReportRunsLogic({ evaluationId })
     const {
-        reportRuns,
-        reportRunsLoading,
         reportsLoading,
         reportsLoadFailed,
-        reportRunsLoadFailed,
         activeReport,
-        generateResultLoading,
-        waitingForNewReportSince,
-        hasOlderReportRuns,
         configDraft,
         shownDestinations,
         editingDestinations,
-        reportHistoryReady,
         destinationsError,
     } = useValues(logic)
     const {
-        generateReport,
+        reportRuns,
+        reportRunsLoading,
+        reportRunsLoadFailed,
+        hasOlderReportRuns,
+        reportHistoryReady,
+        isWritingReport: isWriting,
+    } = useValues(runsLogic)
+    const { generateReport, loadReportRuns, loadOlderReportRuns } = useActions(runsLogic)
+    const {
         loadReports,
-        loadReportRuns,
-        loadOlderReportRuns,
         saveDestinations,
         setDraftEmailValue,
         setDraftSlackIntegrationId,
@@ -132,7 +133,6 @@ export function EvaluationReportsTab({
         )
     }
 
-    const isWriting = generateResultLoading || waitingForNewReportSince !== null
     const savedDraft = activeReport ? draftFromReport(activeReport) : null
 
     return (
@@ -296,7 +296,7 @@ export function EvaluationReportsTab({
                         },
                     ]}
                     emptyState={
-                        activeReport?.frequency === 'every_n'
+                        activeReport?.enabled && activeReport.frequency === 'every_n'
                             ? `No report yet. The first one arrives after ${activeReport.trigger_threshold ?? 100} new results.`
                             : 'No report yet.'
                     }

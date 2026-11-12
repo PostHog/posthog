@@ -52,11 +52,11 @@ export function EvaluationReportDrawerToolbar({
                 aria-label="Older report"
                 data-attr="llma-evaluation-report-drawer-older"
                 onClick={onNext ?? undefined}
-                disabledReason={onNext ? undefined : 'This is the oldest loaded report'}
+                disabledReason={onNext ? undefined : 'This is the oldest report'}
             />
             {position ? (
                 <span className="ml-1 whitespace-nowrap text-xs text-secondary" aria-live="polite">
-                    {`${position.index + 1} of ${position.total}`}
+                    {`${position.index + 1} of ${position.total}${position.more ? '+' : ''}`}
                 </span>
             ) : null}
             <div className="ml-auto flex items-center gap-1">

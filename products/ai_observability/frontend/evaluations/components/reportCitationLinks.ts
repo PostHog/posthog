@@ -29,22 +29,35 @@ const LINKABLE_SESSION_ID_RE = /^[A-Za-z0-9._~:@-]+$/
 
 // A citation names the unit that was evaluated: a session, a generation, or a trace. Session
 // citations may also carry the trace the agent read inside them, but the link goes to the session.
-export function citationTarget(c: EvaluationReportCitation): { citedId: string; url: string; label: string } | null {
+export type CitationTarget =
+    | { kind: 'session'; citedId: string; url: string; label: string }
+    | { kind: 'trace'; citedId: string; url: string; label: string; traceId: string; eventId: string | null }
+
+export function citationTarget(c: EvaluationReportCitation): CitationTarget | null {
     if (c.session_id) {
         if (!LINKABLE_SESSION_ID_RE.test(c.session_id)) {
             return null
         }
-        return { citedId: c.session_id, url: urls.aiObservabilitySession(c.session_id), label: 'session' }
+        return {
+            kind: 'session',
+            citedId: c.session_id,
+            url: urls.aiObservabilitySession(c.session_id),
+            label: 'session',
+        }
     }
     const citedId = c.generation_id || c.trace_id
     const traceId = c.trace_id || c.generation_id
     if (!citedId || !traceId) {
         return null
     }
+    const eventId = c.generation_id && c.trace_id ? c.generation_id : null
     return {
+        kind: 'trace',
         citedId,
-        url: urls.aiObservabilityTrace(traceId, c.generation_id && c.trace_id ? { event: c.generation_id } : undefined),
+        url: urls.aiObservabilityTrace(traceId, eventId ? { event: eventId } : undefined),
         label: c.generation_id ? 'generation' : 'trace',
+        traceId,
+        eventId,
     }
 }
 

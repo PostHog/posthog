@@ -11,9 +11,10 @@ export function EvaluationReportCitations({
     citations: EvaluationReportCitation[]
     onOpenTrace: (traceId: string, eventId: string | null) => void
 }): JSX.Element | null {
-    const rows = citations
-        .map((citation) => ({ citation, target: citationTarget(citation) }))
-        .filter(({ target }) => target !== null)
+    const rows = citations.flatMap((citation) => {
+        const target = citationTarget(citation)
+        return target ? [{ citation, target }] : []
+    })
     if (rows.length === 0) {
         return null
     }
@@ -22,15 +23,14 @@ export function EvaluationReportCitations({
             <h3 className="mb-0 text-sm font-semibold">{`Cited examples (${rows.length})`}</h3>
             <ul className="flex flex-col gap-2">
                 {rows.map(({ citation, target }, index) => {
-                    const traceId = citation.trace_id || citation.generation_id
                     return (
-                        <li key={`${target?.citedId}-${index}`} className="flex items-start justify-between gap-2">
-                            <span className="min-w-0 text-sm">{citation.reason || `Cited ${target?.label}`}</span>
-                            {citation.session_id || !traceId ? (
+                        <li key={`${target.citedId}-${index}`} className="flex items-start justify-between gap-2">
+                            <span className="min-w-0 text-sm">{citation.reason || `Cited ${target.label}`}</span>
+                            {target.kind === 'session' ? (
                                 <LemonButton
                                     size="xsmall"
                                     type="secondary"
-                                    to={target?.url}
+                                    to={target.url}
                                     data-attr="llma-evaluation-report-citation-session"
                                 >
                                     View session
@@ -39,12 +39,7 @@ export function EvaluationReportCitations({
                                 <LemonButton
                                     size="xsmall"
                                     type="secondary"
-                                    onClick={() =>
-                                        onOpenTrace(
-                                            traceId,
-                                            citation.generation_id && citation.trace_id ? citation.generation_id : null
-                                        )
-                                    }
+                                    onClick={() => onOpenTrace(target.traceId, target.eventId)}
                                     data-attr="llma-evaluation-report-citation-trace"
                                 >
                                     View trace
