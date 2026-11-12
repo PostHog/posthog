@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo, IconLock } from '@posthog/icons'
+import { IconCopy, IconInfo, IconLock } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -15,6 +16,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { CodeBadge } from './CodeBadge'
 import { CodeEmailLogicProps, codeEmailLogic } from './codeEmailLogic'
 import { CodeEmailTabs } from './CodeEmailTabs'
+import { SourceRow } from './SourceRow'
 
 export const scene: SceneExport<CodeEmailLogicProps> = {
     component: CodeEmailScene,
@@ -23,10 +25,13 @@ export const scene: SceneExport<CodeEmailLogicProps> = {
     productKey: ProductKey.WORKFLOWS,
 }
 
+const ACTION_BREAKPOINTS = { 0: 'narrow', 760: 'wide' } as const
+
 export function CodeEmailScene(): JSX.Element {
     // The scene binds the logic to the email ID in the URL.
     const { codeEmail, loadState, saving, editDisabledReason } = useValues(codeEmailLogic)
-    const { loadCodeEmail, updateCodeEmail } = useActions(codeEmailLogic)
+    const { loadCodeEmail, updateCodeEmail, setSourceFormOpen, copyAgentPrompt } = useActions(codeEmailLogic)
+    const { ref: widthRef, size } = useResizeBreakpoints(ACTION_BREAKPOINTS, { initialSize: 'wide' })
 
     if (loadState === 'not-found') {
         return (
@@ -51,7 +56,7 @@ export function CodeEmailScene(): JSX.Element {
 
     return (
         <SceneContent data-attr="code-email-scene">
-            <div className="flex flex-col gap-2">
+            <div ref={widthRef} className="flex flex-col gap-2">
                 <SceneTitleSection
                     name={codeEmail?.key}
                     description={codeEmail?.description ?? null}
@@ -85,20 +90,44 @@ export function CodeEmailScene(): JSX.Element {
                         ) : undefined
                     }
                     actions={
-                        <More
-                            size="small"
-                            overlay={
-                                <LemonButton
-                                    fullWidth
-                                    status="danger"
-                                    disabledReason="Your code creates this email again on its next send. Stop sending with this key first."
-                                >
-                                    Delete
-                                </LemonButton>
-                            }
-                        />
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconCopy />}
+                                tooltip="Copy a prompt that tells your coding agent which email to change and where"
+                                onClick={copyAgentPrompt}
+                                disabledReason={!codeEmail ? 'Loading the email' : undefined}
+                                data-attr="code-email-copy-agent-prompt"
+                            >
+                                {size === 'narrow' ? 'Agent prompt' : 'Copy prompt for your agent'}
+                            </LemonButton>
+                            <More
+                                size="small"
+                                overlay={
+                                    <>
+                                        <LemonButton
+                                            fullWidth
+                                            onClick={() => setSourceFormOpen(true)}
+                                            disabledReason={editDisabledReason ?? undefined}
+                                            data-attr="code-email-change-source-file"
+                                        >
+                                            {codeEmail?.source_url ? 'Change source file' : 'Link source file'}
+                                        </LemonButton>
+                                        <LemonButton
+                                            fullWidth
+                                            status="danger"
+                                            disabledReason="Your code creates this email again on its next send. Stop sending with this key first."
+                                        >
+                                            Delete
+                                        </LemonButton>
+                                    </>
+                                }
+                            />
+                        </>
                     }
                 />
+                <SourceRow />
                 {codeEmail && (
                     <SceneTags
                         tags={codeEmail.tags}

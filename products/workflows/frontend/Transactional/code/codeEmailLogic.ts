@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -17,6 +18,9 @@ import {
     transactionalCodeEmailsRetrieve,
 } from 'products/messaging/frontend/generated/api'
 import type { CodeEmailApi, PatchedCodeEmailUpdateApi } from 'products/messaging/frontend/generated/api.schemas'
+
+import { agentPrompt } from './agentPrompt'
+import { parseSourceFile } from './sourceFile'
 
 export interface CodeEmailLogicProps {
     id: string
@@ -36,6 +40,7 @@ export interface codeEmailLogicValues {
     editDisabledReason: string | null
     loadState: CodeEmailLoadState
     saving: boolean
+    sourceFormOpen: boolean
     tab: CodeEmailTab
 }
 
@@ -50,11 +55,20 @@ export interface codeEmailLogicActions {
     codeEmailNotFound: () => {
         value: true
     }
+    copyAgentPrompt: () => {
+        value: true
+    }
+    linkSourceFile: (sourceUrl: string) => {
+        sourceUrl: string
+    }
     loadCodeEmail: () => {
         value: true
     }
     savesSettled: () => {
         value: true
+    }
+    setSourceFormOpen: (open: boolean) => {
+        open: boolean
     }
     setTab: (tab: CodeEmailTab) => {
         tab: CodeEmailTab
@@ -116,6 +130,9 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
         }),
         updateCodeEmailFailure: (codeEmail: CodeEmailApi, error: string) => ({ codeEmail, error }),
         savesSettled: true,
+        setSourceFormOpen: (open: boolean) => ({ open }),
+        linkSourceFile: (sourceUrl: string) => ({ sourceUrl }),
+        copyAgentPrompt: true,
     }),
     reducers({
         tab: ['metrics' as CodeEmailTab, { setTab: (_, { tab }) => tab, showSends: () => 'sends' }],
@@ -141,6 +158,13 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
             },
         ],
         saving: [false, { updateCodeEmail: () => true, savesSettled: () => false }],
+        sourceFormOpen: [
+            false,
+            {
+                setSourceFormOpen: (_, { open }) => open,
+                updateCodeEmailSuccess: (state, { fields }) => ('source_url' in fields ? false : state),
+            },
+        ],
     }),
     selectors({
         editDisabledReason: [
@@ -249,6 +273,27 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
             },
             updateCodeEmailFailure: ({ error }) => {
                 lemonToast.error(error)
+            },
+            linkSourceFile: ({ sourceUrl }) => {
+                cache.linkReplacesFile = !!values.codeEmail?.source_url
+                actions.updateCodeEmail({ source_url: sourceUrl })
+            },
+            updateCodeEmailSuccess: ({ fields }) => {
+                if (fields.source_url) {
+                    // pinned: analytics event name
+                    posthog.capture('code email source file linked', {
+                        changed: !!cache.linkReplacesFile,
+                        host: parseSourceFile(fields.source_url).host,
+                    })
+                }
+            },
+            copyAgentPrompt: async () => {
+                if (values.codeEmail && (await copyToClipboard(agentPrompt(values.codeEmail), 'prompt'))) {
+                    // pinned: analytics event name
+                    posthog.capture('code email agent prompt copied', {
+                        has_source_file: !!values.codeEmail.source_url,
+                    })
+                }
             },
             setTab: ({ tab }) => {
                 const { tab: shownTab, ...searchParams } = router.values.searchParams
