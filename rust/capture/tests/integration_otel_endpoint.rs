@@ -3,6 +3,7 @@ mod integration_utils;
 
 use async_trait::async_trait;
 use axum_test_helper::TestClient;
+use capture::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
 use capture::ai_event_size_caps::AiEventSizeCaps;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
@@ -919,22 +920,15 @@ async fn both_spans_publish_when_no_byte_budget_is_configured() {
 /// never made to retry a span that can never fit. The warning is the only
 /// feedback channel for that, which is why it is asserted alongside the drop:
 /// without it the customer sees a 200 and silently missing spans.
-#[rstest::rstest]
-#[case::the_default_cap_sheds_it(String::new(), 0, 1)]
-#[case::a_raised_token_cap_keeps_it(format!("{TOKEN}=24000000"), 1, 0)]
 #[tokio::test]
-async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds(
-    #[case] by_token: String,
-    #[case] expected_events: usize,
-    #[case] expected_warnings: usize,
-) {
+async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds() {
     let sink = CapturingSink::new();
     let emitter = Arc::new(CollectingEmitter::default());
     let client = make_test_client_with_options(
         &sink,
         TestClientOptions {
             ingestion_warning_emitter: Some(emitter.clone()),
-            ai_max_event_bytes: Some(AiEventSizeCaps::parse(64, &by_token, 48_000_000)),
+            ai_max_event_bytes: Some(64.into()),
             ..Default::default()
         },
     );
@@ -942,15 +936,43 @@ async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds(
     // A 64-byte ceiling is under the serialized size of even a minimal AI span.
     let status = send_request_with_client(&client, &make_single_span_request()).await;
     assert_eq!(status, 200, "the export must still be accepted");
-    assert_eq!(sink.get_events().await.len(), expected_events);
+    assert!(
+        sink.get_events().await.is_empty(),
+        "the oversized span must not reach the sink"
+    );
 
     let emitted = emitter.emitted();
-    assert_eq!(emitted.len(), expected_warnings);
-    assert!(emitted
-        .iter()
-        .all(|w| w.warning == WarningType::MessageSizeTooLarge
-            && w.source == CAPTURE_AI_OTEL
-            && w.extra_details.get("droppedSpans") == Some(&json!(1))));
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::MessageSizeTooLarge);
+    assert_eq!(emitted[0].source, CAPTURE_AI_OTEL);
+    assert_eq!(
+        emitted[0].extra_details.get("droppedSpans"),
+        Some(&json!(1))
+    );
+}
+
+#[tokio::test]
+async fn a_raised_token_cap_keeps_a_span_over_the_default() {
+    let sink = CapturingSink::new();
+    let emitter = Arc::new(CollectingEmitter::default());
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ingestion_warning_emitter: Some(emitter.clone()),
+            ai_max_event_bytes: Some(AiEventSizeCaps::parse(
+                64,
+                &format!("{TOKEN}=24000000"),
+                AI_MAX_EVENT_BYTES_CEILING,
+            )),
+            ..Default::default()
+        },
+    );
+
+    let status = send_request_with_client(&client, &make_single_span_request()).await;
+
+    assert_eq!(status, 200);
+    assert_eq!(sink.get_events().await.len(), 1);
+    assert!(emitter.emitted().is_empty());
 }
 
 // The warning is the only feedback channel for this outcome: the OTLP contract

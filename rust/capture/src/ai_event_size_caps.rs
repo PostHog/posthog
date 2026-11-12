@@ -6,7 +6,7 @@ use tracing::{info, warn};
 use crate::ai_event_limits::AI_MAX_EVENT_BYTES_OVERRIDES;
 
 /// The largest AI event each project token may send.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct AiEventSizeCaps {
     default: u64,
     by_token: Arc<HashMap<String, u64>>,
@@ -24,35 +24,40 @@ impl From<u64> for AiEventSizeCaps {
 impl AiEventSizeCaps {
     /// Skips and logs any entry that is invalid or would not raise `default`,
     /// so one bad entry cannot stop capture from booting.
-    pub fn parse(default: u64, by_token: &str, ceiling: u64) -> Self {
-        let mut caps = HashMap::new();
-        for entry in by_token.split(',').map(str::trim).filter(|e| !e.is_empty()) {
-            match parse_entry(entry, default, ceiling) {
-                Ok((token, bytes)) => {
-                    caps.insert(token.to_string(), bytes);
+    pub fn parse(default: u64, overrides_csv: &str, max_raised: u64) -> Self {
+        let mut by_token = HashMap::new();
+        for entry in overrides_csv
+            .split(',')
+            .map(str::trim)
+            .filter(|e| !e.is_empty())
+        {
+            match parse_entry(entry, default, max_raised) {
+                Ok((token, requested, bytes)) => {
+                    info!(
+                        token,
+                        requested,
+                        bytes,
+                        lowered = bytes < requested,
+                        "raising the AI event size cap for a token"
+                    );
+                    by_token.insert(token.to_string(), bytes);
                 }
                 Err(reason) => {
                     warn!(
                         entry,
-                        reason, "skipping an AI_MAX_EVENT_BYTES_BY_TOKEN entry"
+                        reason, "skipping an AI_MAX_EVENT_BYTES_OVERRIDES_CSV entry"
                     )
                 }
             }
         }
-        if !caps.is_empty() {
-            info!(
-                tokens = caps.len(),
-                "AI event size cap raised for listed tokens"
-            );
-        }
         Self {
             default,
-            by_token: Arc::new(caps),
+            by_token: Arc::new(by_token),
         }
     }
 
-    pub fn default_bytes(&self) -> u64 {
-        self.default
+    pub fn largest_bytes(&self) -> u64 {
+        self.by_token.values().copied().fold(self.default, u64::max)
     }
 
     pub fn for_token(&self, token: &str) -> u64 {
@@ -60,27 +65,31 @@ impl AiEventSizeCaps {
     }
 }
 
-fn parse_entry(entry: &str, default: u64, ceiling: u64) -> Result<(&str, u64), &'static str> {
-    let (token, bytes) = entry.split_once('=').ok_or("expected token=bytes")?;
+fn parse_entry(
+    entry: &str,
+    default: u64,
+    max_raised: u64,
+) -> Result<(&str, u64, u64), &'static str> {
+    let (token, requested) = entry.split_once('=').ok_or("expected token=bytes")?;
     let token = token.trim();
     if token.is_empty() {
         return Err("empty token");
     }
-    let bytes: u64 = bytes
+    let requested: u64 = requested
         .trim()
         .parse()
         .map_err(|_| "bytes is not an integer")?;
-    if !AI_MAX_EVENT_BYTES_OVERRIDES.contains(&bytes) {
+    if !AI_MAX_EVENT_BYTES_OVERRIDES.contains(&requested) {
         return Err("bytes is not one of the shared override options");
     }
     if default == 0 {
         return Err("the default cap is disabled");
     }
-    let bytes = bytes.min(ceiling);
+    let bytes = requested.min(max_raised);
     if bytes <= default {
         return Err("it would not raise the default cap");
     }
-    Ok((token, bytes))
+    Ok((token, requested, bytes))
 }
 
 #[cfg(test)]
@@ -88,8 +97,10 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
+    use crate::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
+
     const DEFAULT: u64 = 8_388_608;
-    const CEILING: u64 = 48_000_000;
+    const CEILING: u64 = AI_MAX_EVENT_BYTES_CEILING;
 
     #[rstest]
     #[case::raises_a_listed_token("phc_big=24000000", "phc_big", 24_000_000)]

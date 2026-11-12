@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
+use capture::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
 use capture::ai_event_size_caps::AiEventSizeCaps;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
@@ -1110,8 +1111,11 @@ async fn combined_event_properties_over_960kb_follow_the_token_cap(
     #[case] by_token: &str,
     #[case] expected: StatusCode,
 ) {
-    let router =
-        setup_ai_test_router_with_caps(AiEventSizeCaps::parse(983_040, by_token, 48_000_000));
+    let router = setup_ai_test_router_with_caps(AiEventSizeCaps::parse(
+        983_040,
+        by_token,
+        AI_MAX_EVENT_BYTES_CEILING,
+    ));
     let test_client = TestClient::new(router);
 
     let form = create_ai_event_form(
@@ -1137,8 +1141,11 @@ async fn ai_batch_events_over_960kb_follow_the_token_cap(
     #[case] by_token: &str,
     #[case] expected: StatusCode,
 ) {
-    let router =
-        setup_ai_test_router_with_caps(AiEventSizeCaps::parse(983_040, by_token, 48_000_000));
+    let router = setup_ai_test_router_with_caps(AiEventSizeCaps::parse(
+        983_040,
+        by_token,
+        AI_MAX_EVENT_BYTES_CEILING,
+    ));
     let test_client = TestClient::new(router);
     let body = json!({
         "api_key": "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",

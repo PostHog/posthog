@@ -211,7 +211,7 @@ mod tests {
             s3_fallback_prefix: String::new(),
             ai_max_sum_of_parts_bytes: 26_214_400,
             ai_max_event_bytes: 8_388_608,
-            ai_max_event_bytes_by_token: String::new(),
+            ai_max_event_bytes_overrides_csv: None,
             ai_gateway_signing_secret: None,
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,

@@ -390,10 +390,9 @@ pub struct Config {
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 
-    /// Raises `ai_max_event_bytes` for listed project tokens: comma-separated
-    /// `token=bytes`, each value one of `AI_MAX_EVENT_BYTES_OVERRIDES`.
-    #[envconfig(default = "")]
-    pub ai_max_event_bytes_by_token: String,
+    /// CSV list of `token=bytes` pairs raising `ai_max_event_bytes` for those
+    /// tokens, each value one of `AI_MAX_EVENT_BYTES_OVERRIDES`.
+    pub ai_max_event_bytes_overrides_csv: Option<String>,
 
     // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
     // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and

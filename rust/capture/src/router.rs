@@ -69,7 +69,7 @@ pub struct State {
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
     /// Largest AI-lane event each token may send (`AI_MAX_EVENT_BYTES`, raised
-    /// per token by `AI_MAX_EVENT_BYTES_BY_TOKEN`). `0` disables the ceiling.
+    /// per token by `AI_MAX_EVENT_BYTES_OVERRIDES_CSV`). `0` disables the ceiling.
     pub ai_max_event_bytes: AiEventSizeCaps,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,

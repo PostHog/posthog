@@ -1231,6 +1231,9 @@ async fn apply_token_distinct_id_limits(
 mod tests {
     use std::time::Duration as StdDuration;
 
+    use crate::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
+    use crate::ai_event_size_caps::AiEventSizeCaps;
+
     use chrono::{DateTime, Duration, Utc};
     use uuid::Uuid;
 
@@ -4781,10 +4784,10 @@ mod tests {
     async fn a_raised_token_cap_keeps_an_oversize_ai_event() {
         let ts = TestStateBuilder::new()
             .with_capture_mode(CaptureMode::Ai)
-            .with_ai_max_event_bytes(crate::ai_event_size_caps::AiEventSizeCaps::parse(
+            .with_ai_max_event_bytes(AiEventSizeCaps::parse(
                 700,
                 "phc_test_token=24000000",
-                48_000_000,
+                AI_MAX_EVENT_BYTES_CEILING,
             ))
             .build();
         let mut ctx = test_utils::test_analytics_context();
