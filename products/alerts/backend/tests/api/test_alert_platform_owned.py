@@ -817,8 +817,8 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             (
                 row.activity,
                 row.user_id,
-                row.detail["context"]["subscriber_email"],
-                row.detail["context"]["insight_name"],
+                (row.detail or {})["context"]["subscriber_email"],
+                (row.detail or {})["context"]["insight_name"],
             )
             for row in logged
         ] == [

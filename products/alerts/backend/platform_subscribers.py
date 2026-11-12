@@ -12,9 +12,11 @@ from uuid import UUID
 from django.db import transaction
 
 from posthog.dataclasses import frozen
+from posthog.models.user import User
 
 from products.alerts.backend.activity_logging import log_native_subscriber_changes
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
+from products.alerts.backend.platform_insight_alert import native_insight_alert_view
 from products.alerts.backend.tasks.tasks import remove_departed_subscriber
 from products.alerts_platform.backend.facade.api import set_subscriber_destinations, subscriber_user_ids_by_public_id
 from products.alerts_platform.backend.facade.contracts import AlertEventKind
@@ -46,10 +48,16 @@ def sync_subscriber_destinations(alert: AlertConfiguration) -> bool:
         )
 
 
-def set_native_subscribers(*, alert: AlertConfiguration, user_ids: Collection[int]) -> bool:
+def set_native_subscribers(
+    *, team_id: int, alert_id: UUID, user_ids: Collection[int], actor_id: int | None, was_impersonated: bool
+) -> bool:
     """Writes the subscribers of an insight alert with no insight row, which keeps them only as
-    destinations, and logs each user added or removed. Call it with the alert locked. False when the
-    alert is gone."""
+    destinations, and logs each user added or removed as the change of the user `actor_id` names. Call it
+    with the alert locked. False when the alert is gone."""
+    view = native_insight_alert_view(team_id, alert_id)
+    alert = AlertConfiguration.from_platform_view(view, team_id=team_id) if view is not None else None
+    if alert is None:
+        return False
     before = set(platform_subscriber_ids(team_id=alert.team_id, alert_ids=[alert.id]).get(alert.id, ()))
     after = set(user_ids)
     written = set_subscriber_destinations(
@@ -61,7 +69,13 @@ def set_native_subscribers(*, alert: AlertConfiguration, user_ids: Collection[in
         in_app_resource_id=alert.insight.short_id,
     )
     if written:
-        log_native_subscriber_changes(alert, added=after - before, removed=before - after)
+        log_native_subscriber_changes(
+            alert,
+            actor=User.objects.filter(id=actor_id).first() if actor_id is not None else None,
+            was_impersonated=was_impersonated,
+            added=after - before,
+            removed=before - after,
+        )
     return written
 
 

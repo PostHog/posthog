@@ -228,9 +228,11 @@ def _persist_native_alert(
         view = create_native_alert(team_id=team_id, insight_id=insight.id, created_by_id=creator.id, fields=fields)
     except PlatformAlertCreateRefused as error:
         raise AlertLimitReached(str(error)) from error
+    set_native_subscribers(
+        team_id=team_id, alert_id=view.id, user_ids=[creator.id], actor_id=creator.id, was_impersonated=False
+    )
     created = AlertConfiguration.from_platform_view(view, team_id=team_id)
     assert created is not None
-    set_native_subscribers(alert=created, user_ids=[creator.id])
     return created
 
 

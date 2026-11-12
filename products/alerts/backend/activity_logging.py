@@ -121,18 +121,21 @@ def handle_alert_subscription_change(
 
 
 def log_native_subscriber_changes(
-    alert: AlertConfiguration, *, added: Collection[int], removed: Collection[int]
+    alert: AlertConfiguration,
+    *,
+    actor: User | None,
+    was_impersonated: bool,
+    added: Collection[int],
+    removed: Collection[int],
 ) -> None:
     """The entries `handle_alert_subscription_change` and `handle_alert_subscription_delete` write, for an
     alert with no insight row, whose subscribers have no `AlertSubscription` rows to send the signals."""
-    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
-
     for user in User.objects.filter(id__in=[*added, *removed]).order_by("id"):
         log_activity(
             organization_id=alert.team.organization_id,
             team_id=alert.team_id,
-            user=get_current_user(),
-            was_impersonated=get_was_impersonated(),
+            user=actor,
+            was_impersonated=was_impersonated,
             item_id=alert.id,
             scope="AlertConfiguration",
             activity="created" if user.id in added else "deleted",
