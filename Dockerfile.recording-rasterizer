@@ -160,9 +160,6 @@ RUN groupadd -g 10001 posthog && \
     chown -R posthog:posthog /code
 USER posthog
 
-ARG COMMIT_HASH
-RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
-
 # Copy compiled nodejs from build stage
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
@@ -183,6 +180,9 @@ ENV NODE_ENV=production \
 
 # Validate runtime dependencies
 RUN chrome-headless-shell --version && ffmpeg -version
+
+ARG COMMIT_HASH
+RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
 
 EXPOSE 6738
 
