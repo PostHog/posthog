@@ -615,7 +615,6 @@ export type HogFlowInvocationContext = {
     send?: QueuedSend
     scheduledAt?: string
     statusAt?: string
-    // The record a replay of the run's idempotency key reads, kept so a reschedule can write it again.
     idempotencyKey?: QueuedIdempotencyKey
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows

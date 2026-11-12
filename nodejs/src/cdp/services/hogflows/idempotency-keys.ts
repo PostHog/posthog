@@ -21,7 +21,6 @@ const VALKEY_TIMEOUT_MS = 1000
 const RELEASE_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.decode(v).invocationId == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`
 // Records the queued run when the key is absent or still holds this request's reservation. The key is
 // absent when the queue write took longer than the pending TTL, and the run is queued all the same.
-// It keeps a longer window that a reschedule set while a completion waited or retried.
 const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or cjson.decode(v).invocationId == ARGV[2] then redis.call('SET', KEYS[1], ARGV[1], 'PX', math.max(tonumber(ARGV[3]) * 1000, redis.call('PTTL', KEYS[1]))) return 1 end return 0`
 const CLIENT_NAMES = { mark_queued: 'idempotency-mark-queued', replay_until: 'idempotency-replay-until' }
 const MARK_QUEUED_INLINE_ATTEMPTS = 2
@@ -342,8 +341,6 @@ export class IdempotencyKeys {
         return createHash('sha256').update(key).digest('hex')
     }
 
-    // Writes the run's queued record, so a replay works after a reschedule even when the completion of the
-    // accept never reached the store.
     async replayUntilDayAfter(
         teamId: number,
         invocationId: string,
