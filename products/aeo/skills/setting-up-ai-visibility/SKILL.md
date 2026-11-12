@@ -29,10 +29,10 @@ Each step that writes something ends with a confirmation from the user.
 | `posthog:aeo-engines-list`                                            | The answer engines, whether each runs, and how often                  |
 | `posthog:aeo-engines-update`                                          | Turn an engine on or off, or set daily or weekly (write, costs money) |
 | `posthog:aeo-prompts-list`, `posthog:aeo-prompts-topics-list`         | The tracked prompts and their topics                                  |
-| `posthog:aeo-prompts-suggest`, `posthog:aeo-prompts-suggestion-get`   | Claude suggests prompts for the site, as a job you poll               |
+| `posthog:aeo-prompts-suggest`, `posthog:aeo-prompts-suggestion-get`   | PostHog suggests prompts for the site, as a job you poll              |
 | `posthog:aeo-prompts-import`                                          | Add prompts (write)                                                   |
 | `posthog:aeo-keywords-list`                                           | The project's keyword list                                            |
-| `posthog:aeo-keywords-suggest`, `posthog:aeo-keywords-suggestion-get` | Claude suggests keywords, as a job you poll                           |
+| `posthog:aeo-keywords-suggest`, `posthog:aeo-keywords-suggestion-get` | PostHog suggests keywords, as a job you poll                          |
 | `posthog:aeo-keywords-create`                                         | Add keywords (write)                                                  |
 | `posthog:aeo-prompts-overview-get`                                    | Set-level results once the first run is done                          |
 
@@ -44,7 +44,7 @@ Each step that writes something ends with a confirmation from the user.
   Do that step in the PostHog app instead: the AI visibility tab under Web analytics (`/web/content-autopilot`).
   Tell the user which step is left for them, and continue with the steps you can do.
 - **Suggestions need AI data processing.** `aeo-prompts-suggest` and `aeo-keywords-suggest` send the project's
-  site, prompts and keywords to Claude. A 403 that mentions AI data processing means an organization admin
+  site, prompts and keywords to an AI model. A 403 that mentions AI data processing means an organization admin
   must approve it in organization settings. Without it, write the prompts and keywords with the user instead.
 - **Read the current state first.** Call `aeo-brands-list` with `kind=own`, `aeo-engines-list`,
   `aeo-prompts-list` and `aeo-keywords-list` before you write anything, so you set up only what is missing.
@@ -103,7 +103,7 @@ feature. The report shows how often each one appears in the prompts, in the engi
 the answers. A project tracks at most 200.
 
 1. Start a job with `aeo-keywords-suggest`: the `domain`, and the `brand` and `description` when known.
-   Run it after step 4, because Claude ranks keywords from the tracked prompts and, once checks exist,
+   Run it after step 4, because PostHog ranks keywords from the tracked prompts and, once checks exist,
    from the web searches the engines ran.
 2. Poll `aeo-keywords-suggestion-get` until `status` is `completed` or `failed`.
 3. Show the keywords in order with each `reason`. `searched_checks` counts the recent answers whose web
