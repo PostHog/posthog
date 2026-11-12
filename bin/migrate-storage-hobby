@@ -12,6 +12,11 @@ MINIO_IMAGE="quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z"
 SOURCE_CONTAINER="posthog-legacy-minio"
 S3_KEY="object_storage_root_user"
 S3_SECRET="object_storage_root_password"
+# The temporary MinIO keeps the old shared secret, but objectstorage uses this install's own
+# OBJECT_STORAGE_SECRET from .env, which the installer or bin/upgrade-hobby adds. It is passed
+# to docker compose through the environment, so it doesn't show up in the process list.
+DESTINATION_SECRET=$(grep '^OBJECT_STORAGE_SECRET=' .env 2>/dev/null | tail -n 1 | cut -d '=' -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//' || true)
+export SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY=${DESTINATION_SECRET:-$S3_SECRET}
 
 OBJECTSTORAGE_ENDPOINT="http://objectstorage:19000"
 SEAWEEDFS_ENDPOINT="http://seaweedfs:8333"
@@ -194,7 +199,7 @@ run_service() {
         -e OBJECT_STORAGE_SECRET_ACCESS_KEY="$S3_SECRET" \
         -e SESSION_RECORDING_V2_S3_ENDPOINT="$endpoint" \
         -e SESSION_RECORDING_V2_S3_ACCESS_KEY_ID="$S3_KEY" \
-        -e SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY="$S3_SECRET" \
+        -e SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY \
         plugins \
         node nodejs/bin/migrate-minio-to-seaweedfs.js --service "$service" --mode migrate "${EXTRA_ARGS[@]}"
 }

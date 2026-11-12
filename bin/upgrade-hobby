@@ -161,13 +161,19 @@ else
     fi
 fi
 
-# Service-to-service secrets that each get their own random value, so a leak from one container
-# cannot yield POSTHOG_SECRET (Django's SECRET_KEY). Installs from before a secret existed have
-# none, so add it. Keep this list in step with dedicatedSecretKeys in bin/hobby-installer.
-for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET RECORDING_API_JWT_SECRET; do
+# Secrets that each get their own random value per install. For the service-to-service ones, a
+# leak from one container cannot yield POSTHOG_SECRET (Django's SECRET_KEY). OBJECT_STORAGE_SECRET
+# replaces the object storage secret every install used to share; see
+# docs/internal/hobby-minio-removal.md. Installs from before a secret existed have none, so add
+# it. Keep this list in step with dedicatedSecretKeys in bin/hobby-installer.
+for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET RECORDING_API_JWT_SECRET OBJECT_STORAGE_SECRET; do
     if ! grep -qE "^$key=.+" .env; then
         echo "$key=$(openssl rand -hex 32)" >> .env
         echo "Added missing $key to .env file"
+        if [ "$key" = OBJECT_STORAGE_SECRET ]; then
+            echo "Object storage now uses this secret instead of object_storage_root_password."
+            echo "Update any S3 client or backup job of your own that connects to 127.0.0.1:19000."
+        fi
     fi
 done
 
