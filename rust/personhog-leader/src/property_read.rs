@@ -37,11 +37,20 @@ pub async fn load_person(
     read: &PropertyRead,
     key: &PersonCacheKey,
 ) -> Result<Option<CachedPerson>, LoadError> {
-    let Some(mut person) = load_person_stub_from_pg(pool, table, key).await? else {
+    // The load holds the person's lock and the person has no dirty mark, so both reads see the
+    // same version and their order does not matter.
+    let first_read = async {
+        let started = Instant::now();
+        let first = read.reader.get(key.team_id, key.person_id).await;
+        (first, started.elapsed())
+    };
+    let (stub, (first, first_elapsed)) =
+        tokio::join!(load_person_stub_from_pg(pool, table, key), first_read);
+    let Some(mut person) = stub? else {
         return Ok(None);
     };
     let started = Instant::now();
-    let outcome = match resolve(read, &person).await {
+    let outcome = match resolve(read, &person, first).await {
         Resolved::Served(properties) => {
             person.properties = properties;
             "served"
@@ -49,7 +58,7 @@ pub async fn load_person(
         Resolved::Unserved(reason) => reason,
     };
     histogram!("personhog_leader_property_store_read_ms")
-        .record(started.elapsed().as_secs_f64() * 1000.0);
+        .record((first_elapsed + started.elapsed()).as_secs_f64() * 1000.0);
     counter!("personhog_leader_property_store_reads_total", "outcome" => outcome).increment(1);
     load_outcome(outcome).map(|()| Some(person))
 }
@@ -96,8 +105,12 @@ fn judge(read: Result<Option<StoredProperties>, PropertyStoreError>, stub: &Cach
     }
 }
 
-async fn resolve(read: &PropertyRead, stub: &CachedPerson) -> Resolved {
-    if let Read::Settled(resolved) = judge(read.reader.get(stub.team_id, stub.id).await, stub) {
+async fn resolve(
+    read: &PropertyRead,
+    stub: &CachedPerson,
+    first: Result<Option<StoredProperties>, PropertyStoreError>,
+) -> Resolved {
+    if let Read::Settled(resolved) = judge(first, stub) {
         return resolved;
     }
     let fresh = read.reader.get_fresh(stub.team_id, stub.id).await;
@@ -177,8 +190,9 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         }
+        let first = reader.get(7, 1).await;
         let read = PropertyRead { reader };
-        let resolved = resolve(&read, &stub(stub_version)).await;
+        let resolved = resolve(&read, &stub(stub_version), first).await;
         writer.close().await;
         resolved
     }
@@ -287,7 +301,7 @@ mod tests {
                 reader: Arc::clone(&reader),
             };
 
-            let resolved = resolve(&read, &stub(4)).await;
+            let resolved = resolve(&read, &stub(4), reader.get(7, 1).await).await;
 
             assert_eq!(
                 resolved,
