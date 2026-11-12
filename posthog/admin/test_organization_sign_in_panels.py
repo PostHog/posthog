@@ -101,8 +101,7 @@ class TestChangeMemberEmails(BaseTest):
         send.assert_not_called()
 
     def test_confirm_moves_the_account_to_the_new_email(self, send: MagicMock) -> None:
-        self.member.pending_email = "ada@elsewhere.example.com"
-        self.member.save()
+        User.objects.filter(pk=self.member.pk).update(pending_email="ada@elsewhere.example.com")
         UserSocialAuth.objects.create(user=self.member, provider="saml", uid="ada@old.example.com")
         Client().force_login(self.member)
         assert Session.objects.filter(user_id=self.member.pk).exists()
@@ -141,7 +140,7 @@ class TestChangeMemberEmails(BaseTest):
             ("staff_account", "staff@old.example.com"),
         ]
     )
-    def test_skips_a_member_it_must_not_change(self, name: str, line: str, _send: MagicMock) -> None:
+    def test_skips_a_member_it_must_not_change(self, _send: MagicMock, _name: str, line: str) -> None:
         other_organization = Organization.objects.create(name="Other")
         User.objects.create_and_join(other_organization, "taken@new.example.com", None)
         User.objects.create_and_join(other_organization, "outsider@old.example.com", None)
