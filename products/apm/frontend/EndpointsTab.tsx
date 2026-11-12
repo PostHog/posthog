@@ -44,7 +44,7 @@ export function EndpointsTab(): JSX.Element {
             key: 'links',
             render: (_, row) => (
                 <span className="flex gap-2">
-                    <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} />
+                    <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} source="endpoints" />
                 </span>
             ),
         },

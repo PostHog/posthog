@@ -3,10 +3,10 @@ import type { ReactNode } from 'react'
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
-import { BrandMark } from '../components/BrandMark'
 import { harnessMark } from '../dashboard/harnessRegistry'
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
 import { formatDuration } from '../sessions/utils'
