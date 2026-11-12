@@ -46,6 +46,9 @@ which item to diagnose and can skip Step 1's discovery search.
 | `external-data-sources-reload`                         | Retrigger syncs for every enabled schema on a source                       |
 | `external-data-sources-refresh-schemas`                | Re-fetch the source's table list to pick up new tables                     |
 | `external-data-sources-check-cdc-prerequisites-create` | Verify Postgres CDC setup for a source                                     |
+| `external-data-sources-cdc-status-retrieve`            | Live CDC health: slot, publication, lag, paused schedule                   |
+| `external-data-sources-resume-cdc-create`              | Unpause CDC after a fixed failure, no re-snapshot                          |
+| `external-data-sources-repair-cdc-create`              | Recreate a lost slot or publication. Forces a full re-sync                 |
 | `external-data-schemas-incremental-fields-create`      | Refresh candidate incremental fields when the source schema has changed    |
 | `external-data-sources-webhook-info-retrieve`          | Check webhook registration state and external service status               |
 | `external-data-sources-create-webhook-create`          | Re-register a webhook that was lost or never registered                    |
@@ -159,8 +162,14 @@ The recovery action depends on root cause, not just status. Match the user's sit
 **E. CDC pipeline broken on Postgres**
 
 - Error mentions replication slot, publication, WAL.
-- Action: `external-data-sources-check-cdc-prerequisites-create` to enumerate what's broken, fix on the Postgres
-  side, then `external-data-schemas-reload`. If the WAL position was lost, a `resync` is sometimes unavoidable.
+- Action: call `external-data-sources-cdc-status-retrieve` first. It reads the source database, so a 400 means the
+  source is unreachable: fix the credentials first.
+- `schedule_paused=true` with `slot_exists` and `publication_exists` both true: a failure paused extraction and nothing
+  was lost. Fix the cause, then call `external-data-sources-resume-cdc-create`. It does not re-snapshot.
+- `slot_exists=false` or `publication_exists=false`: call `external-data-sources-repair-cdc-create`. It recreates them
+  and resets every CDC table to a full re-sync, so ask the user first. It refuses when CDC looks healthy.
+- Use `external-data-sources-check-cdc-prerequisites-create` to list setup problems on the Postgres side (wal_level,
+  permissions). Then call `external-data-schemas-reload`.
 
 **F. Sync is stuck in `Running` for hours**
 

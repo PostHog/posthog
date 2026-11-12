@@ -6,17 +6,19 @@ import { radii, type } from '@/ui/tokens'
 
 interface SettingsGroupProps {
     title: string
+    description?: string
     children: ReactNode
     footer?: string
     testID?: string
 }
 
-export function SettingsGroup({ title, children, footer, testID }: SettingsGroupProps): ReactElement {
+export function SettingsGroup({ title, description, children, footer, testID }: SettingsGroupProps): ReactElement {
     const styles = useStyles()
     const rows = Children.toArray(children)
     return (
         <View style={styles.group} testID={testID}>
             <Text style={[type.eyebrow, styles.title]}>{title.toUpperCase()}</Text>
+            {description ? <Text style={styles.description}>{description}</Text> : null}
             <View style={styles.card}>
                 {rows.map((row, index) => (
                     <Fragment key={isValidElement(row) && row.key !== null ? row.key : index}>
@@ -36,6 +38,12 @@ const useStyles = createStyles(({ colors }) => ({
     },
     title: {
         color: colors.tertiary,
+        marginBottom: 8,
+        paddingHorizontal: 4,
+    },
+    description: {
+        ...type.metaSmall,
+        color: colors.secondary,
         marginBottom: 8,
         paddingHorizontal: 4,
     },
