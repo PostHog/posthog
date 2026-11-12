@@ -23,7 +23,7 @@ describe('RunIntake', () => {
         const keyedRun = (): Run => {
             const invocation = createExampleHogFlowInvocation(hogFlow)
             invocation.id = runId
-            return { invocation, claim: { fingerprint: 'same-request' } }
+            return { kind: 'transactional-email', invocation, claim: { fingerprint: 'same-request' } }
         }
 
         const [first] = await intake.launch([keyedRun()], { wait: 'committed' })
@@ -56,7 +56,10 @@ describe('RunIntake', () => {
         const invocation = createExampleHogFlowInvocation(hogFlow)
         invocation.id = keyedRunId(1, 'transactional-email', 'password-reset-2')
 
-        const launched = intake.launch([{ invocation, claim: { fingerprint: 'request' } }], { wait: 'committed' })
+        const launched = intake.launch(
+            [{ kind: 'transactional-email', invocation, claim: { fingerprint: 'request' } }],
+            { wait: 'committed' }
+        )
         rows.queueLifecycleRow(invocation, 'succeeded')
         returnFromInsert()
         await launched

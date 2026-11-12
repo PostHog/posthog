@@ -17,7 +17,7 @@ import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/we
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
-import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
+import { KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK, KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -575,6 +575,30 @@ describe('SourceWebhooksConsumer', () => {
                 const call = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0]
                 expect(call.queue).toEqual('hogflow')
                 expect(call.hogFlow).toMatchObject(hogFlow)
+            })
+
+            it('produces the run to the intake topic when its team is in intake shadow mode', async () => {
+                hub.CDP_INTAKE_KAFKA_SHADOW_TEAMS = String(team.id)
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: { event: 'my-event', distinct_id: 'test-distinct-id' },
+                })
+
+                expect(res.status).toEqual(201)
+                expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                const runId = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0].id
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
+                ).toEqual([
+                    expect.objectContaining({
+                        key: runId,
+                        value: expect.objectContaining({
+                            kind: 'workflow-webhook',
+                            job: expect.objectContaining({ id: runId }),
+                        }),
+                    }),
+                ])
             })
 
             it('should add logs and metrics', async () => {
