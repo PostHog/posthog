@@ -159,12 +159,16 @@ def get_organization_personal_api_keys(organization: "Organization") -> QuerySet
 
     The scope filters are the SQL form of `get_organization_ids_in_key_scope`. The other filters drop
     expired keys, keys without scopes, keys of inactive users, and member keys that the organization blocks.
+    `APIScopePermission` applies that block only while the organization has the security settings feature,
+    so this filter has the same condition.
     """
     # organization.py imports this module, so a module-level import is circular.
     from posthog.models.organization import OrganizationMembership
 
     membership = Q(user__organization_membership__organization_id=organization.id)
-    if not organization.members_can_use_personal_api_keys:
+    if not organization.members_can_use_personal_api_keys and organization.is_feature_available(
+        AvailableFeature.ORGANIZATION_SECURITY_SETTINGS
+    ):
         membership &= Q(user__organization_membership__level__gte=OrganizationMembership.Level.ADMIN)
     team_ids = list(organization.teams.values_list("id", flat=True))
     return (
