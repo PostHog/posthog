@@ -10,10 +10,12 @@ import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic
 import { TransactionalEmailResultsStats } from './TransactionalEmailResultsStats'
 
 export function TransactionalEmailResults(): JSX.Element {
-    const { resultsQuery, results, resultsLoading, resultsFailed, canLoadResults, templatesFailed } =
+    const { resultsQuery, results, resultsLoading, resultsFailed, canLoadResults } =
         useValues(transactionalEmailMetricsLogic)
-    const { setResultsQuery, loadResults, loadTransactionalTemplates } = useActions(transactionalEmailMetricsLogic)
-    const { transactionalTemplates, transactionalTemplatesLoading } = useValues(transactionalTemplatesLogic)
+    const { setResultsQuery, loadResults } = useActions(transactionalEmailMetricsLogic)
+    const { transactionalTemplates, transactionalTemplatesLoading, transactionalTemplatesFailed } =
+        useValues(transactionalTemplatesLogic)
+    const { loadTransactionalTemplates } = useActions(transactionalTemplatesLogic)
 
     const emailOptions = transactionalTemplates
         .filter((template) => template.transactional_hog_flow_id)
@@ -70,7 +72,7 @@ export function TransactionalEmailResults(): JSX.Element {
                     data-attr="transactional-email-results-revenue"
                 />
             </div>
-            {templatesFailed && !transactionalTemplatesLoading ? (
+            {transactionalTemplatesFailed && !transactionalTemplatesLoading ? (
                 <LemonBanner
                     type="error"
                     action={{

@@ -38,6 +38,7 @@ const MANAGED_BY_VALUES: ManagedBy[] = ['all', 'code', 'posthog']
 export interface transactionalEmailsLogicValues {
     currentTeamId: number | null // teamLogic
     transactionalTemplates: MessageTemplateApi[] // transactionalTemplatesLogic
+    transactionalTemplatesFailed: boolean // transactionalTemplatesLogic
     transactionalTemplatesLoading: boolean // transactionalTemplatesLogic
     codeEmails: CodeEmailApi[] | null
     codeEmailsLoading: boolean
@@ -121,7 +122,7 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
     connect(() => ({
         values: [
             transactionalTemplatesLogic,
-            ['transactionalTemplates', 'transactionalTemplatesLoading'],
+            ['transactionalTemplates', 'transactionalTemplatesFailed', 'transactionalTemplatesLoading'],
             teamLogic,
             ['currentTeamId'],
         ],

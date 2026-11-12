@@ -11,6 +11,7 @@ import { listTransactionalTemplates } from './listTransactionalTemplates'
 export interface transactionalTemplatesLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     transactionalTemplates: MessageTemplateApi[]
+    transactionalTemplatesFailed: boolean
     transactionalTemplatesLoading: boolean
 }
 
@@ -59,6 +60,14 @@ export const transactionalTemplatesLogic = kea<transactionalTemplatesLogicType>(
             {
                 setTemplateTags: (state, { templateId, tags }) =>
                     state.map((template) => (template.id === templateId ? { ...template, tags } : template)),
+            },
+        ],
+        transactionalTemplatesFailed: [
+            false,
+            {
+                loadTransactionalTemplates: () => false,
+                loadTransactionalTemplatesSuccess: () => false,
+                loadTransactionalTemplatesFailure: () => true,
             },
         ],
     }),

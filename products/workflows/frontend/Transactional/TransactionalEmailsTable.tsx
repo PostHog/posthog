@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconCode, IconLetter, IconLock } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -33,6 +33,7 @@ const COLUMN_BREAKPOINTS = { 0: 'narrow', 760: 'wide' } as const
 export function TransactionalEmailsTable(): JSX.Element {
     const {
         transactionalTemplates,
+        transactionalTemplatesFailed,
         codeEmails,
         filteredTransactionalEmails,
         transactionalTemplatesLoading,
@@ -41,7 +42,7 @@ export function TransactionalEmailsTable(): JSX.Element {
         isFiltered,
         savingTagsFor,
     } = useValues(transactionalEmailsLogic)
-    const { setFilters, saveTransactionalTags } = useActions(transactionalEmailsLogic)
+    const { setFilters, saveTransactionalTags, loadTransactionalTemplates } = useActions(transactionalEmailsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { ref: widthRef, size } = useResizeBreakpoints(COLUMN_BREAKPOINTS, { initialSize: 'wide' })
     const wide = size === 'wide'
@@ -51,7 +52,12 @@ export function TransactionalEmailsTable(): JSX.Element {
         AccessControlLevel.Editor
     )
 
-    if (!transactionalTemplatesLoading && transactionalTemplates.length === 0 && codeEmails?.length === 0) {
+    if (
+        !transactionalTemplatesLoading &&
+        !transactionalTemplatesFailed &&
+        transactionalTemplates.length === 0 &&
+        codeEmails?.length === 0
+    ) {
         return (
             <ProductIntroduction
                 thingName="transactional email"
@@ -73,6 +79,18 @@ export function TransactionalEmailsTable(): JSX.Element {
                     .subtract(7, 'day')
                     .startOf('day')}
             />
+            {transactionalTemplatesFailed && !transactionalTemplatesLoading ? (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadTransactionalTemplates(),
+                        'data-attr': 'transactional-emails-templates-retry',
+                    }}
+                >
+                    Your emails couldn't load. Check your connection and try again.
+                </LemonBanner>
+            ) : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
                     type="search"
@@ -283,7 +301,13 @@ export function TransactionalEmailsTable(): JSX.Element {
                     },
                 ]}
                 defaultSorting={{ columnKey: 'updated_at', order: -1 }}
-                emptyState={isFiltered ? 'No transactional emails match these filters' : 'No transactional emails'}
+                emptyState={
+                    transactionalTemplatesFailed
+                        ? "Your emails couldn't load"
+                        : isFiltered
+                          ? 'No transactional emails match these filters'
+                          : 'No transactional emails'
+                }
             />
         </div>
     )
