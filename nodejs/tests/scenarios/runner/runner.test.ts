@@ -178,25 +178,34 @@ describe('runner', () => {
             { seedWithinMs }
         )
 
-    it.each<[string, number, () => AbortSignal, RegExp]>([
+    it.each<[string, number, boolean, RegExp]>([
         [
             'runs out of its deadline',
             1000,
-            () => NEVER_ABORTED,
+            false,
             /^the run stopped: the seeding database did not finish connecting within 1000 ms/,
         ],
-        ['is interrupted', 60_000, () => AbortSignal.timeout(200), /^the run stopped: .*aborted/],
+        ['is interrupted', 60_000, true, /^the run stopped: .*aborted/],
     ])(
         'closes its connection and stops when the database never answers its startup and the run %s',
-        async (_story, seedWithinMs, signalOf, statusReason) => {
+        async (_story, seedWithinMs, interrupted, statusReason) => {
+            const interrupt = new AbortController()
             const sockets: Socket[] = []
-            const silent = await listening((socket) => void sockets.push(socket.resume()))
+            const silent = await listening((socket) => {
+                sockets.push(socket)
+                socket.once('data', () => {
+                    if (interrupted) {
+                        interrupt.abort()
+                    }
+                })
+                socket.resume()
+            })
             try {
                 const { port } = silent.address() as AddressInfo
 
                 const result = await boundedRunner(seedWithinMs).run(
                     withSettings({ DATABASE_URL: `postgres://scenario:scenario@127.0.0.1:${port}/scenario` }),
-                    signalOf()
+                    interrupt.signal
                 )
 
                 expect(result).toMatchObject({ status: 'invalid', statusReason: expect.stringMatching(statusReason) })
