@@ -47,6 +47,7 @@ from products.messaging.backend.provider_imports.postmark_templates import conve
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
+    code_email_keys,
     import_categories,
     import_opt_outs,
     import_suppressions,
@@ -642,6 +643,9 @@ def _save_templates(
             "tagged_items__tag"
         )
     }
+    # A code email's key counts as someone else's, so the template is skipped and the code email keeps sending.
+    for key in code_email_keys(context.team_id, keys):
+        taken.setdefault(key, set())
 
     items: list[ImportItem] = []
     counts: Counter[str] = Counter({"layouts": len(layout_rows), "unreadable": missing})

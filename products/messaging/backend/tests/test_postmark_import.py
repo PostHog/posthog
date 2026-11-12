@@ -2,6 +2,7 @@ import copy
 import json
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -19,6 +20,7 @@ from products.messaging.backend.models.message_preferences import (
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
+from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.postmark import _merge
@@ -337,6 +339,13 @@ class TestPostmarkImport(BaseTest):
         }
         assert subjects == {"password-reset": "Exact", "password-reset-2003": "Reset your password"}
         assert rerun.progress["templates"]["counts"]["already_present"] == 2
+
+    def test_a_key_a_code_email_sends_under_is_left_to_it(self) -> None:
+        TransactionalEmailKey.objects.for_team(self.team.id).create(team=self.team, key="receipt", hog_flow_id=uuid4())
+
+        self._run(["templates"], token=PRODUCTION_TOKEN)
+
+        assert not MessageTemplate.objects.filter(team_id=self.team.id, key="receipt").exists()
 
     def test_a_template_someone_else_owns_the_key_of_is_left_alone(self) -> None:
         MessageTemplate.objects.create(team_id=self.team.id, key="receipt", name="Mine", type="email", content={})
