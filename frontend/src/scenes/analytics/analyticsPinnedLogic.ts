@@ -1,4 +1,5 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -33,6 +34,7 @@ export interface analyticsPinnedLogicValues {
     shortcutData: FileSystemEntry[] // projectTreeDataLogic
     shortcutDataLoading: boolean // projectTreeDataLogic
     pinnedAnalytics: PinnedAnalytics[]
+    pinHintVisible: boolean
     pinnedCollectionPaths: Set<string>
     pinnedShortcutIds: Map<string, string>
 }
@@ -56,12 +58,18 @@ export interface analyticsPinnedLogicActions {
     reorderShortcuts: (orderedIds: string[]) => {
         orderedIds: string[]
     } // projectTreeDataLogic
+    hidePinHint: () => {
+        value: true
+    }
     movePinned: (
         shortcutId: string,
         overShortcutId: string
     ) => {
         overShortcutId: string
         shortcutId: string
+    }
+    showPinHint: () => {
+        value: true
     }
     togglePinned: (target: PinTarget) => {
         target: PinTarget
@@ -97,6 +105,19 @@ export const analyticsPinnedLogic = kea<analyticsPinnedLogicType>([
     actions({
         movePinned: (shortcutId: string, overShortcutId: string) => ({ shortcutId, overShortcutId }),
         togglePinned: (target: PinTarget) => ({ target }),
+        showPinHint: true,
+        hidePinHint: true,
+    }),
+    reducers({
+        // The hint on the list's first row menu, which shows where to pin an item from.
+        pinHintVisible: [
+            false,
+            {
+                showPinHint: () => true,
+                hidePinHint: () => false,
+                addShortcutItem: () => false,
+            },
+        ],
     }),
     selectors({
         pinnedAnalytics: [
@@ -138,6 +159,10 @@ export const analyticsPinnedLogic = kea<analyticsPinnedLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        showPinHint: () => {
+            // pinned: analytics event name. Renaming it breaks dashboards.
+            posthog.capture('analytics pin hint shown')
+        },
         movePinned: ({ shortcutId, overShortcutId }) => {
             // Pins are a subset of all shortcuts, so the move happens in the full list to keep the others in place.
             const ids = values.shortcutData.map((shortcut) => shortcut.id).filter((id): id is string => !!id)

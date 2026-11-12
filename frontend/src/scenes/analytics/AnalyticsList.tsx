@@ -52,6 +52,7 @@ import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
 import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
+import { analyticsPinnedLogic, pinKey } from './analyticsPinnedLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
@@ -90,6 +91,8 @@ function AnalyticsListContent(): JSX.Element {
     const { clearFilters, loadList, loadMore, setFilters } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
+    const { pinHintVisible } = useValues(analyticsPinnedLogic)
+    const { hidePinHint } = useActions(analyticsPinnedLogic)
     const [tableViewport, setTableViewport] = useState<HTMLDivElement | null>(null)
     const { ref: tableEndRef, inView: tableEndInView } = useInView({
         root: tableViewport,
@@ -105,9 +108,10 @@ function AnalyticsListContent(): JSX.Element {
             : urls.analyticsList(analyticsListUrlParams(filters))
     const showSpace = mode === 'feed'
     const showOwner = scope !== 'mine'
+    const pinHintKey = pinHintVisible && items.length > 0 ? pinKey(items[0].type, items[0].id) : null
     const columns = useMemo(
-        () => analyticsListColumns({ backUrl, showSpace, showOwner }),
-        [backUrl, showSpace, showOwner]
+        () => analyticsListColumns({ backUrl, showSpace, showOwner, pinHintKey }),
+        [backUrl, showSpace, showOwner, pinHintKey]
     )
     const rows = useMemo<AnalyticsListRow[]>(
         () => [
@@ -120,6 +124,9 @@ function AnalyticsListContent(): JSX.Element {
     // Only the collection itself is deleted from Manage; a folder inside it is deleted from its row.
     const topLevelSpace = mode === 'folder' && filters.folder ? analyticsSpaceOfPath(filters.folder) : null
     const isSpaceRoot = !!topLevelSpace && topLevelSpace !== USERS_FOLDER && folderBreadcrumbs.length === 1
+
+    // The hint belongs to the visit that asked for it.
+    useEffect(() => () => hidePinHint(), [hidePinHint])
 
     useEffect(() => {
         if (nearEnd && hasMore) {

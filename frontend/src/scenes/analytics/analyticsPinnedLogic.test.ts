@@ -24,6 +24,11 @@ describe('analyticsPinnedLogic', () => {
                 },
             },
             post: {
+                '/api/projects/:team_id/file_system_shortcut/': async ({ request }) => {
+                    const shortcut = (await request.json()) as Record<string, string>
+                    requests.push(`create ${shortcut.ref}`)
+                    return [201, { id: 'sc-new', ...shortcut }]
+                },
                 '/api/projects/:team_id/file_system_shortcut/reorder/': async ({ request }) => {
                     const { ordered_ids } = (await request.json()) as { ordered_ids: string[] }
                     requests.push(`reorder ${ordered_ids.join(',')}`)
@@ -73,5 +78,21 @@ describe('analyticsPinnedLogic', () => {
             'folder:Growth',
             'insight:abc123',
         ])
+    })
+
+    it('shows the pin hint until it is closed or something is pinned', async () => {
+        const logic = analyticsPinnedLogic()
+        logic.mount()
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+
+        await expectLogic(logic, () => logic.actions.showPinHint()).toMatchValues({ pinHintVisible: true })
+        await expectLogic(logic, () => logic.actions.hidePinHint()).toMatchValues({ pinHintVisible: false })
+
+        logic.actions.showPinHint()
+        await expectLogic(logic, () =>
+            logic.actions.togglePinned({ type: 'dashboard', ref: '9', name: 'Revenue', href: '/dashboard/9' })
+        )
+            .toDispatchActions(projectTreeDataLogic, ['addShortcutItem'])
+            .toMatchValues({ pinHintVisible: false })
     })
 })

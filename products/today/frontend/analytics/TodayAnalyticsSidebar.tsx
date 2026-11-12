@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useMemo } from 'react'
+
+import { IconPlus } from '@posthog/icons'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
@@ -41,8 +44,8 @@ function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
 export function TodayAnalyticsSidebar(): JSX.Element {
     const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen } = useValues(todayAnalyticsLogic)
     const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
-    const { pinnedAnalytics } = useValues(analyticsPinnedLogic)
-    const { movePinned } = useActions(analyticsPinnedLogic)
+    const { pinnedAnalytics, shortcutDataLoading } = useValues(analyticsPinnedLogic)
+    const { movePinned, showPinHint, togglePinned } = useActions(analyticsPinnedLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const listFilters =
@@ -129,6 +132,30 @@ export function TodayAnalyticsSidebar(): JSX.Element {
         }),
     }
 
+    // With nothing pinned, the section stays to show that pinning exists. A search hides it, as it matches nothing.
+    if (lists.pinned.length === 0 && !shortcutDataLoading && !searchQuery.trim()) {
+        lists.pinned = [
+            {
+                value: 'pinned:add',
+                label: 'Add a pinned item',
+                icon: <IconPlus />,
+                to: urls.analyticsList(),
+                active: false,
+                onClick: showPinHint,
+                dataAttr: 'analytics-sidebar-pinned-add',
+            },
+        ]
+    }
+
+    const pinRecent = (value: string): void => {
+        const item = recentAnalytics.find((recent) => `recent:${recent.type}:${recent.id}` === value)
+        if (item) {
+            togglePinned({ type: item.type, ref: item.id, name: item.name, href: item.href })
+            // pinned: analytics event name. Renaming it breaks dashboards.
+            posthog.capture('analytics recent dropped on pinned', { type: item.type })
+        }
+    }
+
     return (
         <CustomizedSidebar
             configuration={ANALYTICS_SIDEBAR_CONFIGURATION}
@@ -145,6 +172,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                     pinned: (fromIndex, toIndex) =>
                         movePinned(pinnedAnalytics[fromIndex].shortcutId, pinnedAnalytics[toIndex].shortcutId),
                 },
+                drop: { pinned: { from: 'recents', onDrop: pinRecent } },
                 resolve: (item) => {
                     const target = resolveSidebarTarget(item.to, item.label, item.icon)
                     return target

@@ -1,6 +1,7 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import {
     IconChevronDown,
@@ -27,6 +28,7 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -37,7 +39,9 @@ import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
 import { analyticsListLogic } from './analyticsListLogic'
 import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
+import { AnalyticsPinHint } from './AnalyticsPinHint'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
+import { analyticsPinnedLogic, pinKey } from './analyticsPinnedLogic'
 import { analyticsShareLogic } from './analyticsShareLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
@@ -166,16 +170,21 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
     )
 }
 
-function ItemMenuCell({ item }: { item: AnalyticsItem }): JSX.Element {
+function ItemMenuCell({ item, pinHint }: { item: AnalyticsItem; pinHint: boolean }): JSX.Element {
     const { openShareToSpace } = useActions(analyticsShareLogic)
+    const { hidePinHint } = useActions(analyticsPinnedLogic)
+    const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null)
     return (
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => open && pinHint && hidePinHint()}>
+            {pinHint && trigger && <AnalyticsPinHint anchor={trigger} />}
             <DropdownMenuTrigger
                 render={
                     <Button
+                        ref={setTrigger}
                         variant="default"
                         size="icon-sm"
                         aria-label={`Actions for ${item.name}`}
+                        className={cn(pinHint && 'ring-2 ring-ring')}
                         data-attr="analytics-list-row-menu"
                     />
                 }
@@ -335,10 +344,13 @@ export function analyticsListColumns({
     backUrl,
     showSpace,
     showOwner,
+    pinHintKey = null,
 }: {
     backUrl: string
     showSpace: boolean
     showOwner: boolean
+    /** The pin key of the item whose menu shows the pin hint. */
+    pinHintKey?: string | null
 }): AnalyticsListColumns {
     const draggable = !showSpace
     return [
@@ -422,7 +434,10 @@ export function analyticsListColumns({
             meta: { align: 'right' },
             cell: ({ row }) =>
                 row.original.kind === 'item' ? (
-                    <ItemMenuCell item={row.original.item} />
+                    <ItemMenuCell
+                        item={row.original.item}
+                        pinHint={pinHintKey === pinKey(row.original.item.type, row.original.item.id)}
+                    />
                 ) : (
                     <FolderMenuCell folder={row.original.folder} />
                 ),
