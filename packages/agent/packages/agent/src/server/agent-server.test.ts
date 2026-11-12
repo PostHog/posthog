@@ -3786,6 +3786,48 @@ describe("AgentServer HTTP Mode", () => {
       testServer.session = null;
     });
 
+    it("lets selection repeat references once the agent compacts", async () => {
+      const testServer = exposeRefresh(createServer());
+      attachSession(
+        testServer,
+        vi.fn(async () => ({ refreshed: true })),
+      );
+      const excludes: string[][] = [];
+      mswServer.use(
+        http.post(
+          "http://localhost:8000/api/projects/1/context_layer/selection/prepare/",
+          async ({ request }) => {
+            const body = (await request.json()) as { exclude: string[] };
+            excludes.push(body.exclude);
+            return HttpResponse.json({
+              selection_id: "s",
+              context: [
+                '<posthog_reference_context selection_id="s">',
+                JSON.stringify({
+                  id: "c",
+                  kind: "business_knowledge",
+                  document_id: "doc-1",
+                }),
+                "</posthog_reference_context>",
+              ].join("\n"),
+              mode: "treatment",
+              reason: "selected",
+            });
+          },
+        ),
+      );
+      if (!testServer.session) throw new Error("Missing test session");
+      const selector = testServer.session.contextSelection;
+      await selector.prepare({ messageId: "first", text: "Define activation" });
+      await selector.prepare({ messageId: "second", text: "And retention?" });
+      testServer.handleAcpTransportMessage({
+        method: POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY,
+      });
+      await selector.prepare({ messageId: "third", text: "And churn?" });
+      expect(excludes).toEqual([[], ["business_knowledge:doc-1"], []]);
+      testServer.session = null;
+    });
+
     it("re-appends the loopback relay entries so a refresh doesn't drop them", async () => {
       const testServer = exposeRefresh(createServer());
       const extMethod = vi.fn(async () => ({ refreshed: true }));

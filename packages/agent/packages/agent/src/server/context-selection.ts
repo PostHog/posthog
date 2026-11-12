@@ -6,13 +6,37 @@ export interface HumanMessage {
   text: string;
 }
 
+const MAX_EXCLUDED_REFERENCES = 200;
+
 function tail(value: string, limit: number): string {
   return Array.from(value).slice(-limit).join("");
+}
+
+export function injectedReferenceKeys(text: string): string[] {
+  const keys: string[] = [];
+  let inBlock = false;
+  for (const line of text.split("\n")) {
+    if (line.includes("<posthog_reference_context")) inBlock = true;
+    if (line.includes("</posthog_reference_context>")) inBlock = false;
+    if (!inBlock || !line.startsWith("{")) continue;
+    let record: Record<string, unknown>;
+    try {
+      record = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const id = record.document_id || record.id;
+    if (typeof record.kind === "string" && typeof id === "string" && id) {
+      keys.push(`${record.kind}:${id}`);
+    }
+  }
+  return keys;
 }
 
 export class ContextSelection {
   private history = "";
   private disabled = false;
+  private injected = new Set<string>();
 
   constructor(
     private readonly api: Pick<PostHogAPIClient, "prepareContextSelection">,
@@ -28,6 +52,11 @@ export class ContextSelection {
 
   resetHistory(history = ""): void {
     this.history = tail(history, 12_000);
+    this.injected = new Set(injectedReferenceKeys(history));
+  }
+
+  forgetInjected(): void {
+    this.injected.clear();
   }
 
   async prepare(message: HumanMessage): Promise<string> {
@@ -39,9 +68,13 @@ export class ContextSelection {
         prompt: tail(message.text, 20_000),
         history: this.history,
         runtime_version: this.runtimeVersion,
+        exclude: [...this.injected].slice(-MAX_EXCLUDED_REFERENCES),
       });
       if (prepared.mode === "disabled" && prepared.reason === "disabled")
         this.disabled = true;
+      for (const key of injectedReferenceKeys(prepared.context)) {
+        this.injected.add(key);
+      }
       return prepared.context;
     } catch (error) {
       const errorType =

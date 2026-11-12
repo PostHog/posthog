@@ -56,6 +56,12 @@ class PrepareSerializer(serializers.Serializer):
         trim_whitespace=False,
         help_text="Bounded preceding user and assistant text.",
     )
+    exclude = serializers.ListField(
+        child=serializers.CharField(max_length=300),
+        max_length=200,
+        required=False,
+        help_text="Keys of references already in the agent's context, as `kind:document_id` or `kind:id`. These are not injected again.",
+    )
 
 
 class PreparedContextSerializer(serializers.Serializer):
@@ -87,6 +93,7 @@ class ContextSelectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("A task-bound sandbox credential is required.")
         data = dict(serializer.validated_data)
         run_id = data.pop("run_id")
+        data["exclude"] = frozenset(data.get("exclude", ()))
         authorization = get_authorization_header(request).decode("ascii")
 
         def admit() -> bool:

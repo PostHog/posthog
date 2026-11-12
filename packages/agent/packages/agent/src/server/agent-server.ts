@@ -5747,6 +5747,15 @@ export class AgentServer {
     ) {
       this.session.contextSelection.resetHistory();
     }
+    if (
+      this.session &&
+      typeof message === "object" &&
+      message !== null &&
+      "method" in message &&
+      message.method === POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY
+    ) {
+      this.session.contextSelection.forgetInjected();
+    }
     const budget = budgetSnapshotFromUsageUpdate(message);
     if (budget) {
       this.lastBudgetSnapshot = budget;
