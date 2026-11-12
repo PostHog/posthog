@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { retryImport } from 'lib/utils/retryImport'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -26,10 +27,9 @@ import { SidePanelTab, UserType } from '~/types'
 import {
     chatContextLogic,
     chatSendItems,
-    runStreamLogic,
     taskRunDefaultsLogic,
     wrapWithPosthogContext,
-} from 'products/posthog_ai/frontend/api/logics'
+} from 'products/posthog_ai/frontend/api/launch'
 import { submitWithWarmRunRetry } from 'products/posthog_ai/frontend/utils/warmRunSubmission'
 import type { SelfDrivingTrialStatusApi } from 'products/signals/frontend/generated/api.schemas'
 import {
@@ -119,6 +119,12 @@ const REPORT_FALLBACK_RUNTIME: ClaudeRuntimeSelection = {
 // project and personal defaults means sending none. `defaultModel` is the server's own resolution
 // for this user, but it also reads null while `@me/config` is still in flight, so wait for that
 // answer first: a fallback sent over a default nobody has looked up yet would silently win.
+// Lazy: the stream logic is the largest part of the agent-run code, and only a started run needs it.
+// A static import puts it in the first load of the home page.
+function loadRunStreamLogic(): Promise<typeof import('products/posthog_ai/frontend/api/logics')> {
+    return retryImport(() => import('products/posthog_ai/frontend/api/logics'))
+}
+
 async function launchSelection(values: inboxTaskKickoffLogicValues): Promise<ReportRuntimeSelection> {
     if (!values.defaultsResolved) {
         await taskRunDefaultsLogic.asyncActions.loadMyConfig()
@@ -990,6 +996,10 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 }
                 return
             }
+            if (!background) {
+                // Starts the download now, so the stream logic is ready when the run exists.
+                void loadRunStreamLogic().catch(() => {})
+            }
             // The sidebar context can belong to another report, and the quick ask shows no attachments.
             const contextItems = background ? [] : chatSendItems(values.pageItems, values.picks)
             // The composer renders from a snapshot that can go stale between load and submit (the
@@ -1071,6 +1081,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     })
                 } else if (panelStillOnReport(values.reportChatContext, report.id)) {
                     const streamKey = `report-discussion-${uuid()}`
+                    const { runStreamLogic } = await loadRunStreamLogic()
                     const stream = runStreamLogic({ streamKey })
                     cache.disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, {
                         pauseOnPageHidden: false,
@@ -1173,15 +1184,17 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         },
         createPrFromReport: async ({ report, feedback, repository }) => {
             // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
-            const githubAccess = await import('./logics/reportGithubAccessLogic').catch((error) => {
-                handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
-                return null
-            })
-            if (!githubAccess) {
+            const modules = await Promise.all([import('./logics/reportGithubAccessLogic'), loadRunStreamLogic()]).catch(
+                (error) => {
+                    handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
+                    return null
+                }
+            )
+            if (!modules) {
                 actions.createPrFailure()
                 return
             }
-            const { reportGithubAccessLogic } = githubAccess
+            const [{ reportGithubAccessLogic }, { runStreamLogic }] = modules
             const githubAccessLogic =
                 reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
                 reportGithubAccessLogic.findMounted({ report })

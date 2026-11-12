@@ -31,10 +31,6 @@ export type { WebSearchResultsByToolUseId } from '../utils/thinkingMessages'
 // --- Composer model/effort helpers (pure — no component imports) ---
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
 export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
-// The server-resolved default model/effort for this user in this project (their own preference over
-// the project default). A host that launches a run on the user's behalf reads it to tell whether a
-// stored default will apply, because a model sent with the run overrides one.
-export { taskRunDefaultsLogic } from '../logics/taskRunDefaultsLogic'
 
 export { tasksLogic } from '../logics/tasksLogic'
 
@@ -59,12 +55,11 @@ export { useComposerOverride } from '../hooks/useComposerOverride'
 export type { UseComposerOverrideOptions } from '../hooks/useComposerOverride'
 // The standing "act via tool calls" instruction the sidebar surfaces attach while the user watches a
 // run — the prompt-side half of `useMcpToolApplyBack` (hidden from chips, deduped once per task).
-export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from '../utils/posthogContextBlock'
+export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../utils/posthogContextBlock'
 
 // --- User-picked context (the composer's @-affordance, headless half) ---
-// `contextPickerLogic` turns a selection into a pick, and `chatContextLogic` combines picks with the rest of a
-// chat's context; the `AttachedContextBar` component (Tier 2 `api/primitives`) is the prepackaged UI.
-export { chatContextLogic, chatSendItems } from '../logics/chatContextLogic'
+// `contextPickerLogic` turns a selection into a pick, and `chatContextLogic` (in ./launch) combines picks with
+// the rest of a chat's context; the `AttachedContextBar` component (Tier 2 `api/primitives`) is the prepackaged UI.
 export { contextPickerLogic, taxonomicItemToAttachedContext } from '../logics/contextPickerLogic'
 export type { PickableTaxonomicItem } from '../logics/contextPickerLogic'
 

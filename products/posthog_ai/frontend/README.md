@@ -47,6 +47,10 @@ Pick the **lowest tier** that does the job.
 The Tier 1 surfaces are built on `api/primitives` (Tier 2), which consumes the headless
 `api/logics`/`api/types` (Tier 3). Going down a tier trades convenience for control and a smaller chunk.
 
+`api/launch` is the light part of Tier 3: `chatContextLogic`, `chatSendItems`, `wrapWithPosthogContext` and `taskRunDefaultsLogic`.
+It imports no stream or interaction logic.
+A surface that only starts runs, such as the home page, imports it eagerly and loads `api/logics` with a dynamic `import()` where the run starts.
+
 `ReadonlyRunSurface` is **lazy by default** — code-split behind a `RunLogSkeleton` Suspense fallback —
 because the embeds that use it (the inbox detail views) show it as a secondary panel. The `RunSurface`
 compound (`api/runSurface`) is **eager**: import it only where the surface is the _primary_ content of an
