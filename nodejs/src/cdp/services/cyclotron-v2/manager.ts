@@ -107,7 +107,9 @@ export function batchEmailDequeueSeqs(pool: Pool): (teamId: number) => Promise<s
     let waitersByTeam = new Map<number, Waiter[]>()
     const allocateForTeam = async (teamId: number, waiters: Waiter[]): Promise<void> => {
         try {
-            const dequeueSeqs = await allocateTeamEmailDequeueSeqs(pool, teamId, waiters.length)
+            const dequeueSeqs = await timeEnqueuePhase('sequence_reserve', 'worker', () =>
+                allocateTeamEmailDequeueSeqs(pool, teamId, waiters.length)
+            )
             waiters.forEach(({ resolve }, i) => resolve(dequeueSeqs[i]))
         } catch (error) {
             waiters.forEach(({ reject }) => reject(error))
@@ -164,6 +166,29 @@ const rescheduleFailureCounter = new Counter({
     help: 'Failed reschedule sweep slices, split by kind=logical|transient.',
     labelNames: ['kind'] as const,
 })
+
+type EnqueuePhase = 'depth_check' | 'sequence_reserve' | 'insert'
+type EnqueueCaller = 'manager' | 'worker'
+
+const enqueuePhaseHistogram = new Histogram({
+    name: 'cdp_cyclotron_v2_enqueue_phase_duration_seconds',
+    help: 'Time spent in each awaited step of enqueuing cyclotron jobs: the queue depth check, the email dequeue sequence reserve, and the insert.',
+    labelNames: ['phase', 'caller'] as const,
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60],
+})
+
+export async function timeEnqueuePhase<T>(
+    phase: EnqueuePhase,
+    caller: EnqueueCaller,
+    step: () => Promise<T>
+): Promise<T> {
+    const end = enqueuePhaseHistogram.startTimer({ phase, caller })
+    try {
+        return await step()
+    } finally {
+        end()
+    }
+}
 
 const cancelMarkedCounter = new Counter({
     name: 'cdp_cyclotron_v2_cancel_marked',
@@ -263,8 +288,9 @@ export class CyclotronV2Manager {
             : 'RETURNING id'
         let result: { rows: { id: string }[] }
         try {
-            result = await this.pool.query<{ id: string }>(
-                `INSERT INTO cyclotron_jobs
+            result = await timeEnqueuePhase('insert', 'manager', () =>
+                this.pool.query<{ id: string }>(
+                    `INSERT INTO cyclotron_jobs
                  (id, team_id, function_id, queue_name, status, priority, scheduled, created,
                   lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
                   parent_run_id, state, distinct_id, person_id, action_id)
@@ -272,20 +298,21 @@ export class CyclotronV2Manager {
                          NULL, NULL, 0, 0, $7,
                          $8, $9, $10, $11, $12)
                  ${upsertClause}`,
-                [
-                    id,
-                    job.teamId,
-                    job.functionId ?? null,
-                    job.queueName,
-                    job.priority ?? 0,
-                    job.scheduled ?? now,
-                    now,
-                    job.parentRunId ?? null,
-                    job.state ?? null,
-                    job.distinctId ?? null,
-                    job.personId ?? null,
-                    job.actionId ?? null,
-                ]
+                    [
+                        id,
+                        job.teamId,
+                        job.functionId ?? null,
+                        job.queueName,
+                        job.priority ?? 0,
+                        job.scheduled ?? now,
+                        now,
+                        job.parentRunId ?? null,
+                        job.state ?? null,
+                        job.distinctId ?? null,
+                        job.personId ?? null,
+                        job.actionId ?? null,
+                    ]
+                )
             )
         } catch (err) {
             dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
@@ -372,8 +399,9 @@ export class CyclotronV2Manager {
             : 'RETURNING id'
         let result: { rows: { id: string }[] }
         try {
-            result = await this.pool.query<{ id: string }>(
-                `INSERT INTO cyclotron_jobs
+            result = await timeEnqueuePhase('insert', 'manager', () =>
+                this.pool.query<{ id: string }>(
+                    `INSERT INTO cyclotron_jobs
                  (id, team_id, function_id, queue_name, status, priority, scheduled, created,
                   lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
                   parent_run_id, state, distinct_id, person_id, action_id, dequeue_seq)
@@ -398,21 +426,22 @@ export class CyclotronV2Manager {
                     unnest($11::text[]),
                     unnest($13::bigint[])
                  ${upsertClause}`,
-                [
-                    ids,
-                    teamIds,
-                    functionIds,
-                    queueNames,
-                    priorities,
-                    scheduleds,
-                    parentRunIds,
-                    states,
-                    distinctIds,
-                    personIds,
-                    actionIds,
-                    now,
-                    dequeueSeqs,
-                ]
+                    [
+                        ids,
+                        teamIds,
+                        functionIds,
+                        queueNames,
+                        priorities,
+                        scheduleds,
+                        parentRunIds,
+                        states,
+                        distinctIds,
+                        personIds,
+                        actionIds,
+                        now,
+                        dequeueSeqs,
+                    ]
+                )
             )
         } catch (err) {
             dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
@@ -433,9 +462,14 @@ export class CyclotronV2Manager {
     private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {
         const emailIndices = jobs.flatMap((job, i) => (job.queueName === 'email' ? [i] : []))
         const dequeueSeqs: (string | null)[] = new Array(jobs.length).fill(null)
-        const emailSeqs = await allocateEmailDequeueSeqs(
-            this.pool,
-            emailIndices.map((i) => jobs[i].teamId)
+        if (emailIndices.length === 0) {
+            return dequeueSeqs
+        }
+        const emailSeqs = await timeEnqueuePhase('sequence_reserve', 'manager', () =>
+            allocateEmailDequeueSeqs(
+                this.pool,
+                emailIndices.map((i) => jobs[i].teamId)
+            )
         )
         emailIndices.forEach((jobIndex, k) => {
             dequeueSeqs[jobIndex] = emailSeqs[k]
@@ -752,7 +786,7 @@ export class CyclotronV2Manager {
     }
 
     private async insertGuard(): Promise<void> {
-        if (await this.isFull()) {
+        if (await timeEnqueuePhase('depth_check', 'manager', () => this.isFull())) {
             throw new Error(`Cyclotron V2 queue is full (depth limit: ${this.depthLimit})`)
         }
     }
