@@ -795,26 +795,52 @@ class TestEmailMultiConfig(BaseTest):
         mock_mailgun.assert_not_called()
         assert not EmailChannel.objects.filter(team=self.team).exists()
 
-    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @parameterized.expand(
+        [
+            ("domain_still_in_mailgun", {"id": "mg-1", "state": "unverified"}, False),
+            ("domain_expired_from_mailgun", None, True),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_settings.mailgun_get_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
-    def test_same_domain_skips_mailgun_add(self, _mock_setting: MagicMock, mock_mailgun: MagicMock):
+    def test_same_domain_reuses_registration_unless_mailgun_dropped_it(
+        self,
+        _name: str,
+        mailgun_domain: dict | None,
+        should_register_again: bool,
+        _mock_setting: MagicMock,
+        mock_add_domain: MagicMock,
+        mock_get_domain: MagicMock,
+    ):
+        old_records = {"sending_dns_records": [{"record_type": "TXT", "value": "old"}]}
+        new_records = {"sending_dns_records": [{"record_type": "TXT", "value": "new"}]}
+        mock_add_domain.return_value = old_records
         self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
             content_type="application/json",
         )
-        mock_mailgun.reset_mock()
+        mock_add_domain.reset_mock()
+        mock_add_domain.return_value = new_records
+        mock_get_domain.return_value = mailgun_domain
 
-        self.client.post(
+        response = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "billing@example.com", "from_name": "Billing"},
             content_type="application/json",
         )
-        # Mailgun add_domain NOT called for second email on same domain
-        mock_mailgun.assert_not_called()
+
+        assert response.status_code == 200
+        assert mock_add_domain.called == should_register_again
+        expected = new_records if should_register_again else old_records
+        assert list(EmailChannel.objects.filter(team=self.team).values_list("dns_records", flat=True)) == [
+            expected,
+            expected,
+        ]
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(
