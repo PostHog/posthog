@@ -472,10 +472,11 @@ class TestRoutineInsights(BaseTest):
 
     @parameterized.expand(
         [
-            ("a person without habits", [], {}, ["team_fav", "runner_up"]),
-            ("a habit that is already popular", ["team_fav"], {}, ["runner_up"]),
+            ("a person without habits", [], {}, ["team_fav", "runner_up", "third"]),
+            ("a habit that is already popular", ["team_fav"], {}, ["runner_up", "third"]),
             ("habits and a key metric leave one place", ["h1", "h2"], {"signup_event": "Sign-ups"}, ["team_fav"]),
             ("habits that fill the row", ["h1", "h2", "h3", "h4"], {}, []),
+            ("a dashboard habit takes one place", ["dashboard:7"], {}, ["team_fav", "runner_up", "third"]),
         ]
     )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
@@ -483,7 +484,14 @@ class TestRoutineInsights(BaseTest):
         self, _name: str, habits: list[str], key_metrics: dict[str, str], expected: list[str]
     ) -> None:
         viewers = [User.objects.create_and_join(self.organization, f"viewer{i}@example.com", None) for i in range(3)]
-        seen = {"team_fav": viewers, "runner_up": viewers[:2], "solo": viewers[:1], "ignored": viewers}
+        seen = {
+            "team_fav": viewers,
+            "broken": viewers,
+            "runner_up": viewers[:2],
+            "third": viewers[:2],
+            "solo": viewers[:1],
+            "ignored": viewers,
+        }
         for ref, people in seen.items():
             for person in people:
                 FileSystemViewLog.objects.create(
@@ -493,24 +501,34 @@ class TestRoutineInsights(BaseTest):
                     ref=ref,
                     viewed_at=datetime.combine(TODAY - timedelta(days=2), time(12), tzinfo=UTC),
                 )
-        for ref in habits:
+        for habit in habits:
+            kind, _, ref = habit.rpartition(":")
             FileSystemViewLog.objects.create(
                 team=self.team,
                 user=self.user,
-                type="insight",
+                type=kind or "insight",
                 ref=ref,
                 view_days=[TODAY - timedelta(days=age) for age in (1, 5, 9)],
                 viewed_at=datetime.combine(TODAY - timedelta(days=1), time(12), tzinfo=UTC),
             )
+        growth = DashboardInsights(
+            dashboard_id=7,
+            name="Growth",
+            filters={},
+            variables=None,
+            tiles=tuple(DashboardInsightTile(insight_short_id=f"g{i}", filters_overrides=None) for i in range(4)),
+        )
         points = [(TODAY - timedelta(days=d), 2.0) for d in range(14, 0, -1)]
 
+        def series(**kwargs: Any) -> InsightSeries | None:
+            if kwargs["short_id"] == "broken":
+                return None
+            return insight({"opened": points}, short_id=kwargs["short_id"], name="Opened")
+
         with (
-            patch.object(
-                routine,
-                "get_insight_series",
-                side_effect=lambda **kwargs: insight({"opened": points}, short_id=kwargs["short_id"], name="Opened"),
-            ),
+            patch.object(routine, "get_insight_series", side_effect=series),
             patch.object(routine, "get_key_metric_names", return_value=key_metrics),
+            patch.object(routine, "dashboard_insights", return_value=growth),
         ):
             pulse = routine.find(Context(self.team, self.user, TODAY, hidden=frozenset({"insight:ignored"}))).pulse
 

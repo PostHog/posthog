@@ -135,9 +135,9 @@ def progressive_metrics(
                     PulseCandidate(viewed=item, short_id=tile.insight_short_id, dashboard=dashboard, tile=tile)
                     for tile in dashboard.tiles
                 )
-    choices = _eligible_choices(context, excluded, candidates)
-    if fill_popular:
-        choices = [*choices, *_popular_choices(context, excluded, choices)]
+    choices, popular_limit = _with_popular(
+        context, excluded, _eligible_choices(context, excluded, candidates), fill_popular
+    )
     selected: dict[str, PulseChoice] = {}
     tried: set[str] = set()
     slots: dict[str, contracts.PulseSlot] = {}
@@ -145,7 +145,8 @@ def progressive_metrics(
 
     def fill() -> None:
         while len(selected) < budget:
-            choice = _next_choice(choices, tried, selected.values())
+            popular_shown = sum(_is_popular(choice) for choice in selected.values())
+            choice = _next_choice(choices, tried, selected.values(), allow_popular=popular_shown < popular_limit)
             if choice is None:
                 return
             tried.add(choice.key)
@@ -270,10 +271,26 @@ def _popular_refs(context: Context) -> list[str]:
     return [row["ref"] for row in rows]
 
 
+def _is_popular(choice: PulseChoice) -> bool:
+    return choice.candidate.viewed.reason == HighlightMetricReason.POPULAR
+
+
+def _popular_places(context: Context, own: Sequence[PulseChoice]) -> int:
+    insights = {choice.key for choice in own if choice.candidate.dashboard is None}
+    dashboards = {choice.candidate.dashboard.dashboard_id for choice in own if choice.candidate.dashboard is not None}
+    return max(0, ROW_TILES - len(context.pinned) - len(insights) - len(dashboards) - _key_metric_places(context))
+
+
+def _with_popular(
+    context: Context, excluded: Collection[str], own: list[PulseChoice], fill_popular: bool
+) -> tuple[list[PulseChoice], int]:
+    limit = _popular_places(context, own) if fill_popular else 0
+    if limit <= 0:
+        return own, 0
+    return [*own, *_popular_choices(context, excluded, own)], limit
+
+
 def _popular_choices(context: Context, excluded: Collection[str], own: Sequence[PulseChoice]) -> list[PulseChoice]:
-    free = ROW_TILES - len(context.pinned) - len(own) - _key_metric_places(context)
-    if free <= 0:
-        return []
     none: list[str] = []
     refs = context.guard(
         "popular insights", partial(context.daily, "routine_popular_insights", partial(_popular_refs, context)), none
@@ -287,11 +304,15 @@ def _popular_choices(context: Context, excluded: Collection[str], own: Sequence[
         for ref in refs
         if f"{INSIGHT_PREFIX}{ref}" not in known
     ]
-    return _eligible_choices(context, excluded, candidates)[:free]
+    return _eligible_choices(context, excluded, candidates)
 
 
 def _next_choice(
-    choices: Sequence[PulseChoice], tried: Collection[str], selected: Iterable[PulseChoice]
+    choices: Sequence[PulseChoice],
+    tried: Collection[str],
+    selected: Iterable[PulseChoice],
+    *,
+    allow_popular: bool = True,
 ) -> PulseChoice | None:
     shown = {choice.candidate.dashboard.dashboard_id for choice in selected if choice.candidate.dashboard is not None}
     return next(
@@ -299,6 +320,7 @@ def _next_choice(
             choice
             for choice in choices
             if choice.key not in tried
+            and (allow_popular or not _is_popular(choice))
             and (choice.candidate.dashboard is None or choice.candidate.dashboard.dashboard_id not in shown)
         ),
         None,
