@@ -281,7 +281,7 @@ const DropdownMenuCheckboxItem = React.forwardRef<
                 data-slot="dropdown-menu-checkbox-item-indicator"
             >
                 <Checkbox size="sm" tabIndex={-1} />
-                <MenuPrimitive.CheckboxItemIndicator className="absolute">
+                <MenuPrimitive.CheckboxItemIndicator className="absolute inset-0 flex items-center justify-center">
                     <Checkbox size="sm" checked tabIndex={-1} />
                 </MenuPrimitive.CheckboxItemIndicator>
             </span>
@@ -326,7 +326,7 @@ const DropdownMenuRadioItem = React.forwardRef<
                 data-slot="dropdown-menu-radio-item-indicator"
             >
                 <RadioIndicator size="sm" />
-                <MenuPrimitive.RadioItemIndicator className="absolute">
+                <MenuPrimitive.RadioItemIndicator className="absolute inset-0 flex items-center justify-center">
                     <RadioIndicator size="sm" checked />
                 </MenuPrimitive.RadioItemIndicator>
             </span>
