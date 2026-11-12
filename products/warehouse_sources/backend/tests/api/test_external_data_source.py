@@ -1766,6 +1766,50 @@ class TestExternalDataSource(APIBaseTest):
         assert schema_one.should_sync is False
         assert schema_two.should_sync is False
 
+    @parameterized.expand(
+        [
+            ("canonical", "24hour", 200, timedelta(hours=24)),
+            ("daily", "daily", 200, timedelta(hours=24)),
+            ("hourly", "hourly", 200, timedelta(hours=1)),
+            ("weekly", "weekly", 200, timedelta(days=7)),
+            ("sixty_minutes", "60min", 200, timedelta(hours=1)),
+            ("one_h", "1h", 200, timedelta(hours=1)),
+            ("never", "never", 400, timedelta(hours=6)),
+            ("unknown", "fortnightly", 400, timedelta(hours=6)),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_sync_frequency_synonyms(
+        self, _name, sync_frequency, expected_status, expected_interval, _mock_workflow_exists
+    ):
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(hours=6),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+            data={"schemas": [{"id": str(schema.id), "sync_frequency": sync_frequency}]},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.content
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == expected_interval
+        if sync_frequency == "never":
+            assert "should_sync" in str(response.json())
+        elif expected_status == 400:
+            assert "5min" in str(response.json())
+            assert "30day" in str(response.json())
+
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
         return_value=False,
@@ -11759,6 +11803,74 @@ class TestEnableCDC(APIBaseTest):
         assert response.status_code == 400
         assert "cdc_management_mode" in response.json()["message"]
 
+    @parameterized.expand(
+        [
+            ("json", "json", False),
+            ("multipart", "multipart", "false"),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources",
+        return_value=None,
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.base.sync_cdc_extraction_schedule"
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_cdc_slot_cleanup_schedule"
+    )
+    def test_enable_cdc_passes_scalar_settings_for_any_request_format(
+        self, _name: str, request_format: str, auto_drop_value, _ensure, _sync, mock_setup_cdc_resources, mock_check
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={
+                "cdc_management_mode": "self_managed",
+                "cdc_publication_name": "my_pub",
+                "cdc_auto_drop_slot": auto_drop_value,
+                "cdc_lag_warning_threshold_mb": 100,
+            },
+            format=request_format,
+        )
+
+        assert response.status_code == 200, response.content
+        payload = mock_setup_cdc_resources.call_args.args[2]
+        assert payload["cdc_management_mode"] == "self_managed"
+        assert payload["cdc_publication_name"] == "my_pub"
+        assert payload["cdc_auto_drop_slot"] is False
+        assert payload["cdc_lag_warning_threshold_mb"] == 100
+        assert mock_check.call_args.kwargs["setup"]["cdc_publication_name"] == "my_pub"
+
+    @parameterized.expand(
+        [
+            ("non_numeric_warning", {"cdc_lag_warning_threshold_mb": "20mb"}, "cdc_lag_warning_threshold_mb"),
+            ("zero_critical", {"cdc_lag_critical_threshold_mb": 0}, "cdc_lag_critical_threshold_mb"),
+            (
+                "warning_not_below_critical",
+                {"cdc_lag_warning_threshold_mb": 5000, "cdc_lag_critical_threshold_mb": 1000},
+                "Warning threshold",
+            ),
+            ("warning_not_below_default_critical", {"cdc_lag_warning_threshold_mb": 99999}, "Warning threshold"),
+        ]
+    )
+    def test_enable_cdc_rejects_invalid_tuning(self, _name: str, tuning: dict, expected_message: str) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog", **tuning},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert expected_message in response.json()["message"]
+        source.refresh_from_db()
+        assert "cdc_enabled" not in (source.job_inputs or {})
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=["wal_level must be 'logical'", "Missing REPLICATION privilege"],
@@ -15738,6 +15850,32 @@ class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas/",
             {"schemas": [{"id": str(schema.id), "should_sync": False}]},
+            format="json",
+            headers={"authorization": f"Bearer {self._make_api_key([scope])}"},
+        )
+
+        if should_have_access:
+            assert response.status_code != status.HTTP_403_FORBIDDEN, response.content
+        else:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    @parameterized.expand(
+        [
+            (f"{action}_{scope_name}", action, scope, should_have_access)
+            for action in ("enable_cdc", "disable_cdc", "repair_cdc", "resume_cdc", "update_cdc_settings")
+            for scope_name, scope, should_have_access in (
+                ("write", "external_data_source:write", True),
+                ("read", "external_data_source:read", False),
+            )
+        ]
+    )
+    def test_cdc_actions_are_write_actions(self, _name: str, action: str, scope: str, should_have_access: bool) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        self.client.force_authenticate(None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/{action}/",
+            {"cdc_management_mode": "invalid"},
             format="json",
             headers={"authorization": f"Bearer {self._make_api_key([scope])}"},
         )

@@ -50,6 +50,7 @@ import {
     WarmTaskRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { signalsReportArtefactsCreate } from '../generated/api'
 import type { SignalReportCheckApi } from '../generated/api.schemas'
 import {
     InboxReportActionSurface,
@@ -515,10 +516,12 @@ export interface inboxTaskKickoffLogicActions {
     }
     createPrFromReport: (
         report: SignalReport,
-        feedback?: string
+        feedback?: string,
+        repository?: string
     ) => {
         feedback: string | undefined
         report: SignalReport
+        repository: string | undefined
     }
     createPrSuccess: () => {
         value: true
@@ -550,11 +553,13 @@ export interface inboxTaskKickoffLogicActions {
         report: SignalReport,
         feedback: string | undefined,
         surface: InboxReportActionSurface,
-        openedFromLink?: boolean
+        openedFromLink?: boolean,
+        repository?: string
     ) => {
         feedback: string | undefined
         openedFromLink: boolean
         report: SignalReport
+        repository: string | undefined
         surface: InboxReportActionSurface
     }
     openReportCheckMetricSuggestion: (
@@ -700,17 +705,23 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             pullRequestUrl,
             background,
         }),
-        createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
+        createPrFromReport: (report: SignalReport, feedback?: string, repository?: string) => ({
+            report,
+            feedback,
+            repository,
+        }),
         implementReport: (
             report: SignalReport,
             feedback: string | undefined,
             surface: InboxReportActionSurface,
-            openedFromLink: boolean = false
+            openedFromLink: boolean = false,
+            repository?: string
         ) => ({
             report,
             feedback,
             surface,
             openedFromLink,
+            repository,
         }),
         warmReportDiscussion: (report: SignalReport) => ({ report }),
         releaseReportDiscussionWarm: true,
@@ -1080,7 +1091,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 }
             }
         },
-        implementReport: async ({ report, feedback, surface, openedFromLink }) => {
+        implementReport: async ({ report, feedback, surface, openedFromLink, repository }) => {
             // A repeated press while the lazy chunks load would start the run twice.
             if (cache.implementationPending || values.isCreatingPr) {
                 return
@@ -1111,7 +1122,11 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                         surface,
                         extra: { has_feedback: !!feedback, claim_step: step.kind, opened_from_link: openedFromLink },
                     })
-                    actions.createPrFromReport(target, feedback)
+                    if (repository) {
+                        actions.createPrFromReport(target, feedback, repository)
+                    } else {
+                        actions.createPrFromReport(target, feedback)
+                    }
                 }
                 if (step.kind === 'blocked') {
                     lemonToast.error(step.reason)
@@ -1156,7 +1171,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 cache.implementationPending = false
             }
         },
-        createPrFromReport: async ({ report, feedback }) => {
+        createPrFromReport: async ({ report, feedback, repository }) => {
             // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
             const githubAccess = await import('./logics/reportGithubAccessLogic').catch((error) => {
                 handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
@@ -1167,12 +1182,15 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 return
             }
             const { reportGithubAccessLogic } = githubAccess
+            const githubAccessLogic =
+                reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
+                reportGithubAccessLogic.findMounted({ report })
             const disabledReason =
                 values.createPrDisabledReason ??
-                (
-                    reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
-                    reportGithubAccessLogic.findMounted({ report })
-                )?.values.disabledReason
+                (githubAccessLogic?.values.repositoryRequired && !repository
+                    ? 'Select a repository to implement this report.'
+                    : null) ??
+                githubAccessLogic?.values.disabledReason
             if (disabledReason) {
                 lemonToast.error(disabledReason)
                 captureInboxReportActionCompleted({
@@ -1198,6 +1216,20 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 if (values.currentProjectId == null) {
                     throw new Error('Project is required')
                 }
+                if (repository) {
+                    await signalsReportArtefactsCreate(String(values.currentProjectId), report.id, {
+                        artefact_type: 'repo_selection',
+                        content: {
+                            repository,
+                            reason: 'Selected by the user for implementation.',
+                            research_context: report.research_context ?? null,
+                            autostart_eligible: false,
+                        },
+                    })
+                    if (disposables.isDisposed) {
+                        return
+                    }
+                }
                 const { taskId, runId } = await createReportTask(
                     String(values.currentProjectId),
                     disposables,
@@ -1222,6 +1254,18 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 if (values.activeCreation?.streamKey === streamKey) {
                     disposables.dispose(OPTIMISTIC_REPORT_STREAM)
                     actions.clearActiveCreation()
+                }
+                if (error?.code === 'report_implementation_repository_unresolved') {
+                    githubAccessLogic?.actions.requireRepositorySelection()
+                    lemonToast.error(error?.detail || "Couldn't start the PR task. Try again.")
+                    captureInboxReportActionCompleted({
+                        report,
+                        actionType: 'create_pr',
+                        outcome: 'blocked',
+                        blockedReason: error.code,
+                    })
+                    actions.createPrFailure()
+                    return
                 }
                 handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
                 actions.createPrFailure()
