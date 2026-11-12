@@ -1097,7 +1097,6 @@ def _record_workflows_send_failure(reason: str) -> None:
 
 
 def _require_workflows_webhook(logger: FilteringBoundLogger) -> None:
-    # A retry cannot fix a missing setting, so the run fails at once.
     missing = [name for name in WORKFLOWS_WEBHOOK_SETTINGS if not getattr(settings, name)]
     if not missing:
         return
@@ -1264,8 +1263,7 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                     continue
                                 _wait_for_workflows_post(r, input.digest.key)
                                 partial = True
-                                # The webhook drops any repeat of a key on the workflow, and a member of two organizations
-                                # gets a digest for each. Both regions post to one workflow, so the key uses UUIDs, not ids.
+                                # The webhook drops a repeated key, so each organization and region needs its own key per member.
                                 _post_to_workflows(
                                     workflows_session, encoded_body, f"{input.digest.key}:{organization.id}:{user.uuid}"
                                 )
