@@ -692,7 +692,7 @@ def _imported_email(template: dict[str, Any], senders: Mapping[str, IntegrationR
         subject=converted.subject,
         html=converted.html,
         text=converted.text,
-        from_email=address,
+        from_email=literal_liquid(address),
         from_name=sender.get("name", literal_liquid(display_name)),
         sender_integration_id=sender.get("integrationId"),
         reply_to=email.get("replyTo", ""),
@@ -734,7 +734,7 @@ def _step_email(config: dict[str, Any], senders: Mapping[str, IntegrationRecord]
     return ImportedStepEmail(
         subject=subject.text,
         contact_variables=subject.contact_variables,
-        from_email=address,
+        from_email=literal_liquid(address),
         from_name=literal_liquid(display_name) or (str(sender.config.get("name") or "") if sender else ""),
         sender_integration_id=sender.id if sender else None,
         reply_to=literal_liquid(", ".join(map(str, reply_to)) if isinstance(reply_to, list) else str(reply_to or "")),

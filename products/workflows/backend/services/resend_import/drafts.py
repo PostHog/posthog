@@ -87,7 +87,11 @@ def import_resend_automation(
         )
     access = _access(team, user)
     # The import runs in the background, so the person who started it may have lost access since.
-    if not user.is_active or not access.check_access_level_for_resource("hog_flow", "editor"):
+    if (
+        not user.is_active
+        or not access.has_project_access
+        or not access.check_access_level_for_resource("hog_flow", "editor")
+    ):
         return ProviderAutomationResult(
             status="failed",
             workflow_id=None,
