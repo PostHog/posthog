@@ -56,6 +56,13 @@ describe('broadcastRunAudience', () => {
             text: '100 in audience: 90 sent, 10 not sent',
             stillSending: false,
         },
+        {
+            name: 'people still held when the run is too old to send them',
+            totals: { triggered: 100, email_sent: 60, message_frequency_cap_held: 40 },
+            now: dayjs('2026-12-05T18:00:00Z'),
+            text: '100 in audience: 60 sent, 40 not sent',
+            stillSending: false,
+        },
     ])('describes $name', ({ totals, now, text, stillSending }) => {
         const run = getRunAudience(totals, started, now)
         expect(run && describeRunAudience(run)).toEqual(text)

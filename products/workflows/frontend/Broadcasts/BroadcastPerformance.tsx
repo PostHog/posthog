@@ -19,7 +19,7 @@ function share(part: number, whole: number): string {
 }
 
 export function BroadcastRunAudience(props: BroadcastPerformanceLogicProps): JSX.Element | null {
-    const { audience, latestHeldSendAt } = useValues(broadcastPerformanceLogic(props))
+    const { audience, capHoldHours } = useValues(broadcastPerformanceLogic(props))
     if (!audience) {
         return null
     }
@@ -29,7 +29,7 @@ export function BroadcastRunAudience(props: BroadcastPerformanceLogicProps): JSX
             {audience.waitingOnCap > 0 && audience.stillSending ? (
                 <span className="text-xs text-muted">
                     Each email goes out when that person's frequency cap clears
-                    {latestHeldSendAt ? `, by ${latestHeldSendAt.format('MMM D')}` : ''}.
+                    {capHoldHours ? `, at most ${capHoldHours} hours after it was held` : ''}.
                 </span>
             ) : null}
         </div>

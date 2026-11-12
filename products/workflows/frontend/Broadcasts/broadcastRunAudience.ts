@@ -17,6 +17,11 @@ export const RUN_AUDIENCE_METRICS = [
     'message_frequency_capped',
 ]
 
+/** Runs older than this can't have anyone left to send to, so they never need their metrics to show a status. */
+export function canStillBeSending(runStartedAt: string, now: Dayjs = dayjs()): boolean {
+    return now.diff(dayjs(runStartedAt), 'day', true) <= STILL_SENDING_WINDOW_DAYS
+}
+
 export interface RunAudience {
     audience: number
     sent: number
@@ -49,11 +54,11 @@ export function getRunAudience(
     // A send that errors can record both metrics for one person.
     const failed = Math.max(count('email_failed'), count('failed'))
     const unfinished = Math.max(audience - sent - optedOut - suppressed - skippedAtCap - noEmail - failed, 0)
+    const withinWindow = canStillBeSending(runStartedAt, now)
     // The held count never goes down, so someone who was held and later sent is only out of `unfinished`.
-    const waitingOnCap = Math.min(unfinished, count('message_frequency_cap_held'))
+    const waitingOnCap = withinWindow ? Math.min(unfinished, count('message_frequency_cap_held')) : 0
     const remaining = unfinished - waitingOnCap
 
-    const withinWindow = now.diff(dayjs(runStartedAt), 'day', true) <= STILL_SENDING_WINDOW_DAYS
     return {
         audience,
         sent,

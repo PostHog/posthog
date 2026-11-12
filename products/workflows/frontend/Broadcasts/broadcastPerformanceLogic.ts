@@ -122,9 +122,9 @@ export function sendActivityParams(
 export interface broadcastPerformanceLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     audience: RunAudience | null
+    capHoldHours: number | null
     latestErrorLog: string | null
     latestErrorLogLoading: boolean
-    latestHeldSendAt: Dayjs | null
     links: EmailLinkRow[]
     linksLoading: boolean
     sendCounts: BroadcastSendCounts | null
@@ -200,7 +200,7 @@ export interface broadcastPerformanceLogicMeta {
         ) => BroadcastSendCounts | null
         sendError: (latestErrorLog: string | null, arg: BroadcastChannel | undefined) => BroadcastSendError | null
         audience: (totals: Record<string, number> | null, arg: string) => RunAudience | null
-        latestHeldSendAt: (currentTeam: TeamPublicType | TeamType | null, arg: string) => Dayjs | null
+        capHoldHours: (currentTeam: TeamPublicType | TeamType | null) => number | null
         trackingOff: (stats: BroadcastPerformanceStats | null) => boolean
     }
 }
@@ -381,12 +381,11 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                 getRunAudience(totals, runStartedAt),
         ],
         // Null when the team doesn't hold capped emails.
-        latestHeldSendAt: [
-            (s) => [s.currentTeam, (_, props: BroadcastPerformanceLogicProps) => props.runStartedAt],
-            (currentTeam: TeamPublicType | TeamType | null, runStartedAt: string): Dayjs | null => {
+        capHoldHours: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamPublicType | TeamType | null): number | null => {
                 const config = currentTeam && 'workflows_config' in currentTeam ? currentTeam.workflows_config : null
-                const holdHours = config?.marketing_frequency_cap_hold_hours
-                return holdHours ? dayjs(runStartedAt).add(holdHours, 'hour') : null
+                return config?.marketing_frequency_cap_hold_hours || null
             },
         ],
         // Every email went out with open and click tracking off, so no open or click can ever be counted.

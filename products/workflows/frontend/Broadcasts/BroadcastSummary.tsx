@@ -28,6 +28,7 @@ import { BroadcastPerformance, BroadcastRunAudience } from './BroadcastPerforman
 import { broadcastPerformanceLogic } from './broadcastPerformanceLogic'
 import { BroadcastPushPerformance } from './BroadcastPushPerformance'
 import { BroadcastPushPreview } from './BroadcastPushPreview'
+import { canStillBeSending } from './broadcastRunAudience'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { type BroadcastChannel, type BroadcastRunStatus, getRunStatus } from './broadcastsLogic'
@@ -277,7 +278,7 @@ function RunsTable({
 /** A completed run only queued its audience, so people can still be waiting to be sent to. */
 function RunStatusTag({ job, channel }: { job: HogFlowBatchJobApi; channel: BroadcastChannel }): JSX.Element {
     const status = getRunStatus(job.status)
-    return status === 'sent' && channel === 'email' ? (
+    return status === 'sent' && channel === 'email' && canStillBeSending(job.created_at) ? (
         <SentBroadcastStatusTag job={job} />
     ) : (
         <BroadcastStatusTag status={status} />
