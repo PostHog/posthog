@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1433_integrationrepositorycacheentry_activity"),
+        ("posthog", "1434_drop_unused_activitylog_org_detail_indexes"),
     ]
 
     operations = [
