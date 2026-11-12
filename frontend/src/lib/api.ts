@@ -118,7 +118,6 @@ import {
     EndpointType,
     EndpointVersionType,
     EventDefinition,
-    EventDefinitionMetrics,
     EventDefinitionType,
     EventType,
     EventsListQueryParams,
@@ -3080,13 +3079,6 @@ const api = {
         },
         async byName({ name }: { name: string }): Promise<EventDefinition> {
             return new ApiRequest().eventDefinitions().withAction('by_name').withQueryString(toParams({ name })).get()
-        },
-        async getMetrics({
-            eventDefinitionId,
-        }: {
-            eventDefinitionId: EventDefinition['id']
-        }): Promise<EventDefinitionMetrics> {
-            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).withAction('metrics').get()
         },
         determineListEndpoint({
             limit = EVENT_DEFINITIONS_PER_PAGE,

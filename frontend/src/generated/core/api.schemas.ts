@@ -5629,7 +5629,23 @@ export interface PropertyUsageMetricsRequestApi {
     properties: PropertyUsageEntryApi[]
 }
 
+export interface QueryUsageDayApi {
+    /** Day in the project's timezone. */
+    date: string
+    /** Query executions on this day. */
+    count: number
+}
+
 export interface PropertyUsageMetricsItemApi {
+    /** Query executions in the last 30 days that referenced this definition, including cached insight views. The window starts at midnight 29 days ago in the project's timezone and includes today. */
+    query_usage_30_day: number
+    /**
+     * Query executions in the 30 days before that window, up to the same time of day as now, so both windows cover the same length of time. Null when usage tracking did not cover that whole period.
+     * @nullable
+     */
+    query_usage_previous_30_day: number | null
+    /** Query executions per day for the last 30 days, oldest first. The last day is today and is still in progress. */
+    query_usage_daily: QueryUsageDayApi[]
     /** Property definition type the name belongs to.
      *
      * * `event` - Event
@@ -5644,8 +5660,6 @@ export interface PropertyUsageMetricsItemApi {
      * @nullable
      */
     group_type_index: number | null
-    /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
-    query_usage_30_day: number
 }
 
 export interface PropertyUsageMetricsResponseApi {

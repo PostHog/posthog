@@ -2742,7 +2742,7 @@ export const getPropertyDefinitionsUsageMetricsCreateUrl = (projectId: string) =
 }
 
 /**
- * Returns how many query executions referenced each property in the last 30 days, including cached insight views. Batched: send up to 100 properties at once. Counts are cached for 24 hours.
+ * Returns how many query executions referenced each property in the last 30 days, including cached insight views, with a daily breakdown and the total for the 30 days before. Batched: send up to 100 properties at once. Counts are cached for 24 hours.
  * @summary 30-day query usage for a set of properties
  */
 export const propertyDefinitionsUsageMetricsCreate = async (

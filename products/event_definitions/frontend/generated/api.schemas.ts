@@ -225,6 +225,25 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly media_preview_urls?: readonly string[]
 }
 
+export interface QueryUsageDayApi {
+    /** Day in the project's timezone. */
+    date: string
+    /** Query executions on this day. */
+    count: number
+}
+
+export interface EventDefinitionMetricsApi {
+    /** Query executions in the last 30 days that referenced this definition, including cached insight views. The window starts at midnight 29 days ago in the project's timezone and includes today. */
+    query_usage_30_day: number
+    /**
+     * Query executions in the 30 days before that window, up to the same time of day as now, so both windows cover the same length of time. Null when usage tracking did not cover that whole period.
+     * @nullable
+     */
+    query_usage_previous_30_day: number | null
+    /** Query executions per day for the last 30 days, oldest first. The last day is today and is still in progress. */
+    query_usage_daily: QueryUsageDayApi[]
+}
+
 /**
  * Serializer mixin that handles tags for objects.
  */

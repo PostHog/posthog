@@ -44452,6 +44452,25 @@ export namespace Schemas {
       skipped: BulkUpdateTagsUUIDError[];
     }
 
+    export interface QueryUsageDay {
+      /** Day in the project's timezone. */
+      date: string;
+      /** Query executions on this day. */
+      count: number;
+    }
+
+    export interface EventDefinitionMetrics {
+      /** Query executions in the last 30 days that referenced this definition, including cached insight views. The window starts at midnight 29 days ago in the project's timezone and includes today. */
+      query_usage_30_day: number;
+      /**
+         * Query executions in the 30 days before that window, up to the same time of day as now, so both windows cover the same length of time. Null when usage tracking did not cover that whole period.
+         * @nullable
+         */
+      query_usage_previous_30_day: number | null;
+      /** Query executions per day for the last 30 days, oldest first. The last day is today and is still in progress. */
+      query_usage_daily: QueryUsageDay[];
+    }
+
     /**
      * Serializer mixin that handles tags for objects.
      */
@@ -98893,6 +98912,15 @@ export namespace Schemas {
     }
 
     export interface PropertyUsageMetricsItem {
+      /** Query executions in the last 30 days that referenced this definition, including cached insight views. The window starts at midnight 29 days ago in the project's timezone and includes today. */
+      query_usage_30_day: number;
+      /**
+         * Query executions in the 30 days before that window, up to the same time of day as now, so both windows cover the same length of time. Null when usage tracking did not cover that whole period.
+         * @nullable
+         */
+      query_usage_previous_30_day: number | null;
+      /** Query executions per day for the last 30 days, oldest first. The last day is today and is still in progress. */
+      query_usage_daily: QueryUsageDay[];
       /** Property definition type the name belongs to.
        *
        * * `event` - Event
@@ -98907,8 +98935,6 @@ export namespace Schemas {
          * @nullable
          */
       group_type_index: number | null;
-      /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
-      query_usage_30_day: number;
     }
 
     export interface PropertyUsageMetricsRequest {
