@@ -113,16 +113,18 @@ export function AccountViewTile({
                             </span>
                         ) : null}
                     </span>
-                    <LemonButton
-                        type="tertiary"
-                        size="xsmall"
-                        icon={<IconPencil />}
-                        onClick={editTile}
-                        disabledReason={menuDisabledReason}
-                        tooltip="Edit tile"
-                        aria-label="Edit tile"
-                        data-attr="account-view-tile-edit"
-                    />
+                    {definition?.showHeaderEdit && (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            icon={<IconPencil />}
+                            onClick={editTile}
+                            disabledReason={menuDisabledReason}
+                            tooltip="Edit tile"
+                            aria-label="Edit tile"
+                            data-attr="account-view-tile-edit"
+                        />
+                    )}
                     <div ref={setHeaderActionsTarget} className="flex shrink-0 items-center gap-2" />
                     <LemonMenu items={items}>
                         <LemonButton

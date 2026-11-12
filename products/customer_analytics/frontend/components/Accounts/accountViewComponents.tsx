@@ -66,6 +66,7 @@ interface AccountViewComponentBase {
     remountOnConfigReload?: boolean
     configEditorWidth?: number
     canDuplicate?: boolean
+    showHeaderEdit?: boolean
 }
 
 export interface AccountSystemTabDefinition extends AccountViewComponentBase {
@@ -156,6 +157,7 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
     {
         kind: 'sql_query',
         canDuplicate: true,
+        showHeaderEdit: true,
         tileContentClassName: 'min-w-0 p-0',
         tagName: 'SqlQuery',
         label: 'SQL query',
