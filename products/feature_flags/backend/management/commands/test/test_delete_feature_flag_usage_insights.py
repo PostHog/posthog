@@ -161,6 +161,18 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         assert Insight.objects.filter(id=lookalike.id).exists()
         assert Insight.objects.filter(id__in=[i.id for i in orphans]).count() == 0
 
+    def test_orphan_sweep_leaves_insights_on_a_soft_deleted_generated_dashboard(self) -> None:
+        flag = self._flag_with_usage_dashboard("orphan")
+        insights = self._usage_insights(flag)
+        dashboard_id = flag.usage_dashboard_id
+        assert dashboard_id is not None
+        FeatureFlag.objects.filter(id=flag.id).update(usage_dashboard=None)
+        Dashboard.objects_including_soft_deleted.filter(id=dashboard_id).update(deleted=True)
+
+        self._run("--include-orphaned")
+
+        assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == len(insights)
+
     def test_limit_caps_how_many_are_deleted(self) -> None:
         # --limit is the operator's brake, and the truncation is hand-rolled arithmetic against a
         # running total, so an off-by-one here means a capped run deletes everything.

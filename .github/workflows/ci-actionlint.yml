@@ -16,7 +16,6 @@ permissions:
 
 env:
     ACTIONLINT_VERSION: 1.7.12
-    ACTIONLINT_SCRIPT_REF: 914e7df21a07ef503a81201c76d2b11c789d3fca
 
 jobs:
     actionlint:
@@ -34,9 +33,9 @@ jobs:
                   set -euo pipefail
                   mkdir -p ./.bin
                   curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
-                      -o ./download-actionlint.bash \
-                      "https://raw.githubusercontent.com/rhysd/actionlint/${ACTIONLINT_SCRIPT_REF}/scripts/download-actionlint.bash"
-                  bash ./download-actionlint.bash "${ACTIONLINT_VERSION}" ./.bin
+                      --max-time 30 -o ./actionlint.tar.gz \
+                      "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+                  tar -xzf ./actionlint.tar.gz -C ./.bin actionlint
                   ./.bin/actionlint -version
 
             - name: Run actionlint

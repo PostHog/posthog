@@ -2455,6 +2455,7 @@ export const ExperimentHealthFindingSeverityEnumApi = {
  * * `edit_release_conditions` - Edit Release Conditions
  * * `end_experiment` - End Experiment
  * * `freeze_exposure` - Freeze Exposure
+ * * `move_start_date` - Move Start Date
  */
 export type ExperimentHealthFindingActionKindEnumApi =
     (typeof ExperimentHealthFindingActionKindEnumApi)[keyof typeof ExperimentHealthFindingActionKindEnumApi]
@@ -2470,6 +2471,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
     EditReleaseConditions: 'edit_release_conditions',
     EndExperiment: 'end_experiment',
     FreezeExposure: 'freeze_exposure',
+    MoveStartDate: 'move_start_date',
 } as const
 
 /**
@@ -2664,6 +2666,27 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `flag_deleted` - Whether the feature flag is deleted
  * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
  * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+ * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+ * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+ * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+ * * `metric_name` - The name of a metric
+ * * `metric_role` - Whether a metric is primary or secondary
+ * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+ * * `sample_count` - Users or groups in a metric's results, across the variants
+ * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+ * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+ * * `variant` - The key of a variant
+ * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+ * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+ * * `significant` - Whether a variant's difference from the control is significant
+ * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+ * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+ * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+ * * `forced_count` - Users or groups that a release condition with a variant override served
+ * * `forced_percentage` - forced_count as a share of variant_matched_count
+ * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+ * * `changed_at` - When a change of the feature flag was saved
+ * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
  */
 export type ExperimentHealthValueKeyEnumApi =
     (typeof ExperimentHealthValueKeyEnumApi)[keyof typeof ExperimentHealthValueKeyEnumApi]
@@ -2691,6 +2714,27 @@ export const ExperimentHealthValueKeyEnumApi = {
     FlagDeleted: 'flag_deleted',
     FlagRolledOut: 'flag_rolled_out',
     ShippedVariant: 'shipped_variant',
+    FlagLastCalledAt: 'flag_last_called_at',
+    SinceStartHours: 'since_start_hours',
+    DailyCalculationEndsAt: 'daily_calculation_ends_at',
+    MetricName: 'metric_name',
+    MetricRole: 'metric_role',
+    RatioSide: 'ratio_side',
+    SampleCount: 'sample_count',
+    PlannedSampleCount: 'planned_sample_count',
+    DataHours: 'data_hours',
+    Variant: 'variant',
+    DifferencePercentage: 'difference_percentage',
+    DetectableDifferencePercentage: 'detectable_difference_percentage',
+    Significant: 'significant',
+    ForcedConditionCount: 'forced_condition_count',
+    MatchedCount: 'matched_count',
+    VariantMatchedCount: 'variant_matched_count',
+    ForcedCount: 'forced_count',
+    ForcedPercentage: 'forced_percentage',
+    TrafficSinceAt: 'traffic_since_at',
+    ChangedAt: 'changed_at',
+    BeforeExposure: 'before_exposure',
 } as const
 
 /**
@@ -2739,7 +2783,28 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `flag_active` - Whether the feature flag is enabled
      * * `flag_deleted` - Whether the feature flag is deleted
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+     * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `metric_name` - The name of a metric
+     * * `metric_role` - Whether a metric is primary or secondary
+     * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+     * * `sample_count` - Users or groups in a metric's results, across the variants
+     * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+     * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+     * * `variant` - The key of a variant
+     * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+     * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+     * * `significant` - Whether a variant's difference from the control is significant
+     * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+     * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+     * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+     * * `forced_count` - Users or groups that a release condition with a variant override served
+     * * `forced_percentage` - forced_count as a share of variant_matched_count
+     * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `changed_at` - When a change of the feature flag was saved
+     * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
     value: ExperimentHealthValueKeyEnumApi
     /** The value that the key must reach. Below it, the check reports no finding. */
     threshold: number
@@ -2769,7 +2834,28 @@ export interface ExperimentHealthCheckRuleApi {
      * * `flag_active` - Whether the feature flag is enabled
      * * `flag_deleted` - Whether the feature flag is deleted
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
+     * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `metric_name` - The name of a metric
+     * * `metric_role` - Whether a metric is primary or secondary
+     * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
+     * * `sample_count` - Users or groups in a metric's results, across the variants
+     * * `planned_sample_count` - Users or groups that the running time estimate needs to detect its minimum detectable effect
+     * * `data_hours` - Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window
+     * * `variant` - The key of a variant
+     * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
+     * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
+     * * `significant` - Whether a variant's difference from the control is significant
+     * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
+     * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
+     * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
+     * * `forced_count` - Users or groups that a release condition with a variant override served
+     * * `forced_percentage` - forced_count as a share of variant_matched_count
+     * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `changed_at` - When a change of the feature flag was saved
+     * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown */
     value: ExperimentHealthValueKeyEnumApi
     /** The threshold, in the unit that the suffix of the key gives. */
     threshold: number
@@ -2790,6 +2876,8 @@ export interface ExperimentHealthCheckRuleApi {
  * What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides.
  */
 export type ExperimentHealthCheckResultApiValues = { [key: string]: string | number | boolean | null }
+
+export type ExperimentHealthCheckResultApiRowsItem = { [key: string]: string | number | boolean | null }
 
 export interface ExperimentHealthCheckResultApi {
     /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -2840,6 +2928,8 @@ export interface ExperimentHealthCheckResultApi {
     values: ExperimentHealthCheckResultApiValues
     /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
     rule: ExperimentHealthCheckRuleApi | null
+    /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list. */
+    rows: ExperimentHealthCheckResultApiRowsItem[]
 }
 
 export interface ExperimentHealthReleaseConditionApi {
@@ -2914,6 +3004,11 @@ export interface ExperimentWriteApi {
     feature_flag_key: string
     /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
     feature_flag?: ExperimentFeatureFlagInputApi
+    /**
+     * The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.
+     * @nullable
+     */
+    feature_flag_rule_id?: string | null
     readonly holdout: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.
@@ -3067,6 +3162,11 @@ export interface ExperimentApi {
     /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
     feature_flag_key: string
     readonly feature_flag: MinimalFeatureFlagApi
+    /**
+     * The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.
+     * @nullable
+     */
+    feature_flag_rule_id?: string | null
     readonly holdout: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.
@@ -3216,6 +3316,11 @@ export interface PatchedExperimentWriteApi {
     feature_flag_key?: string
     /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
     feature_flag?: ExperimentFeatureFlagInputApi
+    /**
+     * The experiment rule that this experiment runs on, when its feature flag has rules. Null for every other experiment. Set it only on create, together with the feature_flag_key of an existing flag with rules. When that flag has one experiment rule, it can be left out. The experiment then counts exposures on the $experiment_exposure events of this rule, and never changes the flag.
+     * @nullable
+     */
+    feature_flag_rule_id?: string | null
     readonly holdout?: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.

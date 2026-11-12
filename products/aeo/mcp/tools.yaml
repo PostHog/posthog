@@ -65,6 +65,31 @@ tools:
             id:
                 description: The brand id (a UUID), from `aeo-brands-list`.
         feature_flag: aeo-citation-tracking
+    aeo-engines-list:
+        operation: aeo_engines_list
+        enabled: false
+        disabled_reason: Enable after the aeo_engines route is deployed, so MCP never serves a tool whose route 404s.
+        title: List the AI citation answer engines
+        description: >
+            List every answer engine the project can run, in display order: whether this deployment can run it
+            (`available`), whether the project runs it (`enabled`) and how often (`frequency`, daily or weekly). The
+            no-search engines (`claude-no-search`, `openai-no-search`) answer from training data alone, so read their
+            mention rate; they never cite.
+        feature_flag: aeo-citation-tracking
+    aeo-engines-update:
+        operation: aeo_engines_partial_update
+        enabled: false
+        disabled_reason: Enable after the aeo_engines route is deployed, so MCP never serves a tool whose route 404s.
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update an AI citation answer engine
+        description: >
+            Turn an answer engine on or off for the project, or set how often it checks each prompt (`daily` or
+            `weekly`). The next daily run uses the change. Every check is a paid model call, so ask the user before you
+            turn an engine on or make it daily. Get engine ids from `aeo-engines-list`.
+        feature_flag: aeo-citation-tracking
     aeo-keywords-create:
         operation: aeo_keywords_create
         enabled: false

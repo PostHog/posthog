@@ -35,6 +35,7 @@ from products.data_modeling.backend.models import (
     DataWarehouseManagedViewSet,
     Edge,
     Node,
+    NodeSubscription,
     NodeType,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -1554,6 +1555,96 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         response = self.client.get(f"{self._list_url()}{self.node.id}/" if detail else self._list_url())
 
         self.assertEqual(response.status_code, expected_status)
+
+
+class TestNodeWatching(WarehouseAccessControlTestMixin):
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.saved_query = DataWarehouseSavedQuery.objects.create(
+            name="watched_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            created_by=self.editor_user,
+        )
+        self.view_node = Node.objects.create(
+            team=self.team, dag=self.dag, saved_query=self.saved_query, type=NodeType.VIEW
+        )
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(self.editor_user, access_level="editor")
+
+    def _url(self, node: Node, action: str = "") -> str:
+        return f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/{action}"
+
+    def _watching(self, node: Node) -> bool:
+        detail = self.client.get(self._url(node)).json()["watching"]
+        listed = next(
+            entry
+            for entry in self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/").json()["results"]
+            if entry["id"] == str(node.id)
+        )["watching"]
+        assert detail == listed
+        return detail
+
+    @parameterized.expand([("creator", "editor_user", True), ("non_creator", "viewer_user", False)])
+    def test_watching_follows_watch_and_unwatch(self, _name, user_attr, watches_by_default):
+        self.client.force_login(getattr(self, user_attr))
+        assert self._watching(self.view_node) is watches_by_default
+
+        response = self.client.post(self._url(self.view_node, "watch/"))
+        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"watching": True})
+        assert self._watching(self.view_node) is True
+
+        response = self.client.post(self._url(self.view_node, "unwatch/"))
+        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"watching": False})
+        assert self._watching(self.view_node) is False
+
+    @parameterized.expand([("watch", status.HTTP_403_FORBIDDEN), ("unwatch", status.HTTP_200_OK)])
+    def test_a_view_the_caller_cannot_read_can_be_unwatched_but_not_watched(self, action, expected_status):
+        self._create_access_control(
+            self.viewer_user, resource="warehouse_view", resource_id=str(self.saved_query.id), access_level="none"
+        )
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(self._url(self.view_node, f"{action}/"))
+
+        assert response.status_code == expected_status
+        subscribed = NodeSubscription.objects.for_team(self.team.id).filter(user=self.viewer_user, subscribed=True)
+        assert not subscribed.exists()
+
+    def test_a_metric_hidden_after_access_loss_can_still_be_unwatched(self):
+        metric = Node.objects.create(
+            team=self.team, dag=self.dag, name="revenue", type=NodeType.METRIC, metric_id=uuid4()
+        )
+        self.client.force_login(self.viewer_user)
+        assert self.client.post(self._url(metric, "watch/")).status_code == status.HTTP_200_OK
+        self._create_access_control(self.viewer_user, resource="data_catalog", access_level="none")
+
+        response = self.client.post(self._url(metric, "unwatch/"))
+
+        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"watching": False})
+        subscribed = NodeSubscription.objects.for_team(self.team.id).filter(user=self.viewer_user, subscribed=True)
+        assert not subscribed.exists()
+
+    def test_a_node_without_a_saved_query_can_be_watched(self):
+        table_node = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(self._url(table_node, "watch/"))
+
+        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"watching": True})
+
+    def test_a_node_of_a_deleted_view_is_not_found(self):
+        self.saved_query.deleted = True
+        self.saved_query.save()
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(self._url(self.view_node, "watch/"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not NodeSubscription.objects.for_team(self.team.id).exists()
 
 
 class TestEdgeViewSet(APIBaseTest):
