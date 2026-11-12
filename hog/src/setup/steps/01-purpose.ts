@@ -1,23 +1,54 @@
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import { REGION_CHOICES, REGIONS, regionOf, type RegionId } from '@/posthog/host'
+import { REGION_CHOICES, REGIONS, regionOf, type Host, type RegionId } from '@/posthog/host'
+import { fallbackHost, readSettings } from '@/posthog/settings'
 
 import { PRODUCT_IDS, productLabel, type ProductId } from '../products'
-import type { SetupInput } from '../result'
+import type { NextAction, SetupInput } from '../result'
 import type { SetupRun, Step } from '../setup-run'
 import { SETUP_NEXT } from '../state'
 
 const QUESTION = 'What do you want to use PostHog for?'
+const REGION_QUESTION = 'Should your PostHog data be hosted in the US or the EU?'
 const COMMAND = `${SETUP_NEXT} --reason "<their answer>" --products <id,id>`
+const REGION_COMMAND = `${COMMAND} --region <us|eu>`
 
 const SENT_NOTICE = 'hog sends your answer to PostHog to improve setup.'
 const KEPT_NOTICE = 'Your answer stays on this machine.'
 
-const INSTRUCTIONS = [
-    `If you already know what the user wants PostHog for, from the conversation or the code, don't ask. Run \`${COMMAND}\` with that reason and the matching products in \`context.products\`.`,
-    `Otherwise ask the user: "${QUESTION}", then pick the products that match the answer and run the same command.`,
-    'If none match, pass `--products product-analytics`.',
-    'Add `--region eu` only if the user mentions the EU or data residency.',
-].join(' ')
+function instructions(command: string, region = ''): string {
+    return [
+        region,
+        `If you already know what the user wants PostHog for, from the conversation or the code, don't ask about it. Run \`${command}\` with that reason and the matching products in \`context.products\`.`,
+        `Otherwise ask the user: "${QUESTION}", then pick the products that match the answer and run the same command.`,
+        'If none match, pass `--products product-analytics`.',
+    ]
+        .filter(Boolean)
+        .join(' ')
+}
+
+const ASK_REGION = instructions(
+    REGION_COMMAND,
+    `Never guess the region. Unless the user already said, ask them: "${REGION_QUESTION}" If they have a PostHog account, it's the region the account is on. A new account keeps its data where they pick, and moving it later means migrating the project. Pass their answer as \`--region us\` or \`--region eu\`.`
+)
+
+function keepRegion(host: string): string {
+    return instructions(
+        COMMAND,
+        `hog uses ${host}, where the user last logged in with hog. Add \`--region us\` or \`--region eu\` only if they want the other region.`
+    )
+}
+
+type Questions = Pick<Extract<NextAction, { kind: 'ask_user' }>, 'ask' | 'command' | 'instructions'>
+
+function questions(named: Host | undefined, lastLogin: Host | undefined): Questions {
+    if (named !== undefined) {
+        return { ask: QUESTION, command: COMMAND, instructions: instructions(COMMAND) }
+    }
+    if (lastLogin !== undefined) {
+        return { ask: QUESTION, command: COMMAND, instructions: keepRegion(lastLogin) }
+    }
+    return { ask: `${QUESTION} ${REGION_QUESTION}`, command: REGION_COMMAND, instructions: ASK_REGION }
+}
 
 type Answers = Pick<SetupInput, 'reason' | 'products' | 'region'>
 
@@ -68,33 +99,41 @@ export const purpose: Step = {
     async advance(run) {
         const { ctx, input } = run
         const named = await run.namedHost()
+        const lastLogin = named === undefined ? fallbackHost(await readSettings(ctx.runtime)) : undefined
         const given = { reason: input.reason, products: input.products, region: input.region }
-        const { reason, products, region } = await askAtTerminal(run, given, named === undefined)
+        const { reason, products, region } = await askAtTerminal(
+            run,
+            given,
+            named === undefined && lastLogin === undefined
+        )
+        const host = named ?? (region === undefined ? lastLogin : REGIONS[region])
 
-        if (reason === undefined || products === undefined) {
+        if (reason === undefined || products === undefined || host === undefined) {
+            const asked = questions(named, lastLogin)
             if (Object.values(given).some((answer) => answer !== undefined)) {
-                const missing = reason === undefined ? '--reason' : '--products'
+                const missing = [
+                    reason === undefined ? '--reason' : [],
+                    products === undefined ? '--products' : [],
+                    host === undefined ? '--region' : [],
+                ].flat()
                 throw new HogError(
                     'setup_needs_answers',
-                    `Pass ${missing} too.`,
-                    `Run \`${COMMAND}\` with both. Product IDs: ${PRODUCT_IDS.join(', ')}.`,
+                    `Pass ${missing.join(' and ')} too.`,
+                    `Run \`${asked.command}\` with every option. Product IDs: ${PRODUCT_IDS.join(', ')}.`,
                     EXIT_USAGE
                 )
             }
 
             run.context.products = await run.productsContext()
+            if (lastLogin !== undefined) {
+                run.context.lastLoginHost = lastLogin
+            }
             return {
                 code: 'setup_needs_answers',
-                next: {
-                    kind: 'ask_user',
-                    ask: QUESTION,
-                    command: COMMAND,
-                    instructions: INSTRUCTIONS,
-                },
+                next: { kind: 'ask_user', ...asked },
             }
         }
 
-        const host = named ?? REGIONS[region ?? 'us']
         run.state = {
             folder: run.scope.folder,
             startedAt: ctx.runtime.now(),

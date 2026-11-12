@@ -82,7 +82,11 @@ sequenceDiagram
         Agent->>You: What do you want to use PostHog for?
         You->>Agent: Your answer
     end
-    Agent->>hog: hog setup next --reason "..." --products a,b
+    opt No host is named and hog has no login
+        Agent->>You: Should your data be hosted in the US or the EU?
+        You->>Agent: Your region
+    end
+    Agent->>hog: hog setup next --reason "..." --products a,b --region us
 
     Note over You,PH: 2. login
     hog->>PH: Start a device login

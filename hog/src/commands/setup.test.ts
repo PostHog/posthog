@@ -179,7 +179,7 @@ function world(files: Record<string, string> = {}, cwd = '/work'): World {
 }
 
 const ANSWERS = ['--reason', 'See where users drop off', '--products', 'session-replay,feature-flags', '--region', 'eu']
-const ONE_PRODUCT = ['--reason', 'x', '--products', 'product-analytics']
+const ONE_PRODUCT = ['--reason', 'x', '--products', 'product-analytics', '--region', 'us']
 
 function telemetryEvents(
     result: HogRun
@@ -199,9 +199,9 @@ describe('hog setup', () => {
             done: [],
             next: {
                 kind: 'ask_user',
-                ask: 'What do you want to use PostHog for?',
-                command: 'hog setup next --reason "<their answer>" --products <id,id>',
-                instructions: expect.stringContaining('If you already know what the user wants PostHog for'),
+                ask: 'What do you want to use PostHog for? Should your PostHog data be hosted in the US or the EU?',
+                command: 'hog setup next --reason "<their answer>" --products <id,id> --region <us|eu>',
+                instructions: expect.stringContaining('Never guess the region.'),
             },
             context: { folder: '/work', configPath: null },
         })
@@ -533,6 +533,41 @@ describe('hog setup', () => {
         expect(resumed.json()).toMatchObject({ step: 'install', context: { host, projectId: '42' } })
     })
 
+    test('an agent can move a login it started in the US to the EU before it is approved', async () => {
+        const machine = world()
+
+        const started = await machine.run(['setup', 'next', ...ONE_PRODUCT])
+        const moved = await machine.run(['setup', 'next', '--region', 'eu'])
+
+        expect((started.json() as any).next.instructions).toContain(
+            'this logs them in to US Cloud (us.posthog.com). If their account is on eu.posthog.com, run `hog setup next --region eu`'
+        )
+        expect(moved.json()).toMatchObject({
+            code: 'setup_login_pending',
+            next: { url: `${EU}/device?code=BCDF-GHJK` },
+        })
+    })
+
+    test('a folder set up after an earlier login keeps its region without asking', async () => {
+        const machine = world({}, '/repo/web')
+        await machine.run(['setup', 'next', ...ANSWERS])
+        await machine.run(['setup', 'next'])
+
+        const fresh = await machine.run(['setup'], { cwd: '/repo/api' })
+        const started = await machine.run(['setup', 'next', '--reason', 'x', '--products', 'product-analytics'], {
+            cwd: '/repo/api',
+        })
+
+        expect(fresh.json()).toMatchObject({
+            next: { ask: 'What do you want to use PostHog for?', instructions: expect.stringContaining(EU) },
+            context: { lastLoginHost: EU },
+        })
+        expect(started.json()).toMatchObject({
+            code: 'setup_login_pending',
+            next: { url: `${EU}/device?code=BCDF-GHJK` },
+        })
+    })
+
     test.each<[string, Record<string, string>, string | null]>([
         ['posthog.json names another project', {}, 'setup_project_mismatch'],
         ['HOG_PROJECT_ID names the approved project over posthog.json', { HOG_PROJECT_ID: '42' }, null],
@@ -554,6 +589,12 @@ describe('hog setup', () => {
 
     test.each([
         ['some answers without the rest', ['setup', 'next', '--reason', 'x'], 'setup_needs_answers', '--products'],
+        [
+            'answers without a region and no earlier login',
+            ['setup', 'next', '--reason', 'x', '--products', 'product-analytics'],
+            'setup_needs_answers',
+            '--region <us|eu>',
+        ],
         [
             'a product that is not in the list',
             ['setup', 'next', '--reason', 'x', '--products', 'session-replay,nope'],
