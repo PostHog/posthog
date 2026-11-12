@@ -190,7 +190,7 @@ class TestMailgunImport(BaseTest):
         assert set(templates) >= {"welcome", "mg-example-com-5b21c8439f-welcome", "eu-welcome"}
         assert all(row.transactional_hog_flow_id is None for row in templates.values())
         assert templates["welcome"].content["email"]["subject"] == "Welcome {{ variables.name }}"
-        assert templates["welcome"].content["email"]["replyTo"] == "help@mg.example.com"
+        assert templates["welcome"].content["email"]["replyTo"] == '{{ "{{" }}help}}@mg.example.com'
         assert "{{ variables.city | raw }}" in templates["welcome"].content["email"]["html"]
         assert "{{ unsubscribe_url }}" in templates["welcome"].content["email"]["html"]
         assert "Hi {{ variables.Name }}" in templates["mg-example-com-5b21c8439f-welcome"].content["email"]["html"]

@@ -319,7 +319,7 @@
               "mjml": "",
               "headers": {
                 "From": "Team <team@mg.example.com>",
-                "Reply-To": "help@mg.example.com",
+                "Reply-To": "{{help}}@mg.example.com",
                 "Subject": "Welcome {{name}}"
               },
               "template": "<h1>Hello {{name}}</h1>{{#if vip}}<p>VIP</p>{{else}}<p>Regular</p>{{/if}}<a href=\"%unsubscribe_url%\">Leave</a><p>%recipient.city%</p>"

@@ -45,6 +45,7 @@ from products.messaging.backend.provider_imports.base import (
 )
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.imported_senders import apply_sender
+from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.mailgun_templates import ConvertedVersion, convert_version
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
@@ -972,7 +973,7 @@ def _email_content(
     headers = _as_dict(version.get("headers"))
     by_name = {str(key).lower(): value for key, value in headers.items()}
     if reply_to := by_name.get("reply-to"):
-        email["replyTo"] = _clean(reply_to)
+        email["replyTo"] = literal_liquid(_clean(reply_to))
     display_name, address = parseaddr(_clean(by_name.get("from")))
     if not address:
         fallback = f"postmaster@{target.name}" if target.name else "postmaster at your sending domain"
