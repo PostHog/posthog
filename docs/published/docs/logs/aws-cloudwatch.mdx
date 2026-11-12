@@ -193,7 +193,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: logs:PutLogEvents
-                Resource: !Sub '${FirehoseErrorLogGroup.Arn}:log-stream:*'
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${FirehoseErrorLogGroup}:log-stream:*'
 
   DeliveryStream:
     Type: AWS::KinesisFirehose::DeliveryStream
