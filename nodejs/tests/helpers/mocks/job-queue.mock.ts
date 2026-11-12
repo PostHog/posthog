@@ -22,35 +22,37 @@ export function createMockJobQueue(): jest.Mocked<IdempotentJobQueue> {
         cancelInvocations: jest.fn().mockResolvedValue(undefined),
         heartbeatInvocations: jest.fn().mockResolvedValue(undefined),
         deferInvocations: jest.fn().mockResolvedValue(undefined),
-        queueInvocationsIdempotently: jest.fn(
-            async (entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentClaim[]> => {
-                const outcomes: CyclotronV2IdempotentClaim[] = []
-                for (const { invocation, fingerprint } of entries) {
-                    while (claiming.has(invocation.id)) {
-                        await claiming.get(invocation.id)
-                    }
-                    const stored = claims.get(invocation.id)
-                    if (stored !== undefined) {
-                        outcomes.push({
-                            outcome: stored === fingerprint ? 'replayed' : 'mismatch',
-                            storedFingerprint: stored,
-                        })
-                        continue
-                    }
-                    let settle = (): void => {}
-                    claiming.set(invocation.id, new Promise((resolve) => (settle = resolve)))
-                    try {
-                        await queue.queueInvocations([invocation])
-                        claims.set(invocation.id, fingerprint)
-                    } finally {
-                        claiming.delete(invocation.id)
-                        settle()
-                    }
-                    outcomes.push({ outcome: 'created' })
+        // Inserts through `this`, so a queue that spreads this one and replaces queueInvocations stores keyed runs too.
+        queueInvocationsIdempotently: jest.fn(async function (
+            this: JobQueue,
+            entries: IdempotentInvocation[]
+        ): Promise<CyclotronV2IdempotentClaim[]> {
+            const outcomes: CyclotronV2IdempotentClaim[] = []
+            for (const { invocation, fingerprint } of entries) {
+                while (claiming.has(invocation.id)) {
+                    await claiming.get(invocation.id)
                 }
-                return outcomes
+                const stored = claims.get(invocation.id)
+                if (stored !== undefined) {
+                    outcomes.push({
+                        outcome: stored === fingerprint ? 'replayed' : 'mismatch',
+                        storedFingerprint: stored,
+                    })
+                    continue
+                }
+                let settle = (): void => {}
+                claiming.set(invocation.id, new Promise((resolve) => (settle = resolve)))
+                try {
+                    await this.queueInvocations([invocation])
+                    claims.set(invocation.id, fingerprint)
+                } finally {
+                    claiming.delete(invocation.id)
+                    settle()
+                }
+                outcomes.push({ outcome: 'created' })
             }
-        ),
+            return outcomes
+        }),
         findIdempotencyKey: jest.fn((id: string) => {
             const fingerprint = claims.get(id)
             return Promise.resolve(fingerprint === undefined ? null : { fingerprint })
@@ -59,7 +61,7 @@ export function createMockJobQueue(): jest.Mocked<IdempotentJobQueue> {
     return queue as jest.Mocked<IdempotentJobQueue>
 }
 
-export function createInMemoryJobQueue(): jest.Mocked<JobQueue> & { queued: CyclotronJobInvocation[] } {
+export function createInMemoryJobQueue(): jest.Mocked<IdempotentJobQueue> & { queued: CyclotronJobInvocation[] } {
     const queued: CyclotronJobInvocation[] = []
     return {
         ...createMockJobQueue(),

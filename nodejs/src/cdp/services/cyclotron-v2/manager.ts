@@ -1054,7 +1054,8 @@ export class CyclotronV2Manager {
     async rescheduleUnclaimed(
         teamId: number,
         id: string,
-        scheduled: Date
+        scheduled: Date,
+        { maxAheadOfCreatedMs }: { maxAheadOfCreatedMs?: number } = {}
     ): Promise<CyclotronV2RescheduleUnclaimedResult> {
         const client = await this.pool.connect()
         try {
@@ -1068,6 +1069,12 @@ export class CyclotronV2Manager {
             const row = locked.rows[0]
             if (!row) {
                 await client.query('ROLLBACK')
+            } else if (
+                maxAheadOfCreatedMs !== undefined &&
+                scheduled.getTime() > toDateTime(row.created).toMillis() + maxAheadOfCreatedMs
+            ) {
+                await client.query('ROLLBACK')
+                return { outcome: 'too_far' }
             } else {
                 const clock = await client.query<{ now: string }>('SELECT clock_timestamp() AS now')
                 const { state, rescheduledAt } = withReschedule(

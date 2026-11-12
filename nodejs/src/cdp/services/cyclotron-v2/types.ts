@@ -198,7 +198,7 @@ export type CyclotronV2CancelUnclaimedResult =
 
 export type CyclotronV2RescheduleUnclaimedResult =
     | { outcome: 'rescheduled'; job: JobRow; rescheduledAt: Date }
-    | { outcome: 'canceled' | 'claimed' | 'not_found' }
+    | { outcome: 'canceled' | 'claimed' | 'not_found' | 'too_far' }
 
 /**
  * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend
@@ -221,7 +221,12 @@ export interface CyclotronV2JobProducer {
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
     cancelUnclaimed(teamId: number, id: string): Promise<CyclotronV2CancelUnclaimedResult>
-    rescheduleUnclaimed(teamId: number, id: string, scheduled: Date): Promise<CyclotronV2RescheduleUnclaimedResult>
+    rescheduleUnclaimed(
+        teamId: number,
+        id: string,
+        scheduled: Date,
+        options?: { maxAheadOfCreatedMs?: number }
+    ): Promise<CyclotronV2RescheduleUnclaimedResult>
     resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>>
     resumeParkedBatchResolver(options: {
         teamId: number
