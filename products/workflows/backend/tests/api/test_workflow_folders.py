@@ -134,6 +134,35 @@ class TestWorkflowFolders(APIBaseTest):
         refs = {row["ref"] for row in rows}
         self.assertEqual((str(granted.id) in refs, str(other.id) in refs), (granted_visible, other_visible), refs)
 
+    @parameterized.expand(
+        [("canonical", str), ("hex", lambda value: value.hex), ("uppercase", lambda value: value.hex.upper())]
+    )
+    def test_a_shortcut_to_a_denied_workflow_is_refused_in_every_ref_spelling(self, _name, spell) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flow = HogFlow.objects.create(team=self.team, name="Synthetic denied", created_by=self.user)
+        member = User.objects.create_and_join(self.organization, "member@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(flow.id),
+            access_level="none",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"path": "Alias", "type": "hog_flow", "ref": spell(flow.id), "shortcut": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertFalse(FileSystem.objects.filter(team=self.team, path="Alias").exists())
+
     def test_a_template_creator_downgraded_to_viewer_cannot_delete_or_restore_it_from_the_tree(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
