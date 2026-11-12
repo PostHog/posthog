@@ -47,7 +47,12 @@ export type AccountSystemTabKind =
     | 'meetings'
     | 'automations'
 
-export type AccountViewComponentKind = AccountSystemTabKind | 'properties' | 'session_replays' | 'dot_matrix' | 'sql_query'
+export type AccountViewComponentKind =
+    | AccountSystemTabKind
+    | 'properties'
+    | 'session_replays'
+    | 'dot_matrix'
+    | 'sql_query'
 interface AccountViewComponentBase {
     tagName: string
     label: string
@@ -59,6 +64,8 @@ interface AccountViewComponentBase {
     tileInsetClassName?: string
     tileContentClassName?: string
     remountOnConfigReload?: boolean
+    configEditorWidth?: number
+    canDuplicate?: boolean
 }
 
 export interface AccountSystemTabDefinition extends AccountViewComponentBase {
@@ -148,6 +155,8 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
     },
     {
         kind: 'sql_query',
+        canDuplicate: true,
+        tileContentClassName: 'min-w-0 p-0',
         tagName: 'SqlQuery',
         label: 'SQL query',
         featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SQL_QUERY_TILE,
@@ -157,9 +166,11 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
                 externalId={props.externalId}
                 instanceId={props.instanceId}
                 initialConfig={props.initialConfig}
+                onLoadingChange={props.onLoadingChange}
             />
         ),
         ConfigEditor: AccountSqlQueryTileConfiguration,
+        configEditorWidth: 1000,
         getConfigError: getAccountSqlQueryConfigError,
         onConfigSaved: (config) =>
             posthog.capture(AccountsEvents.SqlQueryTileConfigured, {

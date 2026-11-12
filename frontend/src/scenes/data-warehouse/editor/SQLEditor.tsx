@@ -118,6 +118,7 @@ interface SQLEditorProps {
     hideFilters?: boolean
     /** Leave out the toolbar's AI buttons. */
     hideAiTools?: boolean
+    hideConnectionSelector?: boolean
     /** Adds an "Open in SQL editor" button to the query toolbar. */
     showOpenInSqlEditor?: boolean
     /** Rendered inside the editor's logic bindings and draws nothing, so a host can read editor state. */
@@ -150,6 +151,7 @@ export function SQLEditor({
     hideVariables,
     hideFilters,
     hideAiTools,
+    hideConnectionSelector,
     showOpenInSqlEditor,
     hostSync,
 }: SQLEditorProps): JSX.Element {
@@ -382,6 +384,7 @@ export function SQLEditor({
                                                                 hideVariables={hideVariables}
                                                                 hideFilters={hideFilters}
                                                                 hideAiTools={hideAiTools}
+                                                                hideConnectionSelector={hideConnectionSelector}
                                                                 showOpenInSqlEditor={showOpenInSqlEditor}
                                                                 canExpandDatabaseTree={showDatabaseTree !== false}
                                                             />

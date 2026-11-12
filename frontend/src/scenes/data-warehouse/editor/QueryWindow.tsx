@@ -72,6 +72,7 @@ interface QueryWindowProps {
     hideVariables?: boolean
     hideFilters?: boolean
     hideAiTools?: boolean
+    hideConnectionSelector?: boolean
     showOpenInSqlEditor?: boolean
     /** False removes the button that expands the schema panel. Defaults to true. */
     canExpandDatabaseTree?: boolean
@@ -98,6 +99,7 @@ export function QueryWindow({
     hideVariables,
     hideFilters,
     hideAiTools,
+    hideConnectionSelector,
     showOpenInSqlEditor,
     canExpandDatabaseTree = true,
 }: QueryWindowProps): JSX.Element {
@@ -311,7 +313,7 @@ export function QueryWindow({
                                 cancelQueryLoading={cancelQueryLoading}
                             />
                         )}
-                        <CollapsedConnectionSelector tabId={tabId} mode={mode} />
+                        {!hideConnectionSelector && <CollapsedConnectionSelector tabId={tabId} mode={mode} />}
                         {mode === SQLEditorMode.FullScene ? (
                             <LemonButton
                                 icon={<IconPlus />}

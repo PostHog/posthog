@@ -2,7 +2,7 @@ import './DataTable.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -205,6 +205,12 @@ export function DataTable({
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
+    const onLoadingChange = context?.onLoadingChange
+    useEffect(() => {
+        onLoadingChange?.(responseLoading)
+        return () => onLoadingChange?.(false)
+    }, [onLoadingChange, responseLoading])
+
     const preComputeStrategy = response && 'preComputeStrategy' in response ? response.preComputeStrategy : undefined
     const usedWebAnalyticsPreAggregatedTables =
         canUseWebAnalyticsPreAggregatedTables &&
@@ -1130,7 +1136,12 @@ export function DataTable({
                                 className="DataTable"
                                 allowContentScroll={context?.dataTableAllowContentScroll}
                                 stickyHeader={context?.dataTableStickyHeader}
-                                loading={responseLoading && !nextDataLoading && !newDataLoading}
+                                loading={
+                                    responseLoading &&
+                                    !nextDataLoading &&
+                                    !newDataLoading &&
+                                    !context?.externalLoadingIndicator
+                                }
                                 columns={lemonColumns}
                                 tableLayout={context?.tableLayout}
                                 tableStyle={context?.tableStyle}
@@ -1148,7 +1159,7 @@ export function DataTable({
                                 onSort={setSorting}
                                 useURLForSorting={false}
                                 emptyState={
-                                    responseError ? (
+                                    context?.externalLoadingIndicator && responseLoading ? null : responseError ? (
                                         sourceFeatures.has(QueryFeature.displayResponseError) ? (
                                             <InsightErrorState
                                                 query={query}

@@ -172,7 +172,7 @@ class TestAccountViewContentValidation(SimpleTestCase):
             (
                 "extra_field",
                 {"query": "select {account_external_id}", "limit": 10},
-                "SQL query config must contain only a query.",
+                "SQL query config must contain only a query and optional visualization settings.",
             ),
         ]
     )
