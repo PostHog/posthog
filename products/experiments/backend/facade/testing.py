@@ -6,13 +6,21 @@ experiments config through here instead of importing the models. Ids go in and i
 The helpers write rows directly. `facade.api.create_experiment` is the production door, but it
 creates the feature flag from a key and validates the metrics, and the outside suites bring a
 flag they made themselves.
+
+The `patch_*` helpers patch one internal step for a suite, so the suite does not name an internal
+module path that a move inside the product would break.
 """
 
+from contextlib import AbstractContextManager
 from datetime import datetime
 from typing import Any
 
+from unittest.mock import MagicMock, patch
+
 from asgiref.sync import sync_to_async
 
+from products.experiments.backend import replay_linkage
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -141,3 +149,20 @@ def set_team_experiments_config(*, team_id: int, **fields: Any) -> None:
     changes from the defaults, the same as a row created in the Django admin.
     """
     TeamExperimentsConfig.objects.update_or_create(team_id=team_id, defaults=fields)
+
+
+def patch_replay_precompute(**kwargs: Any) -> AbstractContextManager[MagicMock]:
+    """Patch the precompute call that the replay exposure linkage makes for a precomputing team.
+
+    Takes the keyword arguments of `unittest.mock.patch`, such as `return_value`, and yields the mock.
+    """
+    return patch.object(replay_linkage, "ensure_precomputed", **kwargs)
+
+
+def patch_live_exposure_scan(**kwargs: Any) -> AbstractContextManager[MagicMock]:
+    """Patch the live events scan that selects an experiment's exposures. A precomputing team reads the
+    preaggregated table instead, so a `side_effect` that raises proves which path a read took.
+
+    Takes the keyword arguments of `unittest.mock.patch` and yields the mock.
+    """
+    return patch.object(ExposureQueryBuilder, "_build_exposure_select_query", **kwargs)

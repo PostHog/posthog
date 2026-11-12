@@ -1,15 +1,17 @@
 from posthog.test.base import BaseTest
 
+from django.contrib import admin
 from django.contrib.admin.sites import AdminSite
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.admin import register_all_admin
 from posthog.models import Organization, Team
 
 from products.experiments.backend.admin.experiment_admin import ExperimentAdmin
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -59,3 +61,13 @@ class TestExperimentAdmin(BaseTest):
     def test_organization_filter_ignores_a_value_that_is_not_a_uuid(self) -> None:
         all_ids = {self.draft.id, self.running.id, self.stopped.id, self.other_org_experiment.id}
         assert self._changelist_ids({"organization": "invalid"}) == all_ids
+
+
+class TestExperimentAdminRegistration(SimpleTestCase):
+    # Admin autodiscovery imports only `admin/__init__.py`, so an admin submodule that `__init__` stops
+    # importing drops its model out of Django admin without an error.
+    @parameterized.expand([("experiment", Experiment), ("saved_metric", ExperimentSavedMetric)])
+    def test_model_is_registered_in_django_admin(self, _name: str, model: type) -> None:
+        # Tests skip the lazy admin registry, so trigger registration explicitly.
+        register_all_admin()
+        assert admin.site.is_registered(model), f"{model.__name__} is not registered in Django admin"
