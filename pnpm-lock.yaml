@@ -1875,6 +1875,9 @@ importers:
       xml-js:
         specifier: ^1.6.11
         version: 1.6.11
+      yaml:
+        specifier: 'catalog:'
+        version: 2.9.1
       zod:
         specifier: ^4.3.6
         version: 4.3.6
