@@ -156,6 +156,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.alerts.backend.facade.api import delete_insight_alerts
 from products.alerts.backend.presentation.views.insight_alerts import (
+    insight_alerts_hidden,
     insight_alerts_prefetch,
     native_insight_alerts,
     serialize_insight_alerts,
@@ -1240,9 +1241,7 @@ class InsightSerializer(InsightBasicSerializer):
         if insight.alertable_query_kind is None:
             return []
 
-        # Alert configs carry their creator's and subscribers' names and emails, which anonymous
-        # viewers of a shared dashboard must never receive, so omit them when hiding authorship.
-        if self.context.get("hide_extra_details", False):
+        if insight_alerts_hidden(insight, self.context):
             return []
 
         # Only the insight API prefetches alerts. Other callers embed none.

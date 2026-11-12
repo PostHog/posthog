@@ -22,6 +22,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval
 
@@ -90,12 +91,6 @@ from products.product_analytics.backend.facade.models import Insight
 
 def _iso(moment: datetime) -> str:
     return moment.isoformat().replace("+00:00", "Z")
-
-
-def _alert_queries(captured: CaptureQueriesContext) -> int:
-    # The insight list reads each insight's dashboard tiles, so only the alert tables show what the
-    # embedded alerts cost.
-    return sum('"alerts_platformalert' in query["sql"] for query in captured.captured_queries)
 
 
 class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
@@ -1083,8 +1078,8 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         }
 
     def test_the_insight_api_embeds_alerts_insight_keeps_no_row_for_in_one_read_per_page(self) -> None:
-        def create_native_alert() -> tuple[int, str]:
-            insight = Insight.objects.create(team=self.team, query=self.alert.insight.query)
+        def create_native_alert(insight: Insight | None = None) -> tuple[int, str]:
+            insight = insight or Insight.objects.create(team=self.team, query=self.alert.insight.query)
             with patch(
                 "products.alerts.backend.platform_ownership.posthoganalytics.feature_enabled", return_value=True
             ):
@@ -1103,6 +1098,8 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             assert created.status_code == status.HTTP_201_CREATED, created.json()
             return insight.id, created.json()["id"]
 
+        self.organization.available_product_features = [{"key": AvailableFeature.ALERTS, "name": "Alerts"}]
+        self.organization.save()
         insights_url = f"/api/environments/{self.team.id}/insights/"
         insight_id, alert_id = create_native_alert()
 
@@ -1122,7 +1119,47 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             insight["id"]: [alert["id"] for alert in insight["alerts"]] for insight in listed.json()["results"]
         }
         assert listed_alerts[insight_id] == [alert_id]
-        assert _alert_queries(three_native) == _alert_queries(one_native)
+        assert len(three_native.captured_queries) == len(one_native.captured_queries)
+
+        watched = Insight.objects.get(id=insight_id)
+        create_native_alert(watched)
+        create_native_alert(watched)
+        retrieved_three = self.client.get(f"{insights_url}{insight_id}/")
+        assert len(retrieved_three.json()["alerts"]) == 3
+
+        sharing = SharingConfiguration.objects.create(team=self.team, insight=watched, enabled=True)
+        self.client.logout()
+        shared = self.client.get(f"{insights_url}{insight_id}/?sharing_access_token={sharing.access_token}")
+        assert shared.status_code == status.HTTP_200_OK, shared.json()
+        assert shared.json()["alerts"] == []
+
+    def test_the_insight_api_embeds_no_native_alert_that_moved_to_another_insight(self) -> None:
+        listed_on = Insight.objects.create(team=self.team, query=self.alert.insight.query)
+        moved_to = Insight.objects.create(team=self.team, query=self.alert.insight.query)
+        with patch("products.alerts.backend.platform_ownership.posthoganalytics.feature_enabled", return_value=True):
+            created = self.client.post(
+                self.url,
+                {
+                    "insight": moved_to.id,
+                    "subscribed_users": [],
+                    "condition": {"type": "absolute_value"},
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "name": "Moved",
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                },
+                format="json",
+            )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        # The alert moves between the read that lists it under an insight and the read of its settings.
+        with patch(
+            "products.alerts.backend.facade.platform.native_insight_alert_ids_by_insight",
+            return_value={listed_on.id: [UUID(created.json()["id"])]},
+        ):
+            retrieved = self.client.get(f"/api/environments/{self.team.id}/insights/{listed_on.id}/")
+
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["alerts"] == []
 
     def _forget_the_insight_row(self) -> None:
         with team_scope(self.team.id):
