@@ -542,7 +542,10 @@ def _senders(team_id: int) -> dict[str, IntegrationRecord]:
 
 
 def _email_content(
-    template: dict[str, Any], converted: ConvertedTemplate, senders: Mapping[str, IntegrationRecord]
+    template: dict[str, Any],
+    converted: ConvertedTemplate,
+    senders: Mapping[str, IntegrationRecord],
+    target: str = "template",
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
     email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": converted.html})
     if converted.text:
@@ -560,7 +563,7 @@ def _email_content(
     if sender is None:
         return email, (
             *subject_notes,
-            f"{address} isn't a PostHog sender yet. Add it, then choose it on this template.",
+            f"{address} isn't a PostHog sender yet. Add it, then choose it on this {target}.",
         )
     email["from"] = {
         "integrationId": sender.id,
@@ -570,7 +573,7 @@ def _email_content(
     if not sender.config.get("verified"):
         return email, (
             *subject_notes,
-            f"{address} isn't verified in PostHog yet, so this template can't send until it is.",
+            f"{address} isn't verified in PostHog yet, so this {target} can't send until it is.",
         )
     return email, subject_notes
 
@@ -684,7 +687,7 @@ def _save_automations(
 
 def _imported_email(template: dict[str, Any], senders: Mapping[str, IntegrationRecord]) -> ImportedEmail:
     converted = convert_template(template)
-    email, sender_notes = _email_content(template, converted, senders)
+    email, sender_notes = _email_content(template, converted, senders, target="step")
     display_name, address = parseaddr(str(template.get("from") or ""))
     sender = email.get("from") or {}
     return ImportedEmail(
