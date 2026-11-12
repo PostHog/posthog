@@ -19,7 +19,7 @@ import {
     forgetSesBucket,
     groupMembers,
     missingTemplates,
-    postgresDatabasesOf,
+    postgresServersOf,
     rolesNotReady,
     seekToEnd,
     startStack,
@@ -102,7 +102,7 @@ export function createEnvironment({
         restartBackoffMs: ROLE_RESTART_BACKOFF_MS,
     })
     let edge: ProviderEdge | undefined
-    let postgresDatabases = [postgresUrl]
+    let postgresServers = [postgresUrl]
     let releaseLock: (() => Promise<void>) | undefined
 
     const logOf = (role: Role): string => path.join(stateDir, `${role}.log`)
@@ -157,8 +157,8 @@ export function createEnvironment({
                     return supervisor.freeze(action.role, FREEZE_OBSERVED_WITHIN_MS)
                 case 'pg.terminate': {
                     let terminated = 0
-                    for (const database of postgresDatabases) {
-                        terminated += await terminateRoleConnections(database, action.share)
+                    for (const server of postgresServers) {
+                        terminated += await terminateRoleConnections(server, action.share)
                     }
                     return { observed: () => Promise.resolve(terminated > 0), release: () => Promise.resolve() }
                 }
@@ -197,7 +197,7 @@ export function createEnvironment({
             PROBE_INTERVAL_MS
         )
         edge.clearFaults()
-        postgresDatabases = postgresDatabasesOf(specs[0], postgresUrl)
+        postgresServers = postgresServersOf(specs[0], postgresUrl)
         await deleteUnfinishedJobs(cyclotronUrlOf(specs[0]))
         await forgetSesBucket(sesRateLimiterValkey)
         for (const group of groups) {
@@ -284,7 +284,7 @@ export function createEnvironment({
             caDir: path.join(stateDir, 'edge-ca'),
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
-        postgresDatabases = postgresDatabasesOf(specs[0], postgresUrl)
+        postgresServers = postgresServersOf(specs[0], postgresUrl)
         const api = specs.filter((spec) => spec.role === 'cdp-api')
         const others = specs.filter((spec) => spec.role !== 'cdp-api')
         await supervisor.start(api)

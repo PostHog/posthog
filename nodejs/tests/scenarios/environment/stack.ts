@@ -193,14 +193,14 @@ export const cyclotronUrlOf = (spec: RoleSpec): string => spec.env.CYCLOTRON_NOD
 const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]']
 const POSTGRES_URL = /^postgres(ql)?:\/\//
 
-function databaseOf(url: string): string {
-    const { hostname, port, pathname } = new URL(url)
-    return `${LOOPBACK_HOSTS.includes(hostname) ? 'localhost' : hostname}:${port || '5432'}${pathname}`
+function serverOf(url: string): string {
+    const { hostname, port } = new URL(url)
+    return `${LOOPBACK_HOSTS.includes(hostname) ? 'localhost' : hostname}:${port || '5432'}`
 }
 
-export function postgresDatabasesOf(spec: RoleSpec, postgresUrl: string): string[] {
+export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[] {
     const urls = [postgresUrl, ...Object.values(spec.env).filter((url): url is string => POSTGRES_URL.test(url ?? ''))]
-    return urls.filter((url, i) => urls.findIndex((other) => databaseOf(other) === databaseOf(url)) === i)
+    return urls.filter((url, i) => urls.findIndex((other) => serverOf(other) === serverOf(url)) === i)
 }
 
 export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> {
@@ -214,8 +214,7 @@ export async function terminateRoleConnections(postgresUrl: string, share: numbe
     return await withPostgres(async (client) => {
         const { rows } = await client.query<{ pid: number }>(
             `SELECT pid FROM pg_stat_activity
-             WHERE pid <> pg_backend_pid() AND datname = current_database()
-               AND (application_name = ANY($1) OR application_name LIKE 'scenario-%')
+             WHERE pid <> pg_backend_pid() AND (application_name = ANY($1) OR application_name LIKE 'scenario-%')
              ORDER BY random()`,
             [Object.keys(ROLE_PORTS)]
         )

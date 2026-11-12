@@ -40,7 +40,7 @@ import {
     forgetSesBucket,
     membersOf,
     pingRedis,
-    postgresDatabasesOf,
+    postgresServersOf,
     scratchSchema,
     seekFailures,
     terminateRoleConnections,
@@ -350,34 +350,34 @@ describe('scenario environment', () => {
 
         it.each<[string, Record<string, string>, string[]]>([
             [
-                'both databases when Cyclotron keeps its own on the same server',
+                'one server when Cyclotron shares it',
                 { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cyclotron' },
-                [POSTHOG, 'postgres://posthog:posthog@localhost:5432/cyclotron'],
-            ],
-            [
-                'one database when a setting spells the same one another way',
-                { DATABASE_READONLY_URL: 'postgres://posthog:posthog@127.0.0.1/posthog' },
                 [POSTHOG],
             ],
             [
-                'one database when a setting holds the word postgres rather than a URL',
+                'one server when Cyclotron spells the same server another way',
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@127.0.0.1/cyclotron' },
+                [POSTHOG],
+            ],
+            [
+                'one server when a setting holds the word postgres rather than a URL',
                 { POSTHOG_DB_USER: 'postgres' },
                 [POSTHOG],
             ],
             [
-                'both databases when a profile moves Cyclotron to another server',
+                'both servers when a profile moves Cyclotron to another',
                 { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron' },
                 [POSTHOG, 'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron'],
             ],
             [
-                'both databases when a profile moves the read replica to another server',
+                'both servers when a profile moves the read replica to another',
                 { DATABASE_READONLY_URL: 'postgres://posthog:posthog@replica.example.com:5432/posthog' },
                 [POSTHOG, 'postgres://posthog:posthog@replica.example.com:5432/posthog'],
             ],
-        ])('lists the Postgres databases the roles reach: %s', (_story, settings, databases) => {
+        ])('lists the Postgres servers the roles reach: %s', (_story, settings, servers) => {
             const [spec] = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings)
 
-            expect(postgresDatabasesOf(spec, POSTHOG)).toEqual(databases)
+            expect(postgresServersOf(spec, POSTHOG)).toEqual(servers)
         })
 
         const hogflowWorker = (settings: Record<string, string>) =>
@@ -1428,7 +1428,7 @@ describe('scenario environment', () => {
             expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: true })])
         }, 30_000)
 
-        it("drops the roles' Postgres connections in every database they use and spares every other one", async () => {
+        it("drops the roles' Postgres connections in every database on their servers and spares every other one", async () => {
             environment = environmentOf()
             await environment.up()
             const connect = async (
@@ -1470,29 +1470,6 @@ describe('scenario environment', () => {
                 await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
             }
         }, 30_000)
-
-        it('drops only the role sessions of the database it is given', async () => {
-            const tag = `${process.pid}-${Date.now()}`
-            const sessions = await Promise.all(
-                [templatesUrl, cyclotronUrl].map(async (url) => {
-                    const client = new Client({ connectionString: url, application_name: `scenario-${tag}` })
-                    const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
-                    await client.connect()
-                    return { client, ended }
-                })
-            )
-            try {
-                const [here, elsewhere] = sessions
-
-                const terminated = await terminateRoleConnections(templatesUrl, 1)
-
-                await here.ended
-                const answered = (await elsewhere.client.query<{ one: number }>('SELECT 1 AS one')).rows[0].one
-                expect({ terminated, answered }).toEqual({ terminated: 1, answered: 1 })
-            } finally {
-                await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
-            }
-        })
 
         it("drops the dose's share of the roles' Postgres connections, rounded up", async () => {
             environment = environmentOf()
