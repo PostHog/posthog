@@ -100,20 +100,22 @@ def _layout_position(layouts: dict | None) -> tuple[float, float]:
     return (y, x)
 
 
-def tile_groups(*, dashboard_id: int) -> list[DashboardTileGroupSummary]:
+def tile_groups(*, team_id: int, dashboard_id: int) -> list[DashboardTileGroupSummary]:
     # Mirrors getDashboardSections in products/dashboards/frontend/dashboardTileSections.ts: a group sits
     # where its top-left tile is, and the tiles counted are the ones the dashboard shows.
-    dashboard = Dashboard.objects_including_soft_deleted.only("customization").filter(pk=dashboard_id).first()
+    dashboard = (
+        Dashboard.objects_including_soft_deleted.only("customization").filter(team_id=team_id, pk=dashboard_id).first()
+    )
     if dashboard is None:
         return []
-    saved_groups = (dashboard.customization or {}).get("groups") if isinstance(dashboard.customization, dict) else None
+    saved_groups = dashboard.customization.get("groups") if isinstance(dashboard.customization, dict) else None
     if not isinstance(saved_groups, dict):
         saved_groups = {}
 
-    # The caller resolved this id through a team-scoped dashboard lookup first.
+    # The dashboard comes from the team-scoped lookup above.
     # nosemgrep: idor-lookup-without-team
     tiles = (
-        DashboardTile.objects.filter(dashboard_id=dashboard_id)
+        DashboardTile.objects.filter(dashboard_id=dashboard.id)
         .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
         .values_list("id", "layouts", "group_key")
     )

@@ -191,7 +191,6 @@ async def _tile_group_sections(
     subscription: Subscription,
     tile_insight_pairs: list[tuple[DashboardInsightTileSummary | None, Insight]],
 ) -> list[InsightSection]:
-    """The report's sections by dashboard tile group, or [] to keep today's flat layout order."""
     if subscription.dashboard_id is None or not any(tile and tile.group_key for tile, _ in tile_insight_pairs):
         return []
     owner = subscription.created_by
@@ -202,7 +201,7 @@ async def _tile_group_sections(
     if not enabled:
         return []
     groups = await database_sync_to_async(dashboards_api.tile_groups, thread_sensitive=False)(
-        dashboard_id=subscription.dashboard_id
+        team_id=subscription.team_id, dashboard_id=subscription.dashboard_id
     )
     return section_by_tile_group(tile_insight_pairs, groups)
 
@@ -232,7 +231,10 @@ async def _persist_content_snapshot(
             "total_insight_count": total_insight_count,
             "insights": insight_snapshots,
         }
-        if insight_groups is not None:
+        # A retried export can find no sections where the first attempt found some.
+        if insight_groups is None:
+            delivery.content_snapshot.pop(INSIGHT_GROUPS_SNAPSHOT_KEY, None)
+        else:
             delivery.content_snapshot[INSIGHT_GROUPS_SNAPSHOT_KEY] = insight_groups
         delivery.save(update_fields=["content_snapshot", "last_updated_at"])
 
@@ -643,7 +645,6 @@ async def _deliver_insight_dashboard_subscription(
 
 
 async def _group_headings(delivery_id: uuid.UUID | None, assets: list[ExportedAsset]) -> dict[int, str]:
-    """Headings by the asset they come before, from the sections create_export_assets stored on the delivery row."""
     if delivery_id is None:
         return {}
     # Reads only the small sections key, not the multi-MB insight snapshots beside it.

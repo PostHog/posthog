@@ -76,7 +76,6 @@ def section_by_tile_group(
 
 
 def snapshot_sections(sections: Sequence[InsightSection], asset_ids: Sequence[Sequence[int]]) -> list[dict[str, Any]]:
-    """The JSON stored on the delivery row: each section's heading and the ids of its exported assets."""
     return [
         {"heading": section.heading, "exported_asset_ids": list(ids)}
         for section, ids in zip(sections, asset_ids, strict=True)

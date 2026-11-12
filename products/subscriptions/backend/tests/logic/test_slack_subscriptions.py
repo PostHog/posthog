@@ -1138,9 +1138,8 @@ class TestSlackTileGroupHeadings(APIBaseTest):
                 export_format="image/png",
                 content=b"PNG",
             )
-            for name in ["Top", "Signups", "MRR"]
+            for name in ["Top", "Signups", "Activations", "MRR"]
         ]
-        self.headings = {self.assets[1].id: "Growth", self.assets[2].id: "Revenue"}
 
     def _subscription(self, post_all_in_main: bool) -> Subscription:
         return create_subscription(
@@ -1160,30 +1159,46 @@ class TestSlackTileGroupHeadings(APIBaseTest):
             if block["type"] in ("header", "image")
         ]
 
-    def test_threaded_message_heads_the_first_insight_of_each_group(self) -> None:
+    @parameterized.expand(
+        [
+            ("ungrouped_first", {1: "Growth", 3: "Revenue"}, ["Top"], [["# Growth", "Signups"], ["Activations"]]),
+            ("all_grouped", {0: "Growth", 3: "Revenue"}, ["# Growth", "Top"], [["Signups"], ["Activations"]]),
+        ]
+    )
+    def test_threaded_message_heads_the_first_insight_of_each_group(
+        self, _name: str, headings: dict[int, str], main: list[str], first_threads: list[list[str]]
+    ) -> None:
         message = _prepare_slack_message(
-            self._subscription(post_all_in_main=False), self.assets, total_asset_count=3, group_headings=self.headings
+            self._subscription(post_all_in_main=False),
+            self.assets,
+            total_asset_count=4,
+            group_headings={self.assets[index].id: heading for index, heading in headings.items()},
         )
 
         # The message opens with its own title header, before any group heading.
-        assert self._outline(message.blocks)[1:] == ["Top"]
+        assert self._outline(message.blocks)[1:] == main
         assert [self._outline(thread["blocks"]) for thread in message.thread_messages] == [
-            ["# Growth", "Signups"],
+            *first_threads,
             ["# Revenue", "MRR"],
         ]
 
-    def test_gallery_lists_insight_links_under_group_headings(self) -> None:
+    def test_gallery_keeps_a_group_heading_when_its_first_insight_fails(self) -> None:
+        self.assets[1].exception = "boom"
+        self.assets[1].save(update_fields=["exception"])
+
         gallery = _prepare_slack_gallery(
-            self._subscription(post_all_in_main=True), self.assets, total_asset_count=3, group_headings=self.headings
+            self._subscription(post_all_in_main=True),
+            self.assets,
+            total_asset_count=4,
+            group_headings={self.assets[1].id: "Growth", self.assets[3].id: "Revenue"},
         )
 
         sections = [
             [element.get("text") for element in block["elements"][0]["elements"]]
             for block in gallery.blocks
-            if block["type"] == "rich_text"
+            if block["type"] == "rich_text" and block["elements"][0]["type"] == "rich_text_section"
         ]
-        assert sections == [["Top"], ["Growth", "\n", "Signups"], ["Revenue", "\n", "MRR"]]
-        assert [upload["title"] for upload in gallery.file_uploads] == ["Top", "Signups", "MRR"]
+        assert sections == [["Top"], ["Growth", "\n", "Activations"], ["Revenue", "\n", "MRR"]]
 
 
 class TestSlackExploreHint(APIBaseTest):

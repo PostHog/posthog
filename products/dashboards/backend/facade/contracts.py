@@ -94,8 +94,6 @@ class DashboardInsightTileSummary:
 
 @dataclass(frozen=True)
 class DashboardTileGroupSummary:
-    """A tile group that holds at least one live tile, as the dashboard shows it."""
-
     key: str
     title: str
     # Every live tile in the group, of any kind, so `heading` matches the dashboard's own.
@@ -103,7 +101,6 @@ class DashboardTileGroupSummary:
 
     @property
     def heading(self) -> str:
-        """The group's title, or its tile count when it has no title, as the dashboard heads the group."""
         if self.title:
             return self.title
         return f"{self.tile_count} tile" if self.tile_count == 1 else f"{self.tile_count} tiles"

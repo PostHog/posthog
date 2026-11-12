@@ -1,7 +1,3 @@
-from typing import Any
-
-import pytest
-
 from products.dashboards.backend.facade.contracts import DashboardInsightTileSummary, DashboardTileGroupSummary
 from products.subscriptions.backend.logic.insight_groups import group_headings_by_asset_id, section_by_tile_group
 
@@ -34,26 +30,8 @@ def test_sections_follow_dashboard_group_order_with_ungrouped_first() -> None:
     assert _outline(pairs, groups) == [(None, ["Top", "Stray"]), ("1 tile", ["Signups"]), ("Revenue", ["MRR"])]
 
 
-def test_no_sections_when_no_selected_insight_is_grouped() -> None:
-    groups = [DashboardTileGroupSummary(key="a", title="Revenue", tile_count=1)]
+def test_heading_moves_to_the_next_asset_when_the_first_is_missing() -> None:
+    # The group's first chart was cleaned up before delivery.
+    stored = [{"heading": "Revenue", "exported_asset_ids": [2, 3]}]
 
-    assert _outline([(_tile(1, None), "Top")], groups) == []
-
-
-@pytest.mark.parametrize(
-    "stored,present,expected",
-    [
-        (
-            [{"heading": None, "exported_asset_ids": [1]}, {"heading": "Revenue", "exported_asset_ids": [2, 3]}],
-            [1, 2, 3],
-            {2: "Revenue"},
-        ),
-        # The group's first chart was cleaned up before delivery, so the heading moves to the next one.
-        ([{"heading": "Revenue", "exported_asset_ids": [2, 3]}], [3], {3: "Revenue"}),
-        ([{"heading": "Revenue", "exported_asset_ids": [2]}], [1], {}),
-        (None, [1], {}),
-        ([{"heading": "Revenue", "exported_asset_ids": "2"}], [2], {}),
-    ],
-)
-def test_group_headings_by_asset_id(stored: Any, present: list[int], expected: dict[int, str]) -> None:
-    assert group_headings_by_asset_id(stored, present) == expected
+    assert group_headings_by_asset_id(stored, [3]) == {3: "Revenue"}

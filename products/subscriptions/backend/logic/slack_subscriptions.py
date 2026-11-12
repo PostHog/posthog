@@ -262,11 +262,16 @@ def _prepare_slack_gallery(
 
     file_uploads: list[dict[str, Any]] = []
     insight_links: list[dict[str, Any]] = []
-    # With tile groups, the links list under one heading per group, in the order the files upload.
     grouped_insight_links: list[tuple[str | None, list[dict[str, Any]]]] = []
+    # A group's first asset can fail or lack an insight, so its heading waits for the next asset that gets a link.
+    pending_heading: str | None = None
+    opens_section = False
     failed_names: list[str] = []
     unattached_assets: list[ExportedAsset] = []
     for asset in assets:
+        if group_headings and asset.id in group_headings:
+            pending_heading = group_headings[asset.id]
+            opens_section = True
         if _has_asset_failed(asset):
             failed_names.append(_insight_name(asset))
             continue
@@ -289,8 +294,9 @@ def _prepare_slack_gallery(
         if subscription.dashboard_id and asset.insight:
             link = {"type": "link", "url": asset.insight.url, "text": _insight_name(asset)}
             if group_headings:
-                if asset.id in group_headings or not grouped_insight_links:
-                    grouped_insight_links.append((group_headings.get(asset.id), []))
+                if opens_section or not grouped_insight_links:
+                    grouped_insight_links.append((pending_heading if opens_section else None, []))
+                    opens_section = False
                 grouped_insight_links[-1][1].append(link)
             else:
                 if insight_links:

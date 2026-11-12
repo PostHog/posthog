@@ -651,10 +651,11 @@ def _create_grouped_dashboard(team, *, grouped: bool) -> Dashboard:
         customization={"groups": {"revenue": {"title": "Revenue"}, "untitled": {}}} if grouped else {},
     )
     # (name, group, y): the untitled group's first tile sits above the Revenue group's, so it comes first.
+    # MRR is created first, so tile ids alone would put the Revenue group first.
     placements = [
+        ("MRR", "revenue", 4),
         ("Top", None, 0),
         ("Signups", "untitled", 2),
-        ("MRR", "revenue", 4),
         ("Bottom", None, 6),
         ("Activations", "untitled", 8),
     ]
@@ -677,15 +678,13 @@ def _create_grouped_dashboard(team, *, grouped: bool) -> Dashboard:
 
 
 @pytest.mark.parametrize(
-    "grouped,flag_enabled,expected",
+    "grouped,flag_enabled,max_asset_count,expected",
     [
-        (
-            True,
-            True,
-            ["Top", "Bottom", "# 3 tiles", "Signups", "Activations", "# Revenue", "MRR"],
-        ),
-        (True, False, ["Top", "Signups", "MRR", "Bottom", "Activations"]),
-        (False, True, ["Top", "Signups", "MRR", "Bottom", "Activations"]),
+        (True, True, None, ["Top", "Bottom", "# 3 tiles", "Signups", "Activations", "# Revenue", "MRR"]),
+        # The export limit applies after grouping, so the report keeps the picker's first insights.
+        (True, True, 3, ["Top", "Bottom", "# 3 tiles", "Signups"]),
+        (True, False, None, ["Top", "Signups", "MRR", "Bottom", "Activations"]),
+        (False, True, None, ["Top", "Signups", "MRR", "Bottom", "Activations"]),
     ],
 )
 @patch("products.subscriptions.backend.logic.insight_groups.feature_enabled_or_false")
@@ -698,6 +697,7 @@ async def test_dashboard_report_follows_tile_groups(
     mock_flag: MagicMock,
     grouped: bool,
     flag_enabled: bool,
+    max_asset_count: int | None,
     expected: list[str],
     team,
     user,
@@ -729,7 +729,10 @@ async def test_dashboard_report_follows_tile_groups(
         ),
     )
     export = await env.run(
-        create_export_assets, CreateExportAssetsInputs(subscription_id=subscription.id, delivery_id=delivery_id)
+        create_export_assets,
+        CreateExportAssetsInputs(
+            subscription_id=subscription.id, delivery_id=delivery_id, max_asset_count=max_asset_count
+        ),
     )
     await sync_to_async(
         lambda: ExportedAsset.objects.filter(id__in=export.exported_asset_ids).update(

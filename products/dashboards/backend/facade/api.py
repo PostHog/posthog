@@ -333,12 +333,12 @@ def insight_tiles(*, dashboard_id: int) -> list[DashboardInsightTileSummary]:
     ]
 
 
-def tile_groups(*, dashboard_id: int) -> list[DashboardTileGroupSummary]:
+def tile_groups(*, team_id: int, dashboard_id: int) -> list[DashboardTileGroupSummary]:
     """The tile groups of a dashboard that hold a live tile, in the order the dashboard shows them.
 
-    A group sits where its top-left tile is. Empty when the dashboard has no grouped tiles.
+    A group sits where its top-left tile is. Empty when the dashboard has no grouped tiles or is not this team's.
     """
-    return tiles_logic.tile_groups(dashboard_id=dashboard_id)
+    return tiles_logic.tile_groups(team_id=team_id, dashboard_id=dashboard_id)
 
 
 def tile_filters_overrides(*, dashboard_id: int, insight_id: int) -> dict[str, Any] | None:
