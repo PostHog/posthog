@@ -35,6 +35,7 @@ import {
     HogFlowInvocationContext,
     MinimalAppMetric,
 } from '../../../types'
+import { CyclotronJobConflictError } from '../../cyclotron-v2/manager'
 import { createIdempotencyValkeyPool } from '../../hogflows/idempotency-keys'
 import { JobQueue } from '../../job-queue/job-queue.interface'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
@@ -78,14 +79,32 @@ const createFakeCyclotron = () => {
     const add = (invocation: CyclotronJobInvocation): void => {
         jobs.set(invocation.id, { invocation: copyOf(invocation), status: 'available', dueAt: dueAtOf(invocation) })
     }
+    const insert = (invocations: CyclotronJobInvocation[], overwriteExisting = false): void => {
+        const conflicting = invocations.filter((invocation) => {
+            const existing = jobs.get(invocation.id)
+            return existing && !(overwriteExisting && ['completed', 'failed', 'canceled'].includes(existing.status))
+        })
+        if (conflicting.length && !overwriteExisting) {
+            throw new Error(`duplicate key value violates unique constraint for ${conflicting.map(({ id }) => id)}`)
+        }
+        invocations.filter((invocation) => !conflicting.includes(invocation)).forEach(add)
+        if (conflicting.length) {
+            throw new CyclotronJobConflictError(conflicting.map(({ id }) => id))
+        }
+    }
     const running = (id: string): FakeJob | undefined => {
         const job = jobs.get(id)
         return job?.status === 'running' ? job : undefined
     }
-    const queue: JobQueue = {
+    const queue: JobQueue & {
+        queueInvocations(
+            invocations: CyclotronJobInvocation[],
+            options?: { overwriteExisting?: boolean }
+        ): Promise<void>
+    } = {
         ...createMockJobQueue(),
-        queueInvocations: (invocations) => {
-            invocations.forEach(add)
+        queueInvocations: (invocations: CyclotronJobInvocation[], options: { overwriteExisting?: boolean } = {}) => {
+            insert(invocations, options.overwriteExisting)
             return Promise.resolve()
         },
         queueInvocationResults: (results) => {
@@ -93,7 +112,7 @@ const createFakeCyclotron = () => {
                 const job = running(result.invocation.id)
                 if (!job) {
                     if (!result.finished && !result.error) {
-                        add(result.invocation)
+                        insert([result.invocation])
                     }
                 } else if (result.error) {
                     job.status = 'failed'
@@ -514,9 +533,12 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 hog_function: createMockJobQueue(),
                 hog_flow: {
                     ...createMockJobQueue(),
-                    queueInvocations: (invocations: CyclotronJobInvocation[]) => {
+                    queueInvocations: (
+                        invocations: CyclotronJobInvocation[],
+                        options: { overwriteExisting?: boolean }
+                    ) => {
                         rerunQueued.push(...invocations.map(copyOf))
-                        return cyclotron.queue.queueInvocations(invocations)
+                        return cyclotron.queue.queueInvocations(invocations, options)
                     },
                 },
             } as unknown as RerunJobQueues,
