@@ -1162,18 +1162,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 10 + 6 once at least one insight materializes. Three of the 6 read the
-            # revenue, marketing and customer analytics configs that go into the query cache key.
+            # baseline + 10 + 7 once at least one insight materializes. Three of the 7 read the
+            # revenue, marketing and customer analytics configs that go into the query cache key,
+            # and one reads the insights' alerts that only the alerts platform keeps.
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 6):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 6):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 10 + 6):
+        with self.assertNumQueries(baseline + 10 + 7):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:

@@ -1256,7 +1256,7 @@ class InsightSerializer(InsightBasicSerializer):
         loaded: dict[int, list[Any]] = self.context.setdefault("_native_insight_alerts", {})
         if insight.id not in loaded:
             parent = self.parent
-            response = (
+            response = self.context.get("insights_in_response") or (
                 parent.instance if isinstance(parent, serializers.ListSerializer) and parent.instance else [insight]
             )
             batch = [each for each in response if hasattr(each, "_prefetched_alerts")] or [insight]

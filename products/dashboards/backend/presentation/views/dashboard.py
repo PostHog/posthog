@@ -3025,6 +3025,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
             # (dashboard, insight) is unique per dashboard, so the per-instance insight_result
             # lru_cache never leaks a result from one tile to another.
             tile_context = self.context.copy()
+            # The insight serializer reads the alerts of every insight here at once, rather than per tile.
+            tile_context["insights_in_response"] = [tile.insight for tile in sorted_tiles if tile.insight is not None]
             reused_serializer = DashboardTileSerializer(context=tile_context)
             for order, tile in enumerate(sorted_tiles):
                 tile_context.update({"dashboard_tile": tile, "order": order})
