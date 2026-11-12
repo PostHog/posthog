@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { HttpResponse } from 'msw'
 import { useEffect, useState } from 'react'
@@ -8,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 
 import type { ReportPlanApi } from 'products/signals/frontend/generated/api.schemas'
+import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 
 import {
     makeReport,
@@ -453,6 +454,95 @@ export const ActivityNotes: Story = {
             </div>
         </Frame>
     ),
+}
+
+const quillReportPage: ReportPageApi = {
+    lead: 'The invite form accepts a recipient row without an email address, so the request fails after submit.',
+    proposal: 'Validate each recipient row before submit, and show the error next to the row that fails.',
+    impact_sentence: '',
+    named_pull_request: null,
+    solution_names_pull_request: false,
+    evidence: [],
+    source_count: 0,
+    impact_numbers: [],
+    last_seen: null,
+}
+
+const quillReport: SignalReport = {
+    ...reportTabReports[0],
+    scout_name: 'signals-scout-checkout',
+    assignee: {
+        claim_id: '019e64b8-0000-7000-8000-000000000098',
+        kind: 'user',
+        user: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+        task_id: null,
+        agent: null,
+        claimed_at: '2026-06-10T10:00:00Z',
+        responsible_user: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+    },
+}
+
+// The Home report data and the notes that the Quill report top reads.
+const quillReportMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/reports/': { results: [], count: 0, next: null },
+        '/api/projects/:id/signals/reports/available_reviewers/': () => [200, mockReviewers],
+        '/api/projects/:id/signals/reports/:reportId/': () => [200, quillReport],
+        '/api/projects/:id/today/reports/:reportId/page/': () => [200, quillReportPage],
+        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+            const artefacts = mockArtefacts(req.params.reportId as string)
+            const results = [...artefacts.results.filter((artefact) => artefact.type !== 'task_run'), ...noteArtefacts]
+            return [200, { ...artefacts, results, count: results.length }]
+        },
+        '/api/projects/:id/file_system/frequent/': [],
+        '/api/projects/:id/today/highlights/': {
+            status: 'ready',
+            generated_at: null,
+            day: '2026-08-29',
+            refresh_at: '2026-08-30T00:00:00Z',
+            pulse: [],
+            pulse_slots: [],
+            items: [],
+            pins: [],
+        },
+        '/api/projects/:id/today/pulse_pins/': { pins: [], hidden: [] },
+        '/api/organizations/:organization_id/product_push_campaign/active/': () => [204],
+    },
+})
+
+// The Home report styles break on the `main-content` container, which the app shell declares.
+const mainContentContainer: Decorator = (Story) => (
+    <div className="@container/main-content">
+        <Story />
+    </div>
+)
+
+const quillReportFlags = {
+    ...meta.parameters?.featureFlags,
+    [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+    [FEATURE_FLAGS.SIGNALS_REPORT_NOTES]: true,
+}
+
+// The report behind `today-rail-nav`: the Home report top, with the claim in the fact line and the notes.
+export const QuillReport: Story = {
+    decorators: [reportNotesMocks, quillReportMocks, mainContentContainer],
+    parameters: {
+        featureFlags: quillReportFlags,
+        testOptions: { snapshotBrowsers: [], waitForSelector: '[aria-label="Proposal"]' },
+    },
+    render: () => <ReportDetail report={quillReport} />,
+}
+
+export const QuillReportPhone: Story = {
+    ...QuillReport,
+    parameters: {
+        featureFlags: quillReportFlags,
+        testOptions: {
+            snapshotBrowsers: [],
+            waitForSelector: '[aria-label="Proposal"]',
+            viewport: { width: 390, height: 844 },
+        },
+    },
 }
 
 export const ReportWithMetrics: Story = {
