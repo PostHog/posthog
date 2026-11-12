@@ -15,11 +15,11 @@ import {
     aeoPromptsRetrieve,
     aeoPromptsTopics,
 } from '../generated/api'
-import { contentAutopilotBrandedLogic } from './contentAutopilotBrandedLogic'
+import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
-import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
+import { contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
 import { EXAMPLE_PROMPT_SET_OVERVIEW, EXAMPLE_PROMPT_TOPICS, EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
 
 jest.mock('../generated/api', () => ({
@@ -65,7 +65,7 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             hasChecks: true,
         })
         expect(mockOverview).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-            days: OVERVIEW_DAYS,
+            days: 30,
             branded: 'non_branded',
         })
         expect(logic.values.visibilityQuery?.source.values).toEqual({
@@ -95,11 +95,11 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
-            contentAutopilotBrandedLogic.actions.setBrandedSegment(segment, 'overview')
+            contentAutopilotFiltersLogic.actions.setBrandedSegment(segment, 'overview')
             await expectLogic(logic).toDispatchActions(['loadPromptSetOverviewSuccess']).toFinishAllListeners()
 
             expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-                days: OVERVIEW_DAYS,
+                days: 30,
                 branded: segment,
             })
             const queries = [logic.values.visibilityQuery?.source, logic.values.sourcesQuery?.source].map(
@@ -120,16 +120,18 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
         logic = contentAutopilotPromptsOverviewLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        contentAutopilotBrandedLogic.actions.setBrandedSegment('all', 'overview')
+        contentAutopilotFiltersLogic.actions.setBrandedSegment('all', 'overview')
         await expectLogic(logic).toFinishAllListeners()
         logic.unmount()
 
         initKeaTests()
         logic = contentAutopilotPromptsOverviewLogic()
         logic.mount()
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ brandedSegment: 'all' })
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ filters: expect.objectContaining({ branded: 'all' }) })
         expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-            days: OVERVIEW_DAYS,
+            days: 30,
             branded: 'all',
         })
     })
@@ -170,15 +172,57 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             .toMatchValues({ overview: EXAMPLE_PROMPT_SET_OVERVIEW, overviewError: null })
     })
 
-    it('filters the prompt list when a topic is picked', async () => {
+    it('narrows the overview, its tiles and the prompt list to a topic picked from the table', async () => {
+        mockOverview.mockImplementation(async (_, params) => ({
+            ...EXAMPLE_PROMPT_SET_OVERVIEW,
+            engine: params?.engine ?? null,
+            topic: params?.topic ?? null,
+        }))
         logic = contentAutopilotPromptsOverviewLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         logic.actions.selectOverviewTopic('Session replay')
-        await expectLogic(contentAutopilotPromptsLogic)
-            .toDispatchActions(['setPromptsTopic'])
-            .toMatchValues({ promptsTopic: 'Session replay' })
+        await expectLogic(logic).toDispatchActions(['setTopic', 'loadPromptSetOverviewSuccess']).toFinishAllListeners()
+
+        expect(contentAutopilotLogic.values.workspaceTab).toEqual('prompts')
+        expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            days: 30,
+            branded: 'non_branded',
+            topic: 'Session replay',
+        })
+        await expectLogic(contentAutopilotPromptsLogic).toFinishAllListeners()
+        expect(jest.mocked(aeoPromptsList)).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ topic: 'Session replay' })
+        )
+    })
+
+    it('sends the date range and engine to the overview and the tiles', async () => {
+        mockOverview.mockImplementation(async (_, params) => ({
+            ...EXAMPLE_PROMPT_SET_OVERVIEW,
+            days: params?.days ?? 30,
+            engine: params?.engine ?? null,
+            topic: params?.topic ?? null,
+        }))
+        logic = contentAutopilotPromptsOverviewLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        contentAutopilotFiltersLogic.actions.setDays(7, 'overview')
+        contentAutopilotFiltersLogic.actions.setEngine('claude-web-search', 'overview')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            days: 7,
+            branded: 'non_branded',
+            engine: 'claude-web-search',
+        })
+        for (const source of [logic.values.citationQuery?.source, logic.values.sourcesQuery?.source]) {
+            expect((source as HogQLQuery).query).toContain('engine = {engine}')
+            expect((source as HogQLQuery).query).not.toContain('prompt_topic')
+            expect((source as HogQLQuery).values).toMatchObject({ engine: 'claude-web-search' })
+        }
     })
 
     it('opens a prompt picked from the searches on the prompts tab', async () => {

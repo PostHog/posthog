@@ -23,6 +23,10 @@ export interface PromptSetWindow {
     brandNames: string[]
     /** Which checks to keep, by whether the prompt as it ran names the brand. */
     branded: BrandedSegmentEnumApi
+    /** One engine's checks, or null for every engine. */
+    engine: string | null
+    /** The checks of one topic as the prompt had it when it ran, or null for every topic. */
+    topic: string | null
 }
 
 export const PROMPT_REPORT_TOP_SOURCES = 50
@@ -54,6 +58,8 @@ const setHogql = (query: string, window: PromptSetWindow): HogQLQuery => ({
     values: {
         window_start: `${window.from} 00:00:00`,
         ...(window.brandNames.length ? { brand_pattern: brandMentionPattern(window.brandNames) } : {}),
+        ...(window.engine !== null ? { engine: window.engine } : {}),
+        ...(window.topic !== null ? { topic: window.topic } : {}),
     },
 })
 
@@ -132,7 +138,7 @@ ORDER BY day`,
 
 /** The set's checks on one side of the branded split, matching the API's `branded` filter. Without brand names no
  * prompt is branded. */
-const setWhere = ({ branded, brandNames }: PromptSetWindow): string => {
+const segmentWhere = ({ branded, brandNames }: PromptSetWindow): string => {
     if (branded === 'all') {
         return SET_WHERE
     }
@@ -142,6 +148,14 @@ const setWhere = ({ branded, brandNames }: PromptSetWindow): string => {
     const namesBrand = 'match(lower(prompt_text), {brand_pattern})'
     return `${SET_WHERE} AND ${branded === 'branded' ? namesBrand : `NOT ${namesBrand}`}`
 }
+
+/** The set's checks narrowed the way the API's `branded`, `engine` and `topic` filters narrow them. */
+const setWhere = (window: PromptSetWindow): string =>
+    [
+        segmentWhere(window),
+        ...(window.engine !== null ? ['engine = {engine}'] : []),
+        ...(window.topic !== null ? ['prompt_topic = {topic}'] : []),
+    ].join(' AND ')
 
 /** The same daily metric per engine across every prompt in the set. */
 export const promptSetVisibilityQuery = (

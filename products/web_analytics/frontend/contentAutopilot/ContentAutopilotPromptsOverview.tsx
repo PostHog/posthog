@@ -7,15 +7,15 @@ import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
-import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
 import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
+import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
-import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
+import { contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
 import { ContentAutopilotPromptsOverviewSkeleton } from './ContentAutopilotPromptsOverviewSkeleton'
 import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSearchTable'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
@@ -25,7 +25,7 @@ import { ContentAutopilotTopicQuadrant } from './ContentAutopilotTopicQuadrant'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { ContentAutopilotVisibilityDashboardButton } from './ContentAutopilotVisibilityDashboardButton'
 import { POSITION_DESCRIPTION } from './promptReport'
-import { brandedAnswersNote, segmentPrompts, sortEngines } from './utils'
+import { brandedAnswersNote, filtersHeading, segmentPrompts, sortEngines } from './utils'
 
 export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     const {
@@ -44,7 +44,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
         contentAutopilotPromptsOverviewLogic
     )
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
-    const { promptsTopic } = useValues(contentAutopilotPromptsLogic)
+    const { topic } = useValues(contentAutopilotFiltersLogic)
     const { openAddPrompts } = useActions(contentAutopilotPromptsLogic)
 
     if (overviewError === 'forbidden') {
@@ -66,22 +66,20 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     const header = (
         <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0 flex-1 basis-80">
-                <h3 className="m-0 text-sm font-semibold">Last {OVERVIEW_DAYS} days, all engines</h3>
+                <h3 className="m-0 text-sm font-semibold">{filtersHeading(overview)}</h3>
                 <p className="m-0 text-xs text-secondary" data-attr="content-autopilot-prompts-overview-answers">
                     {brandedAnswersNote(overview.branded, overview.current.checks - overview.current.failed)}{' '}
                     {overview.current.failed
                         ? `${pluralize(overview.current.failed, 'check')} failed and ${overview.current.failed === 1 ? 'is' : 'are'} left out. `
                         : ''}
-                    Each number is compared with the {OVERVIEW_DAYS} days before.
+                    Each number is compared with the {overview.days} days before.
                 </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-                <ContentAutopilotBrandedSegmentControl tab="overview" />
-                <ContentAutopilotVisibilityDashboardButton />
-            </div>
+            <ContentAutopilotVisibilityDashboardButton />
         </div>
     )
-    if (!hasChecks && overview.branded_answers + overview.non_branded_answers > 0) {
+    const narrowed = overview.engine !== null || overview.topic !== null
+    if (!hasChecks && (narrowed || overview.branded_answers + overview.non_branded_answers > 0)) {
         return (
             <section className="flex flex-col gap-4" data-attr="content-autopilot-prompts-overview">
                 {header}
@@ -91,9 +89,10 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     data-attr="content-autopilot-prompts-overview-segment-empty"
                 >
                     <h4 className="m-0">
-                        No answers to {segmentPrompts(overview.branded)} in the last {OVERVIEW_DAYS} days
+                        No answers to {segmentPrompts(overview.branded)} in the last {overview.days} days
+                        {narrowed ? ' that match these filters' : ''}
                     </h4>
-                    <p className="m-0 mt-1 text-muted">Choose another option above to see the other answers.</p>
+                    <p className="m-0 mt-1 text-muted">Choose other filters above to see the other answers.</p>
                 </LemonCard>
             </section>
         )
@@ -189,7 +188,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader
                         title="By engine"
-                        description={`Each engine's answers to your prompts over the last ${OVERVIEW_DAYS} days. Failed checks are left out.`}
+                        description={`Each engine's answers to your prompts over the last ${overview.days} days. Failed checks are left out.`}
                     />
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-engines">
                         <ContentAutopilotEngineTable engines={engines} />
@@ -223,7 +222,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-topics">
                         <ContentAutopilotPromptsTopicTable
                             rows={overview.topics}
-                            selectedTopic={promptsTopic}
+                            selectedTopic={topic}
                             onSelect={selectOverviewTopic}
                         />
                     </div>
@@ -238,6 +237,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
                     <ContentAutopilotPromptsSearchTable
                         rows={overview.top_searches}
+                        days={overview.days}
                         onOpenPrompt={openOverviewSearchPrompt}
                     />
                 </div>

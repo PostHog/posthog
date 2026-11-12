@@ -28,6 +28,7 @@ import type {
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { AnswerBrand, AnswerMentions, answerMentions } from './answerMentions'
+import { contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import {
@@ -113,7 +114,6 @@ export interface contentAutopilotPromptDetailLogicActions {
     setWorkspaceTab: (workspaceTab: import('./contentAutopilotLogic').ContentAutopilotWorkspaceTab) => {
         workspaceTab: import('./contentAutopilotLogic').ContentAutopilotWorkspaceTab
     } // contentAutopilotLogic
-    loadAeoPromptTopics: () => any // contentAutopilotPromptsLogic
     loadAeoPrompts: () => {
         value: true
     } // contentAutopilotPromptsLogic
@@ -336,13 +336,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         values: [teamLogic, ['currentTeamIdStrict']],
         actions: [
             contentAutopilotPromptsLogic,
-            [
-                'setPromptActive',
-                'setPromptActiveSuccess',
-                'setPromptActiveFailure',
-                'loadAeoPrompts',
-                'loadAeoPromptTopics',
-            ],
+            ['setPromptActive', 'setPromptActiveSuccess', 'setPromptActiveFailure', 'loadAeoPrompts'],
             contentAutopilotLogic,
             ['setWorkspaceTab'],
         ],
@@ -735,7 +729,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                     actions.loadAeoPromptVersions(updated.id)
                 }
                 actions.loadAeoPrompts()
-                actions.loadAeoPromptTopics()
+                contentAutopilotFilterBarLogic.findMounted()?.actions.loadPromptTopics()
                 if (patch.prompt !== undefined) {
                     // Opportunities carry the old wording; a refresh rebuilds them for the new text.
                     contentAutopilotLogic.findMounted()?.actions.refreshOpportunities()
@@ -764,7 +758,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                         : 'web analytics content autopilot prompt restored'
                 )
                 actions.loadAeoPrompts()
-                actions.loadAeoPromptTopics()
+                contentAutopilotFilterBarLogic.findMounted()?.actions.loadPromptTopics()
             } catch (error) {
                 actions.setPromptArchivedFailure()
                 // A 400 explains why the change was refused, so show it rather than asking for a retry.

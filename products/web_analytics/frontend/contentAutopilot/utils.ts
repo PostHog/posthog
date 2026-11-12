@@ -212,3 +212,19 @@ export const segmentPrompts = (segment: BrandedSegmentEnumApi): string => SEGMEN
 /** How many answers the numbers on a tab come from, and which prompts they answered. */
 export const brandedAnswersNote = (segment: BrandedSegmentEnumApi, answers: number): string =>
     `From ${pluralize(answers, 'answer')} to ${SEGMENT_PROMPTS[segment]}.`
+
+/** The heading over a tab's numbers, such as "Last 30 days, Claude, topic Pricing". */
+export const filtersHeading = ({
+    days,
+    engine,
+    topic,
+}: {
+    days: number
+    engine?: string | null
+    topic?: string | null
+}): string =>
+    [
+        `Last ${days} days`,
+        engine ? engineLabel(engine) : 'all engines',
+        ...(topic === null || topic === undefined ? [] : [topic ? `topic ${topic}` : 'prompts with no topic']),
+    ].join(', ')

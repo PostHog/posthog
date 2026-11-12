@@ -1,6 +1,5 @@
 import type { AEOKeywordModifierApi, ModifierKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-export const KEYWORDS_DAYS = 7
 // Matches the backend cap, so the form can say how many keywords are left before a request fails.
 export const MAX_KEYWORDS = 200
 // A modifier whose answers cite the site this many points less often than all answers is a content gap.

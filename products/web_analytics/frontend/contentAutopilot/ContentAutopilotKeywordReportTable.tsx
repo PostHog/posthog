@@ -10,7 +10,6 @@ import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceC
 import type { AEOKeywordReportRowApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
-import { KEYWORDS_DAYS } from './keywordsReport'
 
 type ReportColumn = LemonTableColumn<AEOKeywordReportRowApi, keyof AEOKeywordReportRowApi | undefined>
 
@@ -133,8 +132,8 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
                 <LemonSkeleton className="h-32 m-3" />
             ) : report.answers === 0 ? (
                 <p className="m-0 p-3 text-muted" data-attr="content-autopilot-keywords-report-empty">
-                    No answers in the last {KEYWORDS_DAYS} days. Once the daily run checks your prompts, this table
-                    shows how each keyword performs.
+                    No answers in the last {report.days} days. Once the daily run checks your prompts, this table shows
+                    how each keyword performs.
                 </p>
             ) : (
                 <div className="overflow-x-auto" data-attr="content-autopilot-keywords-report">
@@ -148,7 +147,7 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
                         defaultSorting={{ columnKey: 'answer_mention_rate', order: -1 }}
                         footer={
                             <span className="px-3 py-2 text-xs text-muted">
-                                Over {pluralize(report.answers, 'answer')} in the last {KEYWORDS_DAYS} days. A keyword
+                                Over {pluralize(report.answers, 'answer')} in the last {report.days} days. A keyword
                                 matches any text that contains it, case ignored.
                             </span>
                         }
