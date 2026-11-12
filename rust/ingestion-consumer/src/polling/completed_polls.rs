@@ -43,21 +43,32 @@ impl CompletedPolls {
     }
 
     pub(super) fn record_poll(&mut self, poll: &InFlightPoll) {
+        // A rejected charge never settles.
+        let charged: Vec<_> = poll
+            .partitions
+            .iter()
+            .filter(|(topic_partition, deliveries)| {
+                deliveries.delivered > 0 && poll.uncommitted.contains_key(*topic_partition)
+            })
+            .collect();
+        if charged.is_empty() {
+            return;
+        }
         let key = self.next_poll;
+        self.next_poll += 1;
+        let messages = charged
+            .iter()
+            .map(|(_, deliveries)| deliveries.delivered)
+            .sum();
         let mut pending = PendingPoll {
             poll_id: poll.poll_id.clone(),
             dispatched_at: poll.dispatched_at,
-            messages: 0,
-            unsettled: 0,
-            partitions: Vec::new(),
-            slice_starts: Vec::new(),
+            messages,
+            unsettled: messages,
+            partitions: Vec::with_capacity(charged.len()),
+            slice_starts: Vec::with_capacity(charged.len()),
         };
-        for (topic_partition, deliveries) in &poll.partitions {
-            // A rejected charge never settles.
-            if !poll.uncommitted.contains_key(topic_partition) {
-                continue;
-            }
-            pending.messages += deliveries.delivered;
+        for (topic_partition, deliveries) in charged {
             pending.partitions.push(PartitionOffset {
                 topic: topic_partition.topic.clone(),
                 partition: topic_partition.partition,
@@ -80,12 +91,7 @@ impl CompletedPolls {
                     },
                 );
         }
-        if pending.messages == 0 {
-            return;
-        }
-        pending.unsettled = pending.messages;
         self.polls.insert(key, pending);
-        self.next_poll += 1;
     }
 
     pub(super) fn settled(&mut self, topic_partition: &TopicPartition, offsets: &[Offset]) {
