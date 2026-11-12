@@ -92,7 +92,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.alerts.backend.facade.api import list_enabled_alerts
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
-from products.signals.backend.agent_instructions import STEERING_FIELDS
+from products.signals.backend.agent_instructions import CUSTOM_IMAGE_FIELDS, STEERING_FIELDS
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_ASSIGNEE,
@@ -279,7 +279,11 @@ from products.signals.backend.scout_harness.tools.report_author import (
     user_report_limit_resets_at,
 )
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
-from products.signals.backend.scout_harness.views import emit_report_from_validated_data, emit_report_response_data
+from products.signals.backend.scout_harness.views import (
+    assert_custom_image_usable,
+    emit_report_from_validated_data,
+    emit_report_response_data,
+)
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
     AlertPatternPreviewOutcome,
@@ -811,7 +815,11 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 
 # A task agent that could edit this list would widen the GitHub token of every later implementation run.
-_SANDBOX_PROTECTED_CONFIG_FIELDS = (*STEERING_FIELDS.values(), "implementation_repositories")
+_SANDBOX_PROTECTED_CONFIG_FIELDS = (
+    *STEERING_FIELDS.values(),
+    "implementation_repositories",
+    *CUSTOM_IMAGE_FIELDS.values(),
+)
 
 
 def _submitted_config_fields(request: Request) -> set[str]:
@@ -826,7 +834,7 @@ class SignalSteeringPermission(BasePermission):
         ):
             return True
         if is_sandbox_oauth_request(request):
-            self.message = "Task agents cannot modify steering instructions or implementation repositories."
+            self.message = "Task agents cannot modify steering instructions, implementation repositories, or default custom images."
             return False
         return True
 
@@ -859,6 +867,7 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "implementation_repositories",
         "github_issue_writeback_enabled",
         *STEERING_FIELDS.values(),
+        *CUSTOM_IMAGE_FIELDS.values(),
     )
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
@@ -891,8 +900,25 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             config = SignalTeamConfig.objects.select_for_update().get(pk=config.pk, team_id=self.team.pk)
             serializer = self.get_serializer(config, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
+            self._check_custom_image_changes(config, serializer.validated_data)
             serializer.save()
         return Response(serializer.data)
+
+    def _check_custom_image_changes(self, config: SignalTeamConfig, validated_data: dict[str, Any]) -> None:
+        changed = {
+            field: validated_data[field]
+            for field in CUSTOM_IMAGE_FIELDS.values()
+            if field in validated_data and validated_data[field] != getattr(config, field)
+        }
+        if not changed:
+            return
+        user = cast(User, self.request.user)
+        level = UserPermissions(user=user, team=self.team).current_team.effective_membership_level
+        if level is None or level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only a project admin can change the default custom images.")
+        for field, image_id in changed.items():
+            if image_id is not None:
+                assert_custom_image_usable(image_id=image_id, team_id=self.team.pk, user_id=user.pk, field=field)
 
 
 SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH = DISMISSAL_NOTE_MAX_LENGTH

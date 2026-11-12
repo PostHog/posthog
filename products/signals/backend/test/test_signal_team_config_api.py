@@ -1,4 +1,6 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -16,7 +18,13 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
-from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
+from products.signals.backend.agent_instructions import (
+    AGENT_STEERING_MAX_LENGTH,
+    CUSTOM_IMAGE_FIELDS,
+    STEERING_FIELDS,
+    SignalAgentRole,
+    resolve_custom_image_id,
+)
 from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.implementation_repositories import MAX_IMPLEMENTATION_REPOSITORIES
 from products.signals.backend.models import SignalReport, SignalTeamConfig
@@ -67,7 +75,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         response = self.client.post(self._url(), {field: value}, format="json")
         assert response.status_code == 403, response.content
 
-    @parameterized.expand([*STEERING_FIELDS.values(), "implementation_repositories"])
+    @parameterized.expand([*STEERING_FIELDS.values(), "implementation_repositories", *CUSTOM_IMAGE_FIELDS.values()])
     def test_sandbox_cannot_change_protected_settings(self, field: str) -> None:
         application = OAuthApplication.objects.create(
             client_id=sorted(SANDBOX_OAUTH_APP_CLIENT_IDS)[0],
@@ -87,12 +95,16 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         )
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
-        value = ["example/assets"] if field == "implementation_repositories" else "Check product intent."
+        value: object = "Check product intent."
+        if field == "implementation_repositories":
+            value = ["example/assets"]
+        elif field in CUSTOM_IMAGE_FIELDS.values():
+            value = str(uuid4())
         response = self.client.post(self._url(), {field: value}, format="json")
         assert response.status_code == 403, response.content
         assert (
             response.json()["detail"]
-            == "Task agents cannot modify steering instructions or implementation repositories."
+            == "Task agents cannot modify steering instructions, implementation repositories, or default custom images."
         )
         assert self.client.get(self._url()).status_code == 200
         self.config.refresh_from_db()
@@ -177,6 +189,57 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.autostart_enabled is False
         assert self.config.research_instructions == "Check product intent."
+
+    @parameterized.expand(
+        [
+            ("member_changes", OrganizationMembership.Level.MEMBER, "shared", False, 403),
+            ("member_resends_unchanged", OrganizationMembership.Level.MEMBER, "shared", True, 200),
+            ("admin_missing_image", OrganizationMembership.Level.ADMIN, "missing", False, 400),
+            ("admin_private_image", OrganizationMembership.Level.ADMIN, "private", False, 400),
+            ("admin_shared_image", OrganizationMembership.Level.ADMIN, "shared", False, 200),
+        ]
+    )
+    def test_default_custom_images_need_an_admin_and_a_shared_image(
+        self, _name: str, level: int, lookup: str, already_set: bool, expected: int
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        image_id = uuid4()
+        if already_set:
+            for field in CUSTOM_IMAGE_FIELDS.values():
+                setattr(self.config, field, image_id)
+            self.config.save()
+        found = None if lookup == "missing" else SimpleNamespace(private=lookup == "private")
+        body: dict[str, str] = {field: str(image_id) for field in CUSTOM_IMAGE_FIELDS.values()}
+        body["research_instructions"] = "Check product intent."
+
+        with patch("products.tasks.backend.facade.api.get_sandbox_custom_image", return_value=found):
+            response = self.client.post(self._url(), body, format="json")
+
+        assert response.status_code == expected, response.content
+        self.config.refresh_from_db()
+        saved = expected == 200
+        assert all((getattr(self.config, field) == image_id) == saved for field in CUSTOM_IMAGE_FIELDS.values())
+        assert (self.config.research_instructions == "Check product intent.") == saved
+
+    @parameterized.expand(
+        [
+            (SignalAgentRole.SCOUT, None, "scout"),
+            (SignalAgentRole.RESEARCH, None, "research"),
+            (SignalAgentRole.IMPLEMENTATION, None, "implementation"),
+            (SignalAgentRole.SCOUT, "override", "override"),
+        ]
+    )
+    def test_custom_image_resolves_scout_override_then_role_default(
+        self, role: SignalAgentRole, scout_override: str | None, expected: str
+    ) -> None:
+        images = {name: uuid4() for name in ("scout", "research", "implementation", "override")}
+        for agent_role, field in CUSTOM_IMAGE_FIELDS.items():
+            setattr(self.config, field, images[agent_role.value])
+        self.config.save()
+        override: UUID | None = images[scout_override] if scout_override else None
+
+        assert resolve_custom_image_id(self.team.id, role, override) == str(images[expected])
 
     def test_get_config_includes_default_settings(self):
         response = self.client.get(self._url())

@@ -3347,6 +3347,15 @@ def _validate_structured_output_schema(value: dict | None) -> dict | None:
         raise serializers.ValidationError(str(exc))
 
 
+_SCOUT_CUSTOM_IMAGE_HELP = (
+    "ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's "
+    "default scout image, or the standard image when no default is set. Only the scout's author or a "
+    "project admin can change it. Setting an image requires skill-authoring authorization (the "
+    "`llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the "
+    "standard image."
+)
+
+
 _SCOUT_MODEL_HELP = (
     "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the "
     "platform's agent models; an invalid id is rejected with the available ones listed. Null keeps "
@@ -3792,6 +3801,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=_SCOUT_MODEL_HELP,
     )
+    custom_image_id = serializers.UUIDField(read_only=True, allow_null=True, help_text=_SCOUT_CUSTOM_IMAGE_HELP)
     precheck_query = serializers.CharField(read_only=True, allow_null=True, help_text=_PRECHECK_QUERY_HELP)
     precheck_disabled = serializers.BooleanField(read_only=True, help_text=_PRECHECK_DISABLED_HELP)
     effective_precheck_query = serializers.SerializerMethodField(
@@ -3993,6 +4003,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "structured_output_schema",
             "network_access",
             "model",
+            "custom_image_id",
             "mcp_gateway_server_ids",
             "repositories",
             "write_scopes",
@@ -4079,6 +4090,7 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
         max_length=200,
         help_text=_SCOUT_MODEL_HELP,
     )
+    custom_image_id = serializers.UUIDField(required=False, allow_null=True, help_text=_SCOUT_CUSTOM_IMAGE_HELP)
     tags = _scout_tags_field()
     structured_output_schema = StructuredOutputSchemaField(
         required=False,
@@ -4344,6 +4356,7 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
             "structured_output_schema",
             "network_access",
             "model",
+            "custom_image_id",
             "auto_pause_exempt",
             "tags",
             "mcp_gateway_server_ids",

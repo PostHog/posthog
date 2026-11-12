@@ -91810,6 +91810,11 @@ export namespace Schemas {
          * @nullable
          */
       model?: string | null;
+      /**
+         * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      custom_image_id?: string | null;
       /** Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. */
       auto_pause_exempt?: boolean;
       /**
@@ -108095,6 +108100,11 @@ export namespace Schemas {
          */
       model?: string | null;
       /**
+         * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      custom_image_id?: string | null;
+      /**
          * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
          * @maxItems 10
          */
@@ -108423,6 +108433,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly model: string | null;
+      /**
+         * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      readonly custom_image_id: string | null;
       /**
          * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
          * @maxItems 100
@@ -112420,6 +112435,11 @@ export namespace Schemas {
          */
       model?: string | null;
       /**
+         * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      custom_image_id?: string | null;
+      /**
          * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
          * @maxItems 10
          */
@@ -112911,6 +112931,21 @@ export namespace Schemas {
          * @maxLength 20000
          */
       implementation_instructions?: string;
+      /**
+         * ID of a project-shared custom sandbox image that scout runs without their own image start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      scout_custom_image_id?: string | null;
+      /**
+         * ID of a project-shared custom sandbox image that report research and monitoring assessment runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      research_custom_image_id?: string | null;
+      /**
+         * ID of a project-shared custom sandbox image that report implementation runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      implementation_custom_image_id?: string | null;
       /**
          * Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.
          * @nullable

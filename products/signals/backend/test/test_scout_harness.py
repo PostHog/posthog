@@ -2152,7 +2152,7 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         skill_body="scout",
         skill_origin="custom",
         allowed_tools=["emit_report"],
-        capabilities=trial_capabilities(config),
+        capabilities=await database_sync_to_async(trial_capabilities)(config),
         runtime_adapter="codex",
         model="gpt-5.6-sol",
         reasoning_effort="medium",

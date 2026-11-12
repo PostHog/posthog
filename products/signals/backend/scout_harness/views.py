@@ -3190,7 +3190,6 @@ def assert_can_grant_scout_write_scopes(
 
     Every other config field keeps the plain `signal_scout:write` bar.
     """
-    user = cast(User, request.user)
     token_scopes = get_authenticator_scopes(request.successful_authenticator)
     if token_scopes is not None and "*" not in token_scopes:
         missing = scopes_missing_after_legacy_fallback(request, None, token_scopes, sorted(added_scopes))
@@ -3199,14 +3198,38 @@ def assert_can_grant_scout_write_scopes(
                 missing,
                 detail=f"This API key does not carry {', '.join(missing)}, so it cannot grant that access to a scout.",
             )
+    _assert_scout_author_or_admin(
+        request=request,
+        team=team,
+        skill_name=skill_name,
+        config=config,
+        denial="Only the person who authored this scout or a project admin can change its write access.",
+    )
+
+
+def _assert_scout_author_or_admin(
+    *,
+    request: Request,
+    team: Team,
+    skill_name: str,
+    config: SignalScoutConfig | None,
+    denial: str,
+) -> None:
+    user = cast(User, request.user)
     level = UserPermissions(user=user, team=team).current_team.effective_membership_level
     if level is not None and level >= OrganizationMembership.Level.ADMIN:
         return
     if resolve_scout_acting_user_id(team, skill_name, config) == user.pk:
         return
-    raise exceptions.PermissionDenied(
-        "Only the person who authored this scout or a project admin can change its write access."
-    )
+    raise exceptions.PermissionDenied(denial)
+
+
+def assert_custom_image_usable(*, image_id: uuid.UUID, team_id: int, user_id: int, field: str) -> None:
+    image = tasks_facade.get_sandbox_custom_image(image_id, team_id, user_id)
+    if image is None or image.private:
+        raise exceptions.ValidationError(
+            {field: "Choose a custom image that exists in this project and is shared with the project."}
+        )
 
 
 def _assert_scout_tool_selection_access(*, request: Request, team: Team, data: Mapping[str, Any]) -> None:
@@ -3294,6 +3317,24 @@ def _resolve_scout_config_grants(
                 skill_name=skill_name,
                 config=config,
                 added_scopes=added_scopes,
+            )
+    current_image_id = config.custom_image_id if config else None
+    if "custom_image_id" in data and data["custom_image_id"] != current_image_id:
+        if _sandbox_bound_task_id(request) is not None:
+            raise exceptions.PermissionDenied("Sandbox tokens cannot change a scout's custom image.")
+        _assert_scout_author_or_admin(
+            request=request,
+            team=team,
+            skill_name=skill_name,
+            config=config,
+            denial="Only the person who authored this scout or a project admin can change its custom image.",
+        )
+        if data["custom_image_id"] is not None:
+            assert_custom_image_usable(
+                image_id=data["custom_image_id"],
+                team_id=team.id,
+                user_id=cast(User, request.user).pk,
+                field="custom_image_id",
             )
     return resolved
 
@@ -3536,7 +3577,9 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         action = getattr(view, "action", None)
         if action in {"create", "trial", "trial_result"}:
             return ["signal_scout:write", "llm_skill:write"]
-        if action == "partial_update" and self._sets_structured_output_schema(request):
+        if action == "partial_update" and (
+            self._sets_structured_output_schema(request) or self._sets_custom_image(request)
+        ):
             return ["signal_scout:write", "llm_skill:write"]
         # Running a scout drives spend, so a bare trigger is a config write. A trigger carrying a
         # `note` puts prose in front of a privileged agent, so it escalates to the scopes leaving a
@@ -3551,6 +3594,11 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
     def _sets_structured_output_schema(request: Request) -> bool:
         data = request.data
         return isinstance(data, dict) and data.get("structured_output_schema") is not None
+
+    @staticmethod
+    def _sets_custom_image(request: Request) -> bool:
+        data = request.data
+        return isinstance(data, dict) and data.get("custom_image_id") is not None
 
     def _has_skill_editor_access(self) -> bool:
         # RBAC leg of the skill-authoring gates, bound to the canonical team whose scouts read the
@@ -3572,6 +3620,13 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             raise exceptions.PermissionDenied(
                 "Setting structured_output_schema requires editor access to skills, since the schema "
                 "is read verbatim by the scout agent."
+            )
+
+    def _assert_can_select_custom_image(self) -> None:
+        if not self._has_skill_editor_access():
+            raise exceptions.PermissionDenied(
+                "Choosing a scout's custom image requires editor access to skills, since the image can "
+                "supply instructions the scout agent reads."
             )
 
     def _assert_can_author_run_note(self) -> None:
@@ -3764,6 +3819,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         _assert_scout_tool_selection_access(request=request, team=team, data=request.data)
         if self._sets_structured_output_schema(request):
             self._assert_can_author_structured_output_schema()
+        if self._sets_custom_image(request):
+            self._assert_can_select_custom_image()
         config_id = _parse_run_id_or_404(kwargs)
         repositories_checked = _precheck_scout_repositories(request, team=team, config_id=config_id)
         # The row stays locked from the grant comparison to the save. A whole-config resend that

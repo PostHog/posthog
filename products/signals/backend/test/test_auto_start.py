@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -686,8 +686,13 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
     )
+    image_id = uuid4()
     SignalTeamConfig.objects.update_or_create(
-        team=team, defaults={"implementation_repositories": ["owner/assets", "other/assets", "owner/repo"]}
+        team=team,
+        defaults={
+            "implementation_repositories": ["owner/assets", "other/assets", "owner/repo"],
+            "implementation_custom_image_id": image_id,
+        },
     )
 
     created_tasks = []
@@ -753,6 +758,7 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     assert call_kwargs["github_access_repositories"] == ["owner/assets"]
     assert "`owner/assets`" in call_kwargs["description"]
     assert call_kwargs["repository"] == "owner/repo"
+    assert call_kwargs["extra_run_state"] == {"custom_image_id": str(image_id)}
     # The gate the second evaluation observed is the legacy SignalReportTask implementation link,
     # written in the same transaction as the task; the task_run artefact is the work-log entry
     # alongside.
