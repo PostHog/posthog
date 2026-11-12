@@ -431,7 +431,7 @@ class TestLocalEvaluationSignals(BaseTest):
         assert flag_definitions_hypercache.cache_client.get(cache_key) is None
         assert object_storage.read(cache_key, missing_ok=True) is None
 
-    @parameterized.expand(["create", "soft_delete", "delete"])
+    @parameterized.expand(["create", "update", "soft_delete", "delete"])
     @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_experiment_change(self, action, mock_task):
@@ -447,7 +447,9 @@ class TestLocalEvaluationSignals(BaseTest):
         else:
             experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
             mock_task.reset_mock()
-            if action == "soft_delete":
+            if action == "update":
+                update_experiment(team_id=self.team.id, experiment_id=experiment_id, name="Renamed experiment")
+            elif action == "soft_delete":
                 update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
             else:
                 delete_experiment(team_id=self.team.id, experiment_id=experiment_id)

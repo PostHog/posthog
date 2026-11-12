@@ -71,7 +71,9 @@ from posthog.storage.hypercache_manager import (
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
-from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
+from products.experiments.backend.facade.change_signals import connect_experiment_changed
+from products.experiments.backend.facade.contracts import ExperimentChanged
+from products.experiments.backend.models.experiment import live_experiment_exists
 from products.feature_flags.backend.facade.config import (
     ConfigFormatError,
     UnsupportedConfig,
@@ -1567,9 +1569,7 @@ def feature_flag_changed_flags_cache(sender, instance: "FeatureFlag", **kwargs):
     transaction.on_commit(lambda: _enqueue_invalidation(team_id))
 
 
-@receiver(post_save, sender=Experiment)
-@receiver(post_delete, sender=Experiment)
-def experiment_changed_flags_cache(sender, instance: "Experiment", **kwargs):
+def experiment_changed_flags_cache(sender: Any, change: ExperimentChanged, **kwargs: Any) -> None:
     """
     Invalidate flags cache when an experiment is created, soft-deleted, or removed.
 
@@ -1585,8 +1585,11 @@ def experiment_changed_flags_cache(sender, instance: "Experiment", **kwargs):
     if not settings.FLAGS_REDIS_URL:
         return
 
-    team_id = instance.team_id
+    team_id = change.team_id
     transaction.on_commit(lambda: _enqueue_invalidation(team_id))
+
+
+connect_experiment_changed(experiment_changed_flags_cache, dispatch_uid="feature_flags.flags_cache.experiment_changed")
 
 
 @receiver(post_save, sender=Team)

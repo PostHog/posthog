@@ -955,7 +955,7 @@ class TestServiceFlagsSignals(BaseTest):
         # Signal should trigger the Celery task
         mock_task.delay.assert_called_once_with(self.team.id)
 
-    @parameterized.expand(["create", "soft_delete", "delete"])
+    @parameterized.expand(["create", "update", "soft_delete", "delete"])
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_experiment_change(self, action, mock_task):
@@ -974,7 +974,9 @@ class TestServiceFlagsSignals(BaseTest):
         else:
             experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
             mock_task.reset_mock()
-            if action == "soft_delete":
+            if action == "update":
+                update_experiment(team_id=self.team.id, experiment_id=experiment_id, name="Renamed experiment")
+            elif action == "soft_delete":
                 update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
             else:
                 delete_experiment(team_id=self.team.id, experiment_id=experiment_id)
