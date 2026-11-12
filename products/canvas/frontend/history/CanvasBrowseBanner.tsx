@@ -3,18 +3,16 @@ import { useActions, useValues } from 'kea'
 import { IconClock, IconPencil } from '@posthog/icons'
 import { Button, Text } from '@posthog/quill'
 
-import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { canvasVersionByline } from './canvasHistoryLabels'
 import { canvasHistoryLogic } from './canvasHistoryLogic'
 
-/** The strip above a browsed version or draft: what it is, how to leave it, and how to make it live. */
+/** The strip above a browsed version or draft: what it is and how to leave it. */
 export function CanvasBrowseBanner(): JSX.Element | null {
     const { browseVersionId, browsedDraft, browsedVersion, versionLabels } = useValues(canvasHistoryLogic)
-    const { setBrowseVersion, requestConfirmation } = useActions(canvasHistoryLogic)
-    const inExperiment = useInCanvasExperiment()
+    const { setBrowseVersion } = useActions(canvasHistoryLogic)
 
     if (!browseVersionId) {
         return null
@@ -56,21 +54,6 @@ export function CanvasBrowseBanner(): JSX.Element | null {
                 >
                     {browsedDraft ? 'Back to live' : 'Back to latest'}
                 </Button>
-                {!inExperiment && (
-                    <Button
-                        size="xs"
-                        variant="primary"
-                        onClick={() =>
-                            requestConfirmation({
-                                kind: browsedDraft ? 'promote' : 'revert',
-                                versionId: browseVersionId,
-                            })
-                        }
-                        data-attr={browsedDraft ? 'canvas-browse-promote' : 'canvas-browse-revert'}
-                    >
-                        {browsedDraft ? 'Publish draft…' : 'Revert to this version…'}
-                    </Button>
-                )}
             </div>
         </div>
     )

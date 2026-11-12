@@ -2,19 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconClock, IconPencil, IconSparkles, IconUser } from '@posthog/icons'
-import {
-    Badge,
-    Button,
-    Empty,
-    EmptyDescription,
-    EmptyHeader,
-    EmptyMedia,
-    EmptyTitle,
-    Skeleton,
-    Text,
-} from '@posthog/quill'
-
-import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
+import { Badge, Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle, Skeleton, Text } from '@posthog/quill'
 
 import type { CanvasBuildApi } from '../../generated/api.schemas'
 import {
@@ -40,8 +28,7 @@ export function CanvasTimelineTab(): JSX.Element {
         buildHistory,
         displayedVersionId,
     } = useValues(canvasHistoryLogic)
-    const { loadBuildHistory, setBrowseVersion, requestConfirmation } = useActions(canvasHistoryLogic)
-    const inExperiment = useInCanvasExperiment()
+    const { loadBuildHistory, setBrowseVersion } = useActions(canvasHistoryLogic)
 
     useEffect(() => {
         loadBuildHistory()
@@ -100,20 +87,6 @@ export function CanvasTimelineTab(): JSX.Element {
                                 viewing={draft.version_id === browseVersionId}
                                 draft
                                 onOpen={() => setBrowseVersion(draft.version_id)}
-                                action={
-                                    inExperiment ? null : (
-                                        <Button
-                                            size="xs"
-                                            variant="outline"
-                                            onClick={() =>
-                                                requestConfirmation({ kind: 'promote', versionId: draft.version_id })
-                                            }
-                                            data-attr="canvas-timeline-promote"
-                                        >
-                                            Publish…
-                                        </Button>
-                                    )
-                                }
                                 dataAttr="canvas-timeline-draft"
                             />
                         ))}
@@ -150,20 +123,6 @@ export function CanvasTimelineTab(): JSX.Element {
                                 viewing={version.id === displayedVersionId}
                                 live={live}
                                 onOpen={() => setBrowseVersion(live ? null : version.id)}
-                                action={
-                                    live || inExperiment ? null : (
-                                        <Button
-                                            size="xs"
-                                            variant="outline"
-                                            onClick={() =>
-                                                requestConfirmation({ kind: 'revert', versionId: version.id })
-                                            }
-                                            data-attr="canvas-timeline-revert"
-                                        >
-                                            Revert…
-                                        </Button>
-                                    )
-                                }
                                 dataAttr="canvas-timeline-version"
                             />
                         )

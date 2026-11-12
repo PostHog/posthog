@@ -10,8 +10,6 @@ import { fileSystemTypes, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import type { UserBasicType } from '~/types'
 
-import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
-
 // pinned: these values are the `type` property of the `views new picked` and `views list filtered` events.
 export type AnalyticsType = 'canvas' | 'notebook' | 'dashboard' | 'insight'
 
@@ -54,6 +52,13 @@ export const ANALYTICS_TYPES: AnalyticsTypeInfo[] = [
         color: 'var(--color-product-notebooks-light)',
     },
 ]
+
+/** The types the web app creates. Canvases are made with the PostHog MCP server, so they are left out. */
+export type CreatableAnalyticsType = Exclude<AnalyticsType, 'canvas'>
+
+export const CREATABLE_ANALYTICS_TYPES = ANALYTICS_TYPES.filter(
+    (info): info is AnalyticsTypeInfo & { type: CreatableAnalyticsType } => info.type !== 'canvas'
+)
 
 export const ANALYTICS_TYPE_INFO = Object.fromEntries(ANALYTICS_TYPES.map((info) => [info.type, info])) as Record<
     AnalyticsType,
@@ -227,22 +232,6 @@ export function fromPostHogProducts(): FromPostHogItem[] {
 
 export function fromPostHogItems(featureFlags: FeatureFlagsSet): FromPostHogItem[] {
     return fromPostHogProducts().filter(({ item }) => isFileSystemImportShown(item, featureFlags))
-}
-
-/**
- * The space a new canvas defaults to from the page the person is on: the open space, or the open
- * canvas's space. Null when the page names no space, so the start page falls back to the personal space.
- */
-export function newCanvasSpaceIdForPath(
-    path: string,
-    openCanvas: Pick<CanvasApi, 'id' | 'channel'> | null
-): string | null {
-    const space = /^\/spaces\/([^/]+)/.exec(path)
-    if (space) {
-        return space[1]
-    }
-    const canvas = /^\/canvases\/([^/]+)$/.exec(path)
-    return canvas && openCanvas?.id === canvas[1] ? openCanvas.channel : null
 }
 
 /** Scopes the Analytics list's drag ids and drop targets apart from the project tree's own. */

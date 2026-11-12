@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconSidePanel } from '@posthog/icons'
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
-
 import { canvasPanelTab } from '../sidePanel/canvasPanelTabs'
 import { canvasSidePanelLogic } from '../sidePanel/canvasSidePanelLogic'
 import { canvasSceneLogic } from './canvasSceneLogic'
@@ -14,7 +12,6 @@ export function CanvasSidePanelToggle(): JSX.Element | null {
     const { canvas, sidePanelAvailable } = useValues(canvasSceneLogic)
     const { selectedTab, sidePanelOpen } = useValues(canvasSidePanelLogic)
     const { openTab } = useActions(canvasSidePanelLogic)
-    const inExperiment = useInCanvasExperiment()
 
     if (!canvas || !sidePanelAvailable || (sidePanelOpen && canvasPanelTab(selectedTab))) {
         return null
@@ -28,9 +25,7 @@ export function CanvasSidePanelToggle(): JSX.Element | null {
                         size="icon-sm"
                         variant="default"
                         aria-label="Show side panel"
-                        onClick={() =>
-                            openTab(canvasPanelTab(selectedTab) ?? (inExperiment ? 'timeline' : 'chat'), canvas.id)
-                        }
+                        onClick={() => openTab(canvasPanelTab(selectedTab) ?? 'timeline', canvas.id)}
                         data-attr="canvas-panel-toggle"
                     />
                 }

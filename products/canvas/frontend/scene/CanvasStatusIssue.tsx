@@ -11,7 +11,7 @@ export interface CanvasStatusIssueProps {
     /** Error lines to show in full, such as build diagnostics or the thrown message. */
     details: string[]
     /** The ways out of the issue, shown at the bottom of the popover. */
-    actions: ReactNode
+    actions?: ReactNode
     dataAttr: string
 }
 
@@ -58,7 +58,7 @@ export function CanvasStatusIssue({
                         ))}
                     </ul>
                 )}
-                <div className="flex flex-wrap justify-end gap-2">{actions}</div>
+                {actions && <div className="flex flex-wrap justify-end gap-2">{actions}</div>}
             </PopoverContent>
         </Popover>
     )

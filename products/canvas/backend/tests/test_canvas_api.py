@@ -34,7 +34,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.facade import api as annotations_api
 from products.annotations.backend.facade.contracts import AnnotationFilters
 from products.annotations.backend.facade.enums import AnnotationScope
-from products.canvas.backend import build_service, experiment
+from products.canvas.backend import build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.facade import access as canvas_facade
 from products.canvas.backend.mcp_tools import CANVAS_MCP_TOOL_ALLOWLIST
@@ -76,7 +76,19 @@ WIDE_CAPABILITIES = {
 }
 
 
+class McpClient(APIClient):
+    """Calls the API with a personal API key, as the MCP server does: the web app session may not author canvases."""
+
+    def force_login(self, user: Any, backend: str | None = None) -> None:
+        super().force_login(user, backend)
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="mcp", user=user, secure_value=hash_key_value(raw_key), scopes=["*"])
+        self.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+
+
 class CanvasAPIBaseTest(APIBaseTest):
+    client_class = McpClient
+
     def setUp(self):
         super().setUp()
         self.storage = InMemoryStorage()
@@ -1102,7 +1114,7 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
             self.client = self._sandbox_client(task.id, user=other_user)
             self.client.defaults["HTTP_X_POSTHOG_TASK_ID"] = str(task.id)
         else:
-            self.client = APIClient()
+            self.client = McpClient()
             self.client.force_login(other_user)
         return other_user
 
@@ -1246,19 +1258,6 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         )
         assert widened.status_code == status.HTTP_200_OK, widened.json()
 
-    def _experiment_flags(self, *, canvas_experiment: bool | Exception, rail_nav: bool) -> Any:
-        def canvas_flag(*args: Any, **kwargs: Any) -> bool:
-            if isinstance(canvas_experiment, Exception):
-                raise canvas_experiment
-            return canvas_experiment
-
-        canvas_patch = patch.object(experiment, "feature_enabled_or_false", side_effect=canvas_flag)
-        rail_nav_patch = patch.object(experiment.today_api, "is_enabled_for", return_value=rail_nav)
-        canvas_patch.start()
-        rail_nav_patch.start()
-        self.addCleanup(canvas_patch.stop)
-        self.addCleanup(rail_nav_patch.stop)
-
     def _bearer_client(self, client_id: str, scope: str, sandbox_task_id: UUID | None = None) -> APIClient:
         application = OAuthApplication.objects.create(
             name="Canvas caller",
@@ -1321,7 +1320,7 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
             ("view", "get", "", None, status.HTTP_200_OK),
         ]
     )
-    def test_canvas_experiment_closes_web_app_writes_for_a_session(
+    def test_web_app_session_cannot_author_canvases(
         self, _name: str, method: str, suffix: str, body: dict[str, Any] | None, expected: int
     ) -> None:
         canvas_id = self._create_canvas()
@@ -1335,11 +1334,12 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         )
         values = {"channel_id": str(self.channel.id), "project": self._project(), "generation_task_id": str(task.id)}
         payload = {key: values[key] if value is None else value for key, value in (body or {}).items()}
-        self._experiment_flags(canvas_experiment=True, rail_nav=True)
         base = f"/api/projects/{self.team.id}/canvases/"
         url = base if method == "post" and not suffix else f"{base}{canvas_id}/{suffix}"
+        session = APIClient()
+        session.force_login(self.user)
 
-        response = self.client.get(url) if body is None else getattr(self.client, method)(url, payload, format="json")
+        response = session.get(url) if body is None else getattr(session, method)(url, payload, format="json")
 
         assert response.status_code == expected, response.json()
         assert Canvas.objects.unscoped().filter(team_id=self.team.id).count() == 1
@@ -1347,19 +1347,14 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
 
     @parameterized.expand(
         [
-            ("session_without_experiment_flag", "session", False, True),
-            ("session_without_rail_nav", "session", True, False),
-            ("session_when_flag_service_fails", "session", RuntimeError("flag service down"), True),
-            ("mcp_personal_api_key", "personal_api_key", True, True),
-            ("mcp_oauth_client", "mcp_oauth", True, True),
-            ("posthog_desktop", "desktop", True, True),
-            ("signals_scout", "scout", True, True),
-            ("task_sandbox", "sandbox", True, True),
+            ("mcp_personal_api_key", "personal_api_key"),
+            ("mcp_oauth_client", "mcp_oauth"),
+            ("posthog_desktop", "desktop"),
+            ("signals_scout", "scout"),
+            ("task_sandbox", "sandbox"),
         ]
     )
-    def test_canvas_experiment_leaves_other_callers_able_to_publish(
-        self, _name: str, caller: str, canvas_experiment: bool | Exception, rail_nav: bool
-    ) -> None:
+    def test_callers_without_a_session_can_publish(self, _name: str, caller: str) -> None:
         canvas_id = self._create_canvas()
         task = Task.objects.create(
             team=self.team,
@@ -1395,7 +1390,6 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         elif caller == "sandbox":
             client = self._sandbox_client(task.id)
             headers = {"HTTP_X_POSTHOG_TASK_ID": str(task.id)}
-        self._experiment_flags(canvas_experiment=canvas_experiment, rail_nav=rail_nav)
 
         response = client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/publish/",
@@ -2864,7 +2858,9 @@ class TestCanvasActions(CanvasAPIBaseTest):
     def test_registry_lists_every_verb_with_authoring_docs(self):
         # Agents build against this endpoint instead of a skill file, so a verb
         # missing its usage docs means they guess payloads and confirmation copy.
-        response = self.client.get(f"/api/projects/{self.team.id}/canvases/actions/")
+        session = APIClient()
+        session.force_login(self.user)
+        response = session.get(f"/api/projects/{self.team.id}/canvases/actions/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         rows = {row["verb"]: row for row in response.json()["actions"]}

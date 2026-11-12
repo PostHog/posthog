@@ -4,7 +4,6 @@ import { useCallback, useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { themeLogic } from 'lib/logic/themeLogic'
@@ -238,41 +237,18 @@ export function CanvasAppWidget({
     onUpdateConfig,
 }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as CanvasAppWidgetResult | null | undefined
-    const inExperiment = useInCanvasExperiment()
 
     if (loading && !payload) {
         return <CanvasAppLoadingSkeleton />
     }
 
     if (!payload || payload.needsConfiguration) {
-        // No canvases the viewer can pick yet: offer to make one instead of an empty picker.
+        // No canvases the viewer can pick yet: say how to make one instead of showing an empty picker.
         if (onUpdateConfig && payload && payload.hasCanvases === false) {
             return (
                 <CanvasAppWidgetMessage
                     title="No canvases yet"
-                    message={
-                        inExperiment
-                            ? 'Ask your agent to build an app with the PostHog MCP server, then show it on this dashboard.'
-                            : 'Build an app on your PostHog data, then show it on this dashboard.'
-                    }
-                    cta={
-                        inExperiment ? undefined : (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                to={urls.canvasNew()}
-                                targetBlank
-                                onClick={() =>
-                                    posthog.capture('dashboard widget create canvas clicked', {
-                                        widget_type: 'canvas_app',
-                                        tile_id: tileId,
-                                    })
-                                }
-                            >
-                                New canvas
-                            </LemonButton>
-                        )
-                    }
+                    message="Ask your agent to build one with the PostHog MCP server, then show it on this dashboard."
                 />
             )
         }

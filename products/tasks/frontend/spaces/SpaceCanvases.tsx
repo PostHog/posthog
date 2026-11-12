@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPalette, IconPlus } from '@posthog/icons'
+import { IconPalette } from '@posthog/icons'
 import {
     Button,
     Empty,
@@ -12,10 +12,6 @@ import {
     Skeleton,
     Text,
 } from '@posthog/quill'
-
-import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
@@ -47,21 +43,6 @@ export function SpaceCanvases({ id }: { id: string }): JSX.Element {
     const { canvases, canvasesLoading, canvasesUnavailable, canvasSections } = useValues(spaceSceneLogic({ id }))
     const { loadCanvases } = useActions(spaceSceneLogic({ id }))
 
-    const inExperiment = useInCanvasExperiment()
-
-    const newCanvasButton = (variant: 'outline' | 'primary'): JSX.Element | null =>
-        inExperiment ? null : (
-            <Button
-                variant={variant}
-                size="sm"
-                render={<LinkPrimitive to={urls.canvasNew(id)} />}
-                data-attr="today-space-canvases-new"
-            >
-                <IconPlus />
-                New canvas
-            </Button>
-        )
-
     if (canvasesUnavailable) {
         return (
             <Empty className="py-12">
@@ -85,10 +66,7 @@ export function SpaceCanvases({ id }: { id: string }): JSX.Element {
     if (canvases === null) {
         return (
             <div className="flex flex-col gap-3 pt-5" aria-busy>
-                <div className="flex items-center justify-between">
-                    <Skeleton className="h-3.5 w-20" />
-                    <Skeleton className="h-7 w-28" />
-                </div>
+                <Skeleton className="h-3.5 w-20" />
                 <div className={GRID_CLASS}>
                     {Array.from({ length: 6 }, (_, index) => (
                         <Skeleton key={index} className="h-52 w-full rounded-xl" />
@@ -105,13 +83,8 @@ export function SpaceCanvases({ id }: { id: string }): JSX.Element {
                         <IconPalette />
                     </EmptyMedia>
                     <EmptyTitle>No canvases yet</EmptyTitle>
-                    <EmptyDescription>
-                        {inExperiment
-                            ? 'Ask your agent to make one with the PostHog MCP server.'
-                            : 'Create one and build it with the agent, then save it.'}
-                    </EmptyDescription>
+                    <EmptyDescription>Ask your agent to make one with the PostHog MCP server.</EmptyDescription>
                 </EmptyHeader>
-                {!inExperiment && <EmptyContent>{newCanvasButton('primary')}</EmptyContent>}
             </Empty>
         )
     }
@@ -119,12 +92,9 @@ export function SpaceCanvases({ id }: { id: string }): JSX.Element {
     const { pinned, rest } = canvasSections
     return (
         <div className="flex flex-col pt-5">
-            <div className="mb-3 flex items-center justify-between gap-2">
-                <Text size="xs" variant="muted">
-                    {canvases.length === 1 ? '1 canvas' : `${canvases.length} canvases`}
-                </Text>
-                {newCanvasButton('outline')}
-            </div>
+            <Text size="xs" variant="muted" className="mb-3">
+                {canvases.length === 1 ? '1 canvas' : `${canvases.length} canvases`}
+            </Text>
             {pinned.length > 0 && (
                 <>
                     {sectionLabel('Pinned')}
