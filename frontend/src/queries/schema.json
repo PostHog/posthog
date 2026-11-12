@@ -30295,6 +30295,13 @@
                 "name": {
                     "type": "string"
                 },
+                "requiredFlags": {
+                    "description": "Flags that must all be on to show the tab.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "searchKeywords": {
                     "items": {
                         "type": "string"
