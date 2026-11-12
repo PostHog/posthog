@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..shared.enums import DifferenceType
-from ..shared.statistics import AnyStatistic, StatisticError
+from ..shared.statistics import AnyStatistic, QuantileStatistic, StatisticError
 from ..shared.utils import get_sample_size
 from .utils import (
     calculate_confidence_interval,
@@ -184,6 +184,14 @@ class SequentialTwoSidedTTest(StatisticalTest):
     def p_value_type(self) -> str:
         return "two_sided"
 
+    @staticmethod
+    def _sequential_sample_size(statistic: AnyStatistic) -> int:
+        # Users are the randomized unit, so counting exposed users gives the tuning parameter the same meaning for
+        # every metric. A quantile statistic counts events in n and exposed users in n_clusters.
+        if isinstance(statistic, QuantileStatistic):
+            return statistic.n_clusters
+        return get_sample_size(statistic)
+
     def run_test(
         self,
         treatment_stat: AnyStatistic,
@@ -201,7 +209,7 @@ class SequentialTwoSidedTTest(StatisticalTest):
         pooled_variance = calculate_variance_pooled(
             treatment_stat, control_stat, difference_type, relative_effect_baseline
         )
-        n = get_sample_size(treatment_stat) + get_sample_size(control_stat)
+        n = self._sequential_sample_size(treatment_stat) + self._sequential_sample_size(control_stat)
 
         # No t-distribution in the always-valid construction, so neither the degrees of
         # freedom nor a t-statistic carry meaning here. Surface both as NaN so downstream

@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheck, IconChevronDown, IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonInputSelect, LemonSnack } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSnack } from '@posthog/lemon-ui'
 
 import { AccountAssignmentFilter } from 'lib/components/AccountAssignmentFilter/AccountAssignmentFilter'
-
-import { tagsModel } from '~/models/tagsModel'
+import { TagSelect } from 'lib/components/TagSelect'
 
 import { announcementsLogic } from './announcementsLogic'
 
@@ -31,7 +30,6 @@ export function AnnouncementAccountFilters(): JSX.Element {
         selectAllFilteredChannels,
         toggleChannel,
     } = useActions(announcementsLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
 
     const tagsButtonLabel =
         accountTags.length === 0 ? 'All tags' : accountTags.length === 1 ? accountTags[0] : `${accountTags.length} tags`
@@ -51,26 +49,17 @@ export function AnnouncementAccountFilters(): JSX.Element {
                     className="min-w-64"
                     data-attr="announcement-accounts-search"
                 />
-                <LemonDropdown
-                    closeOnClickInside={false}
-                    overlay={
-                        <div className="p-2 min-w-64">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                value={accountTags}
-                                options={(tagsAvailable || []).map((tag: string) => ({ key: tag, label: tag }))}
-                                onChange={setAccountTags}
-                                placeholder="Select or type tags…"
-                                data-attr="announcement-accounts-tags-filter"
-                            />
-                        </div>
-                    }
+                <TagSelect
+                    value={accountTags}
+                    onChange={setAccountTags}
+                    listDataAttr="announcement-accounts-tags-filter"
                 >
-                    <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                        {tagsButtonLabel}
-                    </LemonButton>
-                </LemonDropdown>
+                    {() => (
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {tagsButtonLabel}
+                        </LemonButton>
+                    )}
+                </TagSelect>
                 <AccountAssignmentFilter
                     assignedToUserIds={assignedTo}
                     status={assignmentStatus}

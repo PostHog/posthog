@@ -1,3 +1,4 @@
+from datetime import timedelta
 from functools import partial
 from uuid import UUID
 
@@ -48,7 +49,9 @@ def set_issue_tag(
             if tag.source in sources_above:
                 return False
             before = {"key": key, "value": tag.value, "source": tag.source}
-            updated_at = timezone.now()
+            # Pods do not share one clock, so a later write can read an earlier time. Each write to the
+            # locked row moves updated_at forward, which keeps the ClickHouse versions of a tag in commit order.
+            updated_at = max(timezone.now(), tag.updated_at + timedelta(microseconds=1))
             tags.filter(pk=tag.pk).update(**fields, updated_at=updated_at)
         if before != after:
             _log_tag_change(issue, answer.set_by, before, after)

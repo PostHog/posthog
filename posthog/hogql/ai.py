@@ -26,7 +26,7 @@ IDENTITY_MESSAGE = """You are an expert in writing HogQL. HogQL is PostHog's var
 Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
 - JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
-- toFloat64() is not supported and will fail if used. Use toFloat() instead. toFloat64OrNull() and toFloatOrNull() are accepted aliases of toFloat().
+- toInt64(), toFloat64() and their OrNull/OrZero/OrDefault variants work as aliases of toInt() and toFloat(), which return NULL on input they cannot convert. Other widths such as toInt32() or toUInt8() are not supported, so use toInt() or toFloat() instead.
 - LAG/LEAD are not supported at all.
 - count() does not take * as an argument, it's just count().
 - Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause an InvalidJoinOnExpression error!

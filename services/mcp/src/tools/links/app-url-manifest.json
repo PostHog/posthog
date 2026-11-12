@@ -235,7 +235,7 @@
         "scope": "project"
     },
     "analyticsSpaces": {
-        "template": "/analytics/spaces",
+        "template": "/analytics/collections",
         "params": [],
         "scope": "project"
     },
@@ -1274,11 +1274,6 @@
         "params": ["tab"],
         "scope": "project"
     },
-    "mcpRegistry": {
-        "template": "/mcp-registry",
-        "params": [],
-        "scope": "project"
-    },
     "metrics": {
         "template": "/metrics",
         "params": [],
@@ -1481,6 +1476,21 @@
     },
     "pulse": {
         "template": "/pulse",
+        "params": [],
+        "scope": "project"
+    },
+    "release": {
+        "template": "/releases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "releaseList": {
+        "template": "/releases/list",
+        "params": [],
+        "scope": "project"
+    },
+    "releases": {
+        "template": "/releases",
         "params": [],
         "scope": "project"
     },
@@ -1859,6 +1869,11 @@
         "params": [],
         "scope": "project"
     },
+    "transactionalCodeEmail": {
+        "template": "/transactional/code-emails/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "transactionalEmailLogEntry": {
         "template": "/transactional/log/{messageId}",
         "params": ["messageId"],
@@ -2007,6 +2022,11 @@
     "webAnalyticsContentAutopilot": {
         "template": "/web/content-autopilot",
         "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsContentAutopilotPrompt": {
+        "template": "/web/content-autopilot/prompts/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "webAnalyticsHealth": {

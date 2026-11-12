@@ -116,6 +116,20 @@ class TestSetIssueTag(BaseTest):
         assert value == tag.value
         assert (version > first_version) is replaced
 
+    def test_a_later_write_wins_in_clickhouse_when_its_clock_reads_earlier(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        with time_machine.travel("2026-01-05T10:01:00Z", tick=False), self.captureOnCommitCallbacks(execute=True):
+            set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(Source.JEV, value=True), Source.JEV)
+        _, first_version = self._latest_clickhouse_answer(issue)
+
+        with time_machine.travel("2026-01-05T10:00:00Z", tick=False), self.captureOnCommitCallbacks(execute=True):
+            set_issue_tag(
+                self.team.id, issue.id, "blocks_checkout", self._answer(Source.MANUAL, value=False), Source.MANUAL
+            )
+
+        value, version = self._latest_clickhouse_answer(issue)
+        assert (value, version > first_version) == (False, True)
+
     def test_manual_replaces_an_answer_from_a_tagger_the_definition_no_longer_lists(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         set_issue_tag(self.team.id, issue.id, "blocks_checkout", self._answer(NEW_TAGGER, value=True), NEW_TAGGER)

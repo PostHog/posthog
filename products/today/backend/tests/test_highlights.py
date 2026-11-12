@@ -6,7 +6,7 @@ from functools import partial
 from queue import Queue
 from time import monotonic, sleep
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -151,14 +151,15 @@ class TestBuildHighlights(SimpleTestCase):
         sources = (
             HighlightSource(name="key_metrics", find=lambda _c: HighlightFindings(), pulse_order=2),
             HighlightSource(name="routine", find=lambda _c: HighlightFindings(), pulse_order=1),
-            HighlightSource(name="experiments", find=lambda _c: HighlightFindings()),
+            HighlightSource(name="experiments", find=lambda _c: HighlightFindings(), pulse_order=-1),
             HighlightSource(name="alerts", find=lambda _c: HighlightFindings()),
         )
         found = {
             "key_metrics": HighlightFindings(pulse=(metric("k1"), metric("k2"), metric("k3"))),
             "routine": HighlightFindings(pulse=(metric("r1"), metric("r2"))),
             "experiments": HighlightFindings(
-                items=(replace(candidate("win", "experiments", 0.9), label=HighlightLabel.OPPORTUNITY),)
+                items=(replace(candidate("win", "experiments", 0.9), label=HighlightLabel.OPPORTUNITY),),
+                pulse=(replace(metric("experiment:1"), series=[]),),
             ),
             "alerts": HighlightFindings(items=(candidate("alert", "alerts", 0.5),)),
         }
@@ -167,13 +168,13 @@ class TestBuildHighlights(SimpleTestCase):
 
         self.assertEqual(
             (
-                [m.key for m in built.pulse],
+                [(m.key, len(m.period_starts)) for m in built.pulse],
                 [(i.key, i.source, i.priority) for i in built.items],
                 built.day,
                 built.refresh_at,
             ),
             (
-                ["r1", "r2", "k1", "k2", "k3"],
+                [("experiment:1", 0), ("r1", 1), ("r2", 1), ("k1", 1), ("k2", 1), ("k3", 1)],
                 [("alert", "alerts", HighlightPriority.P2), ("win", "experiments", HighlightPriority.P3)],
                 DAY,
                 datetime(2026, 10, 14, tzinfo=ZoneInfo("Europe/Prague")),
@@ -412,8 +413,13 @@ class TestGetHighlights(BaseTest):
             found = highlights.get_highlights(team=self.team, user=self.user, scopes=None)
 
         self.assertEqual(
-            (found.status, connect.return_value.start_workflow.call_count, [m.key for m in found.pulse]),
-            (status, starts, pulse),
+            (
+                found.status,
+                connect.return_value.start_workflow.call_count,
+                [m.key for m in found.pulse],
+                [slot.key for slot in found.pulse_slots or []],
+            ),
+            (status, starts, pulse, pulse),
         )
 
 
@@ -476,6 +482,12 @@ class TestLoadSources(SimpleTestCase):
             ),
             ("not a source", declaring("alerts")),
             ("an empty name", declaring(HighlightSource(name="", find=lambda _c: HighlightFindings()))),
+            (
+                "names that cannot be called",
+                declaring(
+                    HighlightSource(name="alerts", find=lambda _c: HighlightFindings(), number_names=cast(Any, "names"))
+                ),
+            ),
             (
                 "a name taken twice",
                 declaring(
@@ -613,6 +625,32 @@ class TestProgressiveHighlights(BaseTest):
             ),
         )
 
+    def test_a_computation_that_published_nothing_early_still_lists_its_numbers(self) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="no-progress", pins_key="pins"
+        )
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[
+                    HighlightSourceResult(
+                        source_name="routine",
+                        found=FOUND.dump_json(HighlightFindings(pulse=(metric("routine"),))).decode(),
+                        failed=False,
+                    )
+                ],
+                pins=[PinnedNumber(key="insight:p")],
+                pinned=PINNED_METRICS.dump_json([metric("insight:p")]).decode(),
+            )
+        )
+        row.refresh_from_db()
+
+        self.assertEqual(
+            [(slot.key, slot.status) for slot in HIGHLIGHTS.validate_python(row.content).pulse_slots or []],
+            [("insight:p", PulseSlotStatus.READY), ("routine", PulseSlotStatus.READY)],
+        )
+
     @parameterized.expand([(False,), (True,)])
     def test_a_failed_pins_step_marks_the_row_for_a_retry(self, pins_failed: bool) -> None:
         row = TodayHighlights.objects.for_team(self.team.id).create(
@@ -656,6 +694,77 @@ class TestProgressiveHighlights(BaseTest):
             (refreshing.status, rows.count(), [m.key for m in refreshing.pulse]),
             (HighlightsStatus.COMPUTING, 2, ["insight:p"]),
         )
+
+    @parameterized.expand(
+        [
+            (
+                "three key metrics and an experiment fill the row",
+                3,
+                PulseSlotStatus.READY,
+                ["experiment:1", "key:0", "key:1", "key:2"],
+            ),
+            (
+                "two key metrics leave one place",
+                2,
+                PulseSlotStatus.READY,
+                ["experiment:1", "insight:pop0", "key:0", "key:1"],
+            ),
+            (
+                "a failed key metric gives its place to a popular number",
+                3,
+                PulseSlotStatus.ERROR,
+                ["experiment:1", "insight:pop0", "key:0", "key:1"],
+            ),
+        ]
+    )
+    def test_popular_numbers_only_take_places_other_sources_leave(
+        self, _name: str, key_metric_count: int, last_status: PulseSlotStatus, expected: list[str]
+    ) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="popular"
+        )
+        inputs = HighlightSourceInputs(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=DAY.isoformat(),
+            scopes=None,
+            source_name="experiment_numbers",
+            highlights_id=str(row.id),
+        )
+        experiment = replace(metric("experiment:1"), reason=HighlightMetricReason.EXPERIMENT)
+        highlights.publish_pulse(inputs, HighlightFindings(pulse=(experiment,)), [])
+        key_slots = [
+            contracts.PulseSlot(key=f"key:{i}", name=f"Key {i}", reason=HighlightMetricReason.KEY_METRIC)
+            for i in range(key_metric_count)
+        ]
+        key_slots[-1] = replace(key_slots[-1], status=last_status)
+        highlights.publish_pulse(replace(inputs, source_name="key_metrics"), HighlightFindings(), key_slots)
+        popular = [replace(metric(f"insight:pop{i}"), reason=HighlightMetricReason.POPULAR) for i in range(2)]
+        highlights.publish_pulse(replace(inputs, source_name="routine"), HighlightFindings(pulse=tuple(popular)), [])
+        row.refresh_from_db()
+        content = HIGHLIGHTS.validate_python(row.content)
+
+        self.assertEqual(
+            (
+                [slot.key for slot in content.pulse_slots or []],
+                [m.key for m in content.pulse if m.reason == HighlightMetricReason.POPULAR],
+            ),
+            (expected, [key for key in expected if key.startswith("insight:pop")]),
+        )
+
+    def test_healthy_popular_numbers_come_before_failed_ones(self) -> None:
+        def slot(key: str, reason: HighlightMetricReason, status: PulseSlotStatus) -> contracts.PulseSlot:
+            return contracts.PulseSlot(key=key, name=key, reason=reason, status=status)
+
+        slots = [
+            slot("experiment:1", HighlightMetricReason.EXPERIMENT, PulseSlotStatus.READY),
+            slot("insight:pop0", HighlightMetricReason.POPULAR, PulseSlotStatus.ERROR),
+            *(slot(f"insight:pop{i}", HighlightMetricReason.POPULAR, PulseSlotStatus.READY) for i in (1, 2, 3)),
+        ]
+
+        kept = highlights._popular_within_row(slots, set())
+
+        self.assertEqual([s.key for s in kept], ["experiment:1", "insight:pop1", "insight:pop2", "insight:pop3"])
 
     @parameterized.expand([5, 6])
     def test_progress_keeps_source_ranking_limit_and_dates_after_failure(self, routine_count: int) -> None:

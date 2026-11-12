@@ -10,14 +10,12 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.admin import register_all_admin
-from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.oauth2 import admin_oauth2_callback
 from posthog.admin.oauth_views import admin_auth_check, admin_oauth_success
 from posthog.api.sso import saml_metadata_view
 from posthog.ingress.vercel.provider import build_vercel_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.middleware import impersonated_session_logout
-from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
 from products.cdp.backend.api import hooks
 
@@ -42,7 +40,7 @@ def extend_api_router() -> None:
         r"billing", organization_billing.OrganizationBillingViewSet, "organization_billing", ["organization_id"]
     )
     projects_router.register(r"billing", project_billing.ProjectBillingViewSet, "project_billing", ["team_id"])
-    root_router.register(r"integrations", integration.PublicIntegrationViewSet)
+    root_router.register(r"integrations", integration.PublicIntegrationViewSet, "integration")
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
 
     projects_router.register(r"conversations", conversation.ConversationViewSet, "project_conversations", ["team_id"])
@@ -74,69 +72,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
         path("admin/oauth2/success", admin_oauth_success, name="admin_oauth_success"),
         path("admin/auth_check", admin_auth_check, name="admin_auth_check"),
-        path("admin/redisvalues", redis_values_view, name="redis_values"),
-        path("admin/redis/edit-ttl", redis_edit_ttl_view, name="redis_edit_ttl"),
-        path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
-        path(
-            "admin/resave-cohorts/",
-            MovedToConsole.page_redirect("Re-save cohorts", "/admin/console/tools/resave-cohorts/"),
-            name="resave-cohorts",
-        ),
-        path(
-            "admin/distinct-id-usage/",
-            MovedToConsole.page_redirect("Distinct ID usage", "/admin/console/tools/distinct-id-usage/"),
-            name="distinct-id-usage",
-        ),
-        path(
-            "admin/events-retention/",
-            MovedToConsole.page_redirect("Events retention", "/admin/console/tools/events-retention/"),
-            name="events-retention",
-        ),
-        path(
-            "admin/tophog/",
-            MovedToConsole.page_redirect("TopHog", "/admin/console/tools/tophog/"),
-            name="tophog-dashboard",
-        ),
-        path(
-            "admin/tophog/restrictions/",
-            MovedToConsole.page_redirect("TopHog restrictions", "/admin/console/tools/tophog/"),
-            name="tophog-restrictions",
-        ),
-        path(
-            "admin/health-checks/",
-            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/"),
-            name="health-checks",
-        ),
-        path(
-            "admin/health-checks/<str:kind>/",
-            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/?check={kind}"),
-            name="health-check-trigger",
-        ),
-        path(
-            "admin/health-checks/<str:kind>/runs/",
-            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/?check={kind}"),
-            name="health-check-runs",
-        ),
-        path(
-            "admin/notebook-markdown-migration/",
-            MovedToConsole.page_redirect(
-                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
-            ),
-            name="notebook-markdown-migration",
-        ),
-        # The old page fetched these JSON endpoints itself, so a bookmark of one lands on the tool page.
-        path(
-            "admin/notebook-markdown-migration/stats/",
-            MovedToConsole.page_redirect(
-                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
-            ),
-        ),
-        path(
-            "admin/notebook-markdown-migration/run/",
-            MovedToConsole.page_redirect(
-                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
-            ),
-        ),
         path(
             "admin/logout/",
             impersonated_session_logout,

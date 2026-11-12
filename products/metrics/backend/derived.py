@@ -6,13 +6,17 @@ so a later ingestion-time rollup can serve the same names without changes for us
 """
 
 import datetime as dt
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from enum import StrEnum
+from functools import partial
 
+from django.conf import settings
 from django.core.cache import cache
+from django.db import connections
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -21,8 +25,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team
-from posthog.permissions import posthog_feature_flag_enabled
 from posthog.scopes import APIScopeObject
 
 from products.metrics.backend.facade.contracts import (
@@ -64,6 +68,15 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
 
 _DATA_PRESENCE_WINDOW = dt.timedelta(hours=24)
 _DATA_PRESENCE_CACHE_TTL_SECONDS = 300
+# An empty or partly failed answer is held briefly: new spans or logs show up within a minute,
+# and a caller that polls does not re-run the probes on every request.
+_DATA_PRESENCE_RECHECK_TTL_SECONDS = 60
+# A probe reads at most one row, so a slow one means ClickHouse is struggling: give up early.
+_PRESENCE_QUERY_SETTINGS = HogQLGlobalSettings(
+    max_execution_time=10,
+    max_bytes_to_read=10_000_000_000,
+    read_overflow_mode="throw",
+)
 
 
 class DerivedSource(StrEnum):
@@ -191,16 +204,28 @@ def get_derived_metric(name: str) -> DerivedMetric:
 
 
 def derived_metrics_enabled(team: Team) -> bool:
+    # The flag is an experiment with `control` and `test` variants, so only `test` (or a plain boolean
+    # rollout) turns derived series on. The flag splits by organization, so the distinct ID does not
+    # change the variant.
+    organization_id = str(team.organization_id)
+    project_id = str(team.id)
     try:
-        return posthog_feature_flag_enabled(
+        variant = posthoganalytics.get_feature_flag(
             METRICS_DERIVED_SERIES_FEATURE_FLAG,
             str(team.uuid),
-            organization_id=team.organization_id,
-            team_id=team.id,
+            groups={"organization": organization_id, "project": project_id},
+            group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
+            send_feature_flag_events=False,
         )
     except Exception:
         logger.warning("metrics_derived_series_flag_check_failed", team_id=team.id)
         return False
+    return variant is True or variant == "test"
+
+
+def team_has_derived_sources(team: Team, *, can_read: Callable[[APIScopeObject], bool]) -> bool:
+    """True when the team sent spans or logs in the last day from a source the caller can read."""
+    return any(can_read(SOURCE_RESOURCES[source]) for source in _sources_with_data(team))
 
 
 def _window_expr(date_from: dt.datetime, date_to: dt.datetime) -> ast.Expr:
@@ -225,8 +250,9 @@ def _sources_with_data(team: Team) -> set[DerivedSource]:
     now = timezone.now()
     window = _window_expr(now - _DATA_PRESENCE_WINDOW, now)
     sources: set[DerivedSource] = set()
-    failed = False
-    for source, table in _TABLES.items():
+    failed: list[DerivedSource] = []
+
+    def probe(source: DerivedSource, table: list[str | int]) -> None:
         query = ast.SelectQuery(
             select=[ast.Constant(value=1)],
             select_from=ast.JoinExpr(table=ast.Field(chain=table)),
@@ -240,18 +266,42 @@ def _sources_with_data(team: Team) -> set[DerivedSource]:
                 query=query,
                 team=team,
                 workload=Workload.LOGS,
-                settings=_QUERY_SETTINGS,
+                settings=_PRESENCE_QUERY_SETTINGS,
             )
         except Exception:
             logger.warning("metrics_derived_presence_check_failed", team_id=team.id, source=source.value, exc_info=True)
-            failed = True
-            continue
+            failed.append(source)
+            return
         if response.results:
             sources.add(source)
-    # Cache only a complete answer, so the next request checks a failed source again.
-    if not failed:
-        cache.set(cache_key, sorted(sources), _DATA_PRESENCE_CACHE_TTL_SECONDS)
+
+    work: list[Callable[[], None]] = [partial(probe, source, table) for source, table in _TABLES.items()]
+    # The probes do not depend on each other, so the caller waits for the slowest, not their sum.
+    # Django does not make the test transaction visible to another thread.
+    if settings.IN_UNIT_TESTING:
+        for item in work:
+            item()
+    else:
+        run_in_parallel_threads(
+            [partial(_closing_connection, item) for item in work], thread_name_prefix="metrics_derived_presence"
+        )
+
+    complete = bool(sources) and not failed
+    cache.set(
+        cache_key,
+        sorted(sources),
+        _DATA_PRESENCE_CACHE_TTL_SECONDS if complete else _DATA_PRESENCE_RECHECK_TTL_SECONDS,
+    )
     return sources
+
+
+def _closing_connection(work: Callable[[], None]) -> None:
+    try:
+        work()
+    finally:
+        # The query reads Postgres in the worker thread, possibly through a replica alias, and request cleanup
+        # only closes the request thread's connections.
+        connections.close_all()
 
 
 def list_derived_metric_names(team: Team, *, search: str = "") -> list[DerivedMetric]:

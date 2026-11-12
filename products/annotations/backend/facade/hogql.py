@@ -21,7 +21,7 @@ annotations: PostgresTable = PostgresTable(
     description="Annotations: dated notes overlaid on insight/dashboard charts; one row per annotation.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Annotation id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "content": StringDatabaseField(name="content", nullable=True, description="Annotation text."),
         "scope": StringDatabaseField(
             name="scope",

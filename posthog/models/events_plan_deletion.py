@@ -236,6 +236,6 @@ def _notify_admins(event: str, notices: dict[UUID, dict[str, object]]) -> None:
             capture(
                 distinct_id=distinct_id,
                 event=event,
-                properties=notices[organization_id],
+                properties={**notices[organization_id], "$update_person_last_seen_at": False},
                 groups={"organization": str(organization_id)},
             )
