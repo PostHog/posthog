@@ -609,7 +609,7 @@ class TestMaybeReconcileDag(BaseTest):
 
         with (
             mock.patch(FLOOR_FLAG, return_value=flag_on),
-            mock.patch(f"{RECONCILE}.maybe_reconcile_dag") as reconcile,
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules") as reconcile,
             mock.patch("posthog.event_usage.posthoganalytics.capture") as capture,
         ):
             rewritten = clamp_targets_to_plan_floor()
@@ -622,6 +622,38 @@ class TestMaybeReconcileDag(BaseTest):
                 capture.call_args.kwargs["properties"],
                 {"saved_query_id": str(node.saved_query_id), "previous_cadence": "15min", "plan_floor": "6hour"},
             )
+
+    @parameterized.expand(
+        [("creating_the_floor_tier", "a_create_schedule"), ("deleting_the_faster_tier", "a_delete_schedule")]
+    )
+    def test_plan_floor_sweep_keeps_the_cadence_when_its_reconcile_fails(self, _name, failing_call):
+        _grant_refresh_interval(self.organization, 360)
+        dag = DAG.get_or_create_default(self.team)
+        node = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, M15)
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                yield _listing(tier_schedule_id(str(dag.id), M15))
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        with (
+            mock.patch(FLOOR_FLAG, return_value=True),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.{failing_call}", new=mock.AsyncMock(side_effect=RuntimeError("temporal down"))),
+            mock.patch("posthog.event_usage.posthoganalytics.capture") as capture,
+        ):
+            rewritten = clamp_targets_to_plan_floor()
+
+        node.refresh_from_db()
+        self.assertEqual((rewritten, get_declared_target(node)), (0, M15))
+        capture.assert_not_called()
 
     def test_reconcile_failure_never_raises_past_commit(self):
         dag = self._dag_with_target()

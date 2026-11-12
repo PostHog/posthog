@@ -11,6 +11,7 @@ the Temporal schedule API.
 """
 
 import uuid
+import asyncio
 import dataclasses
 from collections.abc import Iterable, Mapping
 from datetime import timedelta
@@ -75,7 +76,11 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_target,
     stage_declared_target,
 )
-from products.data_modeling.backend.logic.refresh_floor import MAX_PLAN_REFRESH_FLOOR, organization_plan_refresh_floor
+from products.data_modeling.backend.logic.refresh_floor import (
+    MAX_PLAN_REFRESH_FLOOR,
+    organization_plan_refresh_floor,
+    read_plan_refresh_floor,
+)
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
 from products.data_modeling.backend.schedule import (
@@ -91,6 +96,12 @@ logger = structlog.get_logger(__name__)
 
 PLAN_FLOOR_REFUSAL_EVENT = "data modeling refresh refused by plan floor"
 PLAN_FLOOR_CLAMP_EVENT = "data modeling refresh clamped to plan floor"
+
+_STRICT_RECONCILE_TIMEOUT_SECONDS = 60
+
+
+class StaleScheduleDeleteError(Exception):
+    pass
 
 
 def maybe_reconcile_dag(dag: DAG) -> None:
@@ -362,11 +373,14 @@ def apply_saved_query_frequency_anchor(
     return written
 
 
-def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) -> None:
+def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None, strict: bool = False) -> None:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
     An empty tier set is a deliberate wind-down (last target reverted/cleared), so the DAG's
     schedules are torn down.
+
+    `strict` is for a caller that retries by rolling back its own transaction: a stale schedule
+    that fails to delete raises instead of being logged, and the reconcile gives up after a timeout.
     """
     team = dag.team
     if graph is None:
@@ -379,6 +393,7 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
         organization_id=str(team.organization_id),
         team_timezone=team.timezone,
         desired_tiers=desired_tiers,
+        strict=strict,
     )
 
 
@@ -395,21 +410,30 @@ def clamp_targets_to_plan_floor() -> int:
     candidates = _user_set_targets_finer_than(MAX_PLAN_REFRESH_FLOOR)
     clamped = 0
     for organization in Organization.objects.filter(id__in=candidates.values("team__organization_id")):
-        floor = organization_plan_refresh_floor(organization)
-        if floor is None:
+        try:
+            dags = _dags_with_targets_finer_than_plan_floor(organization)
+        except Exception as error:
+            logger.exception("Plan floor clamp failed", organization_id=str(organization.id))
+            capture_exception(error)
             continue
-        dags = (
-            DAG.objects.filter(team__organization_id=organization.id, node__in=_user_set_targets_finer_than(floor))
-            .distinct()
-            .select_related("team")
-        )
         for dag in dags:
             try:
-                clamped += _clamp_dag_targets_to_plan_floor(dag, floor)
+                clamped += _clamp_dag_targets_to_plan_floor(dag)
             except Exception as error:
                 logger.exception("Plan floor clamp failed", dag_id=str(dag.id), team_id=dag.team_id)
                 capture_exception(error)
     return clamped
+
+
+def _dags_with_targets_finer_than_plan_floor(organization: Organization) -> list[DAG]:
+    floor = organization_plan_refresh_floor(organization)
+    if floor is None:
+        return []
+    return list(
+        DAG.objects.filter(team__organization_id=organization.id, node__in=_user_set_targets_finer_than(floor))
+        .distinct()
+        .select_related("team")
+    )
 
 
 def _user_set_targets_finer_than(interval: timedelta) -> QuerySet[Node]:
@@ -420,11 +444,19 @@ def _user_set_targets_finer_than(interval: timedelta) -> QuerySet[Node]:
     )
 
 
-def _clamp_dag_targets_to_plan_floor(dag: DAG, floor: timedelta) -> int:
+def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
     with transaction.atomic():
         # The same lock order as apply_saved_query_frequency_target, so a concurrent save takes turns with the rewrite.
         list(DAG.objects.select_for_update(no_key=True).filter(pk=dag.pk).values_list("pk", flat=True))
-        nodes = _user_set_targets_finer_than(floor).select_for_update(of=("self",)).filter(dag=dag).order_by("id")
+        floor = read_plan_refresh_floor(dag.team_id)
+        if floor is None:
+            return 0
+        nodes = (
+            _user_set_targets_finer_than(floor)
+            .select_for_update(of=("self",), skip_locked=True)
+            .filter(dag=dag)
+            .order_by("id")
+        )
         rewritten: list[tuple[Node, timedelta]] = []
         for node in nodes:
             previous = get_declared_target(node)
@@ -434,7 +466,7 @@ def _clamp_dag_targets_to_plan_floor(dag: DAG, floor: timedelta) -> int:
             rewritten.append((node, previous))
         Node.objects.bulk_update([node for node, _ in rewritten], ["properties"])
         if rewritten:
-            maybe_reconcile_dag(dag)
+            reconcile_dag_schedules(dag, strict=True)
     for node, previous in rewritten:
         report_team_action(
             dag.team,
@@ -584,6 +616,30 @@ async def _apply_reconciliation(
     organization_id: str,
     team_timezone: str,
     desired_tiers: dict[Tier, set[str]],
+    strict: bool = False,
+) -> None:
+    reconcile = _reconcile_tier_schedules(
+        dag_id=dag_id,
+        team_id=team_id,
+        organization_id=organization_id,
+        team_timezone=team_timezone,
+        desired_tiers=desired_tiers,
+        strict=strict,
+    )
+    if strict:
+        await asyncio.wait_for(reconcile, timeout=_STRICT_RECONCILE_TIMEOUT_SECONDS)
+    else:
+        await reconcile
+
+
+async def _reconcile_tier_schedules(
+    *,
+    dag_id: str,
+    team_id: int,
+    organization_id: str,
+    team_timezone: str,
+    desired_tiers: dict[Tier, set[str]],
+    strict: bool,
 ) -> None:
     unsupported = sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS})
     if unsupported:
@@ -639,12 +695,18 @@ async def _apply_reconciliation(
 
     # A failed delete leaves transient dual coverage (e.g. the legacy whole-DAG schedule alongside
     # tiers); the next reconcile sweeps it, so log and keep going rather than fail the converge.
+    failed_deletes: list[str] = []
     for schedule_id in plan.to_delete:
         try:
             await a_delete_schedule(temporal, schedule_id=schedule_id)
         except Exception as error:
+            if isinstance(error, RPCError) and error.status == RPCStatusCode.NOT_FOUND:
+                continue
+            failed_deletes.append(schedule_id)
             logger.exception("Failed to delete stale schedule", schedule_id=schedule_id, dag_id=dag_id)
             capture_exception(error)
+    if strict and failed_deletes:
+        raise StaleScheduleDeleteError(f"failed to delete stale schedules {sorted(failed_deletes)} for DAG {dag_id}")
 
 
 async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[str]:
