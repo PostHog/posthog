@@ -840,12 +840,13 @@ async function expectLocatorToMatchStorySnapshot(
 
 /**
  * Captures until two screenshots in a row match, the way Playwright's `toHaveScreenshot` does.
- * Between captures the chart paint and animation finish run again, so a page that changed after the
- * waits is captured again once it settles.
  *
- * A match alone does not prove the page is done: the 0 ms animations freeze a spinner, so two captures
- * of a loading state match too. So unless the story opts out of the loader wait, each capture waits
- * for loaders first, and a capture is kept only when no loader shows after it.
+ * A target that does not fit the viewport needs a second pass in Chromium. Chromium captures such a
+ * target by resizing the page, and script that reacts to the resize renders again or reloads data
+ * during the capture, so the picture can show a loading state. The first pass captures with script on,
+ * so the page reacts as often as it needs, for example lazy content that renders when it comes into
+ * view. The second pass captures with script paused, so it settles as soon as the page has finished
+ * reacting to the first pass, and a new reaction cannot start mid-capture.
  */
 async function takeSettledSnapshotImage(
     locator: Locator | Page,
@@ -854,19 +855,65 @@ async function takeSettledSnapshotImage(
     loaderWaitTimeout: number | null,
     options?: LocatorScreenshotOptions
 ): Promise<Buffer> {
+    const image = await captureUntilSettled(locator, context, theme, loaderWaitTimeout, false, options)
+    if (!(await captureResizesPage(locator))) {
+        return image
+    }
+    await waitBeforeRecapture(locator)
+    return captureUntilSettled(locator, context, theme, loaderWaitTimeout, true, options)
+}
+
+/** Only a target that does not fit the viewport makes Chromium resize the page for the capture. */
+async function captureResizesPage(locator: Locator | Page): Promise<boolean> {
+    if (!('page' in locator)) {
+        return false
+    }
+    const page = locator.page()
+    if (page.context().browser()?.browserType().name() !== 'chromium') {
+        return false
+    }
+    const box = await locator.boundingBox().catch(() => null)
+    const viewport = page.viewportSize()
+    if (!box || !viewport) {
+        return false
+    }
+    return box.x + box.width > viewport.width || box.y + box.height > viewport.height
+}
+
+async function waitBeforeRecapture(locator: Locator | Page): Promise<void> {
+    const page = 'page' in locator ? locator.page() : locator
+    await page.waitForTimeout(RECAPTURE_SETTLE_MS)
+    await waitForChartCanvasesPainted(page)
+    await finishAnimations(page)
+}
+
+/**
+ * Captures until two captures in a row match. Before each capture the chart paint, animation finish
+ * and loader wait run again, so a page that changed after the waits is captured again once it settles.
+ *
+ * A match alone does not prove the page is done: the 0 ms animations freeze a spinner, so two captures
+ * of a loading state match too. So unless the story opts out of the loader wait, a capture is kept
+ * only when no loader shows after it.
+ */
+async function captureUntilSettled(
+    locator: Locator | Page,
+    context: TestContext,
+    theme: SnapshotTheme,
+    loaderWaitTimeout: number | null,
+    pauseScript: boolean,
+    options?: LocatorScreenshotOptions
+): Promise<Buffer> {
     const page = 'page' in locator ? locator.page() : locator
     if (loaderWaitTimeout !== null) {
         await waitForEveryLoaderHidden(page, loaderWaitTimeout)
     }
-    let previous = await takeSnapshotImage(locator, context, false, options)
+    let previous = await takeSnapshotImage(locator, context, pauseScript, options)
     for (let capture = 2; capture <= MAX_SNAPSHOT_CAPTURES; capture++) {
-        await page.waitForTimeout(RECAPTURE_SETTLE_MS)
-        await waitForChartCanvasesPainted(page)
-        await finishAnimations(page)
+        await waitBeforeRecapture(locator)
         if (loaderWaitTimeout !== null) {
             await waitForEveryLoaderHidden(page, loaderWaitTimeout)
         }
-        const image = await takeSnapshotImage(locator, context, true, options)
+        const image = await takeSnapshotImage(locator, context, pauseScript, options)
         const loaderShowed = loaderWaitTimeout !== null && (await locateVisibleLoaders(page).count()) > 0
         if (image.equals(previous) && !loaderShowed) {
             return image
@@ -885,11 +932,8 @@ const cdpSessionByPage = new WeakMap<Page, CDPSession>()
 /**
  * Pause or resume page script through the Chrome DevTools Protocol, and return whether it worked.
  *
- * Chromium captures a target that does not fit the viewport by resizing the page for the capture.
- * Script that reacts to the resize renders again or reloads data during the capture, so the picture
- * can show a loading state. The first capture of a story runs with script on, so the page reacts once,
- * for example lazy content renders when it comes into view. Later captures run with script paused, so
- * the reaction cannot start again. WebKit has no CDP, so there it does nothing.
+ * `takeSettledSnapshotImage` says why a capture pauses script. WebKit has no CDP, so there it does
+ * nothing.
  */
 async function setPageScriptPaused(page: Page, paused: boolean): Promise<boolean> {
     if (page.context().browser()?.browserType().name() !== 'chromium') {

@@ -75,8 +75,9 @@ You don't need to add waits for any of this. Knowing the order helps when a stor
    - waits until the body size stops changing, for up to 3 seconds;
    - waits 1 more second;
    - waits until no quill chart canvas is still painting.
-6. It runs the loader wait again and captures the target. A component snapshot grows to include a popover or a tooltip that overflows the root. For a target taller than the viewport, Chromium resizes the page during the capture, and this first capture lets the page react once, for example to render lazy content.
-7. It waits 100 ms, waits for chart paint, animations and loaders again, and captures again. In Chromium, page script is paused during these later captures, so the page cannot render again or reload mid-capture. It keeps the capture when two in a row match and no loader shows after the capture. After four captures it keeps the last one and logs the story as still changing.
+6. It runs the loader wait again and captures the target. A component snapshot grows to include a popover or a tooltip that overflows the root.
+7. It waits 100 ms, waits for chart paint, animations and loaders again, and captures again. It keeps the capture when two in a row match and no loader shows after the capture. After four captures it keeps the last one and logs the story as still changing.
+8. In Chromium, a target that does not fit the viewport gets a second pass. Chromium resizes the page to capture such a target, and the first pass lets the page react to that as often as it needs, for example to render lazy content. The second pass repeats step 7 with page script paused during each capture, so the page cannot render again or reload mid-capture, and keeps its result.
 
 Chromium runs with `--disable-partial-raster`. Without it, Chromium paints a partly changed tile again in place, and the anti-aliased edges in that tile can differ by a color level from run to run.
 
