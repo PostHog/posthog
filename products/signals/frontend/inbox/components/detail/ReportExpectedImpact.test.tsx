@@ -16,6 +16,7 @@ import { reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { ReportChecksSection } from './ReportChecksSection'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 
 jest.mock('./ReportCheckMetricChart', () => ({ ReportCheckMetricChart: () => <div>Chart</div> }))
@@ -98,8 +99,8 @@ describe('ReportExpectedImpact', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE], {
-            [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         })
         inboxTaskKickoffLogic.mount()
         logic = inboxReportDetailLogic({ reportId: report.id, report })
@@ -203,10 +204,37 @@ describe('ReportExpectedImpact', () => {
         expect(screen.getByText('Ask AI to update checks').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 
-    it('disables metric suggestions until the replacement tool is available', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: false })
+    it.each([false, undefined])('hides Expected impact and sidebar suggestions when Monitoring is %s', (enabled) => {
+        featureFlagLogic.actions.setFeatureFlags(
+            [],
+            enabled === undefined ? {} : { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled }
+        )
         renderMeasurements([check])
-        expect(screen.getByText('Suggest different metrics').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        render(<ReportChecksSection report={report} />)
+        expect(screen.queryByText('Suggest different metrics')).not.toBeInTheDocument()
+        expect(screen.queryByText('Suggest a better metric')).not.toBeInTheDocument()
+        expect(screen.getByText('Cancel this check')).toBeInTheDocument()
+        expect(screen.queryByText('Looks good')).not.toBeInTheDocument()
+        expect(screen.queryByText('Chart')).not.toBeInTheDocument()
+        expect(document.querySelector('[data-attr="report-expected-impact"]')).not.toBeInTheDocument()
+    })
+
+    it('starts Monitoring from the follow-up checks section', async () => {
+        const stateRequests: unknown[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/state/': async ({ request }) => {
+                    stateRequests.push(await request.json())
+                    return [200, {}]
+                },
+            },
+        })
+        logic.actions.loadReportChecksSuccess([check])
+        render(<ReportChecksSection report={{ ...report, monitoring_started_at: null }} />)
+
+        await userEvent.setup().click(screen.getByText('Start monitoring now'))
+
+        await waitFor(() => expect(stateRequests).toEqual([{ state: 'monitoring' }]))
     })
 
     it('caps visible measurements after skipping malformed check configs', () => {

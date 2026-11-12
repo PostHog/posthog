@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { GuidanceEngine, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
 import { GUIDANCE_RULES, type GuidanceRule } from '@/hono/guidance/rules'
 import type { ResolvedState } from '@/hono/request-state-resolver'
+import { MCPClientProfile } from '@/lib/client-detection'
 
 import { makeToolExecutorState } from '../shared/test-utils'
 import { makeGuidanceRedis } from './helpers/guidance-redis-stubs'
@@ -144,6 +145,47 @@ describe('GuidanceEngine', () => {
                 expected
             )
         })
+
+        describe('with a notice that fires on the first match', () => {
+            const firstMatchRule: GuidanceRule = { ...rule, threshold: 1 }
+
+            it.each([
+                ['after the caller counters expire', [31]],
+                ['after the first day of a busy conversation', Array.from({ length: 80 }, () => 20)],
+            ])('keeps the per-conversation cap %s', async (_label, gapsInMinutes) => {
+                const redis = makeGuidanceRedis()
+                const engine = new GuidanceEngine(redis, [firstMatchRule])
+                const outcomes = await run(engine, withHandle('minted-1', false), [replayQuery])
+                for (const minutes of gapsInMinutes) {
+                    redis.advance(minutes * 60)
+                    outcomes.push(...(await run(engine, withHandle('minted-1', true), [replayQuery])))
+                }
+                expect(outcomes.filter(Boolean)).toEqual(['test-rule:shown'])
+            })
+
+            it('gives a second conversation its own notice once it echoes its handle', async () => {
+                const engine = new GuidanceEngine(makeGuidanceRedis(), [firstMatchRule])
+                await run(engine, withHandle('minted-1', false), [replayQuery])
+                await expect(run(engine, withHandle('minted-2', false), [replayQuery])).resolves.toEqual([undefined])
+                await expect(run(engine, withHandle('minted-2', true), [replayQuery, replayQuery])).resolves.toEqual([
+                    'test-rule:shown',
+                    undefined,
+                ])
+            })
+
+            it('does not repeat in the conversation that already got the notice from the caller counters', async () => {
+                const engine = new GuidanceEngine(makeGuidanceRedis(), [firstMatchRule])
+                await run(engine, withHandle('minted-1', false), [replayQuery])
+                await run(engine, withHandle('minted-2', false), [replayQuery])
+                await expect(run(engine, withHandle('minted-1', true), [replayQuery])).resolves.toEqual([undefined])
+            })
+
+            it('caps a client that never echoes under the caller', async () => {
+                const engine = new GuidanceEngine(makeGuidanceRedis(), [firstMatchRule])
+                await run(engine, withHandle('minted-1', false), [replayQuery])
+                await expect(run(engine, withHandle('minted-2', false), [replayQuery])).resolves.toEqual([undefined])
+            })
+        })
     })
 
     it('reports a suppressed outcome on a later call when another rule wins the threshold call', async () => {
@@ -188,6 +230,7 @@ describe('GuidanceEngine', () => {
         ['analytics suppressed', { suppressAnalytics: true }],
         ['sandbox token', { apiKeyScopes: ['internal_run:read'] }],
         ['scout token', { apiKeyScopes: ['signal_scout_internal:write'] }],
+        ['Claude artifact page', { clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeArtifacts' }) }],
         ['suggested tool not in roster', { allTools: [{ name: 'execute-sql' }] as ResolvedState['allTools'] }],
         [
             'one named tool missing from roster',
@@ -222,6 +265,132 @@ describe('GuidanceEngine', () => {
         ])
     })
 
+    it.each([
+        ['an empty result', true, true],
+        ['a populated result', false, false],
+        ['a result of unknown size', undefined, false],
+    ])('a resultEmpty rule handles %s', (_label, resultEmpty, expected) => {
+        const emptyRule: GuidanceRule = {
+            ...rule,
+            trigger: { tool: 'execute-sql', resultEmpty: true, outcome: 'any', presets: ['user'] },
+        }
+        expect(triggerMatches(emptyRule, { ...otherQuery, resultEmpty })).toBe(expected)
+    })
+
+    describe('a rule with a condition', () => {
+        const conditionalRule = (condition: GuidanceRule['condition']): GuidanceRule => ({
+            ...rule,
+            threshold: 1,
+            condition,
+        })
+
+        it('does not spend the session cap on a call the condition rejects', async () => {
+            const condition = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true)
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [conditionalRule(condition)])
+            await expect(run(engine, makeState(), [replayQuery, replayQuery])).resolves.toEqual([
+                undefined,
+                'test-rule:shown',
+            ])
+        })
+
+        it('skips the condition once the rule reaches its cap and keeps its counters alive', async () => {
+            const condition = vi.fn().mockResolvedValue(true)
+            const redis = makeGuidanceRedis()
+            const engine = new GuidanceEngine(redis, [conditionalRule(condition)])
+            await run(engine, makeState(), [replayQuery, replayQuery])
+            expect(condition).toHaveBeenCalledTimes(1)
+            expect(redis.evalCalls.at(-1)?.[6]).toBe('touch')
+        })
+
+        it('counts an admitted match when an earlier rule wins the call', async () => {
+            const first: GuidanceRule = { ...conditionalRule(vi.fn().mockResolvedValue(true)), id: 'first-rule' }
+            const second: GuidanceRule = {
+                ...conditionalRule(vi.fn().mockResolvedValue(true)),
+                id: 'second-rule',
+                threshold: 2,
+            }
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [first, second])
+            await expect(run(engine, makeState(), [replayQuery, replayQuery])).resolves.toEqual([
+                'first-rule:shown',
+                'second-rule:shown',
+            ])
+        })
+
+        it('reserves no notice when the gate finishes after the budget', async () => {
+            vi.useFakeTimers()
+            try {
+                const redis = makeGuidanceRedis()
+                const evaluateScript = redis.eval.bind(redis)
+                const lateEval = vi.spyOn(redis, 'eval').mockImplementation(async (script, keys, ...args) => {
+                    await new Promise((resolve) => setTimeout(resolve, 400))
+                    return evaluateScript(script, keys, ...args)
+                })
+                const engine = new GuidanceEngine(redis, [conditionalRule(vi.fn().mockResolvedValue(true))])
+                const pending = engine.evaluate(makeState(), replayQuery)
+                await vi.advanceTimersByTimeAsync(1000)
+                await expect(pending).resolves.toBeUndefined()
+                expect(lateEval.mock.calls.map((call) => call[8])).toEqual(['touch'])
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
+        it.each(['touch', 'match'])('holds the tool result to the budget when Redis stalls on %s', async (stalled) => {
+            vi.useFakeTimers()
+            try {
+                const redis = makeGuidanceRedis()
+                vi.spyOn(redis, 'eval').mockImplementation((_script, _keys, ...args) =>
+                    args[6] === 'touch' && stalled === 'match' ? Promise.resolve(0) : new Promise(() => {})
+                )
+                const admitted = (id: string): GuidanceRule => ({
+                    ...conditionalRule(vi.fn().mockResolvedValue(true)),
+                    id,
+                })
+                const engine = new GuidanceEngine(redis, [admitted('a'), admitted('b'), admitted('c')])
+                const pending = engine.evaluate(makeState(), replayQuery)
+                await vi.advanceTimersByTimeAsync(310)
+                await expect(pending).resolves.toBeUndefined()
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
+        it('applies the condition to a caller with the flag off', async () => {
+            const condition = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true)
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [conditionalRule(condition)])
+            const state = makeState({ toolFeatureFlags: {} })
+            await expect(run(engine, state, [replayQuery, replayQuery])).resolves.toEqual([
+                undefined,
+                'test-rule:flag_off',
+            ])
+        })
+
+        it('records suppression without reading the condition', async () => {
+            const condition = vi.fn().mockResolvedValue(true)
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [conditionalRule(condition)])
+            await expect(run(engine, makeState(), [visionCall, replayQuery])).resolves.toEqual([
+                undefined,
+                'test-rule:suppressed',
+            ])
+            expect(condition).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    it('builds function text from the call, only when the notice is shown', async () => {
+        const text = vi.fn((call: GuidanceCall) => `Used ${call.toolName}.`)
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [{ ...rule, threshold: 1, text }])
+        await expect(engine.evaluate(makeState({ toolFeatureFlags: {} }), replayQuery)).resolves.toEqual({
+            ruleId: 'test-rule',
+            outcome: 'flag_off',
+        })
+        expect(text).not.toHaveBeenCalled()
+        const shown = await new GuidanceEngine(makeGuidanceRedis(), [{ ...rule, threshold: 1, text }]).evaluate(
+            makeState(),
+            replayQuery
+        )
+        expect(shown?.text).toBe('Used execute-sql.')
+    })
+
     it('shows nothing and logs when Redis fails', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
         const engine = new GuidanceEngine(makeGuidanceRedis(true), [{ ...rule, threshold: 1 }])
@@ -231,23 +400,74 @@ describe('GuidanceEngine', () => {
     })
 
     it.each([
-        ['session_replay_events', true],
-        ['raw_session_replay_events', true],
-        ['session_replay_features', true],
-        ['console_logs_log_entries', true],
-        ['system.session_recordings', true],
-        ['log_entries', false],
-        ['batch_export_log_entries', false],
-        ['sessions', false],
-        ['events', false],
-    ])('the replay rule matches SQL over %s: %s', (table, expected) => {
-        const replayRule = GUIDANCE_RULES.find((r) => r.id === 'replay-sql-to-vision')!
-        const call: GuidanceCall = {
-            toolName: 'execute-sql',
-            args: { query: `select 1 from ${table}` },
-            isError: false,
-        }
-        expect(triggerMatches(replayRule, call)).toBe(expected)
+        ['replay-sql-to-vision', 'select 1 from session_replay_events', true],
+        ['replay-sql-to-vision', 'select 1 from raw_session_replay_events', true],
+        ['replay-sql-to-vision', 'select 1 from session_replay_features', true],
+        ['replay-sql-to-vision', 'select 1 from console_logs_log_entries', true],
+        ['replay-sql-to-vision', 'select 1 from system.session_recordings', true],
+        ['replay-sql-to-vision', 'select 1 from log_entries', false],
+        ['replay-sql-to-vision', 'select 1 from batch_export_log_entries', false],
+        ['replay-sql-to-vision', 'select 1 from sessions', false],
+        ['replay-sql-to-vision', 'select 1 from events', false],
+        [
+            'sql-aggregate-to-typed-runner',
+            "SELECT toDate(timestamp) AS day, count() FROM events WHERE event = 'signup' GROUP BY day",
+            true,
+        ],
+        ['sql-aggregate-to-typed-runner', 'select properties.$browser, uniq(person_id)\nfrom events\ngroup by 1', true],
+        ['sql-aggregate-to-typed-runner', "SELECT countIf(event = 'a') FROM events", true],
+        ['sql-aggregate-to-typed-runner', 'SELECT event, timestamp FROM events LIMIT 10', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM events e JOIN persons p ON e.person_id = p.id', false],
+        ['sql-aggregate-to-typed-runner', 'WITH x AS (SELECT 1) SELECT count() FROM events', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() OVER (PARTITION BY event) FROM events', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM (SELECT person_id FROM events)', false],
+        [
+            'sql-aggregate-to-typed-runner',
+            'SELECT count() FROM events WHERE person_id IN (SELECT id FROM persons)',
+            false,
+        ],
+        [
+            'sql-aggregate-to-typed-runner',
+            'SELECT event, count(), max(timestamp) AS last_seen FROM events GROUP BY event',
+            true,
+        ],
+        [
+            'sql-aggregate-to-typed-runner',
+            'SELECT event, uniq(person_id) FROM events GROUP BY event ORDER BY uniq(person_id) DESC',
+            true,
+        ],
+        ['sql-aggregate-to-typed-runner', "SELECT max(timestamp), count() FROM events WHERE event = 'a'", false],
+        ['sql-aggregate-to-typed-runner', 'SELECT person_id, count() FROM events GROUP BY person_id', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT uniq(person_id), groupArray(event) FROM events', false],
+        ['sql-aggregate-to-typed-runner', "SELECT count(), avg(dateDiff('hour', timestamp, now())) FROM events", false],
+        [
+            'sql-aggregate-to-typed-runner',
+            'SELECT event, count() FROM events GROUP BY event HAVING count() > 10',
+            false,
+        ],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM events e, persons p WHERE e.person_id = p.id', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT person_id, count() FROM events GROUP BY 1', false],
+        [
+            'sql-aggregate-to-typed-runner',
+            'SELECT properties.$session_id AS sid, count() FROM events GROUP BY sid',
+            false,
+        ],
+        ['sql-aggregate-to-typed-runner', 'SELECT count(), max(e.timestamp) FROM events e', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM system.insights', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM posthog.ai_events', false],
+        ['sql-aggregate-to-typed-runner', 'SELECT count() FROM events_archive', false],
+    ])('the %s rule matches %j: %s', (ruleId, query, expected) => {
+        const rule = GUIDANCE_RULES.find((r) => r.id === ruleId)!
+        const call: GuidanceCall = { toolName: 'execute-sql', args: { query }, isError: false }
+        expect(triggerMatches(rule, call)).toBe(expected)
+    })
+
+    it.each([
+        ['a direct warehouse connection', { query: 'SELECT count() FROM events', connectionId: 'conn-1' }],
+        ['a query longer than the cap', { query: `SELECT count() FROM events /* ${'x'.repeat(5000)} */` }],
+    ])('the sql-aggregate-to-typed-runner rule skips %s', (_label, args) => {
+        const rule = GUIDANCE_RULES.find((r) => r.id === 'sql-aggregate-to-typed-runner')!
+        expect(triggerMatches(rule, { toolName: 'execute-sql', args, isError: false })).toBe(false)
     })
 
     it('ships every rule with a distinct id and flag', () => {

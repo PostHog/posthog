@@ -2,23 +2,27 @@ import { brotliCompressSync, deflateSync, gzipSync, zstdCompressSync } from 'nod
 
 import {
     MAX_UNCOMPRESSED_IMAGE_BYTES,
+    SIGNATURE_BYTES,
     SUPPORTED_IMAGE_MEDIA_TYPES,
     imageBytesMatchMediaType,
+    prepareFetchedFont,
     prepareFetchedImage,
 } from './image-transport'
+import { URL_ASSET_RULES } from './url-asset-rules'
 
-const AVIF_HEADER = Buffer.concat([
-    Buffer.from([0x00, 0x00, 0x00, 0x18]),
-    Buffer.from('ftypavif', 'ascii'),
-    Buffer.alloc(4),
-    Buffer.from('avifmif1', 'ascii'),
-])
+function ftyp(majorBrand: string, compatibleBrands: string[]): Buffer {
+    const brands = Buffer.from([majorBrand, '\0\0\0\0', ...compatibleBrands].join(''), 'latin1')
+    const size = Buffer.alloc(4)
+    size.writeUInt32BE(8 + brands.length)
+    return Buffer.concat([size, Buffer.from('ftyp', 'latin1'), brands])
+}
 
 const imageHeaders = {
     'image/png': Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     'image/jpeg': Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
     'image/gif': Buffer.from('GIF89a', 'ascii'),
     'image/webp': Buffer.from('RIFF\x04\x00\x00\x00WEBP', 'binary'),
+    'image/avif': ftyp('avif', ['avif', 'mif1', 'miaf']),
     'image/svg+xml': Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>', 'utf8'),
 } satisfies Record<(typeof SUPPORTED_IMAGE_MEDIA_TYPES)[number], Buffer>
 
@@ -137,10 +141,56 @@ describe('image transport', () => {
     })
 
     it.each([
+        ['a still AVIF', ftyp('avif', ['avif', 'mif1', 'miaf']), true],
+        ['a still AVIF with no compatible brands', ftyp('avif', []), true],
+        ['an animation', ftyp('avis', ['avis', 'avif', 'mif1', 'msf1']), false],
+        ['AVIF only as a compatible brand', ftyp('mif1', ['miaf', 'avif']), false],
+        ['a still brand beside an animation brand', ftyp('avif', ['avif', 'avis']), false],
+        ['an animation brand past the scan', ftyp('avif', [...Array(60).fill('mif1'), 'avis']), false],
+    ] as const)('stores %s only when the image scrub decodes it', async (_case, bytes, stored) => {
+        const prepared = prepareFetchedImage(bytes, 'image/avif', undefined)
+        await (stored
+            ? expect(prepared).resolves.toEqual(bytes)
+            : expect(prepared).rejects.toMatchObject({ reason: 'content_type_mismatch' }))
+        expect(URL_ASSET_RULES.image.canStartWith(bytes.subarray(0, SIGNATURE_BYTES), 'image/avif')).toBe(
+            bytes.toString('latin1', 8, 12) === 'avif' && bytes.readUInt32BE(0) <= 256
+        )
+    })
+
+    it.each([
         ['a missing content-type', imageHeaders['image/png'], undefined, 'missing_content_type'],
         ['a BMP content-type', Buffer.from('BM', 'ascii'), 'image/bmp', 'unsupported_content_type'],
-        ['an AVIF content-type', AVIF_HEADER, 'image/avif', 'unsupported_content_type'],
+        ['a HEIC content-type', ftyp('heic', ['mif1', 'heic']), 'image/heic', 'unsupported_content_type'],
     ] as const)('labels %s', async (_case, bytes, contentType, reason) => {
         await expect(prepareFetchedImage(bytes, contentType, undefined)).rejects.toMatchObject({ reason })
+    })
+
+    it.each([
+        ['WOFF2', Buffer.from('wOF2body'), 'font/woff2', null],
+        [
+            'TrueType with a generic binary type',
+            Buffer.from([0x00, 0x01, 0x00, 0x00, 0x00]),
+            'binary/octet-stream',
+            null,
+        ],
+        ['OpenType', Buffer.from('OTTObody'), 'font/otf', null],
+        [
+            'an HTML error page with a generic binary type',
+            Buffer.from('<html>'),
+            'application/octet-stream',
+            'content_type_mismatch',
+        ],
+        [
+            'an Embedded OpenType font',
+            Buffer.from('\x00\x00\x01\x00LP', 'binary'),
+            'application/vnd.ms-fontobject',
+            'unsupported_content_type',
+        ],
+        ['a font with a text type', Buffer.from('wOF2body'), 'text/plain', 'unsupported_content_type'],
+    ] as const)('takes or refuses %s as a font', async (_case, bytes, contentType, reason) => {
+        const prepared = prepareFetchedFont(gzipSync(bytes), contentType, 'gzip')
+        await (reason === null
+            ? expect(prepared).resolves.toEqual(bytes)
+            : expect(prepared).rejects.toMatchObject({ reason }))
     })
 })

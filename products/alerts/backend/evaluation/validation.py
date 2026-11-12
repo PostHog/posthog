@@ -189,9 +189,13 @@ def _validate_metrics_alert_config(ctx: _AlertConfigValidationContext) -> None:
     except Exception:
         raise ValueError(f"Alert has invalid MetricsAlertConfig: {ctx.config}")
     try:
-        MetricsQuery.model_validate(ctx.query)
+        metrics_query = MetricsQuery.model_validate(ctx.query)
     except Exception as e:
         raise ValueError(f"Alert's insight has an invalid MetricsQuery: {e}")
+    # Derived series read spans and logs, and stored alert results skip the tracing and logs access checks.
+    # Keep in sync with DERIVED_METRIC_PREFIX in products/metrics/backend/facade/contracts.py.
+    if any(clause.metricName.startswith("posthog.derived.") for clause in metrics_query.clauses):
+        raise ValueError("Alerts on derived metrics (posthog.derived.*) are not supported yet.")
     threshold = _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
     # An ongoing (still accumulating) bucket only under-counts, so a lower bound would false-fire
     # on every partial bucket — same guard as trends.

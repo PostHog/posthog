@@ -9,9 +9,9 @@ use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_coordination::types::{
-    AssignmentPrecondition, AssignmentStatus, ChangelogConfig, ChangelogTarget, DrainReport,
-    Generation, HandoffPhase, HandoffState, MigrationPhase, MigrationRequest, MigrationState,
-    PartitionAssignment, SealAck,
+    AssignmentPrecondition, AssignmentStatus, ChangelogConfig, ChangelogTarget, ClusterEndpoint,
+    DrainReport, Generation, HandoffPhase, HandoffState, MigrationPhase, MigrationRequest,
+    MigrationState, PartitionAssignment, SealAck,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -175,6 +175,7 @@ async fn an_acquisition_parks_until_the_config_reaches_the_handoffs_epoch() {
 
     store
         .put_changelog_config(&ChangelogConfig {
+            cluster: None,
             topic: TOPIC.to_string(),
             partitions: PARTITIONS,
             epoch: 2,
@@ -196,16 +197,31 @@ async fn an_acquisition_parks_until_the_config_reaches_the_handoffs_epoch() {
 // ── The saga ────────────────────────────────────────────────────
 
 const TOPIC_V2: &str = "personhog_updates_test_v2";
+const TOPIC_V3: &str = "personhog_updates_test_v3";
+
+fn endpoint(name: &str) -> ClusterEndpoint {
+    ClusterEndpoint {
+        name: name.to_string(),
+        hosts: format!("{name}:9092"),
+        tls: false,
+    }
+}
+
+fn dedicated() -> ClusterEndpoint {
+    endpoint("dedicated")
+}
 
 fn migration(id: &str, to_partitions: u32) -> MigrationState {
     let now_ms = now_ms();
     MigrationState {
         id: id.to_string(),
         from: ChangelogTarget {
+            cluster: None,
             topic: TOPIC.to_string(),
             partitions: PARTITIONS,
         },
         to: ChangelogTarget {
+            cluster: None,
             topic: TOPIC_V2.to_string(),
             partitions: to_partitions,
         },
@@ -362,7 +378,37 @@ async fn a_grow_migration_restarts_every_partition_over_the_new_changelog() {
         assert!(store.remove_changelog_retire_group(group).await.unwrap());
     }
 
-    assert!(store.create_migration(&migration("m-1", 8)).await.unwrap());
+    let (live, rev) = store
+        .get_changelog_config_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!store
+        .set_changelog_cluster(&live, rev - 1, &endpoint("ingestion"))
+        .await
+        .unwrap());
+    assert!(store
+        .set_changelog_cluster(&live, rev, &endpoint("ingestion"))
+        .await
+        .unwrap());
+    let (named, rev) = store
+        .get_changelog_config_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (named.cluster.clone(), named.epoch),
+        (Some(endpoint("ingestion")), 1)
+    );
+    assert!(!store
+        .set_changelog_cluster(&named, rev, &dedicated())
+        .await
+        .unwrap());
+
+    let mut grow = migration("m-1", 8);
+    grow.from = named.target();
+    grow.to.cluster = Some(dedicated());
+    assert!(store.create_migration(&grow).await.unwrap());
     wait_for_phase(&store, MigrationPhase::Sealing).await;
     for h in store.list_handoffs().await.unwrap() {
         assert_eq!(h.held_by.as_deref(), Some("m-1"), "{h:?}");
@@ -389,12 +435,14 @@ async fn a_grow_migration_restarts_every_partition_over_the_new_changelog() {
     let config = store.get_changelog_config().await.unwrap().unwrap();
     assert_eq!(config.topic, TOPIC_V2);
     assert_eq!(config.partitions, 8);
+    assert_eq!(config.cluster, Some(dedicated()));
     assert_eq!(config.epoch, 2);
     assert_eq!(config.writer_group, "writer");
     assert_eq!(config.retire_groups, vec!["relay".to_string()]);
     assert_eq!(
         config.draining,
         vec![Generation {
+            cluster: Some(endpoint("ingestion")),
             topic: TOPIC.to_string(),
             partitions: PARTITIONS,
             epoch: 1,
@@ -448,6 +496,35 @@ async fn a_grow_migration_restarts_every_partition_over_the_new_changelog() {
         .unwrap()
         .draining
         .is_empty());
+
+    let live = store.get_changelog_config().await.unwrap().unwrap();
+    let mut onward = migration("m-2", 8);
+    onward.from = live.target();
+    onward.to = ChangelogTarget {
+        cluster: Some(endpoint("onward")),
+        topic: TOPIC_V3.to_string(),
+        partitions: 8,
+    };
+    assert!(store.create_migration(&onward).await.unwrap());
+    wait_for_phase(&store, MigrationPhase::Sealing).await;
+    for pod in ["writer-0", "writer-1"] {
+        ack_seal(&store, "m-2", pod, 0..8).await;
+    }
+    assert_eq!(
+        wait_for_archive(&store, "m-2").await.phase,
+        MigrationPhase::Complete
+    );
+    let config = store.get_changelog_config().await.unwrap().unwrap();
+    assert_eq!(config.cluster, Some(endpoint("onward")));
+    assert_eq!(
+        config.draining,
+        vec![Generation {
+            cluster: Some(dedicated()),
+            topic: TOPIC_V2.to_string(),
+            partitions: 8,
+            epoch: 2,
+        }]
+    );
     cancel.cancel();
 }
 
@@ -467,6 +544,15 @@ async fn a_shrink_migration_dissolves_the_partitions_past_the_new_space() {
     wait_for_steady_state(&store, PARTITIONS).await;
 
     assert!(store.create_migration(&migration("m-1", 2)).await.unwrap());
+    let (live, rev) = store
+        .get_changelog_config_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!store
+        .set_changelog_cluster(&live, rev, &dedicated())
+        .await
+        .unwrap());
     wait_for_phase(&store, MigrationPhase::Sealing).await;
     ack_seal_all(&store, "m-1", &["writer-0", "writer-1"]).await;
 
@@ -675,12 +761,14 @@ const TOPIC_V0: &str = "personhog_updates_test_v0";
 
 fn draining_config(retire_groups: &[&str]) -> ChangelogConfig {
     ChangelogConfig {
+        cluster: None,
         topic: TOPIC.to_string(),
         partitions: PARTITIONS,
         epoch: 1,
         writer_group: "writer".to_string(),
         retire_groups: retire_groups.iter().map(|g| g.to_string()).collect(),
         draining: vec![Generation {
+            cluster: None,
             topic: TOPIC_V0.to_string(),
             partitions: PARTITIONS,
             epoch: 0,
@@ -938,6 +1026,7 @@ async fn a_plan_lands_only_on_the_basis_it_was_read_on() {
 
     // The saga flips and is archived: the migration key is absent again.
     let flipped = ChangelogConfig {
+        cluster: None,
         topic: TOPIC_V2.to_string(),
         partitions: 8,
         epoch: 2,
@@ -1038,10 +1127,12 @@ fn request(id: &str, to_partitions: u32) -> MigrationRequest {
     MigrationRequest {
         id: id.to_string(),
         from: ChangelogTarget {
+            cluster: None,
             topic: TOPIC.to_string(),
             partitions: PARTITIONS,
         },
         to: ChangelogTarget {
+            cluster: None,
             topic: TOPIC_V2.to_string(),
             partitions: to_partitions,
         },
@@ -1173,6 +1264,15 @@ async fn a_request_waits_holding_nothing_until_the_fleet_is_quiet() {
         .unwrap()
         .iter()
         .all(|h| !h.is_held()));
+    let (live, rev) = store
+        .get_changelog_config_with_mod_revision()
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!store
+        .set_changelog_cluster(&live, rev, &endpoint("ingestion"))
+        .await
+        .unwrap());
 
     // The stand-in dies; the planner clears its handoffs, then the saga starts quiet.
     store.revoke_lease(lease).await.unwrap();
@@ -1252,6 +1352,7 @@ async fn a_request_from_a_skewed_clock_is_not_expired_on_arrival() {
 async fn only_a_completed_migration_retires_its_source_topic() {
     let Fleet { store, cancel, .. } = fleet("migration-retired-topic").await;
     let target = |topic: &str| ChangelogTarget {
+        cluster: None,
         topic: topic.to_string(),
         partitions: 8,
     };
@@ -1414,7 +1515,7 @@ async fn a_follower_reports_each_generation_it_proves_drained() {
         .select_topic(&draining_config(&[]), |_| async { Ok(true) })
         .await
         .unwrap();
-    assert_eq!(topic, TOPIC);
+    assert_eq!(topic.topic, TOPIC);
 
     let reporter = Reporter {
         group: "writer".to_string(),

@@ -20,7 +20,7 @@ export const getEveSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai @opentelemetry/api @opentelemetry/exporter-trace-otlp-http @opentelemetry/sdk-trace-base @vercel/otel
+                            npm install @posthog/ai@8 @opentelemetry/api @opentelemetry/exporter-trace-otlp-http @opentelemetry/sdk-trace-base @vercel/otel
                         `}
                     />
 

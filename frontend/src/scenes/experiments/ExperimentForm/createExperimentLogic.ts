@@ -28,6 +28,10 @@ import type {
     ExperimentFeatureFlagFiltersApi,
     ExperimentTypeEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
+import {
+    alignMetricsWithExposure,
+    getWarehouseNativeExposure,
+} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 import { visionScannersCreate } from 'products/replay_vision/frontend/generated/api'
 import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 
@@ -232,13 +236,22 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             {
                 setExperiment: (_, { experiment }) => experiment,
                 setExperimentValue: (state, { name, value }) => ({ ...state, [name]: value }),
-                setExposureCriteria: (state, { criteria }) => ({
-                    ...state,
-                    exposure_criteria: {
-                        ...state.exposure_criteria,
-                        ...criteria,
-                    },
-                }),
+                setExposureCriteria: (state, { criteria }) => {
+                    const exposureCriteria = { ...state.exposure_criteria, ...criteria }
+                    const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
+                    return {
+                        ...state,
+                        exposure_criteria: exposureCriteria,
+                        // The API rejects a metric on another connection or unit than the exposure
+                        ...(warehouseExposure && {
+                            metrics: alignMetricsWithExposure(state.metrics ?? [], warehouseExposure),
+                            metrics_secondary: alignMetricsWithExposure(
+                                state.metrics_secondary ?? [],
+                                warehouseExposure
+                            ),
+                        }),
+                    }
+                },
                 setFeatureFlagConfig: (state, { config }) => {
                     const currentConfig = state.feature_flag_config ?? {}
                     const filters: ExperimentFeatureFlagFiltersApi = { ...currentConfig.filters }
@@ -538,13 +551,13 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                                 label: 'Set up experiment scanner',
                                 action: () =>
                                     router.actions.push(
-                                        combineUrl(
-                                            urls.replayVisionScannerDetails('new'),
-                                            experimentScannerParams({
+                                        combineUrl(urls.replayVisionScannerDetails('new'), {
+                                            ...experimentScannerParams({
                                                 experimentId: response.id as number,
                                                 variantKey: null,
-                                            })
-                                        ).url
+                                            }),
+                                            entry_point: 'experiment_create_wizard_retry',
+                                        }).url
                                     ),
                             },
                         })

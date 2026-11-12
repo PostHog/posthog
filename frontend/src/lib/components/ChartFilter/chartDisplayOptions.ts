@@ -142,6 +142,18 @@ export function getChartDisplayOptions({
                     label: 'Stacked bar chart',
                     description: 'Trends over time as vertical bars.',
                 },
+                ...(hasMetricInsight
+                    ? [
+                          {
+                              display: ChartDisplayType.Metric,
+                              icon: 'metric' as const,
+                              label: 'Metric',
+                              description: 'A headline value with a sparkline and period-over-period change.',
+                              disabledReason:
+                                  trendsOnlyDisabledReason || breakdownDisabledReason || singleSeriesOnlyDisabledReason,
+                          },
+                      ]
+                    : []),
                 {
                     display: ChartDisplayType.BoxPlot,
                     icon: 'bar',
@@ -181,18 +193,6 @@ export function getChartDisplayOptions({
                     disabledReason:
                         trendsOnlyDisabledReason || breakdownDisabledReason || singleSeriesOnlyDisabledReason,
                 },
-                ...(hasMetricInsight
-                    ? [
-                          {
-                              display: ChartDisplayType.Metric,
-                              icon: 'metric' as const,
-                              label: 'Metric',
-                              description: 'A headline value with a sparkline and period-over-period change.',
-                              disabledReason:
-                                  trendsOnlyDisabledReason || breakdownDisabledReason || singleSeriesOnlyDisabledReason,
-                          },
-                      ]
-                    : []),
                 {
                     display: ChartDisplayType.ActionsPie,
                     icon: 'pie',

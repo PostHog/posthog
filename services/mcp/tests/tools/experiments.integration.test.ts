@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, serverDetailOf } from '@/lib/errors'
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -347,8 +347,8 @@ describe('Experiments', { concurrent: false }, () => {
             const created = parseToolResponse(createResult)
             trackExperiment(created)
 
-            await expect(
-                updateTool.handler(context, {
+            const error = await updateTool
+                .handler(context, {
                     id: created.id,
                     metrics: [
                         {
@@ -359,7 +359,9 @@ describe('Experiments', { concurrent: false }, () => {
                         },
                     ],
                 } as any)
-            ).rejects.toThrow(/not found/)
+                .catch((caught: unknown) => caught)
+
+            expect(serverDetailOf(error)).toMatch(/not found/)
         })
 
         it('should create an experiment with minimum detectable effect', async () => {

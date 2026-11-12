@@ -81,7 +81,6 @@ plugins/posthog/checkout-skills.ready
 .claude/settings.local.json
 CLAUDE.local.md
 
-apps/mobile/ROADMAP.md
 # Local quill tarball for ChatX thread testing (not committed)
 .local-quill/
 

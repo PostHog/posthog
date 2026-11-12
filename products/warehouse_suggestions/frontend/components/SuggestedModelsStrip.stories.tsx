@@ -2,11 +2,15 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import { DataModelingSyncInterval } from '~/types'
 
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from '../generated/api.schemas'
+import type { MainSavingKind } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { QuillSuggestedModelsStrip } from './QuillSuggestedModelsStrip'
 import { SuggestedModelsStrip } from './SuggestedModelsStrip'
 
 const LIST_URL = '/api/projects/:team_id/warehouse_suggestions/'
@@ -21,19 +25,33 @@ const status: WarehouseSuggestionStatusApi = {
     window_days: 30,
     paused_reason: null,
     refreshed_at: '2026-10-07T08:30:00Z',
+    waiting: 0,
+    can_show_more: false,
 }
 
 interface MaterializeOptions {
     canAct?: boolean
     unknownSources?: boolean
     incremental?: boolean
+    backgroundSeconds?: number
+    readSeconds?: number
+    main?: MainSavingKind
+    savedBytes?: number
 }
 
 function materialize(
     id: string,
     name: string,
     savedSeconds: number,
-    { canAct = true, unknownSources = false, incremental = false }: MaterializeOptions = {}
+    {
+        canAct = true,
+        unknownSources = false,
+        incremental = false,
+        backgroundSeconds = 0,
+        readSeconds = 12,
+        main = 'waiting',
+        savedBytes = 3 * 10 ** 12,
+    }: MaterializeOptions = {}
 ): WarehouseSuggestionApi {
     return {
         id,
@@ -44,7 +62,11 @@ function materialize(
             subject_name: name,
             refresh_interval_seconds: 86400,
             saves_seconds_per_month: savedSeconds,
-            saves_bytes_per_month: 3 * 10 ** 12,
+            saves_bytes_per_month: savedBytes,
+            waiting_seconds_saved_per_month: savedSeconds - backgroundSeconds,
+            background_seconds_saved_per_month: backgroundSeconds,
+            main_saving: main,
+            read_seconds: readSeconds,
             freshness_today_seconds: 3600,
             freshness_after_seconds: 90000,
             live_sources: { names: ['events'], hidden_count: 0 },
@@ -101,11 +123,31 @@ function unmaterialize(id: string, name: string): WarehouseSuggestionApi {
     }
 }
 
+function deprecate(id: string, name: string): WarehouseSuggestionApi {
+    const base = materialize(id, name, 0)
+    return {
+        ...base,
+        kind: 'deprecate',
+        payload: {
+            subject_name: name,
+            materialized: true,
+            refresh_seconds_per_month: 2700,
+            refresh_bytes_per_month: 2 * 10 ** 12,
+        },
+        evidence: { human_requests: 0, human_users: 0, human_days: 0, days_with_data: 30 },
+    }
+}
+
 const suggestions = [
-    materialize('1', 'customer_monthly_revenue', 1080),
-    materialize('2', 'sessions_by_plan_daily', 2400),
-    materialize('3', 'stripe_invoices_enriched', 0, { unknownSources: true }),
+    materialize('1', 'customer_monthly_revenue', 1080, { backgroundSeconds: -720, readSeconds: 45 }),
+    materialize('2', 'team_usage_rollup', 32400, { backgroundSeconds: 32400, main: 'background' }),
+    materialize('3', 'stripe_invoices_enriched', 600, {
+        unknownSources: true,
+        main: 'scanned',
+        savedBytes: 100 * 10 ** 12,
+    }),
     unmaterialize('4', 'legacy_signup_funnel'),
+    deprecate('5', 'old_campaign_rollup'),
 ]
 
 const manySuggestions = Array.from({ length: 7 }, (_, index) =>
@@ -120,6 +162,7 @@ interface StripStoryProps {
     width?: 'normal' | 'narrow'
     openDialogWithInterval?: DataModelingSyncInterval
     confirmSuggestionId?: string
+    catalogDialogs?: boolean
 }
 
 function StripStory({
@@ -130,6 +173,7 @@ function StripStory({
     width,
     openDialogWithInterval,
     confirmSuggestionId,
+    catalogDialogs,
 }: StripStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
@@ -157,7 +201,7 @@ function StripStory({
         if (stripState !== 'active') {
             return
         }
-        if (reviewOpen || openDialogWithInterval || confirmSuggestionId) {
+        if (reviewOpen || (!catalogDialogs && (openDialogWithInterval || confirmSuggestionId))) {
             logic.actions.openReview()
         }
         if (confirmSuggestionId) {
@@ -168,11 +212,17 @@ function StripStory({
         }
         logic.actions.openMaterializeModal(results[0].id)
         logic.actions.setMaterializeInterval(openDialogWithInterval)
-    }, [reviewOpen, openDialogWithInterval, confirmSuggestionId, stripState, logic, results])
+    }, [reviewOpen, openDialogWithInterval, confirmSuggestionId, catalogDialogs, stripState, logic, results])
 
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
-            <SuggestedModelsStrip />
+            {catalogDialogs ? (
+                <div data-quill>
+                    <QuillSuggestedModelsStrip />
+                </div>
+            ) : (
+                <SuggestedModelsStrip />
+            )}
         </div>
     )
 }
@@ -208,6 +258,11 @@ export const NotEligible: Story = { args: { results: [], statusOverrides: { elig
 
 export const LoadFailed: Story = { args: { failing: true } }
 
+export const MoreWaiting: Story = {
+    args: { results: [], statusOverrides: { waiting: 4, can_show_more: true } },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
 export const ReviewDialogManySuggestions: Story = {
     args: { reviewOpen: true, results: manySuggestions },
     parameters: DIALOG_SNAPSHOT,
@@ -232,4 +287,69 @@ export const MaterializeDialogIncrementalProposal: Story = {
 export const StopMaterializingDialog: Story = {
     args: { confirmSuggestionId: '4' },
     parameters: DIALOG_SNAPSHOT,
+}
+
+export const BannerOnlyUnusedViews: Story = {
+    args: { results: [deprecate('5', 'old_campaign_rollup'), deprecate('6', 'q3_signup_export')] },
+}
+
+export const DeprecateDialog: Story = {
+    args: { confirmSuggestionId: '5' },
+    parameters: DIALOG_SNAPSHOT,
+}
+
+const CATALOG_DIALOG_SNAPSHOT: Story['parameters'] = {
+    ...DIALOG_SNAPSHOT,
+    featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+    testOptions: { ...DIALOG_SNAPSHOT.testOptions, snapshotBrowsers: [] },
+}
+
+export const CatalogBanner: Story = { args: { catalogDialogs: true }, parameters: CATALOG_DIALOG_SNAPSHOT }
+
+export const CatalogBannerNarrow: Story = {
+    args: { catalogDialogs: true, width: 'narrow' },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogWarmingUp: Story = {
+    args: { catalogDialogs: true, results: [], statusOverrides: { days_with_data: 12 } },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogReviewDialogWithUnusedViews: Story = {
+    args: { catalogDialogs: true, reviewOpen: true },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogDeprecateDialog: Story = {
+    args: { catalogDialogs: true, confirmSuggestionId: '5' },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogReviewDialog: Story = {
+    args: { catalogDialogs: true, reviewOpen: true, results: manySuggestions },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogMaterializeDialogIncrementalProposal: Story = {
+    args: {
+        catalogDialogs: true,
+        results: [materialize('1', 'sessions_by_plan_daily', 2400, { incremental: true })],
+        openDialogWithInterval: '24hour',
+    },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogMaterializeDialogLongerScheduleUnknownSources: Story = {
+    args: {
+        catalogDialogs: true,
+        results: [materialize('3', 'stripe_invoices_enriched', 1080, { unknownSources: true })],
+        openDialogWithInterval: '7day',
+    },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
+}
+
+export const CatalogStopMaterializingDialog: Story = {
+    args: { catalogDialogs: true, confirmSuggestionId: '4' },
+    parameters: CATALOG_DIALOG_SNAPSHOT,
 }

@@ -1,13 +1,15 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
-import __dashboard1 from 'scenes/dashboard/__mocks__/dashboard1.json'
-import __dashboards from 'scenes/dashboard/__mocks__/dashboards.json'
-import { AddInsightToDashboardModal } from 'scenes/dashboard/addInsightToDashboardModal/AddInsightToDashboardModal'
-import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import __dashboard1 from '../../__mocks__/dashboard1.json'
+import __dashboards from '../../__mocks__/dashboards.json'
+import { addInsightToDashboardLogic } from '../../addInsightToDashboardModalLogic'
+import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 
 const dashboardRaw = __dashboard1 as any
 
@@ -90,6 +92,13 @@ export const Default: Story = {
 
 export const WithMoreInsightTypes: Story = {
     render: () => <ModalStory showMore />,
+}
+
+export const WithMoreInsightTypesAndMetrics: Story = {
+    render: () => <ModalStory showMore />,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.METRICS, FEATURE_FLAGS.METRICS_INSIGHT_BUILDER],
+    },
 }
 
 export const Empty: Story = {

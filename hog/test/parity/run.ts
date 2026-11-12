@@ -2,20 +2,45 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
+import { z } from 'zod'
 
 import { run } from '@/cli'
 import { processRuntime } from '@/core/runtime'
+import { readJson } from '@/testing'
 
 import { startFakeServer } from './fake-server'
 import { write } from './fixtures'
-import { normalize, type NormalizedRequest } from './normalize'
+import { normalize } from './normalize'
 import type { ParityScenario } from './scenarios'
 
-export interface ParityResult {
-    exitCode: number
-    requests: NormalizedRequest[]
+// Strict, so a golden with a field hog doesn't produce fails the comparison instead of losing it.
+const ParityResultSchema = z.strictObject({
+    exitCode: z.number(),
+    requests: z.array(
+        z.strictObject({
+            method: z.string(),
+            path: z.string(),
+            headers: z.record(z.string(), z.string()),
+            body: z.string().optional(),
+            upload: z
+                .strictObject({
+                    sha512: z.string(),
+                    length: z.number(),
+                    fields: z.record(z.string(), z.string()).optional(),
+                    filename: z.string().optional(),
+                })
+                .optional(),
+            status: z.number(),
+        })
+    ),
     // The files the run created or changed, and null for the ones it deleted.
-    files?: Record<string, string | null>
+    files: z.record(z.string(), z.string().nullable()).optional(),
+})
+
+export type ParityResult = z.output<typeof ParityResultSchema>
+
+export function readGolden(name: string): ParityResult {
+    return readJson(readFileSync(join(import.meta.dir, 'golden', 'e2e', `${name}.json`), 'utf8'), ParityResultSchema)
 }
 
 // posthog-cli reads the POSTHOG_CLI_ names and hog the HOG_ ones, so both CLIs get the same credentials.
@@ -27,9 +52,12 @@ function environment(serverUrl: string, home: string): Record<string, string> {
         POSTHOG_CLI_API_KEY: 'phx_parity',
         POSTHOG_CLI_PROJECT_ID: '1',
         POSTHOG_CLI_HOST: serverUrl,
-        HOG_API_KEY: 'phx_parity',
+        HOG_PERSONAL_API_KEY: 'phx_parity',
         HOG_PROJECT_ID: '1',
         HOG_HOST: serverUrl,
+        // hog runs on the real process runtime here, so without this every scenario would send usage
+        // events, and every expected failure a real exception, to PostHog's own project.
+        HOG_NO_TELEMETRY: '1',
         NO_COLOR: '1',
     }
 }
@@ -61,7 +89,7 @@ export function decodeFile(text: string): Uint8Array {
 function changedFiles(
     folder: string,
     inputs: Record<string, string | Uint8Array>,
-    options: { full: boolean; randomIds: boolean }
+    options: { full: boolean; randomIds: boolean; schemaConfig: boolean }
 ): Record<string, string | null> {
     const before: Record<string, string> = {}
     for (const [path, contents] of Object.entries(inputs)) {
@@ -73,6 +101,9 @@ function changedFiles(
         if (before[path] !== after[path]) {
             changed[path] = after[path] ?? null
         }
+    }
+    if (options.schemaConfig && changed['posthog.json']) {
+        changed['posthog.json'] = schemaConfig(changed['posthog.json'])
     }
     if (options.full) {
         return changed
@@ -88,6 +119,26 @@ function changedFiles(
                 : `sha512:${createHash('sha512').update(text).digest('hex')}`,
         ])
     )
+}
+
+// The CLIs write posthog.json in their own format: hog keeps the file's other keys and adds `$schema` and a
+// final newline, and posthog-cli writes keys in HashMap order. Each also stamps its own `updated_at`. So the
+// file is compared by its content, with sorted keys, and only the generated module byte for byte.
+function schemaConfig(text: string): string {
+    const sorted = (value: unknown): unknown =>
+        value && typeof value === 'object' && !Array.isArray(value)
+            ? Object.fromEntries(
+                  Object.keys(value)
+                      .filter((key) => key !== '$schema')
+                      .sort()
+                      .map((key) => [
+                          key,
+                          key === 'updated_at' ? '<time>' : sorted((value as Record<string, unknown>)[key]),
+                      ])
+              )
+            : value
+    const config = readJson(strictUtf8.decode(decodeFile(text)), z.record(z.string(), z.unknown()))
+    return `utf8:${JSON.stringify(sorted(config), null, 2)}`
 }
 
 function snapshot(folder: string): Record<string, string> {
@@ -162,6 +213,7 @@ export async function runScenario(scenario: ParityScenario, cli: { rust: string 
                       files: changedFiles(folder, inputs, {
                           full: scenario.fullSnapshot === true,
                           randomIds: scenario.randomIds === true,
+                          schemaConfig: scenario.schemaConfig === true,
                       }),
                   }
                 : {}),

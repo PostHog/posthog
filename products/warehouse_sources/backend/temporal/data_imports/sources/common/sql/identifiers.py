@@ -34,17 +34,21 @@ class InvalidIdentifierError(ValueError):
     """
 
 
-_ALLOWED_EXTRA_CHARS = set("._-$@")
+_ALLOWED_EXTRA_CHARS = set("._-$@#")
 _ALL_DIGITS = re.compile(r"^\d+$")
 
 
 def _validate_identifier(identifier: str) -> None:
     """Allowlist check shared by every concrete quoter.
 
-    Accepts: alphanumeric plus `.`, `_`, `-`, `$`, `@`. An identifier that
-    is nothing but digits is also allowed (matches today's MySQL behavior
-    where `"851"` is quoted verbatim). Anything else — whitespace, a
-    semicolon, a quote character, a NUL byte — raises.
+    Accepts: alphanumeric plus `.`, `_`, `-`, `$`, `@`, `#`. An identifier
+    that is nothing but digits is also allowed (matches today's MySQL
+    behavior where `"851"` is quoted verbatim). `#` is allowed because
+    Tableau's MySQL driver creates (and sometimes leaves behind) temp
+    tables named `#Tableau_<pid>_<sid>_Connect_CheckCreateTempTableCap`
+    when it tests a connection; always wrapped in backticks, it's never
+    parsed as MySQL's `#`-starts-a-comment syntax. Anything else —
+    whitespace, a semicolon, a quote character, a NUL byte — raises.
     """
     if not identifier:
         raise InvalidIdentifierError("Identifier may not be empty")

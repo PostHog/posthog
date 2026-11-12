@@ -47,8 +47,11 @@ from products.signals.backend.report_check_final_agents import (
 from products.signals.backend.report_check_final_candidates import DueFinalCheck, collect_due_final_checks
 from products.signals.backend.report_metric_refresh import MetricMeasurement
 from products.signals.backend.report_monitoring_attempts import check_definition_version, complete_implementation
+from products.signals.backend.report_monitoring_outcomes import aggregate_monitoring_attempt
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, TRIGGERED_BY_MONITORING
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary
+from products.signals.backend.serializers import SignalReportCheckSerializer
+from products.signals.backend.task_profiles import SCOUT_FULL_NETWORK
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutInput,
     RunSignalsScoutOutput,
@@ -168,6 +171,112 @@ class FinalAuthoredAgentChecksSetup(PostHogTestCase):
 
 
 class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
+    @parameterized.expand(
+        [
+            ("running", "in_progress", "verifying"),
+            ("queued", "queued", "window_ended"),
+            ("finished", "completed", "window_ended"),
+            ("stale_run", "in_progress", "window_ended"),
+            ("old_attempt", "in_progress", "window_ended"),
+            ("missing_attempt", "in_progress", "paused"),
+            ("outside_attempt", "in_progress", "paused"),
+            ("malformed_assignment", "in_progress", "window_ended"),
+            ("changed_definition", "in_progress", "paused"),
+            ("submitted", "in_progress", "assessment_required"),
+            ("retry_backoff", "completed", "window_ended"),
+            ("archived", "in_progress", "archived"),
+        ]
+    )
+    def test_check_timing_only_verifies_a_live_current_assignment(self, case: str, status: str, state: str) -> None:
+        run = self._run("Verifying the assigned check.", status=status)
+        if case == "stale_run":
+            SignalScoutRun.objects.for_team(self.team.id).filter(id=run.id).update(
+                created_at=self.now - timedelta(seconds=STALE_RUN_CUTOFF_S)
+            )
+        elif case == "old_attempt":
+            run.metadata = {
+                "triggered_by": TRIGGERED_BY_MONITORING,
+                "run_note": build_monitoring_run_note(replace(self.binding, attempt_id=uuid4()), self.check),
+            }
+            run.save(update_fields=["metadata"])
+        elif case == "changed_definition":
+            self.check.title = "A revised expectation"
+            self.check.save(update_fields=["title"])
+        elif case == "missing_attempt":
+            self.attempt.delete()
+        elif case == "outside_attempt":
+            self.check.id = uuid4()
+            self.check.save(force_insert=True)
+        elif case == "malformed_assignment":
+            run.metadata = {
+                "triggered_by": TRIGGERED_BY_MONITORING,
+                "run_note": f"Invalid assignment for report {self.report.id}",
+            }
+            run.save(update_fields=["metadata"])
+        elif case == "submitted":
+            submit_monitoring_scout_result(
+                run, MonitoringScoutResult.model_validate_json(self._payload("insufficient"))
+            )
+        elif case == "retry_backoff":
+            self.check.monitoring_dispatch_after = self.now + timedelta(minutes=5)
+            self.check.save(update_fields=["monitoring_dispatch_after"])
+        elif case == "archived":
+            self.report.status = SignalReport.Status.SUPPRESSED
+            self.report.status_before_suppression = SignalReport.Status.MONITORING
+        self.check.report = self.report
+        self.report.team = self.team
+        context = {"report_monitoring_enabled_by_team": {self.team.id: True}, "report_check_timing_now": self.now}
+
+        expected_queries = {"archived": 0, "missing_attempt": 1, "outside_attempt": 1, "changed_definition": 1}.get(
+            case, 4
+        )
+        with self.assertNumQueries(expected_queries):
+            data = SignalReportCheckSerializer([self.check, self.check], many=True, context=context).data
+
+        final_state = state if state in {"verifying", "assessment_required"} else None
+        assert [row["monitoring_timing"]["state"] for row in data] == ["paused" if final_state else state] * 2
+        assert [row["monitoring_timing"]["final_verification_state"] for row in data] == [final_state] * 2
+        assert self.check.dispatched_at is None
+
+    @parameterized.expand(
+        [
+            ("insufficient", None, 1, "assessment_required"),
+            ("unsupported", None, 1, "assessment_required"),
+            ("errored", None, 1, "window_ended"),
+            ("errored", None, 2, "window_ended"),
+            ("errored", None, 3, "assessment_required"),
+            ("sufficient", True, 1, "verification_complete"),
+            ("sufficient", False, 1, "verification_complete"),
+        ]
+    )
+    def test_saved_evaluations_replace_pending_verification(
+        self, evidence: str, matches: bool | None, evaluations: int, state: str
+    ) -> None:
+        for _ in range(evaluations):
+            self.binding = replace(self.binding, submission_id=uuid4())
+            self.note = build_monitoring_run_note(self.binding, self.check)
+            run = self._run("Evaluating the assigned check.", status="in_progress")
+            submit_monitoring_scout_result(
+                run, MonitoringScoutResult.model_validate_json(self._payload(evidence, matches))
+            )
+        if evidence != "sufficient":
+            aggregate_monitoring_attempt(team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id)
+        self.report.refresh_from_db()
+        self.check.refresh_from_db()
+        self.report.team = self.team
+        self.check.report = self.report
+        assert self.report.status == SignalReport.Status.MONITORING
+        assert self.check.status in SignalReportCheck.OPEN_STATUSES
+
+        data = SignalReportCheckSerializer(
+            self.check,
+            context={"report_monitoring_enabled_by_team": {self.team.id: True}, "report_check_timing_now": self.now},
+        ).data
+
+        final_state = state if state in {"assessment_required", "verification_complete"} else None
+        assert data["monitoring_timing"]["state"] == ("paused" if final_state else state)
+        assert data["monitoring_timing"]["final_verification_state"] == final_state
+
     def test_due_selection_uses_original_membership_soak_and_version(self) -> None:
         assert self.binding.window_start == self.start
         assert self.binding.window_end == self.start + timedelta(hours=1)
@@ -468,7 +577,7 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
             ):
                 summary = run_due_report_checks(now=tick, limit=50)
             assert summary.dispatched == 0
-            assert summary.deferred == 25
+            assert summary.deferred == 49
             assert summary.observed == 1
         assert all(report.artefacts.filter(type="check_observation").count() == 1 for report in metric_reports)
         assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
@@ -671,7 +780,7 @@ class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBa
             "preset": "signals_scout_reports",
             "extra_write_scopes": ["notebook:write"],
         }
-        assert captured["mcp_builtin_agent_key"] == "scout"
+        assert captured["profile"] == SCOUT_FULL_NETWORK
         assert captured["model"] is SignalScoutRunSummary
         assert captured["mcp_tool_allowlist"] is None
         prompt = cast(str, captured["prompt"])

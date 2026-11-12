@@ -1,16 +1,11 @@
-// Headline-metric tile: label · value · caption, rendered with quill's MetricCard inside the
-// product's card chrome. It carries no delta, because a window comparison renders as
-// WindowComparisonCard.
-
 import { ReactNode } from 'react'
 
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import { MetricCard } from '@posthog/quill-charts'
+import { Metric, MetricSubtitle, MetricTitle, MetricValue } from '@posthog/quill-components/metric'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
 
-/** Relative change in percent, or null when there's no meaningful baseline. */
 export function percentChange(current: number | null | undefined, previous: number | null | undefined): number | null {
     if (current == null || previous == null || previous === 0) {
         return null
@@ -18,7 +13,6 @@ export function percentChange(current: number | null | undefined, previous: numb
     return ((current - previous) / previous) * 100
 }
 
-/** Percentage-point change for 0–1 rates, or null when either window has no signal. */
 export function pointChange(current: number | null | undefined, previous: number | null | undefined): number | null {
     if (current == null || previous == null) {
         return null
@@ -26,17 +20,14 @@ export function pointChange(current: number | null | undefined, previous: number
     return (current - previous) * 100
 }
 
-/** Compact inline delta against the previous window, for `WindowComparisonCard`. Never put it in a table cell. */
 export function DeltaBadge({
     value,
     unit = '%',
     goodWhenDown = false,
     precision = 0,
 }: {
-    /** The delta to show; null hides the badge (no baseline to compare against). */
     value: number | null
     unit?: string
-    /** For costs, durations, and failures, a drop is the good direction. */
     goodWhenDown?: boolean
     precision?: number
 }): JSX.Element | null {
@@ -74,14 +65,9 @@ export function MetricTile({
     className,
 }: {
     label: string
-    /** Definition or methodology, shown on label hover. */
     tooltip?: ReactNode
-    /** Pre-formatted headline value; '—' for no data. */
     value: string
-    /** Visible caption, only for an answer worth a glance (what's failing, why there's no value). */
     sub?: ReactNode
-    /** Backend load in flight: skeleton the value so it doesn't flash a stale/zero number. Only for a
-     *  genuine reload. Derivations that resolve instantly on the client never pass this. */
     loading?: boolean
     className?: string
 }): JSX.Element {
@@ -97,22 +83,19 @@ export function MetricTile({
             hoverEffect={false}
             className={cn('flex min-w-44 flex-1 flex-col justify-center px-5 py-4', className)}
         >
-            {/* MetricCard has no loading prop; skeleton the whole tile on a genuine reload so it never
-                flashes a stale/zero headline (the loading-states rule). */}
+            {/* Metric has no loading prop, so the whole tile skeletons during a reload. */}
             {loading ? (
                 <div className="flex flex-col gap-2 py-1">
                     <LemonSkeleton className="h-3 w-24" />
                     <LemonSkeleton className="h-7 w-20" />
                 </div>
             ) : (
-                <MetricCard
-                    title={labelNode}
-                    // These tiles have no series data and often a non-numeric headline ("3 / 5", "2h 10m"),
-                    // so the pre-formatted display string rides through MetricCard's formatter.
-                    value={0}
-                    formatValue={() => value}
-                    subtitle={sub}
-                />
+                // The headline is often non-numeric ("3 / 5", "2h 10m"), so it renders as children.
+                <Metric value={0} subtitle={sub} className="px-0">
+                    <MetricTitle>{labelNode}</MetricTitle>
+                    <MetricValue className="mt-2">{value}</MetricValue>
+                    <MetricSubtitle className="mt-1" />
+                </Metric>
             )}
         </LemonCard>
     )

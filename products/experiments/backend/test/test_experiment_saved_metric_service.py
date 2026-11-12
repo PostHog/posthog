@@ -9,6 +9,7 @@ from posthog.models import Team
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 _THRESHOLD_MEAN: dict[str, object] = {
     "kind": "ExperimentMetric",
@@ -22,13 +23,24 @@ _WAREHOUSE_NATIVE_MEAN: dict[str, object] = {
     "source": {
         "kind": "ExperimentWarehouseNativeNode",
         "connection_id": "00000000-0000-0000-0000-000000000000",
-        "query": "SELECT user_id AS entity_id, paid_at AS timestamp, amount AS value FROM payments",
+        "query": "SELECT user_id AS entity_id, paid_at AS timestamp, amount FROM payments",
+        "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
         "math": "sum",
+        "math_property": "amount",
     },
 }
 
 _SHARED_RULE_CASES: list[tuple[str, dict[str, object], str]] = [
-    ("warehouse_native_not_supported_yet", _WAREHOUSE_NATIVE_MEAN, "warehouse-native sources are not supported yet"),
+    (
+        "ratio_mixing_warehouse_native_and_events",
+        {
+            "kind": "ExperimentMetric",
+            "metric_type": "ratio",
+            "numerator": _WAREHOUSE_NATIVE_MEAN["source"],
+            "denominator": {"kind": "EventsNode", "event": "$pageview"},
+        },
+        "cannot mix a warehouse-native source with PostHog events",
+    ),
     (
         "funnel_without_steps",
         {"kind": "ExperimentMetric", "metric_type": "funnel", "series": []},
@@ -132,7 +144,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
                     "metric_type": "invalid",
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
-                "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'",
+                "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', 'retention', or 'quantile'",
             ),
             (
                 "conversion_window_on_exposure_start_retention",
@@ -367,6 +379,46 @@ class TestExperimentSavedMetricService(APIBaseTest):
 
         assert not ExperimentSavedMetric.objects.filter(id=saved_metric.id).exists()
         assert ExperimentToSavedMetric.objects.filter(experiment_id=experiment.id).count() == 0
+
+    @parameterized.expand([("linked_experiment", False), ("only_a_deleted_experiment", True)])
+    def test_update_saved_metric_checks_a_warehouse_native_query_against_the_linked_experiments(
+        self, _name: str, experiment_deleted: bool
+    ) -> None:
+        saved_metric = self._service().create_saved_metric(name="Pageviews", query=self._valid_experiment_metric())
+        experiment = ExperimentService(team=self.team, user=self.user).create_experiment(
+            name="Events experiment",
+            feature_flag_key="events-experiment-shared-metric",
+            saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+        )
+        experiment.deleted = experiment_deleted
+        experiment.save(update_fields=["deleted"])
+        bigquery = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type="BigQuery",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        source = dict(_WAREHOUSE_NATIVE_MEAN["source"])  # type: ignore[call-overload]
+        source["connection_id"] = str(bigquery.id)
+        query = {**_WAREHOUSE_NATIVE_MEAN, "source": source}
+
+        with patch(
+            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
+        ):
+            if experiment_deleted:
+                self._service().update_saved_metric(saved_metric, {"query": query})
+                saved_metric.refresh_from_db()
+                assert saved_metric.query["source"]["kind"] == "ExperimentWarehouseNativeNode"
+                return
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().update_saved_metric(saved_metric, {"query": query})
+
+        assert "A linked experiment uses this metric" in str(ctx.exception)
+        assert "Events experiment" not in str(ctx.exception)
+        assert "needs a warehouse-native exposure" in str(ctx.exception)
+        saved_metric.refresh_from_db()
+        assert saved_metric.query["source"]["kind"] == "EventsNode"
 
     def test_update_saved_metric_does_not_delete_links_on_validation_error(self) -> None:
         saved_metric = ExperimentSavedMetric.objects.create(

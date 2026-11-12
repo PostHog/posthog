@@ -5,8 +5,11 @@ export function formatRankingProbability(probability: number): string {
     return oneDecimal >= 10 ? `${Math.round(percent)}%` : `${oneDecimal.toFixed(1)}%`
 }
 
-/** One decimal below 10x, no decimals at 10x and above. */
+/** One decimal below 10x, no decimals at 10x and above. A lift under 0.1x reads `<0.1x`, because `0.0x` reads like a bug. */
 export function formatRankingLift(lift: number): string {
+    if (lift < 0.1) {
+        return '<0.1x'
+    }
     const oneDecimal = Math.round(lift * 10) / 10
     return oneDecimal >= 10 ? `${Math.round(lift)}x` : `${oneDecimal.toFixed(1)}x`
 }

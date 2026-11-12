@@ -154,7 +154,7 @@ attribute is set on the wrapper for debugging.
 
 - Feature Flag — `frontend/src/scenes/feature-flags/FeatureFlag.tsx`
 - Insight — `products/product_analytics/frontend/insights/insightScene/sidePanel/InsightSceneMenuBar.tsx`
-- Dashboard — `frontend/src/scenes/dashboard/DashboardSceneMenuBar.tsx`
+- Dashboard — `products/dashboards/frontend/DashboardSceneMenuBar.tsx`
 
 When migrating a new scene, follow the `<Scene>SceneMenuBar.tsx` pattern (component
 that reads `featureFlagLogic`, early-returns null if the flag is off, otherwise renders

@@ -4,6 +4,7 @@ import { IconArrowRight } from '@posthog/icons'
 
 import { SearchItem } from 'lib/components/Search/searchItems'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { isFileSystemEntryTypeEnabled } from '~/layout/panel-layout/ProjectTree/utils'
 import { fileSystemTypes } from '~/products'
@@ -20,6 +21,12 @@ const TYPE_ALIASES: Record<string, string[]> = {
     early_access_feature: ['eaf', 'beta'],
     workflows: ['workflow'],
     notebook: ['doc'],
+    alert: ['alerts'],
+    ticket: ['tickets', 'support'],
+    endpoints: ['endpoint'],
+    person: ['persons', 'people'],
+    'hog_function/destination': ['destinations'],
+    'hog_function/transformation': ['transformations'],
 }
 
 interface FileSystemTypeDefinition {
@@ -27,12 +34,39 @@ interface FileSystemTypeDefinition {
     iconType?: string
     listHref?: () => string
     listSearchParam?: 'search'
+    fileSystemTypes?: string[]
 }
 
-const FILE_SYSTEM_TYPES = fileSystemTypes as Record<string, FileSystemTypeDefinition>
+const EXTRA_TYPES: Record<string, FileSystemTypeDefinition> = {
+    alert: {
+        name: 'Insight alert',
+        iconType: 'inbox',
+        listHref: () => combineUrl(urls.alerts(), { alert_type: 'insights' }).url,
+    },
+    ticket: { name: 'Ticket', iconType: 'conversations', listHref: () => urls.supportTickets() },
+    'hog_function/destination': {
+        name: 'Destination',
+        iconType: 'data_destination',
+        listHref: () => urls.destinations(),
+        fileSystemTypes: ['hog_function/destination', 'hog_function/site_destination'],
+    },
+    person: { name: 'Person', iconType: 'persons', listHref: () => urls.persons(), listSearchParam: 'search' },
+    'hog_function/transformation': {
+        name: 'Transformation',
+        iconType: 'data_transformation',
+        listHref: () => urls.transformations(),
+    },
+}
+
+const COMMAND_K_TYPES: Record<string, FileSystemTypeDefinition> = {
+    ...(fileSystemTypes as Record<string, FileSystemTypeDefinition>),
+    ...EXTRA_TYPES,
+}
 
 const typeDefinition = (type: string): FileSystemTypeDefinition | undefined =>
-    Object.hasOwn(FILE_SYSTEM_TYPES, type) ? FILE_SYSTEM_TYPES[type] : undefined
+    Object.hasOwn(COMMAND_K_TYPES, type) ? COMMAND_K_TYPES[type] : undefined
+
+export const fileSystemTypesFor = (type: string): string[] => typeDefinition(type)?.fileSystemTypes ?? [type]
 
 // Some manifest names are already plural, such as "Tasks".
 export const pluralTypeName = (label: string): string => {
@@ -42,26 +76,25 @@ export const pluralTypeName = (label: string): string => {
 
 let cachedTypeOptions: ValueOption[] | null = null
 
-/** Every file system type from the product manifests, alphabetized. The manifests never change at runtime. */
+/** Every type from the product manifests plus the extra types, alphabetized. The manifests never change at runtime. */
 const typeOptions = (): ValueOption[] => {
     if (cachedTypeOptions === null) {
-        cachedTypeOptions = Object.entries(FILE_SYSTEM_TYPES)
-            .flatMap(([type, definition]) =>
-                definition.name
-                    ? [
-                          {
-                              value: type,
-                              label: definition.name,
-                              aliases: [
-                                  type,
-                                  definition.name.toLowerCase().replace(/\s+/g, '-'),
-                                  ...(TYPE_ALIASES[type] ?? []),
-                              ],
-                              iconType: definition.iconType ?? type,
-                          },
-                      ]
-                    : []
-            )
+        cachedTypeOptions = Object.entries(COMMAND_K_TYPES)
+            .flatMap(([type, definition]) => {
+                if (!definition.name) {
+                    return []
+                }
+                const typedValue = definition.name.toLowerCase().replace(/\s+/g, '-')
+                return [
+                    {
+                        value: type,
+                        label: definition.name,
+                        typedValue,
+                        aliases: [type, typedValue, ...(TYPE_ALIASES[type] ?? [])],
+                        iconType: definition.iconType ?? type,
+                    },
+                ]
+            })
             .sort((a, b) => a.label.localeCompare(b.label))
     }
     return cachedTypeOptions
@@ -109,6 +142,7 @@ interface ListPage {
 const LIST_PAGE_FALLBACKS: Record<string, ListPage> = {
     dashboard: { href: '/dashboard', searchParam: 'search' },
     notebook: { href: '/notebooks' },
+    endpoints: { href: urls.endpoints() },
 }
 
 function listPageFor(type: string): ListPage | null {

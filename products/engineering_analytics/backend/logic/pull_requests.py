@@ -1,5 +1,3 @@
-"""PR-scoped orchestration: lifecycle, runs, logs, cost, backlog cards, and lists."""
-
 from dataclasses import replace
 from datetime import datetime
 
@@ -66,9 +64,8 @@ def build_resolve_branch(
     resolved_branch = (branch or "").strip()
     if not resolved_branch:
         raise ValueError("provide a branch to resolve")
-    # repo is an optional narrowing filter: absent -> (None, None); malformed (bare org) -> raises.
     owner, name = _split_repo(repo)
-    # timestamp (the trace's capture time) only reorders results toward the PR active then; never filters.
+    # The timestamp only orders the results toward the PR that was active then. It filters nothing.
     return query_resolve_branch(
         curated=curated, branch=resolved_branch, repo_owner=owner, repo_name=name, timestamp=timestamp
     )
@@ -81,13 +78,9 @@ def build_ci_failure_logs(*, curated: CuratedGitHubSource, pr_number: int, repo:
 
 def build_pr_cost(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRCostSummary:
     owner, name = _require_repo(repo)
-    # LLM token spend is an additive component joined by branch from the events table, merged onto the
-    # CI cost summary. Kept sequential: HogQL table resolution reads warehouse metadata through the
-    # request's DB connection, which worker threads don't share.
     summary = query_pr_cost(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
-    # The spend join scans the events table across the PR's whole lifetime, so a long-lived PR on an
-    # AI-heavy team can time out; the enrichment is optional, so it degrades to null instead of
-    # taking the whole cost summary down with it.
+    # The spend join scans the events table across the PR's whole lifetime, so it can time out.
+    # The spend is optional, so a failure leaves it null and keeps the cost summary.
     try:
         llm_spend = query_pr_llm_spend(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
     except Exception:

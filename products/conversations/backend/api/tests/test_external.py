@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
+from django.core.cache import cache
 from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -14,6 +15,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import ActivityLog, Comment, Team
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.utils import generate_random_token_secret
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.authentication_checks import covers_authentication
@@ -54,6 +56,9 @@ class TestExternalTicketAPI(BaseTest):
 
     @covers_authentication(ExternalTicketProjectSecretAPIKeyAuthentication)
     def test_get_accepts_project_secret_api_key_with_support_ticket_read_scope(self):
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        cache.clear()
+        self.client.force_login(self.user)
         response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(["support_ticket:read"])))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(self.ticket.id))

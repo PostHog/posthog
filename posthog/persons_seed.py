@@ -26,9 +26,19 @@ from psycopg.types.json import Jsonb
 
 from posthog.models.utils import UUIDT
 from posthog.persons_db import persons_db_connection
+from posthog.run_mode import run_mode
 
 # Not configurable like the person table; the model uses Django's default db_table.
 PERSON_DISTINCT_ID_TABLE = "posthog_persondistinctid"
+
+
+def _refuse_in_deployed_cloud() -> None:
+    # A seed command pointed at a real team on PostHog Cloud would write persons outside ingestion and personhog,
+    # with no version bump and no tombstone check, so every write here refuses there.
+    if run_mode().is_deployed_cloud:
+        raise RuntimeError(
+            "persons_seed writes only in local dev, tests and self-hosted deployments, not on deployed PostHog Cloud"
+        )
 
 
 def insert_seed_person(
@@ -52,6 +62,7 @@ def insert_seed_person(
     ``last_seen_at`` and the ``properties_last_*`` maps default to NULL, mirroring
     ``Person.objects.create`` with no override.
     """
+    _refuse_in_deployed_cloud()
     with conn.cursor() as cursor:
         cursor.execute(
             f"INSERT INTO {settings.PERSON_TABLE_NAME} "
@@ -88,6 +99,7 @@ def insert_seed_distinct_id(
     ``version`` defaults to 0 but accepts ``None`` to write a NULL version (the column is
     nullable), mirroring ``PersonDistinctId.objects.create(version=None)``.
     """
+    _refuse_in_deployed_cloud()
     with conn.cursor() as cursor:
         cursor.execute(
             f"INSERT INTO {PERSON_DISTINCT_ID_TABLE} (distinct_id, person_id, team_id, version) VALUES (%s, %s, %s, %s)",
@@ -106,6 +118,7 @@ def insert_seed_group(
     created_at: datetime | None = None,
 ) -> int:
     """Insert one group row and return its id. ``created_at`` defaults to ``now()``; ``version`` is NOT NULL."""
+    _refuse_in_deployed_cloud()
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO posthog_group "
@@ -136,6 +149,7 @@ def insert_seed_group_type_mapping(
     ``created_at`` is written as given (``None`` stays NULL — the model's custom ``save()`` stamps
     created_at only on insert, which this bypasses); callers pass ``now()`` for the normal case.
     """
+    _refuse_in_deployed_cloud()
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO posthog_grouptypemapping "
@@ -168,6 +182,7 @@ def update_seed_person(
     is_identified: bool,
 ) -> None:
     """Overwrite ``properties`` and ``is_identified`` for an existing person."""
+    _refuse_in_deployed_cloud()
     with conn.cursor() as cursor:
         cursor.execute(
             f"UPDATE {settings.PERSON_TABLE_NAME} "

@@ -1,6 +1,7 @@
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_EVENTS_DLQ,
+    KAFKA_CDP_SES_WEBHOOKS,
     KAFKA_EMAIL_STATUS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
@@ -56,9 +57,15 @@ export type CdpConfig = ClickhouseConfig & {
 
     CDP_EVENTS_CONSUMER_TOPIC: string
     CDP_EVENTS_CONSUMER_GROUP_ID: string
+    // Off until every produced event carries the event name header and
+    // cdp_events_unmatched_event_name_invoked stays at zero.
+    CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: boolean
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
+    CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: number
+    CDP_CYCLOTRON_BOUNDED_POLLS: boolean
+    CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE: boolean
     CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
@@ -67,6 +74,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
+    WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
     // Comma-separated log sources, such as `hog_flow`, that also send their logs to the logs product. Empty sends none.
     CDP_INTERNAL_LOGS_SOURCES: string
     // Django produces cdp_internal_events to the cyclotron cluster; empty inherits the consumer default.
@@ -141,6 +149,9 @@ export type CdpConfig = ClickhouseConfig & {
     EMAIL_STATUS_PRODUCER: CdpProducerName
     EMAIL_STATUS_ENABLED: boolean
     HOG_INVOCATION_RERUN_MAX_COUNT: number
+    // Comma-separated team ids, or "*", whose new rerun jobs page by run start. Enable it only once every
+    // cdp-rerun-worker runs a release that reads the job's paging mode.
+    CDP_RERUN_RUN_START_PAGING_TEAMS: string
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
     CDP_RERUN_WORKER_BATCH_SIZE: number
@@ -155,6 +166,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_DLQ_BATCH_FAIL_RATIO: number
     CDP_EVENTS_DLQ_TOPIC: string
     CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
+    CDP_SES_WEBHOOKS_TOPIC: string
+    CDP_SES_WEBHOOKS_PRODUCER: CdpProducerName
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
 
@@ -171,7 +184,6 @@ export type CdpConfig = ClickhouseConfig & {
     // Configuration set with ESP-level open/click tracking enabled, used for sends with engagement tracking on.
     SES_TRACKED_CONFIGURATION_SET: string
     // Configuration set without open/click tracking (same delivery/bounce/complaint event destination).
-    // Empty means not provisioned: tracking-off sends fall back to the tracked set with a warning.
     SES_UNTRACKED_CONFIGURATION_SET: string
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
@@ -180,17 +192,38 @@ export type CdpConfig = ClickhouseConfig & {
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
+    // When false, the global hard-bounce list only counts the sends it would block.
+    EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: boolean
+
     // Trust-tiered per-team workflow email caps ("team warming"). A team's tier, stored by the
-    // Django side, picks an hourly and a daily cap from these tables. See
-    // WORKFLOWS_EMAIL_TIER_* in posthog/settings/web.py, which must stay in step with them.
+    // Django side, picks a daily cap from this table. See WORKFLOWS_EMAIL_TIER_* in
+    // posthog/settings/web.py, which must stay in step with it.
     //   "off"     - the caps are not consulted.
     //   "shadow"  - the caps are evaluated and every send they would delay is logged and counted,
     //               but nothing is delayed.
     //   "enforce" - a reached cap reschedules the send.
     EMAIL_TEAM_SENDING_CAP_MODE: string
-    // Comma-separated caps indexed by tier. Both lists must be the same length.
-    EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: string
+    // Comma-separated caps indexed by tier.
     EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: string
+    // Comma-separated team ids, or "*", whose UTM link tagging runs the scanner in helpers/utm.ts.
+    // Every other team runs the previous scanner in helpers/utm-legacy.ts.
+    CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: string
+    // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
+    // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
+    CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
+    CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string
+    CDP_EMAIL_ATTACHMENTS_S3_REGION: string
+    CDP_EMAIL_ATTACHMENTS_S3_PREFIX: string
+    CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: string
+    CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: string
+    CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: string
+    CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: string
+    CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: number
+    CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: number
+    CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: number
+    CDP_EMAIL_ATTACHMENTS_TEAMS: string
+    CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: number
+    CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -311,9 +344,13 @@ export function getDefaultCdpConfig(): CdpConfig {
 
         CDP_EVENTS_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_EVENTS_CONSUMER_GROUP_ID: 'cdp-processed-events-consumer',
+        CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: false,
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
+        CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 0,
+        CDP_CYCLOTRON_BOUNDED_POLLS: false,
+        CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE: false,
         CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
@@ -321,6 +358,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
+        WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
         CDP_INTERNAL_LOGS_SOURCES: '',
         CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: '',
         CDP_REDIS_HOST: '127.0.0.1',
@@ -390,6 +428,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
+        CDP_RERUN_RUN_START_PAGING_TEAMS: '',
         // Small by default — rerun jobs are heavy (a full ClickHouse query per
         // page), so a replica drains one wrapper job at a time unless tuned up.
         CDP_RERUN_WORKER_BATCH_SIZE: 1,
@@ -401,6 +440,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Same cyclotron Warpstream cluster as every other CDP topic — the replay worker
         // consumes from there, and no ClickHouse table reads these topics.
         CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_SES_WEBHOOKS_TOPIC: KAFKA_CDP_SES_WEBHOOKS,
+        CDP_SES_WEBHOOKS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
@@ -419,15 +460,30 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
-        SES_UNTRACKED_CONFIGURATION_SET: '',
+        SES_UNTRACKED_CONFIGURATION_SET: 'posthog-messaging-untracked',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
+        EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: false,
 
         // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
         // then enforced. Match the defaults in posthog/settings/web.py.
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
-        EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
+        CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
+        CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
+        CDP_EMAIL_ATTACHMENTS_S3_BUCKET: isDevEnv() || isTestEnv() ? 'email-attachments' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_REGION: 'us-east-1',
+        CDP_EMAIL_ATTACHMENTS_S3_PREFIX: 'attachments',
+        CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: isDevEnv() || isTestEnv() ? 'http://localhost:19000' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: '',
+        CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: isDevEnv() || isTestEnv() ? 'object_storage_root_user' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: isDevEnv() || isTestEnv() ? 'object_storage_root_password' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: 10_000,
+        CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: 4,
+        CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: 0.5,
+        CDP_EMAIL_ATTACHMENTS_TEAMS: '',
+        CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: 50_000_000_000,
+        CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

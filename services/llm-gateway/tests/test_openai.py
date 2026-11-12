@@ -1,6 +1,7 @@
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import litellm
 import pytest
 from fastapi.testclient import TestClient
 
@@ -43,7 +44,7 @@ class TestChatCompletionsEndpoint:
         }
 
     def test_unauthenticated_request_returns_401(self, client: TestClient, valid_request_body: dict) -> None:
-        response = client.post("/v1/chat/completions", json=valid_request_body)
+        response = client.post("/django/v1/chat/completions", json=valid_request_body)
         assert response.status_code == 401
 
     @pytest.mark.parametrize(
@@ -60,7 +61,7 @@ class TestChatCompletionsEndpoint:
         expected_field: str,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/chat/completions",
+            "/django/v1/chat/completions",
             json=invalid_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -80,7 +81,7 @@ class TestChatCompletionsEndpoint:
         mock_completion.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/chat/completions",
+            "/django/v1/chat/completions",
             json=valid_request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -128,7 +129,7 @@ class TestChatCompletionsEndpoint:
 
         with TestClient(app) as client:
             response = client.post(
-                "/v1/chat/completions",
+                "/django/v1/chat/completions",
                 json=valid_request_body,
                 headers={
                     "Authorization": "Bearer phx_test_key",
@@ -166,7 +167,7 @@ class TestChatCompletionsEndpoint:
         mock_completion.side_effect = error
 
         response = authenticated_client.post(
-            "/v1/chat/completions",
+            "/django/v1/chat/completions",
             json=valid_request_body,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -196,7 +197,7 @@ class TestChatCompletionsEndpoint:
 
         body_with_injection = {**valid_request_body, param_name: param_value}
         response = authenticated_client.post(
-            "/v1/chat/completions",
+            "/django/v1/chat/completions",
             json=body_with_injection,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -233,7 +234,7 @@ class TestChatCompletionsEndpoint:
             ],
         }
         response = authenticated_client.post(
-            "/v1/chat/completions",
+            "/django/v1/chat/completions",
             json=body_with_model_list,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -266,7 +267,7 @@ class TestChatCompletionsEndpoint:
             },
         }
         response = authenticated_client.post(
-            "/v1/chat/completions",
+            "/django/v1/chat/completions",
             json=body_with_nested_injection,
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -296,7 +297,7 @@ class TestChatCompletionsEndpoint:
         mock_make_call.return_value = AsyncMock(return_value=mock_response)
 
         response = authenticated_client.post(
-            "/v1/chat/completions",
+            "/django/v1/chat/completions",
             json={
                 "model": "@cf/moonshotai/kimi-k2.6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -334,7 +335,7 @@ class TestChatCompletionsEndpoint:
 
         with authenticated_client.stream(
             "POST",
-            "/v1/chat/completions",
+            "/django/v1/chat/completions",
             json={
                 "model": "@cf/moonshotai/kimi-k2.6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -360,7 +361,7 @@ class TestChatCompletionsEndpoint:
         authenticated_client: TestClient,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/chat/completions",
+            "/django/v1/chat/completions",
             json={
                 "model": "@cf/meta/llama-3.3-70b-instruct",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -398,7 +399,7 @@ class TestChatCompletionsEndpoint:
         expected_message: str,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/chat/completions",
+            "/django/v1/chat/completions",
             json={
                 "model": "moonshotai/kimi-k3",
                 "messages": [
@@ -415,6 +416,41 @@ class TestChatCompletionsEndpoint:
         assert expected_message in response.json()["error"]["message"]
         mock_acompletion.assert_not_called()
         mock_modal.assert_not_called()
+
+    @pytest.mark.parametrize("model", ["gpt-6-luna", "gpt-5-mini"])
+    def test_reasoning_effort_accepted_by_litellm(self, authenticated_client: TestClient, model: str) -> None:
+        real_acompletion = litellm.acompletion
+
+        async def mocked_provider_acompletion(**kwargs: Any) -> Any:
+            return await real_acompletion(**kwargs, mock_response="Hi")
+
+        with patch("llm_gateway.api.openai.litellm.acompletion", side_effect=mocked_provider_acompletion):
+            response = authenticated_client.post(
+                "/django/v1/chat/completions",
+                json={"model": model, "messages": [{"role": "user", "content": "Hello"}], "reasoning_effort": "low"},
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["choices"][0]["message"]["content"] == "Hi"
+
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_reasoning_effort_lookup_makes_no_provider_request(
+        self, mock_acompletion: MagicMock, authenticated_client: TestClient, mock_openai_response: dict
+    ) -> None:
+        mock_acompletion.return_value = MagicMock(model_dump=MagicMock(return_value=mock_openai_response))
+        with patch.object(litellm.module_level_client, "post") as mock_post:
+            authenticated_client.post(
+                "/django/v1/chat/completions",
+                json={
+                    "model": "ollama/anything",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                    "reasoning_effort": "low",
+                },
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+        mock_post.assert_not_called()
 
 
 # CF-served models (@cf/...) on the Responses endpoint must route through the CF responses adapter,
@@ -438,7 +474,7 @@ class TestResponsesRoutedModels:
         mock_make_call.return_value = AsyncMock(return_value=mock_response)
 
         response = authenticated_client.post(
-            "/v1/responses",
+            "/django/v1/responses",
             json={
                 "model": "@cf/zai-org/glm-5.2",
                 "input": "Hello",
@@ -468,7 +504,7 @@ class TestResponsesRoutedModels:
 
         with patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)):  # entitle the gated model
             response = authenticated_client.post(
-                "/v1/responses",
+                "/django/v1/responses",
                 json={"model": "moonshotai/kimi-k3", "input": "Hello"},
                 headers={"Authorization": "Bearer phx_test_key"},
             )
@@ -501,7 +537,7 @@ class TestResponsesRoutedModels:
 
         with authenticated_client.stream(
             "POST",
-            "/v1/responses",
+            "/django/v1/responses",
             json={
                 "model": "@cf/zai-org/glm-5.2",
                 "input": "Hello",
@@ -527,7 +563,7 @@ class TestResponsesRoutedModels:
         authenticated_client: TestClient,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/responses",
+            "/django/v1/responses",
             json={
                 "model": "@cf/meta/llama-3.3-70b-instruct",
                 "input": "Hello",
@@ -555,7 +591,7 @@ class TestResponsesRoutedModels:
         # which this SDK-mode gateway doesn't have — so previous_response_id would silently drop
         # conversation context. Reject it explicitly rather than answer with lost history.
         response = authenticated_client.post(
-            "/v1/responses",
+            "/django/v1/responses",
             json={
                 "model": "@cf/zai-org/glm-5.2",
                 "input": "Hello",
@@ -583,7 +619,7 @@ class TestResponsesRoutedModels:
         # tools, so CF's chat/completions endpoint would reject them. Reject up front instead of
         # handing CF a request that fails the moment tools are advertised.
         response = authenticated_client.post(
-            "/v1/responses",
+            "/django/v1/responses",
             json={
                 "model": "@cf/zai-org/glm-5.2",
                 "input": "Hello",
@@ -635,7 +671,7 @@ class TestUnsupportedModelRejection:
         model: str,
     ) -> None:
         response = authenticated_client.post(
-            "/v1/chat/completions",
+            "/django/v1/chat/completions",
             json={"model": model, "messages": [{"role": "user", "content": "Hi"}]},
             headers={"Authorization": "Bearer phx_test_key"},
         )
@@ -672,7 +708,7 @@ class TestUnsupportedModelRejection:
         try:
             with patch.object(ModelCostService, "get_costs", fake_get_costs):
                 response = authenticated_client.post(
-                    "/v1/chat/completions",
+                    "/django/v1/chat/completions",
                     json={"model": "gemini-pro-bare", "messages": [{"role": "user", "content": "Hi"}]},
                     headers={"Authorization": "Bearer phx_test_key"},
                 )
@@ -688,7 +724,7 @@ class TestUnsupportedModelRejection:
 class TestAudioTranscriptionsEndpoint:
     @pytest.mark.parametrize(
         "path",
-        ["/v1/audio/transcriptions", "/llm_gateway/v1/audio/transcriptions"],
+        ["/django/v1/audio/transcriptions", "/django/v1/audio/transcriptions"],
     )
     @patch("llm_gateway.api.openai.litellm.atranscription")
     def test_omitted_model_is_rejected_not_defaulted(

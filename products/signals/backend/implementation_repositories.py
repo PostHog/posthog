@@ -87,3 +87,14 @@ def implementation_access_repositories(team_id: int, repository: str) -> list[st
         for entry in configured
         if isinstance(entry, str) and entry.partition("/")[0] == owner and entry != repository.lower()
     ]
+
+
+def access_repositories_instruction(repository: str, access_repositories: list[str]) -> str:
+    if not access_repositories:
+        return ""
+    names = ", ".join(f"`{name}`" for name in access_repositories)
+    return (
+        f"\n\nYour GitHub credentials also cover {names}, which the project configured for implementation "
+        "tasks, for example to upload PR screenshots. They are not cloned. Use `gh` or clone one yourself "
+        f"when the task needs it. Open the PR on `{repository}` as usual."
+    )

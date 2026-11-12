@@ -57,14 +57,18 @@ export const normalizeBatchExportService = (service: string): BatchExportService
 /** Whether the export's schedule can still fire, which `paused` alone does not tell you. */
 export type BatchExportScheduleStatus = 'active' | 'ended' | 'paused'
 
+// An end date in the past bounds the Temporal schedule, so unpausing alone cannot make the export run again.
+export function hasBatchExportEnded(batchExport: Pick<BatchExportApi, 'end_at'>): boolean {
+    return !!batchExport.end_at && dayjs(batchExport.end_at).isBefore(dayjs())
+}
+
 export function getBatchExportScheduleStatus(
     batchExport: Pick<BatchExportApi, 'paused' | 'end_at'>
 ): BatchExportScheduleStatus {
     if (batchExport.paused) {
         return 'paused'
     }
-    // An end date in the past bounds the Temporal schedule, so the export can never run again.
-    if (batchExport.end_at && dayjs(batchExport.end_at).isBefore(dayjs())) {
+    if (hasBatchExportEnded(batchExport)) {
         return 'ended'
     }
     return 'active'

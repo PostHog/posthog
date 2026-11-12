@@ -18,6 +18,8 @@ from pydantic.dataclasses import dataclass
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
+
 
 @dataclass(frozen=True)
 class DataModelingJob:
@@ -101,6 +103,16 @@ class SavedQueryNodeState:
     suspended: dict[str, SuspensionMarker]
 
 
+@dataclass(frozen=True)
+class SavedQuerySchedule:
+    """When a materialized saved query is next due, as far as the scheduler's cadence says."""
+
+    interval: timedelta
+    # Last successful materialization + interval. Approximate: it is None until the first run has
+    # completed, and it drifts if the tier's schedule was paused.
+    next_run_at: datetime | None
+
+
 class MaterializationRefusedError(Exception):
     pass
 
@@ -133,5 +145,117 @@ class MaterializationAlreadyRunningError(Exception):
     pass
 
 
+class MaterializationRanRecentlyError(Exception):
+    def __init__(self, message: str, *, retry_after_seconds: int) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
 class MaterializationFailedError(Exception):
     pass
+
+
+class UnknownNodeError(Exception):
+    """The node id does not name a live node in the team, so there is nothing to watch."""
+
+
+@dataclass(frozen=True)
+class NodeDescriptionTarget:
+    """What a node stands for, which decides where its description lives."""
+
+    node_id: UUID
+    saved_query_id: UUID | None = None
+    warehouse_table_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class NodeDescription:
+    text: str = ""
+    source: WarehouseColumnAnnotationDescriptionSource | None = None
+
+
+@frozen
+class SuspensionSelection:
+    """Which suspension markers staff picked to clear. Filters combine with AND."""
+
+    team_id: int | None
+    node_ids: tuple[UUID, ...]
+    saved_query_ids: tuple[UUID, ...]
+    engine: str | None
+    reason_contains: tuple[str, ...]
+    suspended_from: datetime | None
+    suspended_to: datetime | None
+
+
+@frozen
+class SuspensionMarkerSummary:
+    node_id: UUID
+    node_name: str
+    team_id: int
+    saved_query_id: UUID | None
+    engine: str
+    at: str
+    reason: str
+
+
+@frozen
+class SuspensionMarkerKey:
+    """One marker staff saw in the preview. `at` tells a re-suspension apart from the marker staff reviewed."""
+
+    node_id: UUID
+    engine: str
+    at: str
+
+
+@frozen
+class SuspensionsCleared:
+    cleared: int
+    skipped: int
+
+
+class SuspensionSelectionTooBroadError(Exception):
+    pass
+
+
+@frozen
+class UntargetedNode:
+    name: str
+    node_type: str
+
+
+@frozen
+class NodeRunSummary:
+    name: str
+    node_type: str
+    status: str
+    detail: str
+    workflow_id: str | None
+    workflow_run_id: str | None
+
+
+@frozen
+class TierSummary:
+    label: str
+    schedule_id: str
+    parent_workflow_id: str | None
+    started_at: datetime | None
+    # The run came from the DAG's pre-tier single schedule, not from this tier's own.
+    run_is_legacy: bool
+    declared: int
+    ran: int
+    # Node count per status, worst status first.
+    counts: tuple[tuple[str, int], ...]
+    nodes: tuple[NodeRunSummary, ...]
+
+
+@frozen
+class DagTierReport:
+    """What each cadence tier of one DAG holds and what its last run did, for the staff console."""
+
+    dag_id: UUID
+    dag_name: str
+    team_id: int
+    team_name: str
+    sync_frequency_interval: timedelta | None
+    tiers: tuple[TierSummary, ...]
+    untargeted: tuple[UntargetedNode, ...]

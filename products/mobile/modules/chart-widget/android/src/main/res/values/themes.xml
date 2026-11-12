@@ -1,0 +1,9 @@
+<resources>
+  <style name="ChartWidgetConfigureTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+    <item name="android:windowBackground">@color/chart_widget_background</item>
+    <item name="android:statusBarColor">@color/chart_widget_background</item>
+    <item name="android:navigationBarColor">@color/chart_widget_background</item>
+    <item name="android:windowLightStatusBar">true</item>
+    <item name="android:colorAccent">@color/chart_widget_ink</item>
+  </style>
+</resources>

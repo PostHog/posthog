@@ -21,6 +21,8 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    PushTokenImportRowFailureReason,
+    PushTokenImportStatus,
     SetupStepKey,
     WorkflowImportNoteLevel,
     WorkflowProposalStatus,
@@ -29,6 +31,18 @@ from products.workflows.backend.facade.enums import (
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
     from posthog.models.user import User
+
+
+@frozen
+class WorkflowViewAccess:
+    viewable_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+    can_view_deleted: bool
+
+    def allows(self, workflow_id: str) -> bool:
+        if workflow_id in self.viewable_ids:
+            return True
+        return self.can_view_deleted and bool(workflow_id) and workflow_id not in self.blocked_ids
 
 
 @frozen
@@ -275,10 +289,9 @@ class PeopleImportSummary:
 
 @frozen
 class EmailSendingTierLimits:
-    """What a trust tier allows: two send-rate caps and a maximum batch audience."""
+    """What a trust tier allows: a daily send cap and a maximum batch audience."""
 
     tier: int
-    per_hour: int
     per_day: int
     max_batch_audience: int
 
@@ -311,11 +324,13 @@ class EmailSendingSuspensionChange:
     """The outcome of a suspend or unsuspend request.
 
     ``changed_at`` is set only when this request flipped the state. ``previously_suspended_at`` is
-    set when a suspend request found the team already suspended.
+    set when a suspend request found the team already suspended. ``notification_failed`` is set when
+    the state flipped but the email or the in-app notification to the team could not be sent.
     """
 
     changed_at: datetime | None
     previously_suspended_at: datetime | None = None
+    notification_failed: bool = False
 
 
 @frozen
@@ -324,10 +339,8 @@ class EmailSendingAllowance:
 
     tier: int
     max_tier: int
-    emails_per_hour: int
     emails_per_day: int
     max_batch_audience: int
-    emails_sent_last_hour: int
     emails_sent_last_day: int
     enforced: bool
 
@@ -511,6 +524,10 @@ class EmailProviderUnavailableError(Exception):
     """The email provider could not be reached or refused the read, so the domain's state is unknown."""
 
 
+class TwilioCredentialsRejected(Exception):
+    """Twilio answered 401: the account SID or auth token is wrong."""
+
+
 class TwilioPhoneNumber(TypedDict):
     """The fields callers read. The Twilio payload has more keys."""
 
@@ -681,6 +698,8 @@ class WorkflowRef:
     has_email_step: bool
 
 
+EMAIL_FROM_CODE_FLAG: Final[str] = "workflows-email-from-code"
+
 # Engagement tracking and message assets key on this id, so it stays stable across versions.
 TRANSACTIONAL_EMAIL_ACTION_ID: Final[str] = "transactional_email"
 
@@ -706,8 +725,22 @@ class TransactionalEmailContent:
     reply_to: str = ""
 
 
+@frozen
+class CodeEmailWorkflow:
+    """The labels on the hidden workflow behind an email sent from code under a `template_key`."""
+
+    id: UUID
+    description: str
+    tags: tuple[str, ...]
+    sensitive: bool
+
+
 class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
+
+
+class TransactionalEmailSenderRequired(Exception):
+    """The project has several verified email senders and no default, so the send has to name one."""
 
 
 class TransactionalEmailContentInvalid(Exception):
@@ -726,7 +759,7 @@ class WorkflowArchived(Exception):
 class WorkflowListQuery:
     """What a workflow list asks for. The view validates each value before it builds one.
 
-    ``field_filters`` holds the raw exact-match and ``optimization_enabled`` query parameters. The
+    ``field_filters`` holds the raw exact-match, ``name`` and ``optimization_enabled`` query parameters. The
     service validates them and raises WorkflowListFiltersInvalid when one does not parse.
     """
 
@@ -985,8 +1018,8 @@ class AudienceSuggestion:
     window_days: int
     # How many times the event must happen in the window. Set only for regulars.
     min_count: int | None
-    # People in the audience with an email address, counted when the suggestion was made.
-    reachable_count: int
+    # Roughly how many people in the audience have an email address. None until counted, or when the count failed.
+    reachable_count: int | None
     cohort_filters: dict[str, Any]
 
 
@@ -1159,3 +1192,48 @@ class WorkflowImportRecord:
     notes: tuple[dict[str, Any], ...]
     updated_at: datetime
     hog_flow_created_by_id: int | None = None
+
+
+class PushTokenImportInvalid(Exception):
+    """The upload cannot be used. The message is shown to the person who sent it."""
+
+
+class PushTokenImportNotFound(LookupError):
+    pass
+
+
+@frozen
+class PushTokenImportRowFailure:
+    line: int
+    distinct_id: str
+    device_token_suffix: str
+    reason: PushTokenImportRowFailureReason
+    detail: str
+
+
+@frozen
+class PushTokenImportRecord:
+    id: UUID
+    integration_id: int
+    status: PushTokenImportStatus
+    create_missing_persons: bool
+    total_devices: int
+    processed_devices: int
+    imported_devices: int
+    failed_devices: int
+    unknown_person_devices: int
+    duplicate_lines: int
+    failures: tuple[PushTokenImportRowFailure, ...]
+    can_import_unknown_persons: bool
+    error: str
+    created_at: datetime
+    finished_at: datetime | None
+
+
+@frozen
+class SandboxSenderStatus:
+    integration_id: int | None
+    from_address: str
+    display_name: str
+    organization_blocked: bool
+    adoption_enabled: bool

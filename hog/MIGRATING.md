@@ -8,7 +8,7 @@ Most moves take three steps: install hog, rename the environment variables, and 
 
 ## What stays the same
 
-- **Your login.** Both CLIs read and write `~/.posthog/credentials.json`, so `posthog-cli login` works for hog, and `hog auth login` works for posthog-cli.
+- **Your login.** Run `hog auth migrate` once. It moves the key `posthog-cli login` saved in `~/.posthog/credentials.json` into hog's store, so you don't have to log in again. It checks the key with PostHog first, and a key PostHog rejects stays out of hog's store. hog doesn't read that file otherwise and never changes it.
 - **Uploads.** hog sends the same bytes and content hashes, so either CLI can re-upload what the other uploaded. Chunk IDs and releases don't change.
 - **posthog.json.** hog reads the `languages` entries `posthog-cli exp schema` writes, and the endpoint YAML files `posthog-cli exp endpoints` writes.
 - **Global flags.** `--host`, `--dotenv-file`, `--no-fail`, `--skip-ssl-verification` and `--rate-limit` work as before, before or after the command.
@@ -19,7 +19,7 @@ hog reads only `HOG_` variables. Rename these:
 
 | posthog-cli                                    | hog                      |
 | ---------------------------------------------- | ------------------------ |
-| `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_TOKEN`     | `HOG_API_KEY`            |
+| `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_TOKEN`     | `HOG_PERSONAL_API_KEY`   |
 | `POSTHOG_CLI_PROJECT_ID`, `POSTHOG_CLI_ENV_ID` | `HOG_PROJECT_ID`         |
 | `POSTHOG_CLI_HOST`                             | `HOG_HOST`               |
 | `POSTHOG_CLI_DOTENV_FILE`                      | `HOG_DOTENV_FILE`        |
@@ -34,31 +34,32 @@ In CI, you can set both sets of names while some jobs still run posthog-cli.
 
 ## Commands
 
-| posthog-cli                                        | hog                                                                          |
-| -------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `login`                                            | `auth login`, plus `auth status` and `auth logout`                           |
-| `sourcemap inject --directory <dir>`               | `error-tracking inject <dir>`                                                |
-| `sourcemap upload --directory <dir>`               | `error-tracking upload <dir>`                                                |
-| `sourcemap process --directory <dir>`              | `error-tracking process <dir>`                                               |
-| `hermes inject --directory <dir>`                  | `error-tracking inject <dir>`                                                |
-| `hermes clone -m <file1> -c <file2>`               | `error-tracking clone <file1> <file2>`                                       |
-| `hermes upload --directory <dir>`                  | `error-tracking upload <dir>`                                                |
-| `dsym upload --directory <dir>`                    | `error-tracking upload <dir>`                                                |
-| `proguard upload --path <file> --map-id <id>`      | `error-tracking upload <file> --map-id <id>`                                 |
-| `symbol-sets upload --directory <dir>`             | `error-tracking upload <dir>`                                                |
-| `symbol-sets download --id <id> -o <dir>`          | `error-tracking download <id> --output-dir <dir>`                            |
-| `symbol-sets download --ref <ref>`                 | `error-tracking download <ref>`, with `--ref` when the ref looks like an ID  |
-| `symbol-sets extract <file> -o <dir>`              | `error-tracking extract <file> --output-dir <dir>`                           |
-| `release resolve`                                  | `error-tracking release -o text`                                             |
-| `release resolve --json`                           | `error-tracking release -o json`                                             |
-| `exp query run <query>`                            | `query run <query>`                                                          |
-| `exp query check <query>`                          | `query check <query>`                                                        |
-| `exp endpoints list`, `get`, `open`, `run`, `diff` | `endpoints list`, `get`, `open`, `run`, `diff`                               |
-| `exp endpoints pull -o <dir>`                      | `endpoints pull --to <dir>`                                                  |
-| `exp endpoints push`                               | `endpoints push`                                                             |
-| `exp schema pull -o <file>`                        | `schema pull --file <file>`                                                  |
-| `exp schema status`                                | `schema status`                                                              |
-| `api tools`, `search`, `info`, `schema`, `call`    | `api tools`, `search`, `info`, `schema`, `call`, with `-o json` for `--json` |
+| posthog-cli                                        | hog                                                                                                            |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `login`                                            | `auth login`, plus `auth status` and `auth logout`                                                             |
+| `sourcemap inject --directory <dir>`               | `error-tracking inject <dir>`                                                                                  |
+| `sourcemap upload --directory <dir>`               | `error-tracking upload <dir>`                                                                                  |
+| `sourcemap process --directory <dir>`              | `error-tracking process <dir>`                                                                                 |
+| `hermes inject --directory <dir>`                  | `error-tracking inject <dir>`                                                                                  |
+| `hermes clone -m <file1> -c <file2>`               | `error-tracking clone <file1> <file2>`                                                                         |
+| `hermes upload --directory <dir>`                  | `error-tracking upload <dir>`                                                                                  |
+| `dsym upload --directory <dir>`                    | `error-tracking upload <dir>`                                                                                  |
+| `proguard upload --path <file> --map-id <id>`      | `error-tracking upload <file> --map-id <id>`                                                                   |
+| `symbol-sets upload --directory <dir>`             | `error-tracking upload <dir>`                                                                                  |
+| `symbol-sets download --id <id> -o <dir>`          | `error-tracking download <id> --output-dir <dir>`                                                              |
+| `symbol-sets download --ref <ref>`                 | `error-tracking download <ref>`, with `--ref` when the ref looks like an ID                                    |
+| `symbol-sets extract <file> -o <dir>`              | `error-tracking extract <file> --output-dir <dir>`                                                             |
+| `release resolve`                                  | `error-tracking release -o text`                                                                               |
+| `release resolve --json`                           | `error-tracking release -o json`                                                                               |
+| `exp query run <query>`                            | `query run <query>`                                                                                            |
+| `exp query check <query>`                          | `query check <query>`                                                                                          |
+| `exp endpoints list`, `get`, `open`, `run`, `diff` | `endpoints list`, `get`, `open`, `run`, `diff`. `list` shows one page, and `--offset` picks the next           |
+| `exp endpoints pull -o <dir>`                      | `endpoints pull --to <dir>`                                                                                    |
+| `exp endpoints push`                               | `endpoints push`                                                                                               |
+| `exp schema pull -o <file>`                        | `schema pull --file <file>`                                                                                    |
+| `exp schema status`                                | `schema status`                                                                                                |
+| `api tools`, `search`, `info`, `schema`, `call`    | `api tools`, `search`, `info`, `schema`, `call`, with `-o json` for `--json`                                   |
+| `api skill list`, `api skill install <id>`         | `skills list`, `skills add <skill...>`. `add` takes any listed skill and writes to the folder your agent reads |
 
 `hog et` is short for `hog error-tracking`.
 `hog error-tracking upload` detects what each path holds, so one command uploads JavaScript, Hermes, ProGuard, dSYM and ELF symbols, and `--kind` skips detection.
@@ -67,7 +68,7 @@ Run `hog <command> --help` for every flag, or `hog commands -o json` for all of 
 Not in hog yet, so keep posthog-cli for them:
 
 - `update`. It becomes `hog upgrade` when hog ships.
-- `api skill` and `api agents-md`. They come back as top-level commands.
+- `api agents-md`. It comes back as a top-level command.
 - `exp logs import`, `exp task`, and `exp query editor`.
 
 hog lists these and prints the posthog-cli command to run instead.

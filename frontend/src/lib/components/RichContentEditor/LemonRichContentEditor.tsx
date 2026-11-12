@@ -11,10 +11,9 @@ import { useRef, useState } from 'react'
 
 import { IconEye, IconImage, IconPencil } from '@posthog/icons'
 
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { TextContent } from 'lib/components/Cards/TextCard/TextContent'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
-import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
 import { EmojiSuggestionExtension } from 'lib/components/RichContentEditor/EmojiSuggestionExtension'
 import { MentionsExtension } from 'lib/components/RichContentEditor/MentionsExtension'
 import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
@@ -42,7 +41,7 @@ export type LemonRichContentEditorProps = {
     footerActions?: React.ReactNode
 }
 
-const DEFAULT_INITIAL_CONTENT: JSONContent = {
+export const DEFAULT_INITIAL_CONTENT: JSONContent = {
     type: 'doc',
     content: [
         {
@@ -114,11 +113,8 @@ export function LemonRichContentEditor({
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
     const editor = useRichContentEditor({
-        extensions: [
-            ...DEFAULT_EXTENSIONS,
-            Placeholder.configure({ placeholder }),
-            CommandEnterExtension.configure({ onPressCmdEnter }),
-        ],
+        extensions: [...DEFAULT_EXTENSIONS, Placeholder.configure({ placeholder })],
+        onPressCmdEnter,
         disabled,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
         onCreate: (editor) => {

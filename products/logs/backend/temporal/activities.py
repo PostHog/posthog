@@ -32,7 +32,13 @@ from products.alerts.backend.facade.destinations import (
     flush_alert_internal_events,
     produce_alert_internal_event,
 )
+from products.alerts_platform.backend.facade.check_errors import AlertErrorCode, classify_check_error
 from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
+from products.alerts_platform.backend.facade.rolling_checks import (
+    derive_breaches,
+    resolve_check_end,
+    rolling_check_lookback_minutes,
+)
 from products.logs.backend.alert_check_query import (
     AlertCheckQuery,
     BatchedAlertCheckQuery,
@@ -40,16 +46,10 @@ from products.logs.backend.alert_check_query import (
     BucketedCount,
     fetch_live_logs_checkpoint,
     is_projection_eligible,
-    resolve_alert_date_to,
 )
 from products.logs.backend.alert_destinations import LOGS_ALERT_INCIDENT_CLOSED_EVENT, LOGS_ALERT_INCIDENT_OPENED_EVENT
-from products.logs.backend.alert_error_classifier import (
-    AlertErrorCode,
-    classify as classify_alert_error,
-)
 from products.logs.backend.alert_event_properties import failure_event_properties, threshold_event_properties
 from products.logs.backend.alert_incidents import close_incident, has_incident_destination, incident_closed_properties
-from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.alert_signal_emitter import (
     NotifiedAlert,
     emit_alert_state_change_signal,
@@ -149,34 +149,6 @@ def _post_cohort_memory_cleanup() -> None:
     except Exception:
         logger.exception("gc.collect failed in post-cohort cleanup")
     _safe_record("worker_gc_objects gauge", record_worker_memory_snapshot)
-
-
-def _derive_breaches(
-    buckets: list[BucketedCount],
-    threshold_count: int,
-    threshold_operator: str,
-    evaluation_periods: int,
-) -> tuple[bool, ...]:
-    """Map ASC-ordered bucketed CH counts to a newest-first breach tuple of length M.
-
-    CH's `GROUP BY` only emits buckets that have data. The state machine needs M
-    data points regardless of how sparse the underlying log volume is — so we
-    pad the result to `evaluation_periods` with the implicit count=0 outcome:
-    `False` for `above` (0 < threshold), `True` for `below` (0 < threshold given
-    the model's min_value=1 validator).
-
-    Without this pad, a `below` alert on a truly silent service would never
-    fire — CH returns no buckets, the breach tuple is empty, and the N-of-M
-    evaluator never sees the implicit "count is below threshold" signal.
-    """
-    if threshold_operator == "above":
-        actual = tuple(b.count > threshold_count for b in reversed(buckets))
-        missing_breach = False
-    else:
-        actual = tuple(b.count < threshold_count for b in reversed(buckets))
-        missing_breach = True
-    pad = (missing_breach,) * max(0, evaluation_periods - len(actual))
-    return actual + pad
 
 
 @dataclasses.dataclass(frozen=True)
@@ -576,7 +548,7 @@ def _cohort_manifests_from_alerts(
                 _mark_alert_broken_for_bad_config(str(row["id"]), broken_reason)
                 continue
             nca = row["next_check_at"] if row["next_check_at"] is not None else now
-            date_to = resolve_alert_date_to(nca, checkpoint)
+            date_to = resolve_check_end(nca, checkpoint)
             projection_eligible = is_projection_eligible(row["filters"])
             key = (
                 row["team_id"],
@@ -979,7 +951,7 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
 
         alert_ids = [str(a.id) for a in cohort.alerts]
 
-        classified = classify_alert_error(e)
+        classified = classify_check_error(e)
         if classified.is_transient:
             logger.warning(
                 "Batched cohort query failed (transient); skipping per-alert fallback",
@@ -1492,7 +1464,7 @@ def _evaluate_single_alert(
     original_next_check_at = alert.next_check_at
 
     nca = alert.next_check_at if alert.next_check_at is not None else now
-    date_to = resolve_alert_date_to(nca, checkpoint)
+    date_to = resolve_check_end(nca, checkpoint)
     date_from = date_to - timedelta(
         minutes=rolling_check_lookback_minutes(
             alert.window_minutes, alert.check_interval_minutes, alert.evaluation_periods
@@ -1523,7 +1495,9 @@ def _evaluate_single_alert(
             )
             query_duration_ms = int((time.perf_counter() - query_start) * 1000)
 
-        breaches = _derive_breaches(buckets, alert.threshold_count, alert.threshold_operator, alert.evaluation_periods)
+        breaches = derive_breaches(
+            [b.count for b in buckets], alert.threshold_count, alert.threshold_operator, alert.evaluation_periods
+        )
         latest_count = buckets[-1].count if buckets else 0
         check_result = CheckResult(
             result_count=latest_count,
@@ -1532,7 +1506,7 @@ def _evaluate_single_alert(
         )
         recent_breaches = breaches[1:]
     except Exception as e:
-        classified = classify_alert_error(e)
+        classified = classify_check_error(e)
         error_category = classified.code
         capture_exception(e, {"alert_id": str(alert.id), "classification": classified.code})
         logger.warning(

@@ -38,6 +38,7 @@ from products.tasks.backend.temporal.process_task.activities.post_slack_update i
     PostSlackUpdateInput,
     post_slack_update,
 )
+from products.tasks.backend.temporal.process_task.utils import mcp_exclude_tools_for_task
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
 __all__ = [
@@ -65,6 +66,7 @@ __all__ = [
     "execute_posthog_code_agent_relay_workflow",
     "execute_task_processing_workflow",
     "execute_task_processing_workflow_async",
+    "mcp_exclude_tools_for_task",
     "post_slack_update",
     "resume_task_in_cloud_workflow",
     "signal_task_followup_message",

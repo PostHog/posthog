@@ -29,6 +29,10 @@ from products.canvas.backend.contract import (
     canvas_sdk_version as canvas_sdk_version,
     contract_limits as contract_limits,
 )
+from products.canvas.backend.experiment import (
+    blocks_session_action as blocks_session_action,
+    in_canvas_experiment as in_canvas_experiment,
+)
 from products.canvas.backend.facade.contracts import CanvasArtifact
 from products.canvas.backend.facade.enums import (
     ConnectorCallStatus as ConnectorCallStatus,
@@ -46,7 +50,6 @@ from products.canvas.backend.layout import (
     validate_layout_references as validate_layout_references,
 )
 from products.canvas.backend.logic.canvases import (
-    count_canvases as count_canvases,
     create_canvas as create_canvas,
     delete_canvas as delete_canvas,
     get_canvas as get_canvas,

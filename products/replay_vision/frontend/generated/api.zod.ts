@@ -605,6 +605,7 @@ export const visionScannersCreateBodyTagsMax = 32
 
 export const visionScannersCreateBodyGoalMax = 2000
 
+export const visionScannersCreateBodyEntryPointRegExp = new RegExp('^[a-z0-9_]{1,64}$')
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
@@ -655,6 +656,13 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
+            ),
+        entry_point: zod
+            .string()
+            .regex(visionScannersCreateBodyEntryPointRegExp)
+            .nullish()
+            .describe(
+                "The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update."
             ),
         take_over_as_creator: zod
             .boolean()
@@ -766,6 +774,7 @@ export const visionScannersPartialUpdateBodyTagsMax = 32
 
 export const visionScannersPartialUpdateBodyGoalMax = 2000
 
+export const visionScannersPartialUpdateBodyEntryPointRegExp = new RegExp('^[a-z0-9_]{1,64}$')
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
 
@@ -818,6 +827,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
+            ),
+        entry_point: zod
+            .string()
+            .regex(visionScannersPartialUpdateBodyEntryPointRegExp)
+            .nullish()
+            .describe(
+                "The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update."
             ),
         take_over_as_creator: zod
             .boolean()
@@ -1107,7 +1123,7 @@ export const visionScannersScoutsCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
 
-export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 15
+export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 16
 
 export const visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax = 10000
 
@@ -1194,7 +1210,7 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .max(visionScannersScoutsCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
                     ),
                 lifecycle_locked: zod
                     .boolean()

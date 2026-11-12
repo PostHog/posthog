@@ -54,6 +54,8 @@ are named for what is actually capped. Only issue-created is charged.
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_KEY_PREFIX` | `@posthog/error-tracking-notifications-rate-limiter` | Key namespace. It must differ from the event limiter's prefix. |
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. A value below 3600 is raised to 3600, because a bucket takes an hour to refill and a shorter TTL would loosen the limit. |
 
+Processing mode uses `ISSUE_BUCKETS_REDIS_URL` for spike counters, unique-issue sets, cooldown locks, and lifecycle event properties. When the event rate limiter is enabled, it uses `ERROR_TRACKING_CYMBAL_RATE_LIMITER_REDIS_URL`. Notifications mode uses `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL` for issue-created rate limiting.
+
 The limit covers every team. To size it before it cuts anything, set `PER_HOUR`
 far above real traffic, watch `cymbal_issue_created_rate_limit_outcomes`, then
 lower it. Setting `PER_HOUR` to zero or less switches the limit off.

@@ -259,6 +259,10 @@ const TasksCreateSchema = () => {
         sandbox_environment_id: true,
         custom_image_id: true,
         runtime: true,
+        profile: true,
+        options: true,
+        source: true,
+        idempotency_key: true,
     }).extend({
         description: TasksCreateBody.shape['description']
             .nonoptional()

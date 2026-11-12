@@ -1,16 +1,26 @@
+import json
+import hashlib
+from base64 import b64decode, b64encode
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional
+from urllib.parse import parse_qs, urlencode
 
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import (
+    ImproperlyConfigured,
+    ValidationError as DjangoValidationError,
+)
 
 from rest_framework import serializers
-from rest_framework.pagination import CursorPagination, LimitOffsetPagination
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.pagination import CursorPagination, LimitOffsetPagination, PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.utils.urls import remove_query_param, replace_query_param
 
-from posthog.paging import CursorBound, CursorPageRequest, Page, PageRequest
+from posthog.dataclasses import frozen
+from posthog.paging import CursorPageRequest, Page, PageRequest
+from posthog.queryset_paging import select_cursor_rows
 
 if TYPE_CHECKING:
     # DRF's generics module reads DEFAULT_PAGINATION_CLASS while it loads, which can point at this module.
@@ -82,13 +92,59 @@ class PageLinksSerializer(serializers.Serializer):
     )
 
 
-class PrecountedLimitOffsetPagination(LimitOffsetPagination):
+class BoundedLimitOffsetPagination(LimitOffsetPagination):
+    """Limit/offset pages of at most `max_limit` rows.
+
+    DRF has no upper bound by default, so `?limit=` could ask one request to read a whole table.
+    A larger limit is cut to `max_limit`, and the schema states the maximum.
+    """
+
+    max_limit = 1000
+
+    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
+        parameters = super().get_schema_operation_parameters(view)
+        for parameter in parameters:
+            if parameter["name"] == self.limit_query_param:
+                parameter["schema"]["maximum"] = self.max_limit
+        return parameters
+
+
+class DefaultLimitOffsetPagination(BoundedLimitOffsetPagination):
+    """The project-wide default paginator: it caps `limit` at `max_limit` but leaves the schema as DRF writes it.
+
+    Clients generated from the schema keep accepting a larger limit. The server answers with at most
+    `max_limit` rows and a `next` link, so a client that follows `next` still reads every row.
+    """
+
+    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
+        return LimitOffsetPagination.get_schema_operation_parameters(self, view)
+
+
+class BoundedPageNumberPagination(PageNumberPagination):
+    """Numbered pages with a cap on the page size that a client chooses.
+
+    A subclass that lets clients choose the page size with `page_size_query_param` gets that size
+    cut to `max_page_size`, and the schema states the maximum. A fixed `page_size` on the subclass
+    is not cut.
+    """
+
+    max_page_size = 1000
+
+    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
+        parameters = super().get_schema_operation_parameters(view)
+        for parameter in parameters:
+            if parameter["name"] == self.page_size_query_param:
+                parameter["schema"]["maximum"] = self.max_page_size
+        return parameters
+
+
+class PrecountedLimitOffsetPagination(BoundedLimitOffsetPagination):
     """Pages a queryset that the view has already bounded with LIMIT and OFFSET.
 
     `LimitOffsetPagination` counts with `len(queryset)` and then slices the result in Python. A
     `RawQuerySet` answers both by fetching every row, so one page costs a read of the whole result
     set. Views that page in SQL run their own count statement and hand the total over with
-    `set_count`. Without a count this behaves exactly like `LimitOffsetPagination`, so a view that
+    `set_count`. Without a count this behaves exactly like `BoundedLimitOffsetPagination`, so a view that
     also returns unbounded querysets keeps working.
     """
 
@@ -159,21 +215,12 @@ class CappedCountLimitOffsetPagination(PrecountedLimitOffsetPagination):
         return paginated
 
 
-class BoundedLimitOffsetPagination(LimitOffsetPagination):
-    """Limit/offset pages of at most `max_limit` rows.
-
-    DRF has no upper bound by default, so `?limit=` could ask one request to read a whole table.
-    A larger limit is cut to `max_limit`, and the schema states the maximum.
-    """
-
-    max_limit = 1000
-
-    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
-        parameters = super().get_schema_operation_parameters(view)
-        for parameter in parameters:
-            if parameter["name"] == self.limit_query_param:
-                parameter["schema"]["maximum"] = self.max_limit
-        return parameters
+def _serialize_rows(view: "GenericAPIView", rows: list[Any], serializer_class: type[BaseSerializer] | None) -> Any:
+    """Serialize a facade page the way the view serializes its own rows, unless the caller names a serializer."""
+    if serializer_class is None:
+        # `get_serializer` keeps a view's own override of how it builds the serializer.
+        return view.get_serializer(rows, many=True).data
+    return serializer_class(rows, many=True, context=view.get_serializer_context()).data
 
 
 class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
@@ -205,38 +252,241 @@ class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
         serializer_class: type[BaseSerializer] | None = None,
     ) -> Response:
         page = self.read_facade_page(request, fetch)
-        serializer_class = serializer_class or view.get_serializer_class()
-        serializer = serializer_class(page.results, many=True, context=view.get_serializer_context())
-        return self.get_paginated_response(serializer.data)
+        return self.get_paginated_response(_serialize_rows(view, page.results, serializer_class))
+
+
+def _reversed_ordering(ordering: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(term[1:] if term.startswith("-") else f"-{term}" for term in ordering)
+
+
+@frozen
+class PageCursor:
+    """A decoded cursor.
+
+    The page reads the rows that sort strictly after `after` in the direction it pages, and skips
+    the first `offset` of them. `reverse` pages toward the start of the list.
+
+    `drf_position` and `drf_offset` point at the same row the way DRF's cursor does: the rows whose
+    first ordering field sorts strictly after `drf_position`, minus the first `drf_offset` of them.
+    Only a server that still runs DRF's paginator during a deploy reads them.
+    """
+
+    reverse: bool
+    after: tuple[str | None, ...]
+    offset: int = 0
+    drf_position: str | None = None
+    drf_offset: int = 0
+
+
+def _first_term_per_field(ordering: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    """Keep the first term for each field. A later term on a field that is already sorted cannot change the order."""
+    seen: set[str] = set()
+    kept: list[str] = []
+    for term in ordering:
+        field = term.lstrip("-")
+        if field in seen:
+            continue
+        seen.add(field)
+        kept.append(term)
+    return tuple(kept)
 
 
 class StableCursorPagination(CursorPagination):
-    """Cursor pages with a stable row order, and a `count` like the limit/offset response.
+    """Cursor pages with a total row order, and a `count` like the limit/offset response.
 
-    A cursor stores the value of the first ordering field. When rows share that value, their order
-    must be the same in every query, so the primary key is added as the last ordering term, in the
-    direction of the first term. Paging forward then never skips or repeats a row. A `previous` link
-    can still land on the wrong rows when more rows share one value than fit on a page, because the
-    cursor does not store the primary key.
+    The primary key is added as the last ordering term, in the direction of the first term, so no
+    two rows sort equal. A cursor stores the value of every ordering field of the row at the edge
+    of the page, and the next page starts strictly past that row. So rows that share a sort value
+    cannot move a page boundary, in either direction, and no offset is needed.
+
+    DRF's own cursor stores only the first ordering field and skips ties with an offset, which sends
+    a `previous` link to the wrong rows when more rows share one value than fit on a page. Cursors
+    in that format still decode, so links issued before keep working.
     """
 
+    # A subclass can leave `count` out, because counting costs a full scan on large tables.
+    include_count: bool = True
+    # Breaks ties when the list has no queryset model, as for a facade list. Contracts name the primary key `id`.
+    tiebreak_field = "id"
+    max_ordering_fields = 4
+    request: Optional[Request] = None
+    # The URL of the current page, which every link starts from.
+    page_url = ""
+
     def get_ordering(self, request: Request, queryset: Any, view: Any) -> tuple[str, ...]:
-        ordering = super().get_ordering(request, queryset, view)
+        ordering = _first_term_per_field(super().get_ordering(request, queryset, view))
+        # The cursor filter grows with the square of the field count, so a request cannot ask for many fields.
+        if len(ordering) > self.max_ordering_fields:
+            raise ValidationError({"ordering": f"Order by at most {self.max_ordering_fields} fields."})
         model = getattr(queryset, "model", None)
-        primary_key = model._meta.pk.name if model is not None else "pk"
+        primary_key = model._meta.pk.name if model is not None else self.tiebreak_field
         if any(term.lstrip("-") in {"pk", primary_key} for term in ordering):
             return ordering
         direction = "-" if ordering[0].startswith("-") else ""
-        return (*ordering, f"{direction}pk")
+        return (*ordering, f"{direction}{primary_key}")
+
+    def position_of(self, item: Any) -> tuple[str | None, ...]:
+        """Return the value of every ordering field of `item` as text, the way a cursor stores it."""
+        values = []
+        for term in self.ordering:
+            field = term.lstrip("-")
+            value = item[field] if isinstance(item, dict) else getattr(item, field)
+            values.append(None if value is None else str(value))
+        return tuple(values)
+
+    def ordering_key(self) -> str:
+        """Return a short token for the list's ordering, so a cursor cannot be read under another ordering.
+
+        It hashes the unreversed ordering, so the next and previous cursors of one list share it.
+        """
+        return hashlib.sha256(",".join(self.ordering).encode("utf-8")).hexdigest()[:8]
+
+    def cursor_link(self, cursor: PageCursor) -> str:
+        tokens: dict[str, str] = {}
+        if cursor.drf_offset:
+            tokens["o"] = str(cursor.drf_offset)
+        if cursor.reverse:
+            tokens["r"] = "1"
+        # A cursor that skips rows came in DRF's format, which `p` and `o` already describe in full.
+        if cursor.after and not cursor.offset:
+            tokens["v"] = json.dumps(list(cursor.after), separators=(",", ":"))
+            tokens["k"] = self.ordering_key()
+        if cursor.drf_position is not None:
+            tokens["p"] = cursor.drf_position
+        encoded = b64encode(urlencode(tokens).encode("ascii")).decode("ascii")
+        return replace_query_param(self.page_url, self.cursor_query_param, encoded)
+
+    def _decode_cursor(self, request: Request) -> PageCursor | None:
+        encoded = request.query_params.get(self.cursor_query_param)
+        if encoded is None:
+            return None
+        try:
+            tokens = parse_qs(b64decode(encoded.encode("ascii")).decode("ascii"), keep_blank_values=True)
+            drf_offset = int(tokens.get("o", ["0"])[0])
+            reverse = bool(int(tokens.get("r", ["0"])[0]))
+            drf_position = tokens["p"][0] if "p" in tokens else None
+            if "v" in tokens:
+                # `v` holds values of the ordering the cursor came from, which another ordering reads as other rows.
+                if "k" in tokens and tokens["k"][0] != self.ordering_key():
+                    raise NotFound(self.invalid_cursor_message)
+                # `v` names the edge row exactly, so no rows are skipped. `o` is there for DRF only.
+                after = json.loads(tokens["v"][0])
+                offset = 0
+            else:
+                # A cursor that DRF encoded holds only the first ordering field, as `p`.
+                after = [] if drf_position is None else [drf_position]
+                offset = drf_offset
+        # Deeply nested JSON in `v` makes the parser give up with a RecursionError.
+        except (TypeError, ValueError, RecursionError):
+            raise NotFound(self.invalid_cursor_message)
+        if drf_offset < 0 or not isinstance(after, list) or not all(v is None or isinstance(v, str) for v in after):
+            raise NotFound(self.invalid_cursor_message)
+        return PageCursor(
+            reverse=reverse,
+            after=tuple(after),
+            offset=min(offset, self.offset_cutoff),
+            drf_position=drf_position,
+            drf_offset=min(drf_offset, self.offset_cutoff),
+        )
+
+    def _drf_marker(self, rows_from_edge: list[Any], reverse: bool) -> tuple[str | None, int]:
+        """Return DRF's position and offset for a cursor that starts just past the first row of `rows_from_edge`.
+
+        This copies how DRF's `get_next_link` and `get_previous_link` build a cursor: the position is
+        the nearest row whose first ordering field differs from the edge row, and the offset counts
+        the rows between them.
+        """
+        edge_value = self.position_of(rows_from_edge[0])[0]
+        tied = 0
+        for row in rows_from_edge:
+            value = self.position_of(row)[0]
+            if value != edge_value:
+                return value, tied
+            tied += 1
+
+        # Every row on the page shares the edge value, so the marker has to come from outside the page.
+        incoming = self.current_cursor
+        if incoming is None:
+            return None, tied
+        if incoming.reverse == reverse:
+            return incoming.drf_position, incoming.drf_offset + tied
+        if self.row_past_page is None:
+            return None, tied
+        # DRF does the same on a change of direction. It is exact unless the tie group also covers that row.
+        # During a rolling deploy, an old pod can mis-page such a `previous` link, and any tie group larger than `offset_cutoff`.
+        return self.position_of(self.row_past_page)[0], 0
+
+    def next_cursor(self, page: list[Any]) -> PageCursor:
+        """Return the cursor of the page after the last row of `page`, which must have rows."""
+        position, offset = self._drf_marker(list(reversed(page)), reverse=False)
+        return PageCursor(reverse=False, after=self.position_of(page[-1]), drf_position=position, drf_offset=offset)
+
+    def _read_page[T](
+        self, read: Callable[[CursorPageRequest], list[T]], queryset: Any, request: Request, view: Any
+    ) -> list[T] | None:
+        self.request = request
+        self.page_size = self.get_page_size(request)
+        if not self.page_size:
+            return None
+
+        self.page_url = request.build_absolute_uri()
+        self.ordering = self.get_ordering(request, queryset, view)
+        self.current_cursor = self._decode_cursor(request)
+        start = self.current_cursor or PageCursor(reverse=False, after=())
+        if len(start.after) > len(self.ordering):
+            raise NotFound(self.invalid_cursor_message)
+
+        ordering = _reversed_ordering(self.ordering) if start.reverse else self.ordering
+        try:
+            rows = read(
+                CursorPageRequest(ordering=ordering, after=start.after, offset=start.offset, limit=self.page_size + 1)
+            )
+        except DjangoValidationError:
+            # The cursor carries a value the ordering field cannot hold, such as a malformed UUID.
+            raise NotFound(self.invalid_cursor_message)
+        self.page = rows[: self.page_size]
+        has_more = len(rows) > self.page_size
+        self.row_past_page = rows[self.page_size] if has_more else None
+        has_rows_before = bool(start.after) or start.offset > 0
+        if start.reverse:
+            self.page.reverse()
+            self.has_next, self.has_previous = has_rows_before, has_more
+        else:
+            self.has_next, self.has_previous = has_more, has_rows_before
+
+        if (self.has_next or self.has_previous) and self.template is not None:
+            self.display_page_controls = True
+        return self.page
 
     def paginate_queryset(self, queryset: Any, request: Request, view: Any = None) -> Optional[list[Any]]:
-        self.counted_rows = queryset
-        return super().paginate_queryset(queryset, request, view)
+        self.count_rows: Callable[[], int] = queryset.count
+        return self._read_page(lambda page: select_cursor_rows(queryset, page), queryset, request, view)
+
+    def get_next_link(self) -> Optional[str]:
+        if not self.has_next:
+            return None
+        if not self.page:
+            # No row sorts before the cursor any more, so the next page is the first page.
+            return remove_query_param(self.page_url, self.cursor_query_param)
+        return self.cursor_link(self.next_cursor(self.page))
+
+    def get_previous_link(self) -> Optional[str]:
+        if not self.has_previous:
+            return None
+        if not self.page:
+            # No row sorts after the cursor any more, so the previous page is the last page.
+            return self.cursor_link(PageCursor(reverse=True, after=()))
+        position, offset = self._drf_marker(self.page, reverse=True)
+        return self.cursor_link(
+            PageCursor(reverse=True, after=self.position_of(self.page[0]), drf_position=position, drf_offset=offset)
+        )
 
     def get_paginated_response(self, data: Any) -> Response:
+        if not self.include_count:
+            return super().get_paginated_response(data)
         return Response(
             {
-                "count": self.counted_rows.count(),
+                "count": self.count_rows(),
                 "next": self.get_next_link(),
                 "previous": self.get_previous_link(),
                 "results": data,
@@ -245,6 +495,8 @@ class StableCursorPagination(CursorPagination):
 
     def get_paginated_response_schema(self, schema: dict) -> dict:
         paginated = super().get_paginated_response_schema(schema)
+        if not self.include_count:
+            return paginated
         paginated["required"] = ["count", "results"]
         paginated["properties"] = {
             "count": {"type": "integer", "example": 123},
@@ -253,55 +505,12 @@ class StableCursorPagination(CursorPagination):
         return paginated
 
 
-class _FacadePageSource[T]:
-    """Stands in for the queryset that `CursorPagination.paginate_queryset` pages through.
-
-    The paginator only orders the queryset, filters it on the cursor position and slices it. This
-    records the ordering and the position, and the slice reads that page through the facade. So DRF
-    still decodes and encodes every cursor.
-    """
-
-    def __init__(
-        self,
-        fetch: Callable[[CursorPageRequest], Page[T]],
-        ordering: tuple[str, ...] = (),
-        bound: CursorBound | None = None,
-        fetched: list[Page[T]] | None = None,
-    ) -> None:
-        self._fetch = fetch
-        self._ordering = ordering
-        self._bound = bound
-        # Every copy shares one list, so the source the paginator received can report the count of
-        # the page that a later copy fetched.
-        self._fetched: list[Page[T]] = fetched if fetched is not None else []
-
-    def order_by(self, *ordering: str) -> "_FacadePageSource[T]":
-        return _FacadePageSource(self._fetch, ordering, self._bound, self._fetched)
-
-    def filter(self, **lookup: str) -> "_FacadePageSource[T]":
-        # The only filter is the position, as `<first ordering field>__lt` or `__gt`.
-        ((key, value),) = lookup.items()
-        bound = CursorBound(value=value, before=key.endswith("__lt"))
-        return _FacadePageSource(self._fetch, self._ordering, bound, self._fetched)
-
-    def __getitem__(self, items: slice) -> list[T]:
-        page = self._fetch(
-            CursorPageRequest(
-                ordering=self._ordering, bound=self._bound, offset=items.start, limit=items.stop - items.start
-            )
-        )
-        self._fetched.append(page)
-        return page.results
-
-    def count(self) -> int:
-        return self._fetched[-1].count
-
-
 class FacadeCursorPagination(StableCursorPagination):
     """Builds the cursor response from pages that a facade reads in SQL.
 
-    The facade answers a `CursorPageRequest` with `select_cursor_page`, so cursors keep the format
-    DRF gives a queryset-backed view.
+    The facade answers a `CursorPageRequest` with `select_cursor_page`, so its cursors work the
+    same as those of a queryset-backed view. The list has no queryset model here, so the tiebreak
+    is `tiebreak_field`, and every ordering field must be readable on the facade's contracts.
     """
 
     def get_paginated_facade_response[T](
@@ -311,13 +520,18 @@ class FacadeCursorPagination(StableCursorPagination):
         fetch: Callable[[CursorPageRequest], Page[T]],
         serializer_class: type[BaseSerializer] | None = None,
     ) -> Response:
-        rows = self.paginate_queryset(cast(Any, _FacadePageSource(fetch)), request, view)
+        fetched: list[Page[T]] = []
+
+        def read(page: CursorPageRequest) -> list[T]:
+            fetched.append(fetch(page))
+            return fetched[-1].results
+
+        rows = self._read_page(read, None, request, view)
         # The page size is a class attribute, so the paginator always returns a page.
         assert rows is not None
+        self.count_rows = lambda: fetched[-1].count
 
-        serializer_class = serializer_class or view.get_serializer_class()
-        serializer = serializer_class(rows, many=True, context=view.get_serializer_context())
-        return self.get_paginated_response(serializer.data)
+        return self.get_paginated_response(_serialize_rows(view, rows, serializer_class))
 
 
 def facade_page_response[T](

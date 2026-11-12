@@ -8,16 +8,20 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertState
 from posthog.tasks.alerts.utils import RenderedInsightChart, trigger_alert_hog_functions
 
 from products.alerts.backend.platform_alert_legacy_events import emit_insight_legacy_events, insight_chart_image
+from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts.backend.test.insight_alerts import create_insight_alert
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    IncidentAction,
     LegacyEventEmission,
     MessageImage,
     SourceKind,
@@ -48,14 +52,26 @@ class TestInsightLegacyEvents(APIBaseTest):
             state=AlertState.FIRING.value,
             last_checked_at=CHECKED_AT,
         )
+        upsert = platform_upsert_of(self.alert)
+        assert upsert is not None
+        with team_scope(self.team.id):
+            self.configuration_id = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name=upsert.name,
+                source_kind=SourceKind.INSIGHT,
+                source_config=upsert.source_config,
+                check_interval_minutes=upsert.check_interval_minutes,
+                recurrence_unit=upsert.recurrence_unit,
+                legacy_configuration_id=self.alert.id,
+            ).id
 
-    def _emit(self, *emissions: LegacyEventEmission, alert_id: str | None = None) -> list[Any]:
+    def _emit(self, *emissions: LegacyEventEmission, configuration_id: str | None = None) -> list[Any]:
         request = AlertDeliveryRequest(
             source=SourceKind.INSIGHT,
             team_id=self.team.id,
-            configuration_id="cfg-1",
+            configuration_id=configuration_id or str(self.configuration_id),
             evaluation_key="slot:1",
-            destination_alert_id=alert_id or str(self.alert.id),
+            destination_alert_id=str(self.alert.id),
             event_ids_by_kind={},
         )
         announcement = EvaluationAnnouncement(
@@ -75,6 +91,7 @@ class TestInsightLegacyEvents(APIBaseTest):
         *,
         sends_message: bool = True,
         detail: dict[str, Any] | None = None,
+        incident_action: IncidentAction | None = None,
     ) -> LegacyEventEmission:
         transition = AnnouncedTransition(
             grouping_key="",
@@ -89,7 +106,7 @@ class TestInsightLegacyEvents(APIBaseTest):
             evaluation_key="slot:1",
             source_detail=detail or {},
         )
-        return LegacyEventEmission(transition=transition, sends_message=sends_message, incident_action=None)
+        return LegacyEventEmission(transition=transition, sends_message=sends_message, incident_action=incident_action)
 
     @parameterized.expand(
         [
@@ -164,9 +181,91 @@ class TestInsightLegacyEvents(APIBaseTest):
         ]
     )
     def test_nothing_the_insight_stack_would_not_send_is_emitted(
-        self, _name: str, kind: AlertEventKind, sends_message: bool, alert_id: str | None
+        self, _name: str, kind: AlertEventKind, sends_message: bool, configuration_id: str | None
     ) -> None:
-        assert self._emit(self._emission(kind, sends_message=sends_message), alert_id=alert_id) == []
+        assert self._emit(self._emission(kind, sends_message=sends_message), configuration_id=configuration_id) == []
+
+    @parameterized.expand(
+        [
+            (
+                "an_opened_firing",
+                AlertEventKind.FIRING,
+                True,
+                IncidentAction.TRIGGER,
+                ["$insight_alert_firing", "$insight_alert_incident_opened"],
+            ),
+            (
+                "a_silent_resolve",
+                AlertEventKind.CHECK,
+                False,
+                IncidentAction.RESOLVE,
+                ["$insight_alert_incident_closed"],
+            ),
+        ]
+    )
+    def test_an_incident_edge_emits_its_incident_event_beside_any_message(
+        self,
+        _name: str,
+        kind: AlertEventKind,
+        sends_message: bool,
+        action: IncidentAction,
+        expected: list[str],
+    ) -> None:
+        events = self._emit(
+            self._emission(
+                kind, sends_message=sends_message, detail={"breaches": ["above 100"]}, incident_action=action
+            )
+        )
+
+        assert [event.event_name for event in events] == expected
+        assert all(event.properties["alert_id"] == str(self.alert.id) for event in events)
+        if action == IncidentAction.RESOLVE:
+            assert events[0].properties == self.alert.internal_event_properties(
+                state=AlertState.NOT_FIRING.value, last_checked_at=CHECKED_AT
+            )
+
+    @parameterized.expand(
+        [
+            ("a_firing", AlertEventKind.FIRING, True, IncidentAction.TRIGGER, False),
+            ("a_resolve_after_its_insight_is_deleted", AlertEventKind.CHECK, False, IncidentAction.RESOLVE, True),
+        ]
+    )
+    def test_an_alert_with_no_insight_row_reaches_its_hogfunctions(
+        self,
+        _name: str,
+        kind: AlertEventKind,
+        sends_message: bool,
+        action: IncidentAction,
+        insight_deleted: bool,
+    ) -> None:
+        upsert = platform_upsert_of(self.alert)
+        assert upsert is not None
+        with team_scope(self.team.id):
+            native_id = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="Native signups dropped",
+                source_kind=SourceKind.INSIGHT,
+                source_config=upsert.source_config,
+                check_interval_minutes=upsert.check_interval_minutes,
+                recurrence_unit=upsert.recurrence_unit,
+                owner="platform",
+                legacy_configuration_id=None,
+            ).id
+        if insight_deleted:
+            self.alert.insight.deleted = True
+            self.alert.insight.save(update_fields=["deleted"])
+
+        events = self._emit(
+            self._emission(
+                kind, sends_message=sends_message, detail={"breaches": ["above 100"]}, incident_action=action
+            ),
+            configuration_id=str(native_id),
+        )
+
+        assert events
+        assert {(event.properties["alert_id"], event.properties["alert_name"]) for event in events} == {
+            (str(native_id), "Native signups dropped")
+        }
 
 
 class TestInsightChartImage(SimpleTestCase):

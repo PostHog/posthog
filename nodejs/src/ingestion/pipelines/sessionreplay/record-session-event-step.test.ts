@@ -48,6 +48,7 @@ describe('createRecordSessionEventStep', () => {
         team: TeamForReplay = defaultTeam
     ): RecordSessionEventStepInput => ({
         team,
+        headers: { now: new Date(1_700_000_000_000) },
         parsedMessage: createParsedMessage(overrides),
         retentionPeriod: '30d',
         sessionKey: createMockSessionKey(),
@@ -78,7 +79,8 @@ describe('createRecordSessionEventStep', () => {
                 message: input.parsedMessage,
             },
             '30d',
-            input.sessionKey
+            input.sessionKey,
+            1_700_000_000_000
         )
     })
 
