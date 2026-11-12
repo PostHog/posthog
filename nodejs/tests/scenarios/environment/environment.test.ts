@@ -1453,6 +1453,35 @@ describe('scenario environment', () => {
             }
         }, 30_000)
 
+        it('fails a drop that cannot reach a server the roles use, after dropping their sessions on the one it reached', async () => {
+            const readonlyFromEnv = process.env.DATABASE_READONLY_URL
+            process.env.DATABASE_READONLY_URL = 'postgres://posthog:posthog@127.0.0.1:1/posthog'
+            try {
+                environment = environmentOf()
+                await environment.up()
+                const client = new Client({
+                    connectionString: templatesUrl,
+                    application_name: `scenario-${process.pid}-${Date.now()}`,
+                })
+                const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
+                await client.connect()
+                try {
+                    await expect(environment.actuate({ kind: 'pg.terminate', share: 1 })).rejects.toThrow(
+                        'ECONNREFUSED 127.0.0.1:1'
+                    )
+                    await ended
+                } finally {
+                    await client.end().catch(() => undefined)
+                }
+            } finally {
+                if (readonlyFromEnv === undefined) {
+                    delete process.env.DATABASE_READONLY_URL
+                } else {
+                    process.env.DATABASE_READONLY_URL = readonlyFromEnv
+                }
+            }
+        })
+
         it("drops the dose's share of the roles' Postgres connections, rounded up", async () => {
             environment = environmentOf()
             await environment.up()
