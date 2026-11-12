@@ -838,6 +838,11 @@ class TestHasExperimentField(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
+    def _load_flags(self, loader: str) -> list[dict[str, Any]]:
+        if loader == "batch":
+            return _get_feature_flags_for_teams_batch([self.team])[self.team.id]["flags"]
+        return _get_feature_flags_for_service(self.team)["flags"]
+
     @parameterized.expand(
         [
             (f"{name}_{loader}", state, expected, loader)
@@ -860,13 +865,11 @@ class TestHasExperimentField(BaseTest):
         elif experiment_state == "deleted":
             create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp", deleted=True)
 
-        if loader == "batch":
-            flags = _get_feature_flags_for_teams_batch([self.team])[self.team.id]["flags"]
-        else:
-            flags = _get_feature_flags_for_service(self.team)["flags"]
+        flags = self._load_flags(loader)
         assert {f["key"]: f["has_experiment"] for f in flags} == {"exp-flag": expected, "other-flag": False}
 
-    def test_has_experiment_no_n_plus_one(self):
+    @parameterized.expand(["per_team", "batch"])
+    def test_has_experiment_no_n_plus_one(self, loader: str):
         """has_experiment is computed from one bulk read of the experiment flag ids, so the number of queries
         touching the experiment table stays constant as flags/experiments grow. Counting only
         experiment-table queries isolates this from unrelated per-flag queries on other paths."""
@@ -878,14 +881,14 @@ class TestHasExperimentField(BaseTest):
         create_experiment(team_id=self.team.id, feature_flag_id=first.id, name="exp-0")
 
         with CaptureQueriesContext(connection) as baseline:
-            _get_feature_flags_for_service(self.team)
+            self._load_flags(loader)
 
         for i in range(1, 6):
             extra = self._make_flag(f"flag-{i}")
             create_experiment(team_id=self.team.id, feature_flag_id=extra.id, name=f"exp-{i}")
 
         with CaptureQueriesContext(connection) as scaled:
-            _get_feature_flags_for_service(self.team)
+            self._load_flags(loader)
 
         assert experiment_query_count(scaled) == experiment_query_count(baseline), (
             f"Experiment-table query count grew from {experiment_query_count(baseline)} to "

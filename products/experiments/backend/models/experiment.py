@@ -414,23 +414,26 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         )
 
 
-def live_experiments_for_flag(feature_flag_id: int) -> "QuerySet[Experiment]":
+def _live_experiments() -> "QuerySet[Experiment]":
     """Single source of truth for the `has_experiment` predicate: a flag has a linked
     experiment iff a non-deleted Experiment row references it. The Rust flags service
-    (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL —
-    keep the two in lockstep.
-
-    `live_experiment_flag_ids` applies the same predicate to many flags at once, so keep it in lockstep too.
+    (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL,
+    so keep the two in lockstep.
     """
-    return Experiment.objects.filter(feature_flag_id=feature_flag_id, deleted=False)
+    return Experiment.objects.filter(deleted=False)
+
+
+def live_experiments_for_flag(feature_flag_id: int) -> "QuerySet[Experiment]":
+    return _live_experiments().filter(feature_flag_id=feature_flag_id)
 
 
 def live_experiment_flag_ids(feature_flag_ids: Collection[int], *, using: str) -> frozenset[int]:
-    """The ids among `feature_flag_ids` that `live_experiments_for_flag` matches, read in one query from the
-    database alias `using`. An empty collection returns an empty set without a query."""
+    """The ids among `feature_flag_ids` that a live experiment uses, read in one query from the database alias
+    `using`. An empty collection returns an empty set without a query."""
     return frozenset(
-        Experiment.objects.using(using)
-        .filter(feature_flag_id__in=list(feature_flag_ids), deleted=False)
+        _live_experiments()
+        .using(using)
+        .filter(feature_flag_id__in=list(feature_flag_ids))
         .values_list("feature_flag_id", flat=True)
     )
 
