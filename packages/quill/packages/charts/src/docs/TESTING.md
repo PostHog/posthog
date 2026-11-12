@@ -54,6 +54,7 @@ chart.valueBands() // [{ top, left, width, height, color }, …]
 chart.anomalyPoints() // [{ element, color }, …] (TimeSeriesLineChart)
 chart.legend() // legend container in the render scope, null when hidden
 chart.legendItems() // [{ label, secondaryLabel }, …] legend rows in the render scope, empty when hidden
+chart.syncedIndex() // label index of another chart's shared crosshair here, or null
 chart.clickLegendItem('A', { additive: true }) // click a legend row, additive toggles instead of isolating
 chart.legendValues() // [['12 ms', '40 ms'], …] value-table cells per legend row
 chart.sortLegendBy('Max') // click a value-table header to sort by that column
