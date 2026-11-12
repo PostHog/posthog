@@ -3552,6 +3552,10 @@ snapshots:
         hash: v1.k794b7964.48456222f795d3edb94017143a9c5c15a920392118965c6bad6a6885dc71cce7.BvsCbEkztwGHiodNVeB4GFpi1apkGig-K_NimZy7ndE
     experiments-healthcheckspanel--narrow-with-an-issue--light:
         hash: v1.k794b7964.79b21158d70a6475aa255d50d6cd9345bd9b37c6ff1705b7601ffe24597ea2b6.Tz0BCGqeLvaQgEIgzuVKbqG-e9u6_TsLozrf28cicNM
+    experiments-healthcheckspanel--passed-check-details-with-rows--dark:
+        hash: v1.k794b7964.143357b8d204c1ad5357189b33560a180d6b33bfa91a8c4a0020259e393c5393.acZVAzz0ePtnPWkDGUHXCKB2N7I7q6r28qvi78TuwFQ
+    experiments-healthcheckspanel--passed-check-details-with-rows--light:
+        hash: v1.k794b7964.8a29908353298bdfc18cbf748ae6531d78cc6db30174b7da9ce16a83b2e627d7.e9l_ZmkI_SYgsgetFpngRQ6EznCRlc7FuUHBdqkyYuo
     experiments-healthcheckspanel--running-with-an-issue--dark:
         hash: v1.k794b7964.56f0ae3fa907cf0a092e71198930db0e6cb55dc423839850adc721d850978274.UScP8TwfBvNr1FdZ3lH1bCh6d1CwYtPed3Ml-0IkrZo
     experiments-healthcheckspanel--running-with-an-issue--light:
@@ -12495,9 +12499,9 @@ snapshots:
     scenes-app-inbox-cards--report-card-personalized--light:
         hash: v1.k794b7964.7420d6f9790c4fb6529741f4ba0f5f49359b949caed34059c23bde38c8159d7c.65hJGKOm0JMBRJvpWXRYAxhA4M66T0KjZBjtsS1MqYA
     scenes-app-inbox-cards--report-card-personalized-narrow--dark:
-        hash: v1.k794b7964.9ba5a296fb78cb70228541dc43a64827fe6a0dd29a8b9820f3f771197764344e.Z3yxyluHx17l8soS6X0hIabrRzbsF1nFsQJzGkRH5Jc
+        hash: v1.k794b7964.4d0a60b6032a69fb9c915e17817eaff6145644263f910d99cda1d1ccd1e6d9b5.NqW21wK5ysufJbSKkpT4PveOG53FvxGIvKCs4ymUJqA
     scenes-app-inbox-cards--report-card-personalized-narrow--light:
-        hash: v1.k794b7964.99d7783c1049696c41cd6ddd454dfcbc7386ab53d41df5a6db5ed4a64346bb7d.ALkMjRh5CFA7iNDmQenS-ImzVJ5LWbqs9xLBqN79kS0
+        hash: v1.k794b7964.872545be2cc13f64430a07007b06d376185068dc691463347fd19dac157c1ff5.i78EBLunXZKEK4_qpn3U6UJdBQNKf6UG_VxAoYVYL88
     scenes-app-inbox-cards--report-card-ranking-pills--dark:
         hash: v1.k794b7964.7d1045b4a08919f2a3c51d2356d7721a641bb1b7a2ff7012429b2b7582e5449f.6uUmD7_Y05ohhBm3uy2EXQPPbBkUMfRmFVhBASj0Lvw
     scenes-app-inbox-cards--report-card-ranking-pills--light:
