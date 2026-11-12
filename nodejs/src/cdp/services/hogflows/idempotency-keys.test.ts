@@ -156,12 +156,28 @@ describe('IdempotencyKeys', () => {
     })
 
     it.each([
-        { completion: 'waits for the store', writesBeforeFailing: false, storeRecovers: true },
-        { completion: 'is written but its answer is lost', writesBeforeFailing: true, storeRecovers: true },
-        { completion: 'is lost with its process', writesBeforeFailing: false, storeRecovers: false },
+        { completion: 'waits for the store', writesBeforeFailing: false, storeRecovers: true, holdExpires: false },
+        {
+            completion: 'is written but its answer is lost',
+            writesBeforeFailing: true,
+            storeRecovers: true,
+            holdExpires: false,
+        },
+        {
+            completion: 'is lost with its process',
+            writesBeforeFailing: false,
+            storeRecovers: false,
+            holdExpires: false,
+        },
+        {
+            completion: 'is lost with its process and its hold expires',
+            writesBeforeFailing: false,
+            storeRecovers: false,
+            holdExpires: true,
+        },
     ])(
         'replays a moved run past 24 hours when its completion $completion',
-        async ({ writesBeforeFailing, storeRecovers }) => {
+        async ({ writesBeforeFailing, storeRecovers, holdExpires }) => {
             const scope = `scope-${new UUIDT().toString()}`
             const scopedKeys = new IdempotencyKeys(valkey, scope)
             const replayFields = { attachment_count: 1, attachment_bytes: 512 }
@@ -177,8 +193,12 @@ describe('IdempotencyKeys', () => {
                 }
                 throw new Error('connection lost')
             })
+            const redisKey = scopedKeys['redisKey'](1, key)
             try {
                 await scopedKeys.markQueued(1, key, 'request-a', 'run-1', replayFields)
+                if (holdExpires) {
+                    await valkey.useClient({ name: 'test-expire' }, (client) => client.del(redisKey))
+                }
                 await scopedKeys.replayUntilDayAfter(
                     1,
                     'run-1',
@@ -195,7 +215,6 @@ describe('IdempotencyKeys', () => {
                     await completionLands()
                 }
 
-                const redisKey = scopedKeys['redisKey'](1, key)
                 await valkey.useClient({ name: 'test-age' }, async (client) => {
                     const ttlMs = await client.pttl(redisKey)
                     await (ttlMs > 25 * HOUR_MS ? client.pexpire(redisKey, ttlMs - 25 * HOUR_MS) : client.del(redisKey))
