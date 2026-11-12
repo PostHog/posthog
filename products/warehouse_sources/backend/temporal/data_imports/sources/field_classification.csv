@@ -970,7 +970,7 @@ Plane,api_key workspace_slug base_url,,,,,plane
 PlanetScaleMySQL,host port database user password,,,schema,,planetscale-mysql
 PlanetScalePostgres,connection_string host port database user password verify_server_certificate ca_certificate client_certificate client_key,,,schema,,planetscale-postgres
 Planhat,api_key,,,,,planhat
-PlanningCenter,,,,,,planning-center
+PlanningCenter,application_id secret,,,,,planning-center
 PlatformSh,api_token platform,,,,,platform-sh
 Plausible,api_key site_id host,,,custom_property_keys,,plausible
 Plivo,auth_id auth_token,,,,,plivo
