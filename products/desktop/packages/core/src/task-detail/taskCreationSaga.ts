@@ -117,10 +117,13 @@ export class TaskCreationSaga extends Saga<
       ? undefined
       : await this.importClaudeSession(input);
 
+    // Warm runs are provisioned for GitHub repositories only, so a GitLab
+    // task never takes a warm lease or uploads attachments to a warm run.
     const warmPayload =
       !isPiRuntime &&
       !taskId &&
       input.workspaceMode === "cloud" &&
+      input.repositoryIntegrationId === undefined &&
       claudeCloudModelAccess !== "own-subscription" &&
       codexCloudModelAccess !== "own-subscription"
         ? await this.prepareWarmActivation(input)
@@ -887,8 +890,12 @@ export class TaskCreationSaga extends Saga<
           input.filePaths ?? [],
           this.deps.fileReadClient,
         );
+        const usesGitlab =
+          input.workspaceMode === "cloud" &&
+          input.repositoryIntegrationId !== undefined;
         const canActivateWarmRun =
           input.runtime !== "pi" &&
+          !usesGitlab &&
           !warmPayload?.suppressWarmReuse &&
           input.claudeCloudModelAccess !== "own-subscription" &&
           input.codexCloudModelAccess !== "own-subscription";
@@ -903,12 +910,17 @@ export class TaskCreationSaga extends Saga<
               ? undefined
               : (repository ?? undefined),
           repositories: input.signalReportId ? undefined : input.repositories,
+          repository_integration: usesGitlab
+            ? input.repositoryIntegrationId
+            : undefined,
           github_integration:
+            !usesGitlab &&
             input.workspaceMode === "cloud" &&
             (input.cloudRunSource === "signal_report" || input.repositories)
               ? input.githubIntegrationId
               : undefined,
           github_user_integration:
+            !usesGitlab &&
             input.workspaceMode === "cloud" &&
             input.cloudRunSource !== "signal_report"
               ? input.githubUserIntegrationId

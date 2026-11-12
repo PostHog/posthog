@@ -8,6 +8,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { setTeamQuotaLimited } from '~/tests/helpers/quota-limits'
 import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
@@ -613,6 +614,27 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 invocation: { hogFlow: { id: lateFlow.id } },
             })
             expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([missingInvocation])
+        })
+
+        it.each([
+            ['a run already queued', {}],
+            ['a rerun', { rerunAttempts: 1 }],
+        ])('runs %s to the end when the team is over its workflow quota', async (_name, context) => {
+            const billableFlow = await insertHogFlow(hub.postgres, {
+                ...new FixtureHogFlowBuilder().withTeamId(team.id).withStatus('active').withSimpleWorkflow().build(),
+                billable_action_types: ['function', 'function_email'],
+            })
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+
+            const [result] = await processor.processInvocations([
+                createSerializedHogFlowInvocation(billableFlow, {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                    ...context,
+                }),
+            ])
+
+            expect(result).toMatchObject({ finished: true, invocation: { hogFlow: { id: billableFlow.id } } })
+            expect(result.canceled).toBeFalsy()
         })
 
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {
