@@ -1,13 +1,9 @@
-import type { UnrunnableReasonEnumApi } from '../generated/api.schemas'
+import type { ScannerDisabledReasonEnumApi } from '../generated/api.schemas'
 
 /** Shared by every "Limit reached" badge so the surfaces tell one story. */
 const LIMIT_REACHED_TOOLTIP =
     'This scanner stopped scanning until its credit limit resets at the start of the next billing period. ' +
     'Sessions skipped while capped are not scanned later.'
-
-const FREE_CREDITS_USED_TOOLTIP =
-    'Paused until your free credits reset. Recordings until then are skipped. ' +
-    'To keep scanning, turn off "Free credits only" on the scanner page.'
 
 type LimitFields =
     | { free_only?: boolean; credit_limit?: number | null; limit_from_free_credits?: boolean }
@@ -19,11 +15,24 @@ export function stoppedByFreeCredits(scanner: LimitFields): boolean {
     return !!scanner?.free_only && (scanner.credit_limit == null || !!scanner.limit_from_free_credits)
 }
 
+const FREE_CREDITS_USED_TOOLTIP =
+    'Your free credits are used up, so this scanner is stopping. To keep scanning, turn off "Free credits only".'
+
 export function limitReachedTooltip(scanner: LimitFields): string {
     return stoppedByFreeCredits(scanner) ? FREE_CREDITS_USED_TOOLTIP : LIMIT_REACHED_TOOLTIP
 }
 
-export const UNRUNNABLE_DETAIL: Record<UnrunnableReasonEnumApi, string> = {
-    no_ai_consent: "Your organization hasn't allowed AI analysis of recordings, so this scanner can't run.",
-    creator_lost_access: "The person who created this scanner can no longer view recordings, so it can't run.",
+export const FREE_ONLY_STOPS = 'It stops when they run out.'
+
+const DISABLED_REASON_DETAIL: Record<ScannerDisabledReasonEnumApi, string> = {
+    manual: 'Someone turned this scanner off.',
+    free_credits_used: 'Stopped when your free credits ran out.',
+    no_ai_consent: "Your organization hasn't allowed AI analysis of recordings.",
+    creator_lost_access: 'Its creator can no longer view recordings. Turn it on to take it over.',
+    experiment_deleted: 'Its experiment was deleted.',
+}
+
+// Null when it was created off, or turned off before reasons were recorded.
+export function disabledReasonDetail(reason: ScannerDisabledReasonEnumApi | null): string {
+    return reason ? DISABLED_REASON_DETAIL[reason] : "This scanner doesn't scan new recordings."
 }

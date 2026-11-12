@@ -37922,7 +37922,7 @@ export namespace Schemas {
          * @maximum 100000000
          */
       monthly_credit_budget?: number;
-      /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
+      /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and stops when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
       free_only?: boolean;
       /**
          * A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.
@@ -76349,12 +76349,22 @@ export namespace Schemas {
       Google: 'google',
     } as const;
 
-    export type UnrunnableReasonEnum = typeof UnrunnableReasonEnum[keyof typeof UnrunnableReasonEnum];
+    /**
+     * * `manual` - Turned off by a person
+     * * `free_credits_used` - Free credits used
+     * * `no_ai_consent` - No AI consent
+     * * `creator_lost_access` - Creator lost access
+     * * `experiment_deleted` - Experiment deleted
+     */
+    export type ScannerDisabledReasonEnum = typeof ScannerDisabledReasonEnum[keyof typeof ScannerDisabledReasonEnum];
 
 
-    export const UnrunnableReasonEnum = {
+    export const ScannerDisabledReasonEnum = {
+      Manual: 'manual',
+      FreeCreditsUsed: 'free_credits_used',
       NoAiConsent: 'no_ai_consent',
       CreatorLostAccess: 'creator_lost_access',
+      ExperimentDeleted: 'experiment_deleted',
     } as const;
 
     /**
@@ -76431,7 +76441,7 @@ export namespace Schemas {
          * @nullable
          */
       credit_limit?: number | null;
-      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`. */
       free_only?: boolean;
       /** LLM provider. v1 is Google-only.
        *
@@ -76494,8 +76504,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly filter_error: string | null;
-      /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
-      readonly unrunnable_reason: UnrunnableReasonEnum | null;
+      /** Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. `free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. `experiment_deleted`: its experiment was deleted.
+       *
+       * * `manual` - Turned off by a person
+       * * `free_credits_used` - Free credits used
+       * * `no_ai_consent` - No AI consent
+       * * `creator_lost_access` - Creator lost access
+       * * `experiment_deleted` - Experiment deleted */
+      readonly disabled_reason: ScannerDisabledReasonEnum | null;
       readonly created_at: string;
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
@@ -90485,7 +90501,7 @@ export namespace Schemas {
          * @nullable
          */
       credit_limit?: number | null;
-      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+      /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`. */
       free_only?: boolean;
       /** LLM provider. v1 is Google-only.
        *
@@ -90548,8 +90564,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly filter_error?: string | null;
-      /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
-      readonly unrunnable_reason?: UnrunnableReasonEnum | null;
+      /** Why the scanner is off, or null when it is on or was created off. `manual`: a person turned it off. `free_credits_used`: a `free_only` scanner stopped when the free credits ran out. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. `experiment_deleted`: its experiment was deleted.
+       *
+       * * `manual` - Turned off by a person
+       * * `free_credits_used` - Free credits used
+       * * `no_ai_consent` - No AI consent
+       * * `creator_lost_access` - Creator lost access
+       * * `experiment_deleted` - Experiment deleted */
+      readonly disabled_reason?: ScannerDisabledReasonEnum | null;
       readonly created_at?: string;
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;

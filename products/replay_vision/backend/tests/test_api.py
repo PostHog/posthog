@@ -260,8 +260,6 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", {"enabled": True}, format="json")
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
-        listed = self.client.get(self.scanners_url).json()["results"]
-        self.assertEqual([row["unrunnable_reason"] for row in listed], ["no_ai_consent"])
 
     @parameterized.expand(
         [
@@ -289,10 +287,6 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         if not creator_left:
             self.organization.members.add(creator)
         scanner = self._create_scanner(enabled=False, created_by=creator)
-        listed = self.client.get(self.scanners_url).json()["results"]
-        self.assertEqual(
-            [row["unrunnable_reason"] for row in listed], ["creator_lost_access" if creator_left else None]
-        )
 
         with patch(
             "products.replay_vision.backend.api.scanners.recording_viewer_access",
@@ -1795,6 +1789,58 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         report.assert_called_once()
         self.assertEqual(report.call_args.args[1], event)
+
+    @parameterized.expand(
+        [
+            ("turning_off_records_manual", True, None, False, False, 200, False, "manual"),
+            ("turning_on_clears_the_reason", False, "creator_lost_access", False, True, 200, True, None),
+            # The form PATCHes `enabled: false` back on every save; that must not hide why the sweep turned it off.
+            (
+                "saving_an_off_scanner_keeps_its_reason",
+                False,
+                "free_credits_used",
+                True,
+                False,
+                200,
+                False,
+                "free_credits_used",
+            ),
+            (
+                "free_only_cannot_turn_on_without_free_credits",
+                False,
+                "free_credits_used",
+                True,
+                True,
+                400,
+                False,
+                "free_credits_used",
+            ),
+        ]
+    )
+    def test_disabled_reason_follows_the_enabled_toggle(
+        self,
+        _name: str,
+        before: bool,
+        reason_before: str | None,
+        free_only: bool,
+        after: bool,
+        status: int,
+        enabled_after: bool,
+        reason_after: str | None,
+    ) -> None:
+        scanner = self._create_scanner(enabled=before, free_only=free_only)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(disabled_reason=reason_before)
+
+        with patch("products.replay_vision.backend.quota.FREE_TIER_MONTHLY_CREDITS", 0):
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": after}, format="json")
+
+        self.assertEqual(resp.status_code, status, resp.json())
+        if status == 400:
+            self.assertEqual(resp.json()["code"], "scanner_free_credits_used")
+        scanner.refresh_from_db()
+        self.assertEqual((scanner.enabled, scanner.disabled_reason), (enabled_after, reason_after))
+        if status == 200:
+            self.assertEqual(resp.json()["disabled_reason"], reason_after)
 
     @parameterized.expand(
         [

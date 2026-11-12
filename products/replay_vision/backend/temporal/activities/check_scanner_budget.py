@@ -1,7 +1,14 @@
+from django.db import transaction
+from django.utils import timezone
+
 from temporalio import activity
 
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, initial_watermark
-from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerDisabledReason, initial_watermark
+from products.replay_vision.backend.models.replay_scanner_backfill import (
+    ACTIVE_BACKFILL_STATUSES,
+    BackfillStatus,
+    ReplayScannerBackfill,
+)
 from products.replay_vision.backend.quota import compute_scanner_budget, current_period_bounds
 from products.replay_vision.backend.scanner_access import unrunnable_reason
 from products.replay_vision.backend.temporal.constants import CHECK_SCANNER_BUDGET_TIMEOUT
@@ -11,7 +18,7 @@ from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.sweep_types import CheckScannerBudgetInputs, CheckScannerBudgetOutput
 
 
-def _notify_limit_reached(scanner: ReplayScanner, free_credits_bound: bool = False) -> bool:
+def _notify_scanner_viewers(scanner: ReplayScanner, title: str, body: str) -> bool:
     """Best-effort notification; False only when the send raised. A deliberate skip inside the
     pipeline (flag off, nobody to notify) counts as sent so it is not retried every tick."""
     try:
@@ -55,29 +62,13 @@ def _notify_limit_reached(scanner: ReplayScanner, free_credits_bound: bool = Fal
                     )
                 ]
 
-        body = (
-            "It only uses free credits, and your organization has used them for this billing period. "
-            if free_credits_bound
-            else ""
-        ) + "It stopped scanning until its billing period resets. Sessions skipped while capped are not scanned later."
-        # The cap also holds a running backfill without changing its status; without this line the
-        # notification leaves that backfill looking stalled for no reason.
-        if (
-            ReplayScannerBackfill.objects.for_team(scanner.team_id)
-            .filter(scanner_id=scanner.id, status=BackfillStatus.RUNNING)
-            .exists()
-        ):
-            body += " Its running backfill is on hold and resumes when the limit resets."
-
         create_notification(
             NotificationData(
                 team_id=scanner.team_id,
                 # A cap is a usage event, not breakage; it must not surface as a pipeline failure.
                 notification_type=NotificationType.USAGE_SPIKE,
                 priority=Priority.NORMAL,
-                title=f'"{scanner.name}" used its free credits'
-                if free_credits_bound
-                else f'"{scanner.name}" reached its credit limit',
+                title=title,
                 body=body,
                 target_type=TargetType.TEAM,
                 target_id=str(scanner.team_id),
@@ -97,6 +88,50 @@ def _notify_limit_reached(scanner: ReplayScanner, free_credits_bound: bool = Fal
     return True
 
 
+def _notify_limit_reached(scanner: ReplayScanner) -> bool:
+    body = "It stopped scanning until its billing period resets. Sessions skipped while capped are not scanned later."
+    # The cap also holds a running backfill without changing its status; without this line the
+    # notification leaves that backfill looking stalled for no reason.
+    if (
+        ReplayScannerBackfill.objects.for_team(scanner.team_id)
+        .filter(scanner_id=scanner.id, status=BackfillStatus.RUNNING)
+        .exists()
+    ):
+        body += " Its running backfill is on hold and resumes when the limit resets."
+    return _notify_scanner_viewers(scanner, f'"{scanner.name}" reached its credit limit', body)
+
+
+def _turn_off_free_only_scanner(scanner: ReplayScanner) -> CheckScannerBudgetOutput:
+    """Turn a free-only scanner off once the free credits run out, so it doesn't start again when they reset.
+
+    Its backfills are cancelled with it: one paused on the same free credits would otherwise resume
+    on its own next period, which is the restart this turn-off exists to prevent.
+    """
+    with transaction.atomic():
+        # The lock makes one of two racing ticks the one that turns it off and sends the notification.
+        locked = ReplayScanner.objects.select_for_update().filter(pk=scanner.pk, enabled=True).first()
+        if locked is None:
+            return CheckScannerBudgetOutput(capped=True)
+        locked.turn_off(ScannerDisabledReason.FREE_CREDITS_USED)
+        cancelled_backfills = (
+            ReplayScannerBackfill.objects.for_team(scanner.team_id)
+            .filter(scanner_id=scanner.id, status__in=ACTIVE_BACKFILL_STATUSES)
+            .update(status=BackfillStatus.CANCELLED, finished_at=timezone.now())
+        )
+    record_sweep_outcome(ScannerDisabledReason.FREE_CREDITS_USED)
+    activity.logger.info(
+        "replay_vision.sweep.disabled_free_only_scanner scanner_id=%s cancelled_backfills=%s",
+        scanner.id,
+        cancelled_backfills,
+    )
+    body = "Your organization used its free credits for this billing period."
+    if cancelled_backfills:
+        body += " Its backfill was canceled."
+    # Best effort: a turned-off scanner has no next tick to retry a failed send.
+    _notify_scanner_viewers(scanner, f'"{scanner.name}" stopped: free credits used', body)
+    return CheckScannerBudgetOutput(capped=True)
+
+
 @activity.defn
 @track_activity()
 def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScannerBudgetOutput:
@@ -106,7 +141,8 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
     freezing it would make the first uncapped tick burn the fresh period's budget on stale recordings.
     Lives here rather than in the workflow because it needs the real clock. Only settled spend advances
     the watermark: in-flight reservations can release without settling and must not permanently skip
-    a window the scanner could still afford.
+    a window the scanner could still afford. A free-only scanner whose free credits fill with
+    settled spend is turned off instead of capped.
     """
     scanner = (
         ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id)
@@ -140,6 +176,8 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
             },
         )
         return CheckScannerBudgetOutput(capped=True)
+    if scanner.free_only and budget.free_credits_filled_by_settled_spend:
+        return _turn_off_free_only_scanner(scanner)
     record_sweep_outcome("scanner_capped_settled")
     # The WHERE claims the notification stamp: of two racing ticks exactly one wins the send, and a
     # crash before the send below can only skip a notification, never send an unrecorded one.
@@ -171,7 +209,7 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
         },
     )
     # Sent only after the stamp commits: a push can't be un-sent, so it must never precede its record.
-    if stamped and not _notify_limit_reached(scanner, budget.settled_block_from_free_credits):
+    if stamped and not _notify_limit_reached(scanner):
         # Hand the claim back so a transient outage delays the notification instead of consuming it.
         ReplayScanner.objects.filter(pk=scanner.pk, limit_notified_period_start=period.start).update(
             limit_notified_period_start=None

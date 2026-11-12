@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { cn } from 'lib/utils/css-classes'
@@ -19,7 +18,7 @@ import { quotaBannerState } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { scanDrought } from '../scanDrought'
-import { UNRUNNABLE_DETAIL, limitReachedTooltip, stoppedByFreeCredits } from '../scannerCopy'
+import { disabledReasonDetail, limitReachedTooltip, stoppedByFreeCredits } from '../scannerCopy'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { ScannerStatus, SWEEP_INTERVAL_MINUTES, scannerStatus, spendAgainstLimit } from '../scannerStatus'
 import { HERO_CARD_HEADER, HERO_CARD_HEIGHT } from './scannerHeroCard'
@@ -33,23 +32,19 @@ function formatInterval(minutes: number): string {
     return minutes === 60 ? 'hour' : pluralize(minutes / 60, 'hour')
 }
 
-function statusDetail(status: ScannerStatus, resetsOn: string | null, periodEndsOn: string | null): React.ReactNode {
+function statusDetail(status: ScannerStatus, resetsOn: string | null): React.ReactNode {
     switch (status.kind) {
-        case 'no_ai_consent':
-            return UNRUNNABLE_DETAIL.no_ai_consent
-        case 'creator_lost_access':
-            return `${UNRUNNABLE_DETAIL.creator_lost_access} Turn it on to take it over.`
         case 'off':
-            return status.reason === 'no_sampling'
-                ? 'Sampling is set to 0%, so no recordings are scanned.'
-                : "This scanner doesn't scan new recordings."
+            return disabledReasonDetail(status.reason)
+        case 'no_sampling':
+            return 'Sampling is set to 0%, so no recordings are scanned.'
         case 'replay_off':
             return `${RECORDINGS_BLOCK_CAUSE['replay-off']}, so there are no recordings to scan.`
         case 'no_recordings':
             return `${RECORDINGS_BLOCK_CAUSE['no-recordings']}, so there is nothing to scan.`
         case 'limit_reached':
             return stoppedByFreeCredits(status)
-                ? `Paused until your free credits reset${periodEndsOn ? ` on ${periodEndsOn}` : ''}. Recordings until then are skipped.`
+                ? 'Your free credits are used up, so this scanner is stopping.'
                 : limitReachedTooltip(status)
         case 'quota_exhausted':
             return `Your organization's Replay Vision credits are used up${resetsOn ? ` until ${resetsOn}` : ''}.`
@@ -108,9 +103,9 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
         drought: scanDrought(scanner, observationStatsApi?.labels.version_markers ?? null, new Date()),
         recordingsBlock,
     })
-    const periodEndsOn = quota ? dayjs.utc(quota.period_end).format('MMMM D') : null
-    const detail = statusDetail(status, quotaState.kind ? quotaState.resetsOn : null, periodEndsOn)
+    const detail = statusDetail(status, quotaState.kind ? quotaState.resetsOn : null)
     const pausedByFreeCredits = status.kind === 'limit_reached' && stoppedByFreeCredits(status)
+    const turnedOffByFreeCredits = status.kind === 'off' && status.reason === 'free_credits_used'
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner.user_access_level)
     const spend = spendAgainstLimit(scanner, quota)
 
@@ -194,19 +189,21 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                             )}
                         </span>
                     )}
-                    {pausedByFreeCredits && (
+                    {(pausedByFreeCredits || turnedOffByFreeCredits) && (
                         <div className="pt-1">
                             <LemonSwitch
                                 checked
                                 onChange={() =>
                                     LemonDialog.open({
-                                        title: 'Turn off free credits only?',
+                                        title: turnedOffByFreeCredits
+                                            ? 'Turn off free credits only and start scanning?'
+                                            : 'Turn off free credits only?',
                                         description:
                                             scanner.credit_limit != null
                                                 ? `This scanner will keep scanning after your free credits run out. Scans past them are billed, up to its limit of ${scanner.credit_limit.toLocaleString('en-US')} credits a month.`
                                                 : "This scanner will keep scanning after your free credits run out. Scans past them are billed, up to your organization's spend limit.",
                                         primaryButton: {
-                                            children: 'Turn off',
+                                            children: turnedOffByFreeCredits ? 'Turn off and scan' : 'Turn off',
                                             onClick: () => turnOffFreeOnly(),
                                         },
                                         secondaryButton: { children: 'Cancel' },

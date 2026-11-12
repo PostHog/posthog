@@ -1423,7 +1423,7 @@ export const ScannerCreatorLostAccess: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [
         overviewDecorator(
-            { ...summarizerScanner, enabled: false, unrunnable_reason: 'creator_lost_access' },
+            { ...summarizerScanner, enabled: false, disabled_reason: 'creator_lost_access' },
             summarizerStats
         ),
     ],
@@ -2460,6 +2460,23 @@ export const ScannerOverviewFreeCreditsUsed: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [
         overviewDecorator({ ...freeOnlyLimitReachedScanner, id: summarizerScanner.id }, summarizerStats),
+        mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota } }),
+    ],
+}
+
+// Once the sweep turns a free-only scanner off, the strip says why and offers the way to keep scanning.
+export const ScannerOverviewTurnedOffByFreeCredits: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [
+        overviewDecorator(
+            {
+                ...freeOnlyLimitReachedScanner,
+                id: summarizerScanner.id,
+                enabled: false,
+                disabled_reason: 'free_credits_used',
+            },
+            summarizerStats
+        ),
         mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota } }),
     ],
 }

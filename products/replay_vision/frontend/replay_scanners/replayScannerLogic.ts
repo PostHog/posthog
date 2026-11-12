@@ -511,11 +511,9 @@ export interface CreditLimitState {
     seedValue: number | null
 }
 
-/** The fields a free-only change moves, copied from the saved scanner so the status updates without a reload. */
-function enabledFields(
-    saved: ReplayScannerApi
-): Pick<ReplayScannerApi, 'enabled' | 'unrunnable_reason' | 'created_by'> {
-    return { enabled: saved.enabled, unrunnable_reason: saved.unrunnable_reason, created_by: saved.created_by }
+/** The fields a toggle moves, copied from the saved scanner so the status updates without a reload. */
+function enabledFields(saved: ReplayScannerApi): Pick<ReplayScannerApi, 'enabled' | 'disabled_reason' | 'created_by'> {
+    return { enabled: saved.enabled, disabled_reason: saved.disabled_reason, created_by: saved.created_by }
 }
 
 function freeOnlyFields(
@@ -1495,7 +1493,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // Keyed on the real save, not submitScannerSuccess — kea-forms fires that on the no-API advance path too.
                 scannerSaved: (_, { scanner }) => scanner,
                 toggleEnabledSuccess: (state, { saved }) => (state ? { ...state, ...enabledFields(saved) } : state),
-                turnOffFreeOnlySuccess: (state, { saved }) => (state ? { ...state, ...freeOnlyFields(saved) } : state),
+                turnOffFreeOnlySuccess: (state, { saved }) =>
+                    state ? { ...state, ...freeOnlyFields(saved), ...enabledFields(saved) } : state,
                 // Self-driving changes the prompt the model gets, so the backend bumps the version with it.
                 turnOnSelfDrivingSuccess: (state, { scannerVersion, updatedAt }) =>
                     state
@@ -2672,7 +2671,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         actions.toggleEnabledFailure()
                         return
                     }
-                    // Turning on can take the scanner over, which clears its blocker and changes its creator.
+                    // Turning on can take the scanner over, which changes its creator.
                     actions.setScannerValues(enabledFields(saved))
                     actions.toggleEnabledSuccess(saved)
                     refreshVisionQuota()
@@ -2691,12 +2690,19 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     actions.turnOffFreeOnlyFailure()
                     return
                 }
+                // A scanner the free credits turned off is turned back on with it, so it scans now as the switch promises.
+                const turnOn = !values.scanner.enabled && values.scanner.disabled_reason === 'free_credits_used'
                 try {
-                    const saved = await visionScannersPartialUpdate(String(teamId), props.id, { free_only: false })
-                    actions.setScannerValues(freeOnlyFields(saved))
+                    const saved = await visionScannersPartialUpdate(String(teamId), props.id, {
+                        free_only: false,
+                        ...(turnOn && { enabled: true }),
+                    })
+                    actions.setScannerValues({ ...freeOnlyFields(saved), ...enabledFields(saved) })
                     actions.turnOffFreeOnlySuccess(saved)
                     refreshVisionQuota()
-                    lemonToast.success('Free credits only turned off')
+                    lemonToast.success(
+                        turnOn ? 'Free credits only turned off, scanning again' : 'Free credits only turned off'
+                    )
                 } catch (error: any) {
                     lemonToast.error(`Couldn't turn off free credits only${error.detail ? `: ${error.detail}` : ''}`)
                     actions.turnOffFreeOnlyFailure()

@@ -98,6 +98,16 @@ class ScannerOrigin(models.TextChoices):
     INLINE = "inline", "Inline"
 
 
+class ScannerDisabledReason(models.TextChoices):
+    """Why a scanner is off. Null on an enabled scanner, and on one that was created off."""
+
+    MANUAL = "manual", "Turned off by a person"
+    FREE_CREDITS_USED = "free_credits_used", "Free credits used"
+    NO_AI_CONSENT = "no_ai_consent", "No AI consent"
+    CREATOR_LOST_ACCESS = "creator_lost_access", "Creator lost access"
+    EXPERIMENT_DELETED = "experiment_deleted", "Experiment deleted"
+
+
 class PromptValence(models.TextChoices):
     """Whether the answer a monitor or scorer looks for is good or bad news for the team."""
 
@@ -180,6 +190,13 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     enabled = models.BooleanField(
         default=True,
         help_text="When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
+    )
+    disabled_reason = models.CharField(
+        max_length=32,
+        choices=ScannerDisabledReason.choices,
+        null=True,
+        blank=True,
+        help_text="Why the scanner is off. Cleared whenever the scanner is turned on.",
     )
     emits_signals = models.BooleanField(default=False)
 
@@ -330,7 +347,10 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     free_only = models.BooleanField(
         default=False,
         db_default=False,
-        help_text="Run only while the organization has free credits left this billing period, so the scanner never adds spend.",
+        help_text=(
+            "Run only while the organization has free credits left this billing period, so the scanner never adds "
+            "spend. When they run out it turns off with `disabled_reason` `free_credits_used`."
+        ),
     )
     limit_notified_period_start = models.DateTimeField(
         null=True,
@@ -511,14 +531,28 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                         # behind would make its first window span the whole disabled gap.
                         self.deep_swept_through = self.last_swept_at
                         self.deep_seen_session_id = ""
+                        self.disabled_reason = None
                         extra_fields.extend(
-                            ["last_swept_at", "last_seen_session_id", "deep_swept_through", "deep_seen_session_id"]
+                            [
+                                "last_swept_at",
+                                "last_seen_session_id",
+                                "deep_swept_through",
+                                "deep_seen_session_id",
+                                "disabled_reason",
+                            ]
                         )
                     if update_fields is not None and extra_fields:
                         kwargs["update_fields"] = [*update_fields, *extra_fields]
                 super().save(*args, **kwargs)
             return
         super().save(*args, **kwargs)
+
+    def turn_off(self, reason: ScannerDisabledReason) -> None:
+        """Turn the scanner off and record why, so the owner sees the cause instead of a bare "Off"."""
+        # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — disables a ReplayScanner, not an alert; scanners have no state machine.
+        self.enabled = False
+        self.disabled_reason = reason
+        self.save(update_fields=["enabled", "disabled_reason"])
 
     def recordings_query(self) -> "RecordingsQuery":
         """The persisted candidate filter; an empty `query` parses as a bare RecordingsQuery."""

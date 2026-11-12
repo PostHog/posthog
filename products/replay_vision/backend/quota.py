@@ -308,12 +308,11 @@ class ScannerBudget(QuotaState):
         return self.other_ceiling_settled_blocked or replace(self, credits_used=self.credits_settled).blocked
 
     @property
-    def settled_block_from_free_credits(self) -> bool:
-        """Whether the org's free credits, rather than the scanner's own limit, are the ceiling posted spend fills."""
-        if replace(self, credits_used=self.credits_settled).blocked:
-            return self.free_credits_bound
-        # The other ceiling of a free-only scanner is the own limit when this one is the free credits, and back.
-        return self.other_ceiling_settled_blocked and not self.free_credits_bound
+    def free_credits_filled_by_settled_spend(self) -> bool:
+        """Whether posted spend fills the org's free credits for this free-only scanner, whichever of its ceilings binds."""
+        if self.free_credits_bound:
+            return replace(self, credits_used=self.credits_settled).blocked
+        return self.other_ceiling_settled_blocked
 
 
 def _scanner_in_flight_credits(
@@ -740,6 +739,16 @@ def free_credits_ceiling(cap: OrgCreditCap) -> int:
     if cap.credit_limit is None:
         return FREE_TIER_MONTHLY_CREDITS
     return min(cap.credit_limit, FREE_TIER_MONTHLY_CREDITS)
+
+
+# Error code clients key on to offer turning off "Free credits only" when a free-only scanner can't turn on.
+FREE_CREDITS_USED_CODE = "scanner_free_credits_used"
+
+
+def free_credits_used_up(organization_id: UUID, cap: OrgCreditCap | None = None) -> bool:
+    """Whether a free-only scanner would stop before its first scan: the org's draw already fills the free credits."""
+    cap = cap or org_credit_cap(organization_id)
+    return quota_state_for_cap(organization_id, cap).credits_used >= free_credits_ceiling(cap)
 
 
 def _free_credits_budget(organization_id: UUID, period: BillingPeriod) -> ScannerBudget:

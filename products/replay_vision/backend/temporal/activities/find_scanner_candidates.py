@@ -1,6 +1,5 @@
 import time
 import datetime as dt
-from typing import Literal
 
 from django.utils import timezone
 
@@ -21,6 +20,7 @@ from products.replay_vision.backend.models.replay_observation import ReplayObser
 from products.replay_vision.backend.models.replay_scanner import (
     SETTLE_INTERVAL,
     ReplayScanner,
+    ScannerDisabledReason,
     ScannerType,
     initial_watermark,
 )
@@ -42,7 +42,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     build_candidate_batch,
 )
 from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
-from products.replay_vision.backend.scanner_access import UnrunnableReason, unrunnable_reason
+from products.replay_vision.backend.scanner_access import unrunnable_reason
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
     DEEP_SWEEP_MAX_EXECUTION_SECONDS,
@@ -159,9 +159,7 @@ def _fail_on_filter_error(scanner: ReplayScanner, error: Exception) -> None:
     ) from error
 
 
-def _disable_unrunnable_scanner(
-    scanner: ReplayScanner, reason: UnrunnableReason | Literal["experiment_deleted"]
-) -> FindScannerCandidatesOutput:
+def _turn_off_unrunnable_scanner(scanner: ReplayScanner, reason: ScannerDisabledReason) -> FindScannerCandidatesOutput:
     """Turn the scanner off so the reconciler drops its schedule and the owner sees it off, not silently idle.
 
     An experiment scanner's scouts are paused first: a disabled scanner has no schedule left to retry a
@@ -170,9 +168,7 @@ def _disable_unrunnable_scanner(
     if scanner.scanner_type == ScannerType.EXPERIMENT and not _stop_variant_analysis(scanner):
         record_sweep_outcome(f"{reason}_pause_failed")
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
-    # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — disables a ReplayScanner, not an alert; scanners have no state machine.
-    scanner.enabled = False
-    scanner.save(update_fields=["enabled"])
+    scanner.turn_off(reason)
     record_sweep_outcome(reason)
     activity.logger.info("replay_vision.sweep.disabled_unrunnable_scanner scanner_id=%s reason=%s", scanner.id, reason)
     return FindScannerCandidatesOutput(candidates=[], saturated=False)
@@ -192,13 +188,13 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
 
     # Without AI consent or the creator's recording access a scanner can never spend, so turn it off instead of leaving it silently idle.
     if reason := unrunnable_reason(scanner):
-        return _disable_unrunnable_scanner(scanner, reason)
+        return _turn_off_unrunnable_scanner(scanner, reason)
 
     lifecycle_block = _experiment_lifecycle_block(scanner)
     sweep_until: dt.datetime | None = None
     if lifecycle_block is not None and lifecycle_block.kind == "deleted":
         # A deleted experiment can't resolve a population again.
-        return _disable_unrunnable_scanner(scanner, "experiment_deleted")
+        return _turn_off_unrunnable_scanner(scanner, ScannerDisabledReason.EXPERIMENT_DELETED)
     if lifecycle_block is not None:
         end = lifecycle_block.end_date
         if end is None or _swept_past(scanner, end):

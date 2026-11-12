@@ -1405,7 +1405,18 @@ describe('replayScannerLogic', () => {
             })
         })
 
-        it('turns off free credits only with a patch of that one field and clears the stopped state', async () => {
+        it.each([
+            ['while capped, a patch of that one field', true, null, { free_only: false }],
+            [
+                'after the free credits turned it off, it turns on too',
+                false,
+                'free_credits_used' as const,
+                {
+                    free_only: false,
+                    enabled: true,
+                },
+            ],
+        ])('turns off free credits only %s', async (_name, enabled, disabled_reason, expectedBody) => {
             let patchedBody: any
             useMocks({
                 patch: {
@@ -1415,7 +1426,8 @@ describe('replayScannerLogic', () => {
                             200,
                             {
                                 ...loadedScanner,
-                                free_only: false,
+                                ...patchedBody,
+                                disabled_reason: null,
                                 limit_reached: false,
                                 limit_from_free_credits: false,
                             },
@@ -1424,12 +1436,24 @@ describe('replayScannerLogic', () => {
                 },
             })
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
-            editLogic.actions.setScannerValues({ free_only: true, limit_reached: true, limit_from_free_credits: true })
+            editLogic.actions.setScannerValues({
+                enabled,
+                disabled_reason,
+                free_only: true,
+                limit_reached: true,
+                limit_from_free_credits: true,
+            })
             await expectLogic(editLogic, () => editLogic.actions.turnOffFreeOnly()).toDispatchActions([
                 'turnOffFreeOnlySuccess',
             ])
-            expect(patchedBody).toEqual({ free_only: false })
-            const running = { free_only: false, limit_reached: false, limit_from_free_credits: false }
+            expect(patchedBody).toEqual(expectedBody)
+            const running = {
+                enabled: true,
+                disabled_reason: null,
+                free_only: false,
+                limit_reached: false,
+                limit_from_free_credits: false,
+            }
             expect(editLogic.values.scanner).toMatchObject(running)
             expect(editLogic.values.originalScanner).toMatchObject(running)
             expect(editLogic.values.turningOffFreeOnly).toBe(false)
@@ -1447,16 +1471,16 @@ describe('replayScannerLogic', () => {
                 patch: {
                     '/api/projects/:team/vision/scanners/:id/': () => [
                         200,
-                        { ...loadedScanner, enabled: true, unrunnable_reason: null, created_by: newCreator },
+                        { ...loadedScanner, enabled: true, disabled_reason: null, created_by: newCreator },
                     ],
                 },
             })
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
-            editLogic.actions.setScannerValues({ enabled: false, unrunnable_reason: 'creator_lost_access' })
+            editLogic.actions.setScannerValues({ enabled: false, disabled_reason: 'creator_lost_access' })
             await expectLogic(editLogic, () => editLogic.actions.toggleEnabled()).toDispatchActions([
                 'toggleEnabledSuccess',
             ])
-            const runnable = { enabled: true, unrunnable_reason: null, created_by: newCreator }
+            const runnable = { enabled: true, disabled_reason: null, created_by: newCreator }
             expect(editLogic.values.scanner).toMatchObject(runnable)
             expect(editLogic.values.originalScanner).toMatchObject(runnable)
         })
