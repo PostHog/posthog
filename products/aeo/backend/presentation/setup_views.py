@@ -19,6 +19,7 @@ from products.aeo.backend.facade.contracts import (
     SETUP_KEYWORD_COUNT,
     SETUP_PROMPT_COUNT,
     SETUP_WEBSITE_DAYS,
+    SetupAlreadyRunningError,
     SetupContext,
     SetupJob,
     SetupJobNotFoundError,
@@ -85,6 +86,7 @@ class AEOSetupContextSerializer(DataclassSerializer):
                 "help_text": "Whether citation checks run for this project. When false, setup saves the brand, "
                 "prompts and keywords but cannot queue the first run."
             },
+            "website_days": {"help_text": "The window, in days, that pageview hosts among the websites cover."},
             "prompt_target": {
                 "help_text": "How many prompts setup asks PostHog to suggest. One run makes about this many checks "
                 "per enabled engine."
@@ -94,8 +96,11 @@ class AEOSetupContextSerializer(DataclassSerializer):
 
 class AEOSetupRequestSerializer(serializers.Serializer):
     domain = serializers.CharField(
+        required=False,
+        allow_blank=True,
         max_length=200,
-        help_text="The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords.",
+        help_text="The project's site, for example example.com. It becomes the own brand, and PostHog reads it to "
+        "suggest prompts and keywords. Required unless only_first_run is true.",
     )
     brand = serializers.CharField(
         required=False,
@@ -122,6 +127,26 @@ class AEOSetupRequestSerializer(serializers.Serializer):
         help_text="Queue a first citation check run after setup. Each check is a paid call to every enabled engine. "
         "When false, setup saves the brand, prompts and keywords and the daily schedule runs the first checks.",
     )
+    only_first_run = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. "
+        "Use it when the project is already set up and should be checked now instead of on its schedule. Each "
+        "check is a paid call to every enabled engine.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("only_first_run"):
+            if "engines" in attrs:
+                raise serializers.ValidationError({"engines": "Leave engines out when only_first_run is true."})
+        elif not attrs.get("domain", "").strip():
+            raise serializers.ValidationError({"domain": "Enter the project's site."})
+        return attrs
+
+
+class AEOSetupConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the request was refused.")
+    job_id = serializers.CharField(help_text="The setup job already running. Poll GET aeo_setup/<id>/ with it.")
 
 
 class AEOSetupStepSerializer(DataclassSerializer):
@@ -137,7 +162,7 @@ class AEOSetupStepSerializer(DataclassSerializer):
             },
             "added": {"help_text": "How many brands, prompts or keywords the step added."},
             "detail": {
-                "help_text": "Why a step was skipped (already_set, already_run, not_requested, not_available), or why the keywords step failed."
+                "help_text": "Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), or why the keywords or first_run step failed."
             },
         }
 
@@ -188,29 +213,41 @@ class AEOSetupViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={
             202: OpenApiResponse(response=AEOSetupJobSerializer),
             400: OpenApiResponse(description="The domain is not valid, or no chosen engine can run."),
+            409: OpenApiResponse(
+                response=AEOSetupConflictSerializer, description="A setup job is already running for the project."
+            ),
         },
         tags=["web_analytics"],
     )
     def create(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        data = request.validated_data
         # The site, prompts and keywords go to a model, so the organization must have approved AI data processing.
-        if not self.organization.is_ai_data_processing_approved:
+        # A run-only request sends nothing to a model beyond the checks themselves.
+        if not data["only_first_run"] and not self.organization.is_ai_data_processing_approved:
             raise PermissionDenied(
                 "Setup needs AI data processing approved for your organization. An admin can approve it in organization settings."
             )
-        data = request.validated_data
         try:
             job = start_setup(
                 self.team_id,
                 SetupRequest(
-                    domain=data["domain"],
+                    domain=data.get("domain", ""),
                     brand=data.get("brand", ""),
                     description=data.get("description", ""),
                     run_first_check=data["run_first_check"],
                     engines=tuple(data["engines"]) if "engines" in data else None,
+                    only_first_run=data["only_first_run"],
                 ),
             )
         except SetupRequestError as error:
             raise ValidationError(str(error))
+        except SetupAlreadyRunningError as error:
+            return Response(
+                AEOSetupConflictSerializer(
+                    {"detail": "Setup is already running for this project.", "job_id": error.job_id}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(AEOSetupJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
 
     @validated_request(

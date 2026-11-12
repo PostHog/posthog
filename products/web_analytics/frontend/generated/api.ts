@@ -750,7 +750,7 @@ export const getAeoSetupCreateUrl = (projectId: string) => {
  */
 export const aeoSetupCreate = async (
     projectId: string,
-    aEOSetupRequestApi: AEOSetupRequestApi,
+    aEOSetupRequestApi?: AEOSetupRequestApi,
     options?: RequestInit
 ): Promise<AEOSetupJobApi> => {
     return apiMutator<AEOSetupJobApi>(getAeoSetupCreateUrl(projectId), {

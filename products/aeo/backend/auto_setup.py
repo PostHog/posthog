@@ -38,6 +38,7 @@ from products.aeo.backend.facade.contracts import (
     BrandCreate,
     BrandCreateError,
     BrandKind,
+    BrandStatus,
     BrandUpdate,
     KeywordLimitError,
     KeywordSuggestionError,
@@ -46,6 +47,7 @@ from products.aeo.backend.facade.contracts import (
     PromptOrigin,
     PromptSuggestionError,
     PromptSuggestionRequest,
+    SetupAlreadyRunningError,
     SetupContext,
     SetupJob,
     SetupJobNotFoundError,
@@ -63,7 +65,13 @@ from products.aeo.backend.suggestions import SUGGESTION_CACHE_ALIAS, SUGGESTION_
 logger = structlog.get_logger(__name__)
 
 # Two model calls back to back, each allowed the suggestion task's six minutes, plus the saves.
-SETUP_JOB_STALE_SECONDS = 16 * 60
+SETUP_TASK_SOFT_TIME_LIMIT_SECONDS = 13 * 60
+SETUP_TASK_TIME_LIMIT_SECONDS = SETUP_TASK_SOFT_TIME_LIMIT_SECONDS + 60
+# A job reads as failed this long after it was created. A task that starts later than the start window can no
+# longer finish inside it, so it gives up before any paid call.
+SETUP_JOB_STALE_SECONDS = 20 * 60
+SETUP_START_WINDOW_SECONDS = SETUP_JOB_STALE_SECONDS - SETUP_TASK_TIME_LIMIT_SECONDS
+PAGEVIEW_HOSTS_CACHE_SECONDS = 60 * 60
 FAILED_ERROR = "Setup failed. Try again in a minute."
 STALE_JOB_ERROR = "Setup stopped before it finished. Try again."
 STEPS = (SetupStep.BRAND, SetupStep.PROMPTS, SetupStep.KEYWORDS, SetupStep.FIRST_RUN)
@@ -82,6 +90,17 @@ def _domains(urls: Iterable[str | None]) -> list[str]:
 
 
 def _pageview_hosts(team: Team) -> list[tuple[str, int]]:
+    # The setup screen reads this on every load, and the answer barely moves within an hour.
+    key = f"aeo_setup_pageview_hosts:{team.id}"
+    cached = caches[SUGGESTION_CACHE_ALIAS].get(key)
+    if isinstance(cached, list):
+        return [(str(host), int(pageviews)) for host, pageviews in cached]
+    hosts = _query_pageview_hosts(team)
+    caches[SUGGESTION_CACHE_ALIAS].set(key, hosts, timeout=PAGEVIEW_HOSTS_CACHE_SECONDS)
+    return hosts
+
+
+def _query_pageview_hosts(team: Team) -> list[tuple[str, int]]:
     query = parse_select(
         "SELECT properties.$host AS host, count() AS pageviews FROM events "
         "WHERE event = '$pageview' AND timestamp >= {since} AND notEmpty(host) "
@@ -142,6 +161,7 @@ def read_context(team: Team) -> SetupContext:
         first_run_available=citation_tracking_enabled(team),
         engines=tuple(engine_settings.list_engine_settings(team.id)),
         prompt_target=SETUP_PROMPT_COUNT,
+        website_days=SETUP_WEBSITE_DAYS,
     )
 
 
@@ -153,26 +173,32 @@ def _job_key(team_id: int, job_id: str) -> str:
     return f"aeo_setup:{team_id}:{job_id}"
 
 
+def _running_key(team_id: int) -> str:
+    return f"aeo_setup_running:{team_id}"
+
+
+def _store(job: SetupJob, started_at: float) -> dict:
+    return {
+        "started_at": started_at,
+        "status": job.status.value,
+        "error": job.error,
+        "steps": [
+            {"step": s.step.value, "status": s.status.value, "added": s.added, "detail": s.detail} for s in job.steps
+        ],
+    }
+
+
 def _save_job(team_id: int, job: SetupJob, *, started_at: float | None = None) -> None:
+    cache = caches[SUGGESTION_CACHE_ALIAS]
     if started_at is None:
-        stored = caches[SUGGESTION_CACHE_ALIAS].get(_job_key(team_id, job.id))
+        stored = cache.get(_job_key(team_id, job.id))
         started_at = stored.get("started_at", time.time()) if isinstance(stored, dict) else time.time()
-    caches[SUGGESTION_CACHE_ALIAS].set(
-        _job_key(team_id, job.id),
-        {
-            "started_at": started_at,
-            "status": job.status.value,
-            "error": job.error,
-            "steps": [
-                {"step": s.step.value, "status": s.status.value, "added": s.added, "detail": s.detail}
-                for s in job.steps
-            ],
-        },
-        timeout=SUGGESTION_JOB_TTL_SECONDS,
-    )
+    cache.set(_job_key(team_id, job.id), _store(job, started_at), timeout=SUGGESTION_JOB_TTL_SECONDS)
+    if job.status != SuggestionJobStatus.PENDING and cache.get(_running_key(team_id)) == job.id:
+        cache.delete(_running_key(team_id))
 
 
-def load_job(team_id: int, job_id: str) -> SetupJob:
+def _read(team_id: int, job_id: str) -> tuple[SetupJob, float]:
     stored = caches[SUGGESTION_CACHE_ALIAS].get(_job_key(team_id, job_id))
     if not isinstance(stored, dict):
         raise SetupJobNotFoundError(job_id)
@@ -185,39 +211,67 @@ def load_job(team_id: int, job_id: str) -> SetupJob:
         )
         for item in stored["steps"]
     )
-    started_at = stored.get("started_at", 0)
-    if stored["status"] == SuggestionJobStatus.PENDING and time.time() - started_at > SETUP_JOB_STALE_SECONDS:
+    job = SetupJob(id=job_id, status=SuggestionJobStatus(stored["status"]), steps=steps, error=stored["error"])
+    return job, stored.get("started_at", 0)
+
+
+def load_job(team_id: int, job_id: str) -> SetupJob:
+    job, started_at = _read(team_id, job_id)
+    if job.status == SuggestionJobStatus.PENDING and time.time() - started_at > SETUP_JOB_STALE_SECONDS:
         # A hard kill or a lost task never writes a final status.
-        job = SetupJob(id=job_id, status=SuggestionJobStatus.FAILED, steps=steps, error=STALE_JOB_ERROR)
+        job = SetupJob(id=job_id, status=SuggestionJobStatus.FAILED, steps=job.steps, error=STALE_JOB_ERROR)
         _save_job(team_id, job, started_at=started_at)
-        return job
-    return SetupJob(id=job_id, status=SuggestionJobStatus(stored["status"]), steps=steps, error=stored["error"])
+    return job
+
+
+def running_job_id(team_id: int) -> str | None:
+    """The team's setup job that is still pending, if any."""
+    job_id = caches[SUGGESTION_CACHE_ALIAS].get(_running_key(team_id))
+    if not job_id:
+        return None
+    try:
+        return job_id if load_job(team_id, job_id).status == SuggestionJobStatus.PENDING else None
+    except SetupJobNotFoundError:
+        return None
 
 
 def create_job(team_id: int) -> SetupJob:
+    """Raises SetupAlreadyRunningError when the team already has a pending setup job."""
     job = SetupJob(
         id=str(uuid.uuid4()),
         status=SuggestionJobStatus.PENDING,
         steps=tuple(SetupStepState(step=step, status=SetupStepStatus.PENDING) for step in STEPS),
     )
+    cache = caches[SUGGESTION_CACHE_ALIAS]
+    if not cache.add(_running_key(team_id), job.id, timeout=SETUP_JOB_STALE_SECONDS):
+        running = running_job_id(team_id)
+        if running is not None:
+            raise SetupAlreadyRunningError(running)
+        # The key pointed at a job that already finished, so this job takes it over.
+        cache.set(_running_key(team_id), job.id, timeout=SETUP_JOB_STALE_SECONDS)
     _save_job(team_id, job, started_at=time.time())
     return job
 
 
 def fail_job(team_id: int, job_id: str, error: str) -> None:
     try:
-        steps = load_job(team_id, job_id).steps
+        steps = _read(team_id, job_id)[0].steps
     except SetupJobNotFoundError:
         steps = ()
     _save_job(team_id, SetupJob(id=job_id, status=SuggestionJobStatus.FAILED, steps=steps, error=error))
 
 
+class _JobAbandoned(Exception):
+    """A reader already marked the job failed, so the task stops instead of writing over that."""
+
+
 class _Progress:
     """The job's steps as they change, written to the cache after each change so the client sees them move."""
 
-    def __init__(self, team_id: int, job_id: str) -> None:
+    def __init__(self, team_id: int, job_id: str, started_at: float) -> None:
         self.team_id = team_id
         self.job_id = job_id
+        self.started_at = started_at
         self.steps = {step: SetupStepState(step=step, status=SetupStepStatus.PENDING) for step in STEPS}
 
     def set(self, step: SetupStep, status: SetupStepStatus, *, added: int = 0, detail: str = "") -> None:
@@ -225,9 +279,16 @@ class _Progress:
         self.save(SuggestionJobStatus.PENDING)
 
     def save(self, status: SuggestionJobStatus, error: str = "") -> None:
+        try:
+            current, _ = _read(self.team_id, self.job_id)
+        except SetupJobNotFoundError:
+            raise _JobAbandoned(self.job_id)
+        if current.status == SuggestionJobStatus.FAILED:
+            raise _JobAbandoned(self.job_id)
         _save_job(
             self.team_id,
             SetupJob(id=self.job_id, status=status, steps=tuple(self.steps[step] for step in STEPS), error=error),
+            started_at=self.started_at,
         )
 
 
@@ -240,10 +301,17 @@ def _ensure_own_brand(team_id: int, request: SetupRequest) -> SetupStepState:
     domain = catalog.registrable_domain(raw if "//" in raw else f"//{raw}")
     existing = AEOBrand.objects.for_team(team_id).filter(domain=domain).first() if domain else None
     if existing is not None:
-        # The site was in the catalog as a competitor or a source, so setup claims it rather than adding a duplicate.
-        update_brand(team_id, str(existing.id), BrandUpdate(kind=BrandKind.OWN, name=request.brand or None))
+        # The site was in the catalog as a competitor, a source or an ignored brand, so setup claims it
+        # rather than adding a duplicate. An ignored brand never counts as the team, so it is confirmed too.
+        update_brand(
+            team_id,
+            str(existing.id),
+            BrandUpdate(kind=BrandKind.OWN, status=BrandStatus.CONFIRMED, name=request.brand or None),
+        )
     else:
         create_brand(team_id, BrandCreate(domain=request.domain, kind=BrandKind.OWN, name=request.brand or None))
+    if not catalog.own_domains(team_id):
+        raise BrandCreateError(f"{domain or request.domain} could not be set as your brand. Add it in settings.")
     return SetupStepState(step=SetupStep.BRAND, status=SetupStepStatus.DONE, added=1)
 
 
@@ -286,52 +354,86 @@ def _queue_first_run(team: Team, request: SetupRequest) -> SetupStepState:
         run_aeo_citation_checks_for_team_task,
     )
 
-    if not request.run_first_check:
-        return SetupStepState(step=SetupStep.FIRST_RUN, status=SetupStepStatus.SKIPPED, detail="not_requested")
-    if AEOCitationCheck.objects.for_team(team.id).exists():
-        return SetupStepState(step=SetupStep.FIRST_RUN, status=SetupStepStatus.SKIPPED, detail="already_run")
+    def skipped(detail: str) -> SetupStepState:
+        return SetupStepState(step=SetupStep.FIRST_RUN, status=SetupStepStatus.SKIPPED, detail=detail)
+
+    if not request.run_first_check and not request.only_first_run:
+        return skipped("not_requested")
+    if not request.only_first_run and AEOCitationCheck.objects.for_team(team.id).exists():
+        return skipped("already_run")
     if not citation_tracking_enabled(team):
-        return SetupStepState(step=SetupStep.FIRST_RUN, status=SetupStepStatus.SKIPPED, detail="not_available")
-    # The task holds a per-team lease, so a daily run already in progress makes this one a no-op.
-    run_aeo_citation_checks_for_team_task.delay(team.id)
+        return skipped("not_available")
+    if not catalog.own_domains(team.id) or _active_prompt_count(team.id) == 0:
+        # The run records nothing without an own brand and active prompts, so it would only spend credits.
+        return skipped("nothing_to_run")
+    try:
+        # The task holds a per-team lease, so a daily run already in progress makes this one a no-op.
+        run_aeo_citation_checks_for_team_task.delay(team.id)
+    except Exception:
+        logger.exception("aeo_setup_first_run_enqueue_failed", team_id=team.id)
+        return SetupStepState(
+            step=SetupStep.FIRST_RUN,
+            status=SetupStepStatus.FAILED,
+            detail="The checks could not be queued. Try again in a minute.",
+        )
     return SetupStepState(step=SetupStep.FIRST_RUN, status=SetupStepStatus.DONE)
 
 
+def _not_requested(step: SetupStep) -> SetupStepState:
+    return SetupStepState(step=step, status=SetupStepStatus.SKIPPED, detail="not_requested")
+
+
 def run_job(team_id: int, job_id: str, request: SetupRequest) -> None:
-    # A task that waited in a backed-up queue may start after readers saw the job fail, so it must not pay for a call.
+    # A task that waited in a backed-up queue may start after readers saw the job fail, or too late to finish
+    # before they would, so it must not pay for a call.
     try:
-        if load_job(team_id, job_id).status != SuggestionJobStatus.PENDING:
-            return
+        job, started_at = _read(team_id, job_id)
     except SetupJobNotFoundError:
         return
+    if job.status != SuggestionJobStatus.PENDING:
+        return
+    if time.time() - started_at > SETUP_START_WINDOW_SECONDS:
+        fail_job(team_id, job_id, STALE_JOB_ERROR)
+        return
     team = Team.objects.get(id=team_id)
-    progress = _Progress(team_id, job_id)
-
-    progress.set(SetupStep.BRAND, SetupStepStatus.RUNNING)
+    progress = _Progress(team_id, job_id, started_at)
     try:
-        progress.steps[SetupStep.BRAND] = _ensure_own_brand(team_id, request)
-    except BrandCreateError as error:
-        progress.steps[SetupStep.BRAND] = SetupStepState(step=SetupStep.BRAND, status=SetupStepStatus.FAILED)
-        progress.save(SuggestionJobStatus.FAILED, str(error))
-        return
+        _run_steps(team, progress, request)
+    except _JobAbandoned:
+        logger.info("aeo_setup_job_abandoned", team_id=team_id)
 
-    progress.set(SetupStep.PROMPTS, SetupStepStatus.RUNNING)
-    try:
-        progress.steps[SetupStep.PROMPTS] = _add_prompts(team_id, request)
-    except PromptSuggestionError as error:
-        # Without prompts there is nothing to run, so the job stops here and a retry starts from this step.
-        progress.steps[SetupStep.PROMPTS] = SetupStepState(step=SetupStep.PROMPTS, status=SetupStepStatus.FAILED)
-        progress.save(SuggestionJobStatus.FAILED, str(error))
-        return
 
-    progress.set(SetupStep.KEYWORDS, SetupStepStatus.RUNNING)
-    try:
-        progress.steps[SetupStep.KEYWORDS] = _add_keywords(team_id, request)
-    except (KeywordSuggestionError, KeywordLimitError) as error:
-        # Prompts are enough for a first run, so a keyword failure is reported on its step and setup goes on.
-        progress.steps[SetupStep.KEYWORDS] = SetupStepState(
-            step=SetupStep.KEYWORDS, status=SetupStepStatus.FAILED, detail=str(error)
-        )
+def _run_steps(team: Team, progress: _Progress, request: SetupRequest) -> None:
+    team_id = team.id
+    if request.only_first_run:
+        for step in (SetupStep.BRAND, SetupStep.PROMPTS, SetupStep.KEYWORDS):
+            progress.steps[step] = _not_requested(step)
+    else:
+        progress.set(SetupStep.BRAND, SetupStepStatus.RUNNING)
+        try:
+            progress.steps[SetupStep.BRAND] = _ensure_own_brand(team_id, request)
+        except BrandCreateError as error:
+            progress.steps[SetupStep.BRAND] = SetupStepState(step=SetupStep.BRAND, status=SetupStepStatus.FAILED)
+            progress.save(SuggestionJobStatus.FAILED, str(error))
+            return
+
+        progress.set(SetupStep.PROMPTS, SetupStepStatus.RUNNING)
+        try:
+            progress.steps[SetupStep.PROMPTS] = _add_prompts(team_id, request)
+        except PromptSuggestionError as error:
+            # Without prompts there is nothing to run, so the job stops here and a retry starts from this step.
+            progress.steps[SetupStep.PROMPTS] = SetupStepState(step=SetupStep.PROMPTS, status=SetupStepStatus.FAILED)
+            progress.save(SuggestionJobStatus.FAILED, str(error))
+            return
+
+        progress.set(SetupStep.KEYWORDS, SetupStepStatus.RUNNING)
+        try:
+            progress.steps[SetupStep.KEYWORDS] = _add_keywords(team_id, request)
+        except (KeywordSuggestionError, KeywordLimitError) as error:
+            # Prompts are enough for a first run, so a keyword failure is reported on its step and setup goes on.
+            progress.steps[SetupStep.KEYWORDS] = SetupStepState(
+                step=SetupStep.KEYWORDS, status=SetupStepStatus.FAILED, detail=str(error)
+            )
 
     progress.set(SetupStep.FIRST_RUN, SetupStepStatus.RUNNING)
     progress.steps[SetupStep.FIRST_RUN] = _queue_first_run(team, request)

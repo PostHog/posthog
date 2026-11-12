@@ -1193,10 +1193,10 @@ export interface AEOPromptTopicApi {
 
 export interface AEOSetupRequestApi {
     /**
-     * The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords.
+     * The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords. Required unless only_first_run is true.
      * @maxLength 200
      */
-    domain: string
+    domain?: string
     /**
      * The brand name. Inferred from the site when empty.
      * @maxLength 200
@@ -1215,6 +1215,8 @@ export interface AEOSetupRequestApi {
     engines?: string[]
     /** Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the brand, prompts and keywords and the daily schedule runs the first checks. */
     run_first_check?: boolean
+    /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
+    only_first_run?: boolean
 }
 
 /**
@@ -1267,7 +1269,7 @@ export interface AEOSetupStepApi {
     status: SetupStepStatusEnumApi
     /** How many brands, prompts or keywords the step added. */
     added?: number
-    /** Why a step was skipped (already_set, already_run, not_requested, not_available), or why the keywords step failed. */
+    /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), or why the keywords or first_run step failed. */
     detail?: string
 }
 
@@ -1284,6 +1286,13 @@ export interface AEOSetupJobApi {
     status: AEOSuggestionJobStatusEnumApi
     /** Why the job failed. Empty unless status is failed. */
     error?: string
+}
+
+export interface AEOSetupConflictApi {
+    /** Why the request was refused. */
+    detail: string
+    /** The setup job already running. Poll GET aeo_setup/<id>/ with it. */
+    job_id: string
 }
 
 /**
@@ -1337,6 +1346,8 @@ export interface AEOSetupContextApi {
     first_run_available: boolean
     /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
     prompt_target: number
+    /** The window, in days, that pageview hosts among the websites cover. */
+    website_days: number
 }
 
 export interface HeatmapCapturePageApi {
