@@ -40,9 +40,10 @@ RAW_QUERY_BROWSER_SESSION_ERROR = (
 
 
 def raw_query_uses_organization_grant(source: ExternalDataSource) -> bool:
-    # A dynamic source mints an organization-scoped service credential at connection time, on both the
-    # Trino and the Duckgres engine, so raw SQL on it can name tables of every project in the organization.
-    return source.is_dynamic_managed_warehouse
+    # A dynamic source mints an organization-scoped service credential at connection time, on both the Trino
+    # and the Duckgres engine. A legacy managed source stores the organization's server login. Raw SQL on
+    # either source can name tables of every project in the organization.
+    return source.is_dynamic_managed_warehouse or source.is_legacy_managed_warehouse
 
 
 def require_browser_session_for_organization_grant() -> None:

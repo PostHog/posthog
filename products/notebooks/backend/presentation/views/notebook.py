@@ -29,7 +29,11 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import BaseThrottle
 
-from posthog.hogql.direct_connection import get_direct_connection_source
+from posthog.hogql.direct_connection import (
+    get_direct_connection_source,
+    raw_query_uses_organization_grant,
+    require_browser_session_for_organization_grant,
+)
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -802,16 +806,19 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # colleague's run pulled from it. Notebook + query access does not imply source access.
         if not run.connection_id:
             return
-        if (
-            get_direct_connection_source(
-                self.team,
-                str(run.connection_id),
-                user=user,
-                require_pure_direct=run.send_raw_query,
-            )
-            is None
-        ):
+        source = get_direct_connection_source(
+            self.team,
+            str(run.connection_id),
+            user=user,
+            require_pure_direct=run.send_raw_query,
+        )
+        if source is None:
             raise PermissionDenied("You need access to this cell's data source to read its results.")
+        if run.send_raw_query and raw_query_uses_organization_grant(source):
+            try:
+                require_browser_session_for_organization_grant()
+            except ExposedHogQLError as error:
+                raise PermissionDenied(str(error)) from error
 
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None

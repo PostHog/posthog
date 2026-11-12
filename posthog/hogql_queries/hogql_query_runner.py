@@ -247,15 +247,15 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._validate_direct_connection()
         if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO and self.query.sendRawQuery:
             return [managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL]
+        labels: list[str] = []
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
-            labels = [
+            labels.append(
                 f"{managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{self.query.connectionId}"
-            ]
-            if self._raw_query_on_organization_grant:
-                # A query status read with this label rechecks the browser session and project access.
-                labels.append(managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL)
-            return labels
-        return None
+            )
+        if self._raw_query_on_organization_grant:
+            # A query status read with this label rechecks the browser session and project access.
+            labels.append(managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL)
+        return labels or None
 
     def run(
         self,

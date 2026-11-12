@@ -35,10 +35,11 @@ from posthog import redis
 from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.uuidt import uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -1087,6 +1088,48 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
 
         self.mock_resolve_source.return_value = None
         self.assertEqual(self.client.get(url).status_code, 403)
+
+    @parameterized.expand([("browser_session", False, 200), ("project_restricted_api_key", True, 403)])
+    def test_reading_raw_rows_from_the_organization_warehouse_grant_needs_a_browser_session(
+        self, _name: str, token: bool, expected_status: int
+    ) -> None:
+        with team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                code="select 1",
+                connection_id=self.source_id,
+                send_raw_query=True,
+                envelope={"status": "ok", "columns": ["id"], "first_page": [[1]]},
+                status=NotebookNodeRun.Status.DONE,
+            )
+        headers = {}
+        if token:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="project-restricted notebook read",
+                user=self.user,
+                secure_value=hash_key_value(value),
+                scopes=["notebook:read", "query:read"],
+                scoped_teams=[self.team.pk],
+            )
+            headers["Authorization"] = f"Bearer {value}"
+
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.raw_query_uses_organization_grant",
+            return_value=True,
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run.id}/",
+                headers=headers,
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if token:
+            self.assertIn("browser session", response.json()["detail"])
+        else:
+            self.assertEqual(response.json()["result"]["first_page"], [[1]])
 
     def test_losing_source_access_mid_run_still_lets_the_run_reach_a_terminal_state(self):
         # This poll is the only thing that advances a direct run, and the only place its expiry

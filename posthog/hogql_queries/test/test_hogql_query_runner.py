@@ -477,12 +477,12 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = HogQLQuery(query="select 1::int as value", connectionId=str(source.id), sendRawQuery=True)
 
         first_runner = self._create_runner(query)
-        self.assertIsNone(first_runner.query_status_labels())
+        self.assertEqual(first_runner.query_status_labels(), [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL])
         self.assertNotIn("managed_warehouse_sql_mode", first_runner.get_cache_payload())
         first_cache_key = first_runner.get_cache_key()
 
         second_runner = self._create_runner(query)
-        self.assertIsNone(second_runner.query_status_labels())
+        self.assertEqual(second_runner.query_status_labels(), [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL])
         self.assertEqual(second_runner.get_cache_key(), first_cache_key)
 
     @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")

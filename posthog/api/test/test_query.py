@@ -1352,7 +1352,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestManagedTrinoRawQuery(APIBaseTest):
-    def _organization_credential_source(self) -> ExternalDataSource:
+    def _organization_credential_source(self, *, legacy: bool) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             source_id="managed-source",
             connection_id="managed-connection",
@@ -1363,13 +1363,27 @@ class TestManagedTrinoRawQuery(APIBaseTest):
             prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             direct_query_enabled=True,
-            connection_metadata={
-                "engine": "duckdb",
-                "system_managed": True,
-                "credential_kind": "duckgres_service",
-                "lifecycle_generation": 1,
-            },
-            job_inputs={},
+            connection_metadata=(
+                {"engine": "duckdb", "system_managed": True, "credential_kind": "org_root"}
+                if legacy
+                else {
+                    "engine": "duckdb",
+                    "system_managed": True,
+                    "credential_kind": "duckgres_service",
+                    "lifecycle_generation": 1,
+                }
+            ),
+            job_inputs=(
+                {
+                    "host": "warehouse.example.com",
+                    "port": 5432,
+                    "database": "ducklake",
+                    "user": "org-root",
+                    "password": "fake-root-password",
+                }
+                if legacy
+                else {}
+            ),
         )
 
     @parameterized.expand(
@@ -1385,6 +1399,13 @@ class TestManagedTrinoRawQuery(APIBaseTest):
                 OrganizationMembership.Level.ADMIN,
                 True,
                 "duckgres_connection",
+                400,
+            ),
+            (
+                "restricted_api_key_legacy_organization_login",
+                OrganizationMembership.Level.ADMIN,
+                True,
+                "legacy_connection",
                 400,
             ),
         ]
@@ -1409,7 +1430,7 @@ class TestManagedTrinoRawQuery(APIBaseTest):
         if route == "execution_target":
             query["executionTarget"] = "managed_trino"
         else:
-            query["connectionId"] = str(self._organization_credential_source().id)
+            query["connectionId"] = str(self._organization_credential_source(legacy=route == "legacy_connection").id)
         result = HogQLQueryResponse(results=[[1]], columns=["value"], types=[["value", "Int64"]])
         with (
             patch("posthoganalytics.feature_enabled", return_value=route != "duckgres_connection"),
