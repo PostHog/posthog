@@ -14,20 +14,27 @@ def backfill(apps, schema_editor):
             "SELECT id FROM llm_analytics_llmskill WHERE is_latest AND NOT deleted AND category = '' ORDER BY id"
         )
         skill_ids = [row[0] for row in cursor.fetchall()]
+        cursor.execute(
+            "SELECT id FROM llm_analytics_llmskillfile WHERE skill_id = ANY(%s) ORDER BY id",
+            [skill_ids],
+        )
+        file_ids = [row[0] for row in cursor.fetchall()]
 
-    for start in range(0, len(skill_ids), BATCH_SIZE):
-        batch = skill_ids[start : start + BATCH_SIZE]
-        with schema_editor.connection.cursor() as cursor:
-            cursor.execute(
-                "UPDATE llm_analytics_llmskill SET search_vector = llm_skill_search_vector(body) "
-                "WHERE id = ANY(%s) AND search_vector IS NULL",
-                [batch],
-            )
-            cursor.execute(
-                "UPDATE llm_analytics_llmskillfile SET search_vector = llm_skill_search_vector(content) "
-                "WHERE skill_id = ANY(%s) AND search_vector IS NULL",
-                [batch],
-            )
+    for sql, ids in (
+        (
+            "UPDATE llm_analytics_llmskill SET search_vector = llm_skill_search_vector(body) "
+            "WHERE id = ANY(%s) AND search_vector IS NULL",
+            skill_ids,
+        ),
+        (
+            "UPDATE llm_analytics_llmskillfile SET search_vector = llm_skill_search_vector(content) "
+            "WHERE id = ANY(%s) AND search_vector IS NULL",
+            file_ids,
+        ),
+    ):
+        for start in range(0, len(ids), BATCH_SIZE):
+            with schema_editor.connection.cursor() as cursor:
+                cursor.execute(sql, [ids[start : start + BATCH_SIZE]])
 
 
 class Migration(migrations.Migration):

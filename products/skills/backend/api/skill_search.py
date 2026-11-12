@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from typing import Any, Literal, Protocol, cast
 
 from django.contrib.postgres.search import SearchQuery, SearchVectorExact, SearchVectorField
-from django.db import OperationalError
+from django.db import OperationalError, connection
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.models import Case, Exists, Expression, F, IntegerField, OuterRef, Q, QuerySet, Subquery, Value, When
 from django.db.models.functions import Coalesce
@@ -60,12 +60,13 @@ def search_skills(team: Team, user_access_control: UserAccessControl, query: str
     """
     try:
         with execute_with_timeout(SKILL_SEARCH_TIMEOUT_MS):
+            stems = _full_text_stems(_skill_search_tokens(query))
             return [
                 {
                     "name": skill.name,
                     "description": skill.description,
                     "score": cast(_ScoredSkill, skill).search_score,
-                    "matches": search_matches(skill, query),
+                    "matches": search_matches(skill, query, stems),
                 }
                 for skill in search_queryset(team, user_access_control, query)
             ]
@@ -132,7 +133,7 @@ def search_queryset(team: Team, user_access_control: UserAccessControl, query: s
     return queryset.annotate(search_score=score).order_by("-search_score", "name", "id")[:SKILL_SEARCH_RESULT_LIMIT]
 
 
-def search_matches(skill: LLMSkill, query: str) -> list[dict[str, Any]]:
+def search_matches(skill: LLMSkill, query: str, stems: Sequence[str]) -> list[dict[str, Any]]:
     matches: list[dict[str, Any]] = []
     tokens = _skill_search_tokens(query)
 
@@ -148,7 +149,7 @@ def search_matches(skill: LLMSkill, query: str) -> list[dict[str, Any]]:
                 "excerpt": skill.description[excerpt_start : excerpt_start + SKILL_SEARCH_EXCERPT_LENGTH],
             }
         )
-    body_match_term = _skill_search_match_term(skill.body, query, tokens)
+    body_match_term = _skill_search_match_term(skill.body, query, tokens) or _full_text_match_term(skill.body, stems)
     body_match = (
         _content_search_match(skill.body, body_match_term, matched_field="body", path="SKILL.md")
         if body_match_term is not None
@@ -177,7 +178,7 @@ def search_matches(skill: LLMSkill, query: str) -> list[dict[str, Any]]:
             .values_list("path", "content")
         )[:remaining_match_count]
         for path, content in content_files:
-            match_term = _skill_search_match_term(content, query, tokens)
+            match_term = _skill_search_match_term(content, query, tokens) or _full_text_match_term(content, stems)
             if match_term is None:
                 continue
             match = _content_search_match(
@@ -332,6 +333,25 @@ def _skill_search_match_term(content: str, phrase: str, tokens: Sequence[Sequenc
     if phrase.lower() in lowered:
         return phrase
     return next((variant for variants in tokens for variant in variants if variant in lowered), None)
+
+
+def _full_text_stems(tokens: Sequence[Sequence[str]]) -> tuple[str, ...]:
+    if not tokens:
+        return ()
+    prefix_query = " | ".join(f"{variant}:*" for variants in tokens for variant in variants)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT to_tsquery(%s::regconfig, %s)::text", [SKILL_SEARCH_TEXT_SEARCH_CONFIG, prefix_query])
+        (tsquery_text,) = cursor.fetchone()
+    return tuple(dict.fromkeys(re.findall(r"'([^']+)'", tsquery_text)))
+
+
+def _full_text_match_term(content: str, stems: Sequence[str]) -> str | None:
+    """The first word in `content` that starts with a stem, so a stemmed body or file match gets an excerpt."""
+    for stem in stems:
+        match = re.search(rf"\b{re.escape(stem)}\w*", content, re.IGNORECASE)
+        if match is not None:
+            return match.group(0)
+    return None
 
 
 def _content_search_match(content: str, query: str, *, matched_field: str, path: str) -> dict[str, Any] | None:

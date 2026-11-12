@@ -750,19 +750,22 @@ class TestLLMSkillAPI(APIBaseTest):
                 LLMSkillFile(
                     skill=file_skill,
                     path="references/guide.md",
-                    content="Compare experiments.",
+                    content="Studied cohorts.",
                     content_type="text/markdown",
                 )
             ]
         )
 
-        def search(query: str) -> list[str]:
+        def search(query: str) -> list[tuple[str, list[str]]]:
             response = self.client.get(self._url(f"search?query={query}"))
             assert response.status_code == status.HTTP_200_OK, response.content
-            return [result["name"] for result in response.json()["results"]]
+            return [
+                (result["name"], [match["excerpt"] for match in result["matches"]])
+                for result in response.json()["results"]
+            ]
 
-        assert search("running") == ["body-words"]
-        assert search("exp") == ["file-words"]
+        assert search("running") == [("body-words", ["Run a query."])]
+        assert search("studies") == [("file-words", ["Studied cohorts."])]
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT count(*) FROM llm_analytics_llmskillfile WHERE skill_id = %s AND search_vector IS NULL",
