@@ -1444,13 +1444,7 @@ export class CdpApi {
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
-                const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : ({ kind: 'own' } as const)
-                if (sender.kind === 'refused') {
-                    return reply(sender.refusal, SANDBOX_CODE_SEND_REFUSAL_STATUS[sender.refusal], {
-                        error: sender.refusal,
-                    })
-                }
-                const senderKind = sender.kind === 'email_sandbox' ? sender.kind : undefined
+                const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined
                 const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow) : null
 
                 const result = await this.transactionalSendsForRequest().accept(
@@ -1464,7 +1458,7 @@ export class CdpApi {
                             this.messageBodyBytes(hogFlow, invocation, emailStep, deadline),
                         deadline: verificationDeadline,
                     },
-                    senderKind
+                    sender
                 )
                 if ('invocationId' in result) {
                     return reply(result.outcome, 202, {

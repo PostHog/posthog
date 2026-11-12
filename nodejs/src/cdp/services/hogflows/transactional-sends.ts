@@ -19,7 +19,7 @@ import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } fr
 import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
-import type { SandboxCodeSendRefusal } from '../messaging/sandbox/sandbox-code-send'
+import type { CodeSendSender, SandboxCodeSendRefusal } from '../messaging/sandbox/sandbox-code-send'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { EmailStep, FilesWorkflowShape } from './files-workflow-shape'
 import { createHogFlowInvocation } from './hogflow-executor.service'
@@ -147,8 +147,9 @@ export class TransactionalSends {
         request: TransactionalEmailRequest,
         stages: TransactionalEmailStageTimer,
         files: SendFiles,
-        senderKind?: SenderKind
+        sender: CodeSendSender = { kind: 'own' }
     ): Promise<TransactionalSendResult> {
+        const senderKind = sender.kind === 'email_sandbox' ? sender.kind : undefined
         const { idempotencyKeys } = this.deps
         const { to, idempotency_key: idempotencyKey, send } = request
         const requestedAt = request.scheduled_at ? new Date(request.scheduled_at) : null
@@ -181,6 +182,10 @@ export class TransactionalSends {
                 case 'unavailable':
                     return { outcome: 'idempotency_unavailable' }
             }
+        }
+        if (sender.kind === 'refused') {
+            await releaseKey()
+            return { outcome: sender.refusal }
         }
         const tooFarAhead =
             requestedAt !== null &&

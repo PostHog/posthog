@@ -630,4 +630,33 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         })
         expect(queued).toHaveLength(1)
     })
+
+    it('replays a keyed own-sender send with cc when the retry names the sandbox sender', async () => {
+        const ownSender = await insertIntegration(world.postgres, world.team.id, {
+            kind: 'email',
+            config: {
+                email: 'sender@example.com',
+                name: 'Sender',
+                domain: 'example.com',
+                verified: true,
+                provider: 'maildev',
+            },
+        } as any)
+        const idempotency_key = `key-${new UUIDT().toString()}`
+        const cc = ['other@example.com']
+
+        const sent = await sendFromCode(
+            request(sandboxSend({ from: { integrationId: ownSender.id }, cc }), { idempotency_key })
+        )
+        const retried = await sendFromCode(
+            request(sandboxSend({ from: { integrationId: sandboxSenderId }, cc }), { idempotency_key })
+        )
+
+        expect(sent.body).toEqual(expect.objectContaining({ status: 'queued', replayed: false }))
+        expect(retried.body).toEqual(
+            expect.objectContaining({ status: 'queued', invocation_id: sent.body.invocation_id, replayed: true })
+        )
+        expect(retried.body).not.toHaveProperty('sender_kind')
+        expect(queued).toHaveLength(1)
+    })
 })
