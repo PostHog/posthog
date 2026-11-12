@@ -1130,13 +1130,31 @@ export interface DesignOperationApi {
     index?: number
 }
 
+/**
+ * * `sandbox` - sandbox
+ * * `own` - own
+ */
+export type EmailStepSenderEnumApi = (typeof EmailStepSenderEnumApi)[keyof typeof EmailStepSenderEnumApi]
+
+export const EmailStepSenderEnumApi = {
+    Sandbox: 'sandbox',
+    Own: 'own',
+} as const
+
 export interface PatchedHogFlowActionEmailUpdateApi {
     /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
     base_updated_at?: string
     /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
     operations?: DesignOperationApi[]
-    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. The design is edited via operations, and html is always re-rendered from it. */
+    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. A sandbox step (type email_sandbox) takes only subject, preheader, text and to. The design is edited via operations, and html is always re-rendered from it. */
     email_patch?: unknown
+    /** Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to verified members of the organization and needs no verified domain; it is set up for the project on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in email_patch.from.integrationId. The step keeps its id, recipient, content and category.
+     *
+     * * `sandbox` - sandbox
+     * * `own` - own */
+    sender?: EmailStepSenderEnumApi
+    /** With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it. */
+    drop_own_sender_settings?: boolean
 }
 
 export interface MessageAssetApi {

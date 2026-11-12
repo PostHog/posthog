@@ -1,0 +1,391 @@
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import pytest
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
+
+from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
+from products.experiments.backend.temporal.timeseries.utils import check_significance_transition
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+_UTILS_MODULE = "products.experiments.backend.temporal.timeseries.utils"
+
+METRIC_DICT = {
+    "uuid": "metric-123",
+    "metric_type": "mean",
+    "source": {"kind": "EventsNode", "event": "$pageview"},
+    "goal": "increase",
+}
+
+
+def _make_result(significant_variants: list[str]) -> dict:
+    variants = []
+    for key in ["control", "test"]:
+        variants.append(
+            {
+                "key": key,
+                "significant": key in significant_variants,
+                "chance_to_win": 0.99 if key in significant_variants else 0.01,
+                "sum": 477.0 if key == "test" else 268.0,
+                "number_of_samples": 1000,
+                "credible_interval": [0.6, 0.96] if key == "test" else None,
+            }
+        )
+    return {
+        "variant_results": variants,
+        "baseline": {"key": "control", "sum": 268.0, "number_of_samples": 1000},
+    }
+
+
+@pytest.mark.django_db
+class TestCheckSignificanceTransition(BaseTest):
+    def _create_experiment(self) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+        )
+        return Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            feature_flag=flag,
+            start_date=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
+            metrics=[METRIC_DICT],
+        )
+
+    @parameterized.expand(
+        [
+            ("no_previous_significant", None, ["test"], True),
+            ("no_previous_not_significant", None, [], False),
+            ("previous_not_significant_new_significant", [], ["test"], True),
+            ("previous_significant_new_significant", ["test"], ["test"], False),
+            ("previous_failed_new_significant", "no_result", ["test"], True),
+            ("previous_significant_new_not_significant", ["test"], [], False),
+        ]
+    )
+    @patch(f"{_UTILS_MODULE}.produce_internal_event")
+    def test_significance_transition(
+        self,
+        _name: str,
+        previous_significant: object,
+        new_significant: list[str],
+        expect_event: bool,
+        mock_produce: MagicMock,
+    ) -> None:
+        experiment = self._create_experiment()
+        metric_uuid = "metric-123"
+        fingerprint = "abc123"
+        query_to_utc = datetime(2024, 1, 10, tzinfo=ZoneInfo("UTC"))
+
+        if previous_significant is not None:
+            if previous_significant == "no_result":
+                ExperimentMetricResult.objects.create(
+                    experiment=experiment,
+                    metric_uuid=metric_uuid,
+                    fingerprint=fingerprint,
+                    query_from=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
+                    query_to=query_to_utc - timedelta(days=1),
+                    status=ExperimentMetricResult.Status.FAILED,
+                    result=None,
+                )
+            else:
+                ExperimentMetricResult.objects.create(
+                    experiment=experiment,
+                    metric_uuid=metric_uuid,
+                    fingerprint=fingerprint,
+                    query_from=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
+                    query_to=query_to_utc - timedelta(days=1),
+                    status=ExperimentMetricResult.Status.COMPLETED,
+                    result=_make_result(previous_significant),  # type: ignore[arg-type]
+                )
+
+        result_dict = _make_result(new_significant)
+        check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+
+        if expect_event:
+            mock_produce.assert_called_once()
+            call_kwargs = mock_produce.call_args
+            event = call_kwargs.kwargs.get("event") or call_kwargs[1].get("event") or call_kwargs[0][1]
+            assert event.event == "$experiment_metric_significant"
+            assert event.properties["experiment_id"] == experiment.id
+            assert event.properties["experiment_name"] == "Test Experiment"
+            assert event.properties["metric_uuid"] == metric_uuid
+            assert event.properties["variant_key"] == "test"
+            assert event.properties["goal_direction"] == "increase"
+            assert event.properties["chance_to_win"] == "99%"
+            assert event.properties["relative_change"] == "(+78%)"
+            assert event.properties["experiment_url"] == f"/experiments/{experiment.id}"
+        else:
+            mock_produce.assert_not_called()
+
+    @patch(f"{_UTILS_MODULE}.produce_internal_event")
+    def test_only_newly_significant_variants_fire(self, mock_produce: MagicMock) -> None:
+        experiment = self._create_experiment()
+        metric_uuid = "metric-123"
+        fingerprint = "abc123"
+        query_to_utc = datetime(2024, 1, 10, tzinfo=ZoneInfo("UTC"))
+
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid=metric_uuid,
+            fingerprint=fingerprint,
+            query_from=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
+            query_to=query_to_utc - timedelta(days=1),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result=_make_result(["test"]),
+        )
+
+        result_dict = _make_result(["test", "control"])
+        check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+
+        mock_produce.assert_called_once()
+        event = (
+            mock_produce.call_args.kwargs.get("event")
+            or mock_produce.call_args[1].get("event")
+            or mock_produce.call_args[0][1]
+        )
+        assert event.properties["variant_key"] == "control"
+
+    @parameterized.expand(
+        [
+            ("increase_goal", "increase", "increase", "99%"),
+            ("decrease_goal", "decrease", "decrease", "1%"),
+        ]
+    )
+    @patch(f"{_UTILS_MODULE}.produce_internal_event")
+    def test_goal_direction_and_chance_to_win(
+        self,
+        _name: str,
+        goal: str,
+        expected_goal_direction: str,
+        expected_chance_to_win: str,
+        mock_produce: MagicMock,
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key=f"test-flag-{goal}", created_by=self.user)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Goal Experiment",
+            feature_flag=flag,
+            start_date=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
+            metrics=[{**METRIC_DICT, "goal": goal}],
+        )
+
+        result_dict = _make_result(["test"])
+        check_significance_transition(
+            experiment, "metric-123", "fp", result_dict, datetime(2024, 1, 10, tzinfo=ZoneInfo("UTC"))
+        )
+
+        mock_produce.assert_called_once()
+        event = (
+            mock_produce.call_args.kwargs.get("event")
+            or mock_produce.call_args[1].get("event")
+            or mock_produce.call_args[0][1]
+        )
+        assert event.properties["goal_direction"] == expected_goal_direction
+        assert event.properties["chance_to_win"] == expected_chance_to_win
+
+    # The stats layer produced each fixture. Its sums per sample give a different change than its interval,
+    # because of CUPED (mean, funnel) or the denominator (ratio, retention).
+    @parameterized.expand(
+        [
+            (
+                "mean_with_cuped",
+                {
+                    "key": "control",
+                    "number_of_samples": 1000,
+                    "sum": 5000.0,
+                    "sum_squares": 40000.0,
+                    "covariate_sum": 4000.0,
+                    "covariate_sum_squares": 30000.0,
+                    "covariate_sum_product": 30000.0,
+                },
+                {
+                    "key": "test",
+                    "method": "frequentist",
+                    "number_of_samples": 1000,
+                    "sum": 6000.0,
+                    "sum_squares": 50000.0,
+                    "covariate_sum": 4400.0,
+                    "covariate_sum_squares": 33000.0,
+                    "covariate_sum_product": 35000.0,
+                    "p_value": 1.4e-11,
+                    "significant": True,
+                    "confidence_interval": [0.1037, 0.1878],
+                },
+                "(+15%)",
+            ),
+            (
+                "funnel_with_cuped",
+                {
+                    "key": "control",
+                    "number_of_samples": 1000,
+                    "sum": 268.0,
+                    "sum_squares": 268.0,
+                    "step_counts": [500, 268],
+                    "covariate_sum": 250.0,
+                    "covariate_sum_squares": 250.0,
+                    "covariate_sum_product": 150.0,
+                },
+                {
+                    "key": "test",
+                    "method": "bayesian",
+                    "number_of_samples": 1000,
+                    "sum": 331.0,
+                    "sum_squares": 331.0,
+                    "step_counts": [560, 331],
+                    "covariate_sum": 290.0,
+                    "covariate_sum_squares": 290.0,
+                    "covariate_sum_product": 180.0,
+                    "chance_to_win": 0.9969,
+                    "significant": True,
+                    "credible_interval": [0.0484, 0.2943],
+                },
+                "(+17%)",
+            ),
+            (
+                "ratio",
+                {
+                    "key": "control",
+                    "number_of_samples": 1000,
+                    "sum": 268.0,
+                    "sum_squares": 400.0,
+                    "denominator_sum": 1000.0,
+                    "denominator_sum_squares": 1400.0,
+                    "numerator_denominator_sum_product": 600.0,
+                },
+                {
+                    "key": "test",
+                    "method": "bayesian",
+                    "number_of_samples": 1000,
+                    "sum": 477.0,
+                    "sum_squares": 700.0,
+                    "denominator_sum": 1500.0,
+                    "denominator_sum_squares": 2600.0,
+                    "numerator_denominator_sum_product": 1100.0,
+                    "chance_to_win": 0.9954,
+                    "significant": True,
+                    "credible_interval": [0.046, 0.3271],
+                },
+                "(+19%)",
+            ),
+            (
+                "retention",
+                {
+                    "key": "control",
+                    "number_of_samples": 1000,
+                    "sum": 200.0,
+                    "sum_squares": 200.0,
+                    "denominator_sum": 800.0,
+                    "denominator_sum_squares": 800.0,
+                    "numerator_denominator_sum_product": 200.0,
+                },
+                {
+                    "key": "test",
+                    "method": "frequentist",
+                    "number_of_samples": 1000,
+                    "sum": 260.0,
+                    "sum_squares": 260.0,
+                    "denominator_sum": 820.0,
+                    "denominator_sum_squares": 820.0,
+                    "numerator_denominator_sum_product": 260.0,
+                    "p_value": 0.0082,
+                    "significant": True,
+                    "confidence_interval": [0.0696, 0.467],
+                },
+                "(+27%)",
+            ),
+        ]
+    )
+    @patch(f"{_UTILS_MODULE}.produce_internal_event")
+    def test_relative_change_matches_results_page_per_metric_kind(
+        self,
+        _name: str,
+        baseline: dict,
+        variant: dict,
+        expected_relative_change: str,
+        mock_produce: MagicMock,
+    ) -> None:
+        experiment = self._create_experiment()
+
+        check_significance_transition(
+            experiment,
+            "metric-123",
+            "fp",
+            {"baseline": baseline, "variant_results": [variant]},
+            datetime(2024, 1, 10, tzinfo=ZoneInfo("UTC")),
+        )
+
+        mock_produce.assert_called_once()
+        event = (
+            mock_produce.call_args.kwargs.get("event")
+            or mock_produce.call_args[1].get("event")
+            or mock_produce.call_args[0][1]
+        )
+        assert event.properties["relative_change"] == expected_relative_change
+
+    @parameterized.expand([("increase",), ("decrease",)])
+    @patch(f"{_UTILS_MODULE}.produce_internal_event")
+    def test_missing_chance_to_win_reports_na(self, goal: str, mock_produce: MagicMock) -> None:
+        # Frequentist results have no chance_to_win; it must not be inverted into a fabricated 100%
+        flag = FeatureFlag.objects.create(team=self.team, key=f"test-flag-na-{goal}", created_by=self.user)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="No Probability Experiment",
+            feature_flag=flag,
+            start_date=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
+            metrics=[{**METRIC_DICT, "goal": goal}],
+        )
+
+        result_dict = _make_result(["test"])
+        for variant in result_dict["variant_results"]:
+            variant.pop("chance_to_win")
+
+        check_significance_transition(
+            experiment, "metric-123", "fp", result_dict, datetime(2024, 1, 10, tzinfo=ZoneInfo("UTC"))
+        )
+
+        mock_produce.assert_called_once()
+        event = (
+            mock_produce.call_args.kwargs.get("event")
+            or mock_produce.call_args[1].get("event")
+            or mock_produce.call_args[0][1]
+        )
+        assert event.properties["chance_to_win"] == "N/A"
+
+    @patch(f"{_UTILS_MODULE}.produce_internal_event")
+    def test_metric_name_fallback_to_event_name(self, mock_produce: MagicMock) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag-2",
+            created_by=self.user,
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Unnamed Metric Experiment",
+            feature_flag=flag,
+            start_date=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
+            metrics=[
+                {
+                    "uuid": "metric-456",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "purchase_completed"},
+                    "goal": "increase",
+                }
+            ],
+        )
+
+        result_dict = _make_result(["test"])
+        check_significance_transition(
+            experiment, "metric-456", "fp", result_dict, datetime(2024, 1, 10, tzinfo=ZoneInfo("UTC"))
+        )
+
+        mock_produce.assert_called_once()
+        event = (
+            mock_produce.call_args.kwargs.get("event")
+            or mock_produce.call_args[1].get("event")
+            or mock_produce.call_args[0][1]
+        )
+        assert event.properties["metric_name"] == "purchase_completed"
