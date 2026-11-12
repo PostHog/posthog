@@ -723,7 +723,8 @@ def _send_payload(
 
 
 def _send_category(team: Team, send: TemplateSend, requested: RequestedCategory) -> SendCategory | None:
-    category = template_send_category(send.category, requested)
+    with _sent_as("marketing" if send.marketing else "transactional"):
+        category = template_send_category(send.category, requested)
     if send.marketing or category is None or _categories_enabled_for(team):
         return category
     return None

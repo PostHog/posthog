@@ -2173,6 +2173,8 @@ class TestTransactionalEmail(APIBaseTest):
             format="json",
         )
 
+        sends = self.events.properties("transactional email api send")
+        assert [send["category_type"] for send in sends] == ["marketing"]
         if expected_code:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert (response.json()["code"], response.json()["attr"]) == (expected_code, "category")
@@ -2181,8 +2183,6 @@ class TestTransactionalEmail(APIBaseTest):
         else:
             assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
             assert self.cdp.categories() == [{"id": str(newsletter.id), "type": "marketing"}]
-            sends = self.events.properties("transactional email api send")
-            assert [send["category_type"] for send in sends] == ["marketing"]
 
     @parameterized.expand([("turned_marketing", False), ("archived", True)])
     def test_a_template_send_names_its_categorys_current_type(self, cdp_post, _flag, capture, _name, archived):
