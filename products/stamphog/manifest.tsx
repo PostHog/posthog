@@ -27,10 +27,10 @@ export const manifest: ProductManifest = {
             name: 'Stamphog runs',
             iconType: 'stamphog',
         },
-        StamphogTeamView: {
-            import: () => import('./frontend/scenes/StamphogTeamViewScene/StamphogTeamViewScene'),
+        StamphogArea: {
+            import: () => import('./frontend/scenes/StamphogAreaScene/StamphogAreaScene'),
             projectBased: true,
-            name: 'Stamphog team view',
+            name: 'Stamphog area',
             iconType: 'stamphog',
         },
         StamphogDigests: {
@@ -43,7 +43,7 @@ export const manifest: ProductManifest = {
     routes: {
         '/stamphog': ['Stamphog', 'stamphog'],
         '/stamphog/runs': ['StamphogRuns', 'stamphogRuns'],
-        '/stamphog/team': ['StamphogTeamView', 'stamphogTeamView'],
+        '/stamphog/area': ['StamphogArea', 'stamphogArea'],
         '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
         // GitHub App Setup URL — GitHub redirects here after install with an installation_id search
         // param. Lives under the product's own /stamphog namespace, not /integrations/*, so the generic
@@ -54,7 +54,7 @@ export const manifest: ProductManifest = {
     urls: {
         stamphog: (): string => '/stamphog',
         stamphogRuns: (): string => '/stamphog/runs',
-        stamphogTeamView: (): string => '/stamphog/team',
+        stamphogArea: (): string => '/stamphog/area',
         stamphogDigests: (): string => '/stamphog/digests',
         stamphogCallback: (): string => '/stamphog/install/callback',
     },

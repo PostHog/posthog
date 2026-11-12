@@ -1238,9 +1238,16 @@ export type StamphogRoutingRunsListParams = {
      */
     ordering?: StamphogRoutingRunsListOrdering
     /**
-     * Keep only runs where an owner got one of these outcomes. Pass several as a comma-separated list or repeat the parameter. With `owner`, that owner must have one of them, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
+     * Keep only runs where an owner got one of these outcomes. Pass one, or several as a list: a comma-separated value, a JSON-encoded array, or the repeated parameter. With `owner`, that owner must have one of them, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
      */
-    outcome?: StamphogRoutingRunsListOutcomeItem[]
+    outcome?:
+        | 'requested'
+        | 'labeled'
+        | 'refused'
+        | 'cut'
+        | 'not_requested'
+        | 'already_requested'
+        | ('requested' | 'labeled' | 'refused' | 'cut' | 'not_requested' | 'already_requested')[]
     /**
      * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
      * @minLength 1
@@ -1277,26 +1284,6 @@ export type StamphogRoutingRunsListOrdering =
 export const StamphogRoutingRunsListOrdering = {
     CreatedAt: '-created_at',
     MergedAt: '-merged_at',
-} as const
-
-/**
- * * `requested` - Requested
- * * `labeled` - Labeled
- * * `refused` - Refused by GitHub
- * * `cut` - Cut
- * * `not_requested` - Not requested
- * * `already_requested` - Already requested
- */
-export type StamphogRoutingRunsListOutcomeItem =
-    (typeof StamphogRoutingRunsListOutcomeItem)[keyof typeof StamphogRoutingRunsListOutcomeItem]
-
-export const StamphogRoutingRunsListOutcomeItem = {
-    Requested: 'requested',
-    Labeled: 'labeled',
-    Refused: 'refused',
-    Cut: 'cut',
-    NotRequested: 'not_requested',
-    AlreadyRequested: 'already_requested',
 } as const
 
 export type StamphogRoutingRunsListReason =

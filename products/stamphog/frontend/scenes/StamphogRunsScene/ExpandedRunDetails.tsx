@@ -7,7 +7,9 @@ import { urls } from 'scenes/urls'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { Field, Section, TimeField } from '../../components/RunDetailFields'
+import { Field } from '../../components/Field'
+import { Section } from '../../components/Section'
+import { TimeField } from '../../components/TimeField'
 import { ReviewRunApi } from '../../generated/api.schemas'
 import { runDuration } from './runDisplay'
 
