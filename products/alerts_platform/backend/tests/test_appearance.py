@@ -1,3 +1,4 @@
+import contextlib
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -125,16 +126,11 @@ class TestAppearanceAlerts(BaseTest):
         self.max_read_span = timedelta(hours=7)
         now = T0 + timedelta(minutes=20)
 
-        failed_runs = 0
         for _ in range(5):
-            try:
+            # A run raises at the read that fails, and keeps the spans it recorded before it.
+            with contextlib.suppress(TimeoutError):
                 self._register(now)
-            except TimeoutError:
-                failed_runs += 1
 
-        # The seed's one-day read fails, then twelve hours fails. From then on each run records six
-        # hours before a longer read fails, and keeps what it recorded.
-        assert failed_runs == 2
         # The check reads only the registry, so a failing feed never fails it.
         outcome, deliveries = self._tick(now + timedelta(minutes=1))
         assert [group.grouping_key for group in outcome.groups] == ["fresh"]

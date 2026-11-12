@@ -15,8 +15,6 @@ from typing import Any, Final
 from django.db import connection, transaction
 from django.utils import timezone
 
-import structlog
-
 from products.alerts_platform.backend.facade.contracts import (
     Occurrence,
     OccurrenceFeed,
@@ -49,8 +47,6 @@ RECORD_ALLOWANCE: Final = timedelta(seconds=10)
 # Bounds on one pushed fact's write, well below a caller's own deadline, so a stalled write ends.
 WRITE_LOCK_TIMEOUT_MS: Final = 5_000
 WRITE_STATEMENT_TIMEOUT_MS: Final = 10_000
-
-logger = structlog.get_logger(__name__)
 
 _feeds: dict[SourceKind, OccurrenceFeed] = {}
 
@@ -101,23 +97,13 @@ class RegistryStore:
         """Registers span after span until the registry reaches what the feed has finished, or `budget`
         runs out, and returns where it stopped. A registry that is far behind continues on the next run.
 
-        A read that fails raises only when it is the run's first, so a run that made progress ends
-        with that progress kept, and the next run reads the shortened span.
+        Each span commits on its own, so a failed read raises without losing the spans before it.
         """
         assert self.feed is not None
         ready = self.feed.ready_until(team_id, now)
         deadline = time.monotonic() + budget.total_seconds()
-        reached: datetime | None = None
         while True:
-            try:
-                reached = self.register(team_id=team_id, ready=ready)
-            except Exception:
-                if reached is None:
-                    raise
-                logger.warning(
-                    "Registering occurrences stopped at a failed read", source=self.source.value, team_id=team_id
-                )
-                return reached
+            reached = self.register(team_id=team_id, ready=ready)
             if reached >= ready or time.monotonic() >= deadline:
                 return reached
 
