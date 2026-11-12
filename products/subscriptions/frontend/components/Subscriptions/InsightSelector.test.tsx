@@ -102,12 +102,35 @@ describe('InsightSelector', () => {
             tiles: tiles as DashboardTile[],
             groups: { retention: { title: 'Retention' } },
             groupDisplay: 'tabs',
-            selectedInsightIds: [101],
+            // 999 is no longer on the dashboard and has to survive a group click until save.
+            selectedInsightIds: [999, 101],
             onChange,
         })
 
         await userEvent.click(screen.getByText('Retention'))
-        expect(onChange).toHaveBeenCalledWith([101, 102, 103])
+        expect(onChange).toHaveBeenCalledWith([999, 101, 102, 103])
+    })
+
+    it('hides group checkboxes while searching', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true })
+        const tiles = Array.from({ length: 11 }, (_, i) => ({
+            id: i + 1,
+            insight: { id: 100 + i, name: `Insight ${i}` } as any,
+            layouts: { sm: { x: 0, y: i } } as any,
+            group_key: i === 0 ? null : 'retention',
+        }))
+        renderInsightSelector({
+            tiles: tiles as DashboardTile[],
+            groups: { retention: { title: 'Retention' } },
+            groupDisplay: 'tabs',
+            selectedInsightIds: [100],
+            onChange: jest.fn(),
+        })
+        expect(screen.getByText('Retention')).toBeInTheDocument()
+
+        await userEvent.type(screen.getByPlaceholderText('Search insights...'), 'Insight 1')
+
+        expect(screen.queryByText('Retention')).not.toBeInTheDocument()
     })
 
     it('calls onChange when deselecting an insight', async () => {

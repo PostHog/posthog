@@ -19,32 +19,53 @@ export interface InsightGroupCheckboxState {
     disabledReason: string | null
 }
 
-function isVisibleInsightTile(tile: DashboardTile): boolean {
+// Matches the fallback delivery uses in products/subscriptions/backend/temporal/activities.py, so a tile with no
+// saved layout sits in the same place in the picker as in the sent report.
+const MISSING_LAYOUT_POSITION = 100
+
+function layoutPosition(tile: DashboardTile): { x: number; y: number } {
+    return {
+        x: tile.layouts?.sm?.x ?? MISSING_LAYOUT_POSITION,
+        y: tile.layouts?.sm?.y ?? MISSING_LAYOUT_POSITION,
+    }
+}
+
+export function isVisibleInsightTile(tile: DashboardTile): boolean {
     return !!tile.insight && !tile.deleted && !tile.insight.deleted
 }
 
-/**
- * Splits a dashboard's insights into its tabs or groups, in the order the dashboard shows them.
- * Returns no groups when no insight belongs to a group, so the picker shows a plain list.
- */
+export function sortTilesByLayout(tiles: DashboardTile[]): DashboardTile[] {
+    return [...tiles].sort((a, b) => {
+        const [pa, pb] = [layoutPosition(a), layoutPosition(b)]
+        return pa.y - pb.y || pa.x - pb.x
+    })
+}
+
+// Returns no groups when no insight is in a group, so the picker falls back to a plain list.
 export function getInsightGroups({
     tiles,
     groups,
     groupDisplay,
 }: {
     tiles: DashboardTile[]
-    groups: Record<string, DashboardTileGroupApi> | undefined
-    groupDisplay: TileGroupDisplay | undefined
+    groups?: Record<string, DashboardTileGroupApi> | null
+    groupDisplay?: TileGroupDisplay | null
 }): InsightGroup[] {
-    const visibleTiles = tiles.filter((tile) => !tile.deleted)
-    if (!visibleTiles.some((tile) => tile.group_key && isVisibleInsightTile(tile))) {
+    const nonDeletedTiles = tiles.filter((tile) => !tile.deleted)
+    if (!nonDeletedTiles.some((tile) => tile.group_key && isVisibleInsightTile(tile))) {
         return []
     }
-    const layout: Parameters<typeof getDashboardSections>[0]['layout'] = visibleTiles
-        .filter((tile) => tile.layouts?.sm)
-        .map((tile) => ({ ...tile.layouts!.sm!, i: tile.id.toString() }))
-    // Tiles outside any group gather into one list, as the dashboard does for its first tab.
-    const sections = getDashboardTabs(getDashboardSections({ tiles: visibleTiles, layout, groups }))
+    const layout = nonDeletedTiles.map((tile) => ({
+        ...layoutPosition(tile),
+        w: tile.layouts?.sm?.w ?? 1,
+        h: tile.layouts?.sm?.h ?? 1,
+        i: tile.id.toString(),
+    }))
+    // Tiles outside any group gather into one list first, so one checkbox covers them. Tabs mode shows them
+    // the same way, but sections mode places them in bands between groups.
+    const sections = getDashboardTabs(
+        getDashboardSections({ tiles: nonDeletedTiles, layout, groups: groups ?? undefined })
+    )
 
     return sections.flatMap((section): InsightGroup[] => {
         const insightTiles = section.tiles.filter(isVisibleInsightTile)
@@ -61,45 +82,67 @@ export function getInsightGroups({
     })
 }
 
-export function getInsightGroupCheckboxState({
-    group,
-    validSelectedIds,
-    maxInsights,
-    groupDisplay,
-}: {
+interface GroupSelectionInput {
     group: InsightGroup
     validSelectedIds: number[]
     maxInsights: number
-    groupDisplay: TileGroupDisplay | undefined
-}): InsightGroupCheckboxState {
+}
+
+function groupSelection({ group, validSelectedIds, maxInsights }: GroupSelectionInput): {
+    selectedInGroup: number
+    fitsUnderLimit: boolean
+} {
     const selected = new Set(validSelectedIds)
     const selectedInGroup = group.insightIds.filter((id) => selected.has(id)).length
-    const checked = selectedInGroup === 0 ? false : selectedInGroup === group.insightIds.length ? true : 'indeterminate'
     const missingCount = group.insightIds.length - selectedInGroup
-    const overLimit = checked !== true && validSelectedIds.length + missingCount > maxInsights
+    return { selectedInGroup, fitsUnderLimit: validSelectedIds.length + missingCount <= maxInsights }
+}
+
+export function getInsightGroupCheckboxState({
+    groupDisplay,
+    ...input
+}: GroupSelectionInput & { groupDisplay?: TileGroupDisplay | null }): InsightGroupCheckboxState {
+    const { selectedInGroup, fitsUnderLimit } = groupSelection(input)
+    const checked =
+        selectedInGroup === 0 ? false : selectedInGroup === input.group.insightIds.length ? true : 'indeterminate'
     const noun = groupDisplay === 'tabs' ? 'tab' : 'group'
     return {
         checked,
-        disabledReason: overLimit
-            ? `Selecting this ${noun} would go over the limit of ${maxInsights} insights. Deselect some insights first.`
-            : null,
+        // A partly selected group that can't fit clears on click instead, so only an empty one is disabled.
+        disabledReason:
+            checked === false && !fitsUnderLimit
+                ? `Selecting this ${noun} would go over the limit of ${input.maxInsights} insights. Deselect some insights first.`
+                : null,
     }
 }
 
-/** Deselects the whole group when it is fully selected, and otherwise adds the group's missing insights. */
 export function toggleInsightGroup({
-    group,
     selectedInsightIds,
-    validSelectedIds,
-}: {
-    group: InsightGroup
-    selectedInsightIds: number[]
-    validSelectedIds: number[]
-}): number[] {
-    const groupIds = new Set(group.insightIds)
-    const selected = new Set(validSelectedIds)
-    if (group.insightIds.every((id) => selected.has(id))) {
+    ...input
+}: GroupSelectionInput & { selectedInsightIds: number[] }): number[] {
+    const { selectedInGroup, fitsUnderLimit } = groupSelection(input)
+    const { group, validSelectedIds } = input
+    if (selectedInGroup === group.insightIds.length || !fitsUnderLimit) {
+        const groupIds = new Set(group.insightIds)
         return selectedInsightIds.filter((id) => !groupIds.has(id))
     }
+    const selected = new Set(validSelectedIds)
     return [...selectedInsightIds, ...group.insightIds.filter((id) => !selected.has(id))]
+}
+
+export function toggleInsight({
+    insightId,
+    selectedInsightIds,
+    validSelectedIds,
+    maxInsights,
+}: {
+    insightId: number
+    selectedInsightIds: number[]
+    validSelectedIds: number[]
+    maxInsights: number
+}): number[] {
+    if (validSelectedIds.includes(insightId)) {
+        return selectedInsightIds.filter((id) => id !== insightId)
+    }
+    return validSelectedIds.length < maxInsights ? [...selectedInsightIds, insightId] : selectedInsightIds
 }

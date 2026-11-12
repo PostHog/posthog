@@ -9,12 +9,11 @@ import { DashboardTile, TileGroupDisplay } from '~/types'
 
 import type { DashboardTileGroupApi } from 'products/dashboards/frontend/generated/api.schemas'
 
-import { toggleInsightGroup } from './insightGroupSelection'
+import { toggleInsight, toggleInsightGroup } from './insightGroupSelection'
 import { MAX_INSIGHTS, insightSelectorLogic } from './insightSelectorLogic'
 
 interface InsightSelectorProps {
     tiles: DashboardTile[]
-    /** The dashboard's tile groups, so the picker can offer each tab or group as one checkbox. */
     groups?: Record<string, DashboardTileGroupApi>
     groupDisplay?: TileGroupDisplay
     selectedInsightIds: number[]
@@ -32,6 +31,7 @@ export function InsightSelector({
 }: InsightSelectorProps): JSX.Element {
     const logic = insightSelectorLogic({ tiles, selectedInsightIds, groups, groupDisplay })
     const {
+        defaultSelectedInsightIds,
         filteredTiles,
         insightGroups,
         insightGroupCheckboxStates,
@@ -46,26 +46,20 @@ export function InsightSelector({
 
     useEffect(() => {
         // Auto-select the first N insights for new subscriptions (when nothing is selected yet)
-        if (insightTiles.length > 0 && selectedInsightIds.length === 0 && !userHasInteracted) {
-            const defaultSelection = insightTiles.slice(0, MAX_INSIGHTS).map((tile) => tile.insight!.id)
-            onChange(defaultSelection)
-            onDefaultsApplied?.(defaultSelection)
+        if (defaultSelectedInsightIds.length > 0 && selectedInsightIds.length === 0 && !userHasInteracted) {
+            onChange(defaultSelectedInsightIds)
+            onDefaultsApplied?.(defaultSelectedInsightIds)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [insightTiles, selectedInsightIds, userHasInteracted])
+    }, [defaultSelectedInsightIds, selectedInsightIds, userHasInteracted])
 
     const selectedCount = validSelectedIds.length
     const selectableCount = Math.min(insightTiles.length, MAX_INSIGHTS)
     const atMaxLimit = selectedCount >= MAX_INSIGHTS
 
-    const toggleInsight = (insightId: number): void => {
+    const select = (ids: number[]): void => {
         setUserHasInteracted()
-        if (validSelectedIds.includes(insightId)) {
-            const newIds = selectedInsightIds.filter((id) => id !== insightId)
-            onChange(newIds)
-        } else if (!atMaxLimit) {
-            onChange([...selectedInsightIds, insightId])
-        }
+        onChange(ids)
     }
 
     const renderInsightCheckbox = (tile: DashboardTile): JSX.Element => {
@@ -76,7 +70,16 @@ export function InsightSelector({
             <LemonCheckbox
                 key={tile.id}
                 checked={isChecked}
-                onChange={() => toggleInsight(insight.id)}
+                onChange={() =>
+                    select(
+                        toggleInsight({
+                            insightId: insight.id,
+                            selectedInsightIds,
+                            validSelectedIds,
+                            maxInsights: MAX_INSIGHTS,
+                        })
+                    )
+                }
                 label={insight.name || insight.derived_name || 'Untitled insight'}
                 disabledReason={isDisabled && 'Maximum number of insights selected. Deselect one to add another.'}
             />
@@ -123,12 +126,16 @@ export function InsightSelector({
                                 <div key={group.key} className="space-y-1">
                                     <LemonCheckbox
                                         checked={checked}
-                                        onChange={() => {
-                                            setUserHasInteracted()
-                                            onChange(
-                                                toggleInsightGroup({ group, selectedInsightIds, validSelectedIds })
+                                        onChange={() =>
+                                            select(
+                                                toggleInsightGroup({
+                                                    group,
+                                                    selectedInsightIds,
+                                                    validSelectedIds,
+                                                    maxInsights: MAX_INSIGHTS,
+                                                })
                                             )
-                                        }}
+                                        }
                                         label={<span className="font-semibold">{group.label}</span>}
                                         disabledReason={disabledReason}
                                         data-attr="subscription-insight-group-checkbox"
