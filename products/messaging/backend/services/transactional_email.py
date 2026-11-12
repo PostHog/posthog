@@ -225,7 +225,8 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
 CODE_SEND_CATEGORIES_FLAG = "workflows-code-send-categories"
 MARKETING_TEMPLATE_REFUSAL = "The template is in a marketing category. Only transactional templates can be sent."
 LIQUID_UNSUBSCRIBE_PLACEHOLDER = re.compile(
-    r"\{\{-?\s*unsubscribe_url(_one_click)?\s*-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}", re.ASCII
+    r"\{\{-?(?:\s|%20)*unsubscribe_url(_one_click)?(?:\s|%20)*-?\}\}|\{%-?(?:\s|%20)*unsubscribe_url(?:\s|%20)*-?%\}",
+    re.ASCII,
 )
 FILES_REFUSALS: dict[str, tuple[str, str, str]] = {
     "workflow_shape_not_supported": (

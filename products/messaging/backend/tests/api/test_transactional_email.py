@@ -591,6 +591,12 @@ class TestTransactionalEmail(APIBaseTest):
         [
             ("link_in_the_html", {"html": '<p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>'}, 202, None),
             (
+                "link_as_the_email_editor_saves_it",
+                {"html": '<p><a href="{{%20unsubscribe_url%20}}">Unsubscribe</a></p>'},
+                202,
+                None,
+            ),
+            (
                 "one_click_link_in_the_html",
                 {"html": '<a href="{{ unsubscribe_url_one_click }}">Unsubscribe</a>'},
                 202,
@@ -2209,6 +2215,13 @@ class TestTransactionalEmail(APIBaseTest):
     @parameterized.expand(
         [
             ("link_kept", True, '<p><a href="{{ unsubscribe_url }}">Unsubscribe</a> any time</p>', None, False),
+            (
+                "link_kept_as_the_email_editor_saves_it",
+                True,
+                '<p><a href="{{%20unsubscribe_url%20}}">Unsubscribe</a> any time</p>',
+                None,
+                False,
+            ),
             ("link_removed", True, "<p>See you next week</p>", "unsubscribe_link_required", False),
             (
                 "placeholder_kept_outside_a_link",
