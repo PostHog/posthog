@@ -162,7 +162,7 @@ describe('hog skills', () => {
             [
                 "/scratch isn't in a git repository, so the skills go in this folder.",
                 'No agent is running hog, so the skills go in .agents/skills, which most agents read.',
-                'Pass --agent to pick one, such as --agent claude-code.',
+                'Pass `--agent` to pick one, such as `--agent claude-code`.',
                 'Installed posthog-flags in .agents/skills/posthog-flags',
                 '',
             ].join('\n')

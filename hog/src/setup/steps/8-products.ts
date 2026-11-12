@@ -18,12 +18,12 @@ async function skillList(run: SetupRun): Promise<SkillInfo[]> {
         failure = error instanceof Error ? error.message : String(error)
     }
 
-    run.context.warnings.push(`The PostHog skills didn't load: ${failure}`)
+    run.context.warnings.push(`Couldn't load the PostHog skills: ${failure}`)
     return []
 }
 
 export const products: Step = {
-    summary: () => 'Went through what else PostHog can do',
+    summary: () => 'Listed what else PostHog can do',
 
     async advance(run) {
         if (!run.input.next) {

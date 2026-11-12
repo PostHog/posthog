@@ -72,7 +72,7 @@ async function assertInsideRoot(runtime: Runtime, root: string, path: string): P
 
     throw new HogError(
         'unsafe_skill_path',
-        `${path} leads outside ${root} through a symlink, so the skill can't go there.`,
+        `${path} points outside ${root} through a symlink, so hog can't install the skill there.`,
         'Remove the symlink, or pass --agent to add the skills to another folder.'
     )
 }
@@ -104,21 +104,21 @@ async function installOne(
 export default defineCommand({
     description: 'Add PostHog skills to this repository, in the folder your agent reads',
     args: {
-        ids: { description: 'The skills to add, as `hog skills list` names them', variadic: true },
+        ids: { description: 'The skill IDs to add, from `hog skills list`', variadic: true },
     },
     options: {
         agent: {
             type: 'string',
             multiple: true,
             placeholder: 'name',
-            description: `The agent to add the skills for, instead of the one running hog. Repeat it for several. One of: ${KNOWN_AGENTS.join(', ')}`,
+            description: `The agent to add the skills for, instead of the one running hog. Repeat it to add several. One of: ${KNOWN_AGENTS.join(', ')}`,
         },
         force: { type: 'boolean', description: 'Replace a skill that is already installed' },
     },
     writes: true,
     notes: [
-        'Skills go in the closest git repository, or in the working folder outside of one. Claude Code reads .claude/skills, and most other agents read .agents/skills.',
-        'Without --agent, the skills go in the folder of the agent running the command, or in .agents/skills when no agent runs it. Skills are public, so `hog skills add` needs no login.',
+        'Skills go in the closest git repository, or in the current folder outside one. Claude Code reads `.claude/skills`. Most other agents read `.agents/skills`.',
+        'Without `--agent`, skills go in the folder of the agent running hog, or in `.agents/skills` if no agent is running it. Skills are public, so `hog skills add` needs no login.',
     ].join('\n'),
     examples: [
         'hog skills add audit-feature-flags error-tracking-nextjs',
@@ -194,7 +194,7 @@ export default defineCommand({
 
         if (result.agentSource === 'none') {
             out.line(`No agent is running hog, so the skills go in ${SHARED_SKILL_FOLDER}, which most agents read.`)
-            out.line('Pass --agent to pick one, such as --agent claude-code.')
+            out.line('Pass `--agent` to pick one, such as `--agent claude-code`.')
         }
 
         for (const skill of result.skills) {

@@ -135,8 +135,8 @@ describe('hog learn', () => {
         const result = await learn(['posthog:instrument-integration'], skills, 'person')
 
         expect(result.stdout.split('\n').slice(0, 2)).toEqual([
-            "hog couldn't download the PostHog product skills (Unable to connect), so these come from the copy saved on 2026-01-01 09:30 UTC.",
-            "hog couldn't download the setup skills, such as posthog:instrument-integration (HTTP 503), and has no saved copy, so they are missing.",
+            "hog couldn't download the PostHog product skills (Unable to connect). Using the copy saved on 2026-01-01 09:30 UTC.",
+            "hog couldn't download the setup skills, such as posthog:instrument-integration (HTTP 503), and there's no saved copy.",
         ])
     })
 
@@ -162,7 +162,7 @@ describe('hog learn', () => {
         [
             { code: 'unknown_file', message: 'Unknown file: "nope.md".' },
             'unknown_file',
-            'Give the path from the skill folder, such as references/COMMANDMENTS.md.',
+            'Pass the path relative to the skill folder, such as `references/COMMANDMENTS.md`.',
             1,
         ],
         [

@@ -304,7 +304,7 @@ export function pendingResult<Pending extends PendingApproval>(
         url: pending.url,
         code,
         expiresAt: new Date(pending.expiresAt).toISOString(),
-        instructions: `Ask the person to ${approve}. Then run \`${flow.resume}\` yourself. It returns once they approve, and if it times out, run it again.`,
+        instructions: `Ask the user to ${approve}. Then run \`${flow.resume}\`. It returns once they approve. If it times out, run it again.`,
         next: flow.resume,
         ...(approver ? { approver: approver.who, approverNames: approver.names } : {}),
     }
@@ -330,7 +330,7 @@ export function refuseInCi(ctx: Context, command: string, hint: string): void {
     if (inCIWithoutAPerson(ctx)) {
         throw new HogError(
             'login_needs_a_person',
-            `${command} needs a person to approve it in a browser, so it does not run in CI.`,
+            `${command} needs someone to approve it in a browser, so it can't run in CI.`,
             hint
         )
     }
@@ -376,7 +376,7 @@ export async function resumeApproval<Pending extends PendingApproval, Value>(
         )
     }
     flow.checkResumable?.(pending)
-    const spinner = ctx.prompts?.spinner(`Waiting for the ${flow.noun} to be approved in the browser`)
+    const spinner = ctx.prompts?.spinner(`Waiting for you to approve the ${flow.noun} in the browser`)
     return { pending, value: await withSpinner(spinner, flow.noun, waitFor(ctx.runtime, flow, pending)) }
 }
 

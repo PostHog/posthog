@@ -27,7 +27,7 @@ async function fillInstallContext(run: SetupRun): Promise<void> {
 
 // `hog learn` records the reads. Both files count only when read whole.
 export const install: Step = {
-    summary: () => 'Read the install skill and installed PostHog',
+    summary: () => 'Installed PostHog with the install skill',
 
     async advance(run) {
         await fillInstallContext(run)
@@ -42,7 +42,7 @@ export const install: Step = {
         if (read) {
             return runNext(
                 'setup_install_pending',
-                `Install PostHog in this app as the skill says, with the project token and host in context. Then run \`${SETUP_NEXT}\` yourself.`
+                `Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`. Then run \`${SETUP_NEXT}\`.`
             )
         }
 
@@ -52,7 +52,7 @@ export const install: Step = {
                 kind: 'read',
                 read: [readCommand(SKILL_READ), readCommand(RULES_READ)],
                 command: SETUP_NEXT,
-                instructions: `Run both commands, and follow the skill to install PostHog in this app with the project token and host in context. Then run \`${SETUP_NEXT}\` yourself.`,
+                instructions: `Run both commands and read each file in full, without \`--lines\` or \`-s\`. Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`. Then run \`${SETUP_NEXT}\`.`,
             },
         }
     },

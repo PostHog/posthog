@@ -31,7 +31,8 @@ export const ProductListSchema = z.string().transform((raw, ctx) => {
     const unknown = ids.filter((id) => !ProductIdSchema.safeParse(id).success)
 
     if (ids.length === 0 || unknown.length > 0) {
-        const message = unknown.length > 0 ? `There is no product named ${unknown.join(', ')}.` : 'Name a product.'
+        const message =
+            unknown.length > 0 ? `Unknown product ID: ${unknown.join(', ')}.` : 'Pass at least one product ID.'
         ctx.issues.push({ code: 'custom', input: raw, message })
         return z.NEVER
     }
@@ -56,12 +57,12 @@ const PRODUCTS: Record<ProductId, ProductInfo> = {
     },
     'web-analytics': {
         label: 'Web analytics',
-        description: 'See traffic, referrers and top pages for your site.',
+        description: 'See traffic, referrers, and top pages for your site.',
         search: 'web analytics',
     },
     'session-replay': {
         label: 'Session replay',
-        description: 'Watch recordings of real sessions in your app.',
+        description: 'Watch recordings of user sessions in your app.',
         search: 'session replay',
     },
     'feature-flags': {
@@ -85,8 +86,8 @@ const PRODUCTS: Record<ProductId, ProductInfo> = {
         search: 'surveys',
     },
     'llm-analytics': {
-        label: 'LLM analytics',
-        description: 'Track LLM calls, their costs and their traces.',
+        label: 'AI observability',
+        description: 'Track LLM calls, costs, and traces.',
         search: 'llm analytics',
     },
     'mcp-analytics': {

@@ -458,7 +458,7 @@ describe('hog auth login', () => {
         expect(result.error()).toMatchObject({
             code: 'project_mismatch',
             message: expect.stringContaining(
-                `/repo/apps/docs/posthog.json names project 3, and hog has no login for it on ${EU}`
+                `/repo/apps/docs/posthog.json names project 3, but you aren't logged in to it on ${EU}`
             ),
             hint: expect.stringContaining(`hog auth login --host ${EU}`),
         })

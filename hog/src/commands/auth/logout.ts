@@ -27,8 +27,8 @@ export default defineCommand({
     description: 'Log out of PostHog and remove the login hog stored on this machine',
     writes: true,
     notes: [
-        'hog removes the login commands in this folder use, the same one `hog auth status` shows. Logins to other projects stay.',
-        'hog revokes the login on this machine in PostHog. Your hog logins on other machines keep working.',
+        'Removes the login that commands in this folder use, which is the one `hog auth status` shows. Logins to other projects stay.',
+        "hog also revokes this machine's login in PostHog. Logins on other machines keep working.",
         'A personal API key you pasted stays valid until you delete it in PostHog under Settings > Personal API keys.',
     ].join('\n'),
     options: {
@@ -82,7 +82,7 @@ export default defineCommand({
                 result.host && result.projectId
                     ? ` for project ${result.projectId} on ${escapeControls(result.host)}`
                     : ''
-            out.line(`hog had no stored login${which} to remove.`)
+            out.line(`There's no stored login${which} to remove.`)
         }
 
         for (const { host, projectId, revoked, revokeUrl, keychainLeftover } of loggedOut) {
@@ -92,7 +92,7 @@ export default defineCommand({
             if (revoked === false) {
                 out.line(
                     out.style(
-                        "hog couldn't reach PostHog to revoke the login, so it keeps working in PostHog. Revoke it under Settings > Connected applications.",
+                        "hog couldn't reach PostHog to revoke the login, so it still works. Revoke it in PostHog under Settings > Connected applications.",
                         'yellow'
                     )
                 )
@@ -101,14 +101,14 @@ export default defineCommand({
             if (keychainLeftover) {
                 out.line(
                     out.style(
-                        `hog couldn't remove an older copy of the key from the keychain: ${keychainLeftover} Remove the hog item for ${escapeControls(host ?? '')} from the keychain yourself.`,
+                        `hog couldn't remove an older copy of the key from the keychain: ${keychainLeftover} Delete the hog item for ${escapeControls(host ?? '')} from the keychain.`,
                         'yellow'
                     )
                 )
             }
 
             if (revokeUrl) {
-                out.line(out.style(`The key still works until you delete it at ${revokeUrl}`, 'dim'))
+                out.line(out.style(`The key keeps working until you delete it at ${revokeUrl}`, 'dim'))
             }
         }
 

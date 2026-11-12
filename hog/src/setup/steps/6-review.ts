@@ -2,7 +2,7 @@ import { type Step } from '../setup-run'
 import { SETUP_NEXT } from '../state'
 import { readCommand, RULES_READ } from './5-install'
 
-const QUESTION = 'Did you check your changes against every install rule, and fix any change that broke one?'
+const QUESTION = 'Did you check your changes against every install rule and fix any that break one?'
 
 export const review: Step = {
     summary: () => 'Checked the changes against the install rules',
@@ -22,7 +22,7 @@ export const review: Step = {
                 kind: 'read',
                 read: [readCommand(RULES_READ)],
                 command: `${SETUP_NEXT} --reviewed`,
-                instructions: `Read the rules again, and check each one against the changes you made. Fix any change that breaks a rule, then run \`${SETUP_NEXT} --reviewed\` yourself.`,
+                instructions: `Read the rules again and check your changes against each one. Fix any change that breaks a rule. Then run \`${SETUP_NEXT} --reviewed\`.`,
             },
         }
     },

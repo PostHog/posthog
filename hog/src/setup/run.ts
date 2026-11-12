@@ -60,7 +60,8 @@ async function recentEvents(run: SetupRun): Promise<EventsContext | undefined> {
     )
 }
 
-const CONNECTED = 'PostHog is set up in this folder. The note in AGENTS.md lists the commands for later PostHog work.'
+const CONNECTED =
+    'PostHog is set up in this folder. The PostHog section in `AGENTS.md` lists the commands for later PostHog work.'
 const NO_EVENTS = "PostHog hasn't received any events yet. Run the app and use it, then run `hog setup` to check again."
 const TELL_USER = `At the end of your turn, tell the user what else PostHog can do, from \`context.products\`, and which skills in \`context.skills\` they can add with \`${ADD_SKILLS}\`.`
 
@@ -96,7 +97,7 @@ async function connectedResult(run: SetupRun): Promise<SetupResult> {
             : {
                   kind: 'run',
                   command: 'hog auth login',
-                  instructions: 'PostHog is set up in this folder. Run `hog auth login` to use hog here.',
+                  instructions: "PostHog is set up in this folder, but you aren't logged in. Run `hog auth login`.",
               },
     }
 }

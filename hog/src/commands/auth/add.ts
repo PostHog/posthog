@@ -13,14 +13,13 @@ export default defineCommand({
     options: {
         wait: {
             type: 'boolean',
-            description:
-                'Wait for the scopes an agent or script asked for, and save the token once a person approves them',
+            description: 'Wait for approval of the scopes an agent or script asked for, then save the token',
         },
     },
     notes: [
-        'hog asks for the scopes you already have plus the new ones. The approval page keeps the new ones ticked, and you can remove any of the others.',
+        'hog asks for the scopes you already have plus the new ones. The approval page keeps the new ones selected, and you can clear any of the others.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth add --wait`.',
-        "hog can't add scopes to a personal API key. Add them to the key in PostHog under Settings, Personal API keys.",
+        "hog can't add scopes to a personal API key. Add them to the key in PostHog under Settings > Personal API keys.",
     ].join('\n'),
     examples: ['hog auth add insight:write', 'hog auth add insight:write dashboard:write', 'hog auth add --wait'],
 
@@ -28,7 +27,7 @@ export default defineCommand({
         if (options.wait && args.scopes.length > 0) {
             throw new HogError(
                 'scopes_with_wait',
-                '--wait finishes the scopes you already asked for, so it takes no scopes.',
+                '`--wait` takes no scopes. It finishes the request you already started.',
                 'Run `hog auth add --wait` on its own, or `hog auth add <scope...>` to ask for other scopes.',
                 EXIT_USAGE
             )
@@ -45,8 +44,8 @@ export default defineCommand({
         if (args.scopes.length === 0) {
             throw new HogError(
                 'scopes_required',
-                'hog auth add needs the scopes to add.',
-                'Name them, as in `hog auth add insight:write dashboard:write`.',
+                '`hog auth add` needs at least one scope.',
+                'For example: `hog auth add insight:write dashboard:write`.',
                 EXIT_USAGE
             )
         }
@@ -70,7 +69,7 @@ export default defineCommand({
                 if (result.replacedRevoked === false) {
                     out.line(
                         out.style(
-                            "PostHog didn't revoke your previous login. It stops working when it expires, or you can remove it in PostHog under Settings, Connected applications.",
+                            "PostHog didn't revoke your previous login. It stops working when it expires. To remove it now, go to Settings > Connected applications in PostHog.",
                             'yellow'
                         )
                     )
