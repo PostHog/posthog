@@ -10,6 +10,7 @@ import { FeatureFlagsPartialUpdateBody, FeatureFlagsPartialUpdateParams } from '
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
+import { HogQLFilters } from './query'
 
 export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
 export const CanvasStateKeysOnlySchema = z.boolean().default(true)
@@ -1017,6 +1018,9 @@ export const DebugMcpUiAppsSchema = z.object({
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
+    filters: HogQLFilters.nullish().describe(
+        'Structured filters applied through SQL filter placeholders. When working in the SQL editor, copy current_query_node.source.filters here and preserve {filters} in each relevant source scan. Keep dateRange, properties, and filterTestAccounts unless the user asks to change them. Pass an empty object to clear filters. Not supported with sendRawQuery.'
+    ),
     context: z
         .string()
         .optional()

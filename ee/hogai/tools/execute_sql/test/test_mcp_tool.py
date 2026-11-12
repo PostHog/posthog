@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
 from unittest.mock import AsyncMock, patch
 
@@ -6,7 +8,7 @@ from django.test import SimpleTestCase
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
-from posthog.schema import HogQLNotice, HogQLQuery
+from posthog.schema import DateRange, EventPropertyFilter, HogQLFilters, HogQLNotice, HogQLQuery, PropertyOperator
 
 from posthog.event_usage import EventSource
 from posthog.models import Organization, Team, User
@@ -91,6 +93,75 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         self.assertIn("Example organization", result.content)
         self.assertEqual(replay, result.content)
+
+    @parameterized.expand([(1, True, 1), (7, True, 2), (1, False, 2), (None, False, 4)])
+    async def test_editor_filters_apply_to_ctes_and_visualization(
+        self, days: int | None, filter_test_accounts: bool, expected_count: int
+    ) -> None:
+        now = datetime.now(UTC)
+        self.team.test_account_filters = [
+            {"key": "account_type", "type": "event", "value": ["test"], "operator": "is_not"}
+        ]
+        await database_sync_to_async(self.team.save)()
+        for distinct_id, age, region, account_type in [
+            ("recent", 0, "west", "real"),
+            ("older", 3, "west", "real"),
+            ("test", 0, "west", "test"),
+            ("other_region", 0, "east", "real"),
+        ]:
+            _create_event(
+                team=self.team,
+                distinct_id=distinct_id,
+                event="example_event",
+                timestamp=now - timedelta(days=age, hours=1),
+                properties={"region": region, "account_type": account_type},
+            )
+        filters = (
+            HogQLFilters(
+                dateRange=DateRange(date_from=(now - timedelta(days=days)).isoformat(), date_to=now.isoformat()),
+                properties=[EventPropertyFilter(key="region", value=["west"], operator=PropertyOperator.EXACT)],
+                filterTestAccounts=filter_test_accounts,
+            )
+            if days is not None
+            else HogQLFilters()
+        )
+        sql = """
+            WITH first_scan AS (SELECT count() AS n FROM events WHERE {filters}),
+                 second_scan AS (SELECT count() AS n FROM events WHERE {filters})
+            SELECT first_scan.n AS first_count, second_scan.n AS second_count
+            FROM first_scan CROSS JOIN second_scan
+        """
+
+        result = await self.tool.execute(ExecuteSQLMCPToolArgs(query=sql, filters=filters))
+
+        assert result.structured_content is not None
+        query = HogQLQuery.model_validate(result.structured_content["query"])
+        self.assertEqual(query.filters, filters)
+        self.assertEqual(query.query.count("{filters}"), 2)
+        self.assertIn(f"{expected_count}|{expected_count}", result.content)
+        replay = await InsightContext(team=self.team, user=self.user, query=query).execute_and_format(
+            prompt_template="{{{results}}}", include_prompt_framing=False
+        )
+        self.assertEqual(replay, result.content)
+
+    @parameterized.expand(
+        [
+            ("no_placeholder", None, False, "no filter placeholders"),
+            ("raw_connection", "example-connection", True, "cannot be applied with sendRawQuery"),
+        ]
+    )
+    async def test_filters_cannot_be_silently_ignored(
+        self, _name: str, connection_id: str | None, raw: bool, expected_error: str
+    ) -> None:
+        with self.assertRaisesRegex(MaxToolRetryableError, expected_error):
+            await self.tool.execute(
+                ExecuteSQLMCPToolArgs(
+                    query="SELECT 1",
+                    filters=HogQLFilters(filterTestAccounts=True),
+                    connectionId=connection_id,
+                    sendRawQuery=raw,
+                )
+            )
 
     async def test_result_has_no_prompt_framing(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")

@@ -830,7 +830,11 @@ client when the remaining event fits; events that remain oversized are dropped.
 Native widgets read app data, existing `structuredContent`, or a direct result object.
 They never decode TOON or JSON from result text.
 The `execute-sql` backend returns the executed query in `structured_content` alongside its formatted text.
-The MCP handler forwards that query as widget metadata, preserving resolved saved-variable definitions, `connectionId`, and `sendRawQuery`.
+The MCP handler forwards that query as widget metadata, preserving resolved saved-variable definitions, structured `filters`, `connectionId`, and `sendRawQuery`.
+For SQL editor queries, pass `current_query_node.source.filters` as the `execute-sql` tool's `filters` argument and keep `{filters}` in every relevant source scan, including CTEs.
+This applies the editor's date, property, cohort, and test-account filters to both the tool execution and the visualization query.
+The editor applies the tool's input filters alongside the suggested SQL.
+Structured filters require filter placeholders and cannot be used with `sendRawQuery`.
 The widget renders it through the shared Query component in a `DataVisualizationNode`.
 The Query component fetches the results for this visualization.
 All query widgets require the executed query from the tool result. Old transcripts containing only text show the generic tool card.

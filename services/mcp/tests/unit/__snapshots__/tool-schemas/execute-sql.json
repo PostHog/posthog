@@ -9,6 +9,158 @@
             "description": "Why this query runs, and the governed-catalog outcome behind it. Write \"governed catalog consulted: no match\" here only after a catalog check found no approved metric for the measure: a `metric-list` call, or a metric listing that your instructions provide. Without that check, leave the phrase out. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.",
             "type": "string"
         },
+        "filters": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "dateRange": {
+                            "properties": {
+                                "date_from": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "date_to": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "explicitDate": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        "filterTestAccounts": {
+                            "type": "boolean"
+                        },
+                        "properties": {
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "key": {
+                                                "type": "string"
+                                            },
+                                            "operator": {
+                                                "type": "string"
+                                            },
+                                            "type": {
+                                                "type": "string"
+                                            },
+                                            "value": {
+                                                "anyOf": [
+                                                    {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "items": {
+                                                                    "type": "string"
+                                                                },
+                                                                "type": "array"
+                                                            },
+                                                            {
+                                                                "items": {
+                                                                    "type": "number"
+                                                                },
+                                                                "type": "array"
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "required": ["key"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "type": {
+                                                "enum": ["AND", "OR"],
+                                                "type": "string"
+                                            },
+                                            "values": {
+                                                "items": {
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string"
+                                                        },
+                                                        "operator": {
+                                                            "type": "string"
+                                                        },
+                                                        "type": {
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "items": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "array"
+                                                                        },
+                                                                        {
+                                                                            "items": {
+                                                                                "type": "number"
+                                                                            },
+                                                                            "type": "array"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        }
+                                                    },
+                                                    "required": ["key"],
+                                                    "type": "object"
+                                                },
+                                                "type": "array"
+                                            }
+                                        },
+                                        "required": ["type", "values"],
+                                        "type": "object"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Structured filters applied through SQL filter placeholders. When working in the SQL editor, copy current_query_node.source.filters here and preserve {filters} in each relevant source scan. Keep dateRange, properties, and filterTestAccounts unless the user asks to change them. Pass an empty object to clear filters. Not supported with sendRawQuery."
+        },
         "query": {
             "description": "The final SQL query to be executed.",
             "minLength": 1,

@@ -2,10 +2,11 @@ import re
 
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantHogQLQuery, HogQLNotice, HogQLQuery
+from posthog.schema import HogQLFilters, HogQLNotice, HogQLQuery
 
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.taxonomy_validation import validate_taxonomy_references
 
 from posthog.sync import database_sync_to_async
@@ -25,6 +26,15 @@ from ee.hogai.tools.execute_sql.import_suggestions import build_import_suggestio
 
 class ExecuteSQLMCPToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
+    filters: HogQLFilters | None = Field(
+        default=None,
+        description=(
+            "Structured filters applied through SQL filter placeholders. When working in the SQL editor, "
+            "copy current_query_node.source.filters here and preserve {filters} in each relevant source scan. "
+            "Keep dateRange, properties, and filterTestAccounts unless the user asks to change them. "
+            "Pass an empty object to clear filters. Not supported with sendRawQuery."
+        ),
+    )
     truncate: bool = Field(
         default=True,
         description="Whether to truncate large blob/JSON values in results. Set to false for full untruncated results.",
@@ -62,9 +72,21 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
     name = "execute_sql"
     args_schema = ExecuteSQLMCPToolArgs
 
+    def _validate_filter_placeholders(self, query: HogQLQuery) -> None:
+        if query.filters is not None and query.filters.model_dump(exclude_none=True):
+            if not find_placeholders(parse_select(query.query, placeholders={})).has_filters:
+                raise MaxToolRetryableError(
+                    "Structured filters were provided, but the SQL has no filter placeholders. "
+                    "Add {filters} to the WHERE clause of each relevant source scan, including CTEs."
+                )
+
     async def execute(self, args: ExecuteSQLMCPToolArgs) -> MCPToolResult:
-        query: AssistantHogQLQuery | HogQLQuery
+        query: HogQLQuery
         taxonomy_warnings: list[HogQLNotice] = []
+        if args.sendRawQuery and args.filters is not None:
+            raise MaxToolRetryableError(
+                "Structured filters cannot be applied with sendRawQuery. Use HogQL with filter placeholders."
+            )
         if args.connectionId:
             # Queries targeting an external connection reference tables that aren't in the
             # default ClickHouse database, so the local parse/print HogQL validation step
@@ -75,7 +97,10 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             if not cleaned_query:
                 raise MaxToolRetryableError("Query validation failed: Query is empty")
             query = HogQLQuery(
-                query=cleaned_query, connectionId=args.connectionId, sendRawQuery=args.sendRawQuery or None
+                query=cleaned_query,
+                connectionId=args.connectionId,
+                sendRawQuery=args.sendRawQuery or None,
+                filters=args.filters,
             )
         elif args.sendRawQuery:
             raise MaxToolRetryableError(
@@ -94,12 +119,14 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
                 raise MaxToolRetryableError(message, error_code=hogql_error_code(e.__cause__)) from e
 
             variables = await self._abuild_query_variables(validated.query)
-            query = HogQLQuery(query=validated.query, variables=variables) if variables else validated
+            query = HogQLQuery(query=validated.query, variables=variables or None, filters=args.filters)
 
             # Warn (non-fatally) when the query references events/properties absent from the project
             # taxonomy — the most common silent-wrong-answer surface for agents (e.g. `event = 'purchase'`
             # returning 0 because the real event is `paid_bill`). The query still runs.
             taxonomy_warnings = await self._get_taxonomy_warnings(query.query)
+
+        self._validate_filter_placeholders(query)
 
         insight_context = InsightContext(
             team=self._team,
