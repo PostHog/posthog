@@ -430,6 +430,11 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
             distinct_id=distinct_id,
             event="experiment results refresh completed",
             properties={
+                **(
+                    {"$update_person_last_seen_at": False}
+                    if recalc.trigger == ExperimentMetricsRecalculation.Trigger.SCHEDULED
+                    else {}
+                ),
                 "experiment_id": experiment.id,
                 "team_id": team.id,
                 "recalculation_id": str(recalc.id),
@@ -617,8 +622,6 @@ def _capture_experiment_metric_event(
     threaded through the workflow + activity args so the capture path doesn't have to re-query the M2M to
     resolve it.
 
-    Every recalc trigger is user-originated (manual click, page load, stale/auto refresh), so context is
-    "ui" with mechanism "orchestrated"; `trigger` carries the finer-grained origin.
     """
     try:
         team = experiment.team
@@ -634,6 +637,11 @@ def _capture_experiment_metric_event(
                 "experiment_id": experiment.id,
                 "team_id": team.id,
                 "metric_uuid": metric_uuid,
+                **(
+                    {"$update_person_last_seen_at": False}
+                    if trigger == ExperimentMetricsRecalculation.Trigger.SCHEDULED
+                    else {}
+                ),
                 "metric_kind": (metric_dict or {}).get("metric_type"),
                 "is_primary": role == "primary",
                 "execution_mode": "recalculation",

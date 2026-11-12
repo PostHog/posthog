@@ -4,34 +4,53 @@ import { useState } from 'react'
 import { IconDatabase } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import type { TraceNodeContentApi } from '../../../generated/api.schemas'
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
+import { jsonContent, messagesContent } from '../sampleFixtures/sampleContent'
+import { sampleRaw } from '../sampleFixtures/sampleTraceFixture'
 import {
-    FIXTURE_EVALS,
     FIXTURE_GENERATION_INPUT,
     FIXTURE_GENERATION_OUTPUT,
-    FIXTURE_GENERATION_PROPERTIES,
     FIXTURE_LONG_AGENT_INPUT,
     FIXTURE_LONG_AGENT_OUTPUT,
     FIXTURE_LONG_ANSWER_MESSAGE,
-    FIXTURE_SPAN_PROPERTIES,
     FIXTURE_STEP_FEEDBACK,
+    FIXTURE_TRACE,
     FIXTURE_TREE,
+    fixtureGenerationDetail,
+    fixtureSpanDetail,
     withStepScroller,
     withWidth,
 } from '../storyFixtures'
-import { MessagesOpening, NodeDetailTab } from '../types'
+import { stepLabelsOf } from '../traceTreeLookups'
+import { MessagesOpening, NodeDetailTab, NodeLoad } from '../types'
 import { NodeDetail, NodeDetailProps } from './NodeDetail'
 
 const generation = FIXTURE_TREE[0].children[1]
 const span = FIXTURE_TREE[0].children[0]
 
+const generationContent = messagesContent(FIXTURE_GENERATION_INPUT, FIXTURE_GENERATION_OUTPUT)
+
+function generationLoad(content: TraceNodeContentApi, error: string | null = null): NodeLoad {
+    return fixtureGenerationDetail(content, error).load
+}
+
+function spanLoad(content: TraceNodeContentApi): NodeLoad {
+    return fixtureSpanDetail(content).load
+}
+
 const base: Omit<NodeDetailProps, 'tab' | 'onTabChange' | 'messagesOpening' | 'onMessagesOpeningChange'> = {
     node: generation,
-    content: { kind: 'messages', input: FIXTURE_GENERATION_INPUT, output: FIXTURE_GENERATION_OUTPUT },
-    error: null,
-    properties: FIXTURE_GENERATION_PROPERTIES,
-    evals: { status: 'ready', results: FIXTURE_EVALS },
-    raw: { event: '$ai_generation', id: 'gen-answer' },
+    load: generationLoad(generationContent),
+    trace: FIXTURE_TRACE.trace,
+    evaluationResults: FIXTURE_TRACE.evaluationResults,
+    evaluationResultsFailed: false,
+    stepLabels: stepLabelsOf(FIXTURE_TREE),
+    raw: sampleRaw('generation', generation.id, {
+        name: '$ai_generation',
+        timestamp: '2026-09-01T10:15:02Z',
+        properties: { $ai_model: 'gpt-4.1-mini', $ai_provider: 'openai', $ai_input_tokens: 1822 },
+    }),
     onViewInThread: () => {},
     onSelectNode: () => {},
 }
@@ -69,56 +88,64 @@ export const SpanInputOutput: Story = {
     args: {
         ...base,
         node: span,
-        content: { kind: 'io', input: { query: 'invoice went up' }, output: { hits: 3 } },
-        properties: FIXTURE_SPAN_PROPERTIES,
+        load: spanLoad(jsonContent({ query: 'invoice went up' }, { hits: 3 })),
         onViewInThread: null,
     },
 }
+const mixedStepContent: TraceNodeContentApi = {
+    input: { kind: 'json', value: { question: 'Why did my invoice go up?', account_id: 'acct_42' } },
+    output: { kind: 'messages', messages: FIXTURE_GENERATION_OUTPUT },
+}
+export const MixedStep: Story = {
+    args: { ...base, node: span, load: spanLoad(mixedStepContent), onViewInThread: null },
+}
+export const MixedStepNarrow: Story = { args: MixedStep.args, decorators: [withWidth(380)] }
 export const GenerationDetailsTab: Story = { args: { ...base, initialTab: 'details' } }
 export const SpanDetailsTab: Story = {
-    args: { ...base, node: span, properties: FIXTURE_SPAN_PROPERTIES, onViewInThread: null, initialTab: 'details' },
+    args: { ...base, node: span, load: spanLoad(generationContent), onViewInThread: null, initialTab: 'details' },
 }
 export const LoadingContent: Story = {
-    args: { ...base, content: { kind: 'loading' } },
+    args: { ...base, load: { status: 'loading' } },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 export const ContentLoadError: Story = {
-    args: { ...base, content: { kind: 'error', message: 'This step could not be loaded. Select it again to retry.' } },
+    args: { ...base, load: { status: 'error', failure: 'failed' } },
 }
 export const ContentNotFound: Story = {
-    args: {
-        ...base,
-        content: {
-            kind: 'error',
-            message: 'This step could not be found. It may have been deleted, or it is outside the retention period.',
-        },
-    },
+    args: { ...base, load: { status: 'error', failure: 'not_found' } },
 }
 export const DetailsTabWhileLoading: Story = {
-    args: { ...base, content: { kind: 'loading' }, initialTab: 'details' },
+    args: { ...base, load: { status: 'loading' }, initialTab: 'details' },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 export const WithError: Story = {
     args: {
         ...base,
         node: { ...generation, hasError: true },
-        error: 'RateLimitError: 429 Too Many Requests',
-        content: { kind: 'messages', input: FIXTURE_GENERATION_INPUT.slice(0, 2), output: [] },
+        load: generationLoad(
+            messagesContent(FIXTURE_GENERATION_INPUT.slice(0, 2), []),
+            'RateLimitError: 429 Too Many Requests'
+        ),
     },
 }
-export const NothingCaptured: Story = { args: { ...base, content: { kind: 'messages', input: [], output: [] } } }
+export const NothingCaptured: Story = { args: { ...base, load: generationLoad(messagesContent([], [])) } }
+export const RawTab: Story = {
+    args: { ...base, initialTab: 'raw' },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
 export const EvalsTab: Story = { args: { ...base, initialTab: 'evals' } }
 export const EvalsLoadError: Story = {
     args: {
         ...base,
         initialTab: 'evals',
-        evals: { status: 'error', errorMessage: 'Evaluation results could not be loaded. Try again later.' },
+        evaluationResults: null,
+        evaluationResultsFailed: true,
     },
 }
 export const LongConversation: Story = {
     args: {
         ...base,
-        content: { kind: 'messages', input: FIXTURE_LONG_AGENT_INPUT, output: FIXTURE_LONG_AGENT_OUTPUT },
+        load: generationLoad(messagesContent(FIXTURE_LONG_AGENT_INPUT, FIXTURE_LONG_AGENT_OUTPUT)),
     },
     decorators: [withStepScroller],
 }
@@ -139,6 +166,10 @@ export const FailedGenerationWithImage: Story = {
     args: {
         ...langchainCerebrasImageError.details[failedGeneration.id],
         node: failedGeneration,
+        trace: langchainCerebrasImageError.trace,
+        evaluationResults: langchainCerebrasImageError.evaluationResults,
+        evaluationResultsFailed: false,
+        stepLabels: stepLabelsOf(langchainCerebrasImageError.tree),
         onViewInThread: () => {},
         onSelectNode: () => {},
     },
@@ -150,7 +181,7 @@ export const WithFeedback: Story = {
 export const LongMessage: Story = {
     args: {
         ...base,
-        content: { kind: 'messages', input: FIXTURE_GENERATION_INPUT, output: [FIXTURE_LONG_ANSWER_MESSAGE] },
+        load: generationLoad(messagesContent(FIXTURE_GENERATION_INPUT, [FIXTURE_LONG_ANSWER_MESSAGE])),
     },
     decorators: [withStepScroller],
     parameters: { testOptions: { snapshotBrowsers: [] } },

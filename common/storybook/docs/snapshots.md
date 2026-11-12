@@ -62,8 +62,8 @@ That gives `my-story-viewports--medium--light` and so on. `frontend/src/scenes/d
 
 You don't need to add waits for any of this. Knowing the order helps when a story times out or flakes.
 
-1. It loads the story and waits for `load`. In CI it also waits for network idle.
-2. The `storybook-test-runner` body class turns off transitions and animations, pins the end state of a few animations, and hides scrollbars and decorative overlays. A component opts in to more with `.storybook-test-runner &` in its styles.
+1. Before the story renders, it sets the `storybook-test-runner` body class and the class for the story's layout. The body class turns off transitions and animations, pins the end state of a few animations, and hides scrollbars and decorative overlays. A component opts in to more with `.storybook-test-runner &` in its styles. The story renders without scrollbars from the start, because Chromium can keep a scroll container's old height when scrollbars are hidden after layout.
+2. It renders the story and waits for `load`. In CI it also waits for network idle.
 3. It makes hidden `content-visibility` content visible, fires a resize, and waits 300 ms for resize observers.
 4. It runs the loader wait and `waitForSelector`.
 5. For each theme, it sets `body[theme]` and the color scheme, then:
@@ -93,6 +93,7 @@ An iframe that loads `/embedded/` or `/shared/` gets a fixed placeholder page, s
 - Each changed snapshot shows up in the visual review run for the PR. A person approves it there, and finalizing the run commits the new hashes to the PR branch.
 - A finalized run pushes a commit to the branch. In a stack, that forces a restack of every layer above it, so put the stories that change in the top layer.
 - New and changed story files run up to three more times. A story that renders two different pictures across those runs fails as flaky before anyone approves it.
+- Up to 10 more story files that the diff affects without changing them run twice, within 15 minutes. A story among them that renders two different pictures adds a warning to the job, but doesn't fail it, because the story may already flake on master.
 - A quarantined story still renders and is diffed, but it doesn't gate the PR. The Quarantine part of [the visual review README](../../../products/visual_review/README.md#current-state) says when to approve its new picture and how a quarantine ends.
 
 ## Make a story deterministic

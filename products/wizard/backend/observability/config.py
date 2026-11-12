@@ -4,6 +4,8 @@ WIZARD_RUN_STAGE_ENTERED_EVENT = "wizard run stage entered"
 WIZARD_RUN_FINISHED_EVENT = "wizard run finished"
 WIZARD_WORKER_USAGE_RECORDED_EVENT = "wizard worker usage recorded"
 WIZARD_RUN_ARTIFACT_CREATED_EVENT = "wizard run artifact created"
+WIZARD_RUN_PULL_REQUEST_MERGED_EVENT = "wizard run pull request merged"
+WIZARD_RUN_PULL_REQUEST_CLOSED_EVENT = "wizard run pull request closed"
 WIZARD_POSTHOG_ALTERNATIVE_DETECTED_EVENT = "wizard posthog alternative detected"
 WIZARD_POSTHOG_ALTERNATIVE_REMOVED_EVENT = "wizard posthog alternative removed"
 

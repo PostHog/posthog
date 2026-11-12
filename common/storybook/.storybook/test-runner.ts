@@ -235,6 +235,7 @@ export default {
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
             : viewport || DEFAULT_VIEWPORT
         await resizeViewportAndWait(page, effectiveViewport)
+        await applyTestRunnerBodyClasses(page, storyContext.parameters?.layout || 'padded')
     },
 
     async postVisit(page, context) {
@@ -288,6 +289,24 @@ export default {
         skip: ['test-skip'], // NOTE: This is overridden by the CI action ci-storybook.yml to include browser specific skipping
     },
 } as TestRunnerConfig
+
+/**
+ * Runs before the story renders, because the classes hide scrollbars. Chromium keeps a scroll container's
+ * height from a layout with scrollbars after they are hidden, so a story laid out first can carry
+ * stale extra height into the first snapshot.
+ */
+async function applyTestRunnerBodyClasses(page: Page, layout: string): Promise<void> {
+    await page.evaluate((layout: string) => {
+        // Stop all animations for consistent snapshots, and adjust other styles
+        document.body.classList.add('storybook-test-runner')
+        document.body.classList.remove(
+            'storybook-test-runner--fullscreen',
+            'storybook-test-runner--padded',
+            'storybook-test-runner--centered'
+        )
+        document.body.classList.add(`storybook-test-runner--${layout}`)
+    }, layout)
+}
 
 async function gotoStorybookIframe(page: Page, iframeURL: string, targetURL: string | undefined): Promise<void> {
     const unreachable = (detail: string): Error =>
@@ -376,16 +395,7 @@ async function expectStoryToMatchSnapshot(
         ;(window as Window & { __iframeObserver?: MutationObserver }).__iframeObserver = observer
     })
 
-    await page.evaluate((layout: string) => {
-        // Stop all animations for consistent snapshots, and adjust other styles
-        document.body.classList.add('storybook-test-runner')
-        document.body.classList.remove(
-            'storybook-test-runner--fullscreen',
-            'storybook-test-runner--padded',
-            'storybook-test-runner--centered'
-        )
-        document.body.classList.add(`storybook-test-runner--${layout}`)
-
+    await page.evaluate(() => {
         // Force all content-visibility:auto elements to render fully for deterministic snapshots.
         // content-visibility:auto skips rendering offscreen content, which causes non-deterministic
         // page heights depending on timing. We override it and trigger a synchronous reflow.
@@ -399,7 +409,7 @@ async function expectStoryToMatchSnapshot(
         })
         // Force synchronous reflow so the browser recalculates layout
         void document.body.offsetHeight
-    }, storyContext.parameters?.layout || 'padded')
+    })
 
     // Trigger ResizeObserver callbacks to ensure layout-dependent state (e.g. CardMeta's
     // showControlsLabels) has settled before taking snapshots. ResizeObserver fires

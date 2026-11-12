@@ -25,7 +25,6 @@ function Separator(): JSX.Element {
     )
 }
 
-/** Where the camera is: the commit's workflows, then each node it has zoomed into. The last one carries its elapsed time. */
 export function CIExplorerTrail(): JSX.Element {
     const { focusLevels, pushDurationSeconds, activePush, onOlderCommit } = useValues(ciExplorerLogic)
     const { setFocus, setView } = useActions(ciExplorerLogic)

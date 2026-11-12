@@ -63,11 +63,12 @@ describe('hog', () => {
     })
 
     test.each([
-        ['login', 'Did you mean `hog auth login`?'],
-        ['sourcemap', '`sourcemap` is `hog error-tracking inject|upload|process` in hog.'],
-        ['exp', '`exp` is `hog query|endpoints|schema` in hog.'],
-    ])('a command that moved, like %s, points to its new name', async (name, message) => {
-        const result = await runHog([name, 'upload'])
+        ['login', ['login', 'upload'], 'Did you mean `hog auth login`?'],
+        ['sourcemap', ['sourcemap', 'upload'], '`sourcemap` is `hog error-tracking inject|upload|process` in hog.'],
+        ['exp', ['exp', 'upload'], '`exp` is `hog query|endpoints|schema` in hog.'],
+        ['api skill', ['api', 'skill', 'install', 'posthog-flags'], '`skill` is `hog skills list|add` in hog.'],
+    ])('a command that moved, like %s, points to its new name', async (_name, argv, message) => {
+        const result = await runHog(argv)
         expect(result.exitCode).toBe(2)
         expect(result.error().message).toContain(message)
     })
@@ -95,7 +96,11 @@ describe('hog', () => {
             arguments: [{ name: 'query', required: true, stdin: true }],
             scopes: ['query:read'],
         })
+        expect(
+            manifest.commands.filter((command) => command.refusesCI === true).map((command) => command.name)
+        ).toEqual(['setup', 'auth migrate', 'ci setup'])
         expect(manifest.commands.map((command: { name: string }) => command.name)).toEqual([
+            'setup',
             'auth login',
             'auth add',
             'auth logout',
@@ -112,8 +117,13 @@ describe('hog', () => {
             'api schema',
             'api call',
             'api access',
-            'api skill',
             'api agents-md',
+            'skills',
+            'skills list',
+            'skills search',
+            'skills read',
+            'skills add',
+            'mcp add',
             'error-tracking inject',
             'error-tracking clone',
             'error-tracking upload',

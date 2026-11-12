@@ -394,6 +394,17 @@ jobs:
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
                   DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
+            - name: Check memory budget
+              if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'false'
+              timeout-minutes: 5
+              run: |
+                  set +e
+                  uv run bin/hobby-ci.py check-memory-budget
+                  echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
+                  exit 0
+              env:
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
             - name: Generate demo data
               if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'true' && env.HOBBY_DROPLET_NEW == 'true'
               timeout-minutes: 15

@@ -107,16 +107,10 @@ def team_plan(team: Team) -> TeamPlan:
 
 
 def should_delete_past_default_period(team: Team) -> bool:
-    """Whether the cleanup deletes this team's events past its default period.
-
-    The settings override forces it the same way as enforcement. Otherwise the team needs enforcement, so the cleanup
-    never deletes events the team can still query, and the deletion flag. The flag gets the plan period and the
-    organization, so a rollout can target a plan such as the free plan's 12 months and leave out organizations.
-    """
     if settings.EVENTS_DATA_RETENTION_ENFORCED is not None:
         return settings.EVENTS_DATA_RETENTION_ENFORCED
 
-    if not should_enforce_events_retention(team.id):
+    if not is_cloud():
         return False
 
     return bool(

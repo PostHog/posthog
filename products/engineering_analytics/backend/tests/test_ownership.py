@@ -114,8 +114,7 @@ class TestRepoOwnership(SimpleTestCase):
         assert _placements(_Failing()) == [UNPLACED, UNPLACED]
 
     def test_a_repository_missing_its_root_file_attributes_nothing(self) -> None:
-        # A private or renamed repo answers 404 to every path. Without the root-file guard the
-        # nested files this fake still serves would attribute part of the board.
+        # The fake still serves the nested files, which must not attribute part of the board.
         no_root = _FakeRepoFiles(owners={k: v for k, v in _OWNERS.items() if k != "owners.yaml"})
         assert _placements(no_root) == [UNPLACED, UNPLACED]
 

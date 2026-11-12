@@ -39,7 +39,12 @@ import {
 } from '../_tests/fixtures'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
 import { EncryptedFields } from '../utils/encryption-utils'
+import { signIntegrationRef } from '../utils/integration-input-refs'
+import { buildHogFunctionInvocations } from '../utils/invocation-utils'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
+import { serializeInvocation } from './job-queue/job-queue-kafka'
+import { invocationToV2JobInit } from './job-queue/job-queue-postgres-v2'
+import { createInvocationSanitizer } from './job-queue/shared'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
@@ -90,7 +95,7 @@ describe('Hog Executor', () => {
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
             null,
-            { report: jest.fn() }
+            { report: jest.fn(), reportEmailSent: jest.fn() }
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         return new HogExecutorAsyncService(
@@ -409,6 +414,306 @@ describe('Hog Executor', () => {
             expect(result.metrics).toEqual(previousResult.metrics)
             expect(result.capturedPostHogEvents).toEqual(previousResult.capturedPostHogEvents)
             expect(result.execResult).toEqual({ foo: 'bar' })
+        })
+    })
+
+    describe('inputs omitted from the job queue', () => {
+        // return inputs
+        const RETURN_INPUTS = ['_h', 32, 'inputs', 1, 1, 38]
+        const TYPED_SECRET = 'fake-typed-api-key-value'
+        const INTEGRATION_SECRET = 'fake-integration-auth-token'
+
+        type PersistedForm = 'postgres' | 'kafka'
+
+        // What the worker reads back off each queue, before it attaches the loaded function.
+        const persistAndLoad = (
+            invocation: CyclotronJobInvocationHogFunction,
+            form: PersistedForm,
+            flagEnabled = true
+        ): { serialized: string; loaded: CyclotronJobInvocationHogFunction } => {
+            const sanitizer = createInvocationSanitizer(
+                { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '', ENCRYPTION_SALT_KEYS: hub.ENCRYPTION_SALT_KEYS },
+                { isEnabled: () => flagEnabled },
+                hub.encryptedFields
+            )
+            const [sanitized] = sanitizer.sanitizeInvocations([invocation])
+            const serialized =
+                form === 'postgres'
+                    ? invocationToV2JobInit(sanitized).state!.toString('utf-8')
+                    : JSON.stringify(serializeInvocation(sanitized))
+            const { state } = parseJSON(serialized)
+            return { serialized, loaded: { ...invocation, state } }
+        }
+
+        const createSecretFunction = async (
+            teamId: number,
+            overrides: Partial<HogFunctionType> = {}
+        ): Promise<HogFunctionType> => {
+            const integration = await insertIntegration(hub.postgres, teamId, {
+                kind: 'twilio' as any,
+                config: { account_sid: 'AC-fake' },
+                sensitive_config: { auth_token: hub.encryptedFields.encrypt(INTEGRATION_SECRET) },
+            })
+            return createHogFunction({
+                team_id: teamId,
+                bytecode: RETURN_INPUTS,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                inputs_schema: [
+                    { key: 'api_key', type: 'string', secret: true, required: true },
+                    { key: 'twilio', type: 'integration', required: true },
+                    { key: 'headers', type: 'dictionary', required: false },
+                ],
+                inputs: {
+                    twilio: { value: integration.id, order: 1 },
+                    headers: {
+                        order: 2,
+                        templating: 'liquid',
+                        value: {
+                            Authorization: 'Bearer {{ inputs.api_key }}',
+                            'X-Twilio-Token': '{{ inputs.twilio.auth_token }}',
+                        },
+                    },
+                },
+                encrypted_inputs: { api_key: { value: TYPED_SECRET, order: 0 } },
+                ...overrides,
+            })
+        }
+
+        const buildQueuedInvocations = async (
+            hogFunction: HogFunctionType,
+            markInputsRebuildable = true
+        ): Promise<CyclotronJobInvocationHogFunction[]> => {
+            const { invocations } = await buildHogFunctionInvocations(
+                new HogInputsService(
+                    hub.integrationManager,
+                    new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                    hub.encryptedFields
+                ),
+                [hogFunction],
+                createHogExecutionGlobals({ project: { id: hogFunction.team_id, name: 'test', url: 'http://test' } }),
+                { markInputsRebuildable }
+            )
+            return invocations
+        }
+
+        it.each<PersistedForm>(['postgres', 'kafka'])(
+            'keeps typed-in, integration and templated secrets out of the %s job and builds them again to run',
+            async (form) => {
+                const team = (await createTestTeamFixture(hub.postgres)).team
+                const hogFunction = await createSecretFunction(team.id)
+                const [invocation] = await buildQueuedInvocations(hogFunction)
+
+                const { serialized, loaded } = persistAndLoad(invocation, form)
+
+                expect(serialized).not.toContain(TYPED_SECRET)
+                expect(serialized).not.toContain(INTEGRATION_SECRET)
+                expect(loaded.state.globals.inputs).toBeUndefined()
+                expect(loaded.state).toMatchObject({ inputsOmitted: true, inputsSource: {} })
+
+                const result = await executor.hogExecutor.execute(loaded)
+
+                expect(result.error).toBeUndefined()
+                expect(result.execResult).toMatchObject({
+                    api_key: TYPED_SECRET,
+                    twilio: { account_sid: 'AC-fake', auth_token: INTEGRATION_SECRET },
+                    headers: { Authorization: `Bearer ${TYPED_SECRET}`, 'X-Twilio-Token': INTEGRATION_SECRET },
+                })
+                // The next step of this run reuses the values, and the queue drops them again when it stores the job.
+                expect(result.invocation.state.globals.inputs.api_key).toBe(TYPED_SECRET)
+                expect(persistAndLoad(result.invocation, form).serialized).not.toContain(TYPED_SECRET)
+            }
+        )
+
+        it.each([
+            ['the rollout is off', true, false],
+            ['the invocation is not marked as rebuildable', false, true],
+        ])('stores the built inputs as before when %s', async (_name, markInputsRebuildable, flagEnabled) => {
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const hogFunction = await createSecretFunction(team.id)
+            const [invocation] = await buildQueuedInvocations(hogFunction, markInputsRebuildable)
+
+            const { serialized, loaded } = persistAndLoad(invocation, 'postgres', flagEnabled)
+
+            expect(serialized).toContain(TYPED_SECRET)
+            expect(loaded.state.inputsOmitted).toBeUndefined()
+            const result = await executor.hogExecutor.execute(loaded)
+            expect(result.error).toBeUndefined()
+            expect(result.execResult).toMatchObject({ api_key: TYPED_SECRET })
+        })
+
+        it('uses the function config at run time', async () => {
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const hogFunction = await createSecretFunction(team.id)
+            const [invocation] = await buildQueuedInvocations(hogFunction)
+            const { loaded } = persistAndLoad(invocation, 'kafka')
+
+            const rotated = { ...hogFunction, encrypted_inputs: { api_key: { value: 'fake-rotated-key', order: 0 } } }
+            const result = await executor.hogExecutor.execute({ ...loaded, hogFunction: rotated })
+
+            expect(result.execResult).toMatchObject({ api_key: 'fake-rotated-key' })
+        })
+
+        describe('mappings', () => {
+            const mapping = (name: string, conversion: string): NonNullable<HogFunctionType['mappings']>[number] => ({
+                name,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                inputs: { conversion: { value: conversion } },
+            })
+            const PURCHASE = mapping('Purchase', 'purchase-action')
+            const SIGNUP = mapping('Sign up', 'signup-action')
+            const REFUND = mapping('Refund', 'refund-action')
+
+            it.each([
+                ['the mappings are unchanged', [PURCHASE, SIGNUP]],
+                ['the mappings were reordered', [SIGNUP, PURCHASE]],
+                ['a mapping was added before them', [REFUND, PURCHASE, SIGNUP]],
+                ['a mapping input value was edited', [PURCHASE, mapping('Sign up', 'new-signup-action')]],
+                [
+                    'the mapping filters were recompiled',
+                    [PURCHASE, { ...SIGNUP, filters: { ...SIGNUP.filters, bytecode_contract: 'recompiled-contract' } }],
+                ],
+            ])('builds each invocation from its own mapping when %s', async (_name, mappingsAtRunTime) => {
+                const team = (await createTestTeamFixture(hub.postgres)).team
+                const hogFunction = await createSecretFunction(team.id, { mappings: [PURCHASE, SIGNUP] })
+                const invocations = await buildQueuedInvocations(hogFunction)
+                expect(invocations).toHaveLength(2)
+
+                const conversions = await Promise.all(
+                    invocations.map(async (invocation) => {
+                        const { loaded } = persistAndLoad(invocation, 'postgres')
+                        const result = await executor.hogExecutor.execute({
+                            ...loaded,
+                            hogFunction: { ...hogFunction, mappings: mappingsAtRunTime },
+                        })
+                        expect(result.error).toBeUndefined()
+                        expect(result.execResult).toMatchObject({ api_key: TYPED_SECRET })
+                        return (result.execResult as Record<string, unknown>).conversion
+                    })
+                )
+
+                const expected = mappingsAtRunTime
+                    .filter((m) => m.name === 'Purchase' || m.name === 'Sign up')
+                    .map((m) => m.inputs!.conversion.value)
+                expect(conversions.sort()).toEqual(expected.sort())
+            })
+
+            it.each([
+                ['the mapping was removed', [PURCHASE]],
+                ['the mapping was renamed', [PURCHASE, mapping('Signed up', 'signup-action')]],
+                [
+                    'the mapping filters changed',
+                    [
+                        PURCHASE,
+                        {
+                            ...SIGNUP,
+                            filters: { ...SIGNUP.filters, events: [{ id: '$pageview', type: 'events' as const }] },
+                        },
+                    ],
+                ],
+                ['the stored position moved and two mappings now match it', [SIGNUP, PURCHASE, SIGNUP]],
+                ['the function no longer has mappings', null],
+            ])(
+                'fails the invocation instead of running with other inputs when %s',
+                async (_name, mappingsAtRunTime) => {
+                    const team = (await createTestTeamFixture(hub.postgres)).team
+                    const hogFunction = await createSecretFunction(team.id, { mappings: [PURCHASE, SIGNUP] })
+                    const invocations = await buildQueuedInvocations(hogFunction)
+                    const signupInvocation = invocations.find(
+                        (invocation) => invocation.state.globals.inputs.conversion === 'signup-action'
+                    )!
+                    const { loaded } = persistAndLoad(signupInvocation, 'postgres')
+
+                    const result = await executor.hogExecutor.execute({
+                        ...loaded,
+                        hogFunction: { ...hogFunction, mappings: mappingsAtRunTime },
+                    })
+
+                    expect(result.finished).toBe(true)
+                    expect(result.execResult).toBeUndefined()
+                    expect(result.error).toContain('The mapping that created this invocation was changed or removed')
+                }
+            )
+
+            it('fails the invocation when a function without mappings gains one', async () => {
+                const team = (await createTestTeamFixture(hub.postgres)).team
+                const hogFunction = await createSecretFunction(team.id)
+                const [invocation] = await buildQueuedInvocations(hogFunction)
+                const { loaded } = persistAndLoad(invocation, 'kafka')
+
+                const result = await executor.hogExecutor.execute({
+                    ...loaded,
+                    hogFunction: { ...hogFunction, mappings: [PURCHASE] },
+                })
+
+                expect(result.error).toContain('The mapping that created this invocation was changed or removed')
+            })
+        })
+    })
+
+    describe('persisted integration references', () => {
+        // return inputs.twilio.auth_token
+        const RETURN_TWILIO_AUTH_TOKEN = ['_h', 32, 'auth_token', 32, 'twilio', 32, 'inputs', 1, 3, 38]
+
+        it.each([
+            [
+                'resolves a reference from the job queue before the function runs',
+                (teamId: number, integrationId: number) => ({
+                    $integration_ref: integrationId,
+                    $integration_ref_sig: signIntegrationRef(hub.encryptedFields, teamId, 'twilio', integrationId),
+                }),
+                'fake-auth-token-value',
+            ],
+            [
+                'runs a job queued with the resolved values before references existed',
+                (_teamId: number, integrationId: number) => ({
+                    $integration_id: integrationId,
+                    auth_token: 'fake-old-job-token',
+                }),
+                'fake-old-job-token',
+            ],
+        ])('%s', async (_name, persistedValue, expected) => {
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const integration = await insertIntegration(hub.postgres, team.id, {
+                kind: 'oauth',
+                config: { account_sid: 'AC-fake' },
+                sensitive_config: { auth_token: hub.encryptedFields.encrypt('fake-auth-token-value') },
+            })
+            const invocation = createExampleInvocation({
+                team_id: team.id,
+                bytecode: RETURN_TWILIO_AUTH_TOKEN,
+                inputs: { twilio: { value: integration.id } },
+                inputs_schema: [{ key: 'twilio', type: 'integration', required: true }],
+            })
+            invocation.state.globals.inputs = { twilio: persistedValue(team.id, integration.id) }
+
+            const result = await executor.hogExecutor.execute(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(result.execResult).toBe(expected)
+            // The resolved secret must not go back into the state that the queue persists.
+            expect(result.invocation.state.globals.inputs.twilio).toEqual(persistedValue(team.id, integration.id))
+        })
+
+        it('fails the invocation when a reference does not resolve', async () => {
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const invocation = createExampleInvocation({
+                team_id: team.id,
+                bytecode: RETURN_TWILIO_AUTH_TOKEN,
+                inputs: { twilio: { value: 999999999 } },
+                inputs_schema: [{ key: 'twilio', type: 'integration', required: true }],
+            })
+            invocation.state.globals.inputs = {
+                twilio: {
+                    $integration_ref: 999999999,
+                    $integration_ref_sig: signIntegrationRef(hub.encryptedFields, team.id, 'twilio', 999999999),
+                },
+            }
+
+            const result = await executor.hogExecutor.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.execResult).toBeUndefined()
+            expect(result.error).toContain("The integration for input 'twilio' could not be loaded.")
         })
     })
 

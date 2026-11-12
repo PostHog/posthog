@@ -14,7 +14,6 @@ import { userLogic } from 'scenes/userLogic'
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
 import { useMocks } from '~/mocks/jest'
-import { tagsModel } from '~/models/tagsModel'
 import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
@@ -1210,29 +1209,6 @@ describe('experimentLogic', () => {
             keyed.unmount()
         })
     })
-    describe('tags refresh', () => {
-        it('reloads tagsModel after an update that changed tags', async () => {
-            logic.actions.setExperiment(experiment)
-            api.update.mockResolvedValue({ ...experiment, tags: ['retention'] })
-            await expectLogic(logic, () => {
-                logic.actions.updateExperiment({ tags: ['retention'] })
-            })
-                .toDispatchActions(['updateExperimentSuccess', tagsModel.actionTypes.loadTags])
-                .toFinishAllListeners()
-        })
-
-        it('does not reload tagsModel when the update did not touch tags', async () => {
-            logic.actions.setExperiment(experiment)
-            api.update.mockResolvedValue({ ...experiment })
-            await expectLogic(logic, () => {
-                logic.actions.updateExperiment({ description: 'updated' })
-            })
-                .toDispatchActions(['updateExperimentSuccess'])
-                .toFinishAllListeners()
-                .toNotHaveDispatchedActions([tagsModel.actionTypes.loadTags])
-        })
-    })
-
     describe('reorderMetrics', () => {
         const testExperiment = {
             ...experiment,

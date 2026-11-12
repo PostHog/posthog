@@ -84,9 +84,9 @@ export function queryScanStatLine(summary: QueryScanSummary): string {
     }
     if (typeof summary.analysis?.range_share === 'number') {
         const percent = Math.round(summary.analysis.range_share * 100)
-        return `Read ${rows} rows in ${seconds} s, about ${percent}% of the events in this date range.`
+        return `Scanned ${rows} rows in ${seconds} s, about ${percent}% of the events in this date range.`
     }
-    return `Read ${rows} rows in ${seconds} s.`
+    return `Scanned ${rows} rows in ${seconds} s.`
 }
 
 export function queryScanTileStatLine(summary: QueryScanSummary): string {

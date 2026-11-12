@@ -4,7 +4,7 @@ import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { ChartSettings, ChartSettingsFormatting, VisualizationNode } from '~/queries/schema/schema-general'
+import { ChartSettings, ChartSettingsFormatting, VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     type DataVizFixture,
     buildDataVisualizationQuery,
@@ -17,6 +17,8 @@ import {
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
+
+import { buildBIQuery, DEFAULT_BI_CONFIG } from 'products/business_intelligence/frontend/biEditorTypes'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { SqlBarGraph } from './SqlBarGraph'
@@ -85,6 +87,80 @@ const renderChart = async (overrides: Partial<SqlChartProps>): Promise<void> => 
 }
 
 const lowestTick = (ticks: string[]): number => Math.min(...ticks.map((t) => parseFloat(t.replace(/[^0-9.eE+-]/g, ''))))
+
+it('preserves a null BI member alias in axis ticks and tooltip headers', async () => {
+    const region = {
+        id: 'region',
+        name: 'region',
+        expression: 'region',
+        type: 'string' as const,
+        source: { table: 'events' },
+    }
+    const config = {
+        ...DEFAULT_BI_CONFIG,
+        source: region.source,
+        chartType: ChartDisplayType.ActionsLineGraph,
+        rows: [region],
+        memberAliases: [
+            {
+                field: region,
+                aliases: [
+                    { value: null, label: 'Unassigned' },
+                    { value: '[No value]', label: 'Literal placeholder' },
+                ],
+            },
+        ],
+    }
+    renderDataVisualization({
+        query: {
+            ...buildBIQuery(config)!.node,
+            kind: NodeKind.BIVisualizationNode,
+            config,
+            chartSettings: { xAxis: { column: 'region' }, yAxis: [{ column: 'count' }] },
+        },
+        response: {
+            columns: ['region', 'count'],
+            types: [
+                ['region', 'Nullable(String)'],
+                ['count', 'Int64'],
+            ],
+            results: [
+                ['west', 1],
+                [null, 2],
+                ['[No value]', 3],
+            ],
+        },
+    })
+
+    await screen.findByLabelText(/chart with/i)
+    expect(getChart().xTicks()).toContain('Unassigned')
+    expect((await sqlChart.hoverTooltip(1)).label()).toBe('Unassigned')
+    expect((await sqlChart.hoverTooltip(2)).label()).toBe('Literal placeholder')
+})
+
+it.each([
+    { name: 'line', Component: SqlLineGraph, visualizationType: ChartDisplayType.ActionsLineGraph },
+    { name: 'bar', Component: SqlBarGraph, visualizationType: ChartDisplayType.ActionsBar },
+    { name: 'combo', Component: SqlComboGraph, visualizationType: ChartDisplayType.ActionsLineGraph },
+])('renders non-string query categories on a $name chart', async ({ Component, visualizationType }) => {
+    const categories = [['north', 'west'], 42, null] as unknown as string[]
+    renderWithInsights({
+        component: (
+            <Component
+                {...props({
+                    xData: xData(categories),
+                    visualizationType,
+                    yData: [ySeries('count', [10, 20, 30])],
+                })}
+            />
+        ),
+    })
+    await screen.findByLabelText(/chart with 1 data series/i)
+    expect(screen.getByText('north,west')).toBeInTheDocument()
+    expect(screen.getByText('42')).toBeInTheDocument()
+    expect(screen.getByText('[No value]')).toBeInTheDocument()
+    expect(categories[0]).toEqual(['north', 'west'])
+})
 
 it.each([
     { name: 'line', Component: SqlLineGraph },

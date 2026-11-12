@@ -9828,6 +9828,7 @@
       -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
       mat_metadata_backend Nullable(String),
       mat_metadata_loggedIn Nullable(Bool),
+      channel_type LowCardinality(String),
   
       -- Aggregate states for bounce-rate and session-duration metrics.
       persons_uniq_state AggregateFunction(uniq, UUID),
@@ -9845,7 +9846,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_bounces_dimensional_preaggregated', '{replica}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
-  ORDER BY (
+  PRIMARY KEY (
       team_id,
       job_id,
       period_bucket,
@@ -9872,6 +9873,35 @@
       has_fbclid,
       mat_metadata_backend,
       mat_metadata_loggedIn
+  )
+  ORDER BY (
+      team_id,
+      job_id,
+      period_bucket,
+      host,
+      device_type,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid,
+      mat_metadata_backend,
+      mat_metadata_loggedIn,
+      channel_type
   )
   TTL toDateTime(expires_at)
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
@@ -10031,6 +10061,7 @@
       -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
       mat_metadata_backend Nullable(String),
       mat_metadata_loggedIn Nullable(Bool),
+      channel_type LowCardinality(String),
   
       -- Aggregate states: unique persons, unique sessions and total pageviews.
       persons_uniq_state AggregateFunction(uniq, UUID),
@@ -10045,7 +10076,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_stats_dimensional_preaggregated', '{replica}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
-  ORDER BY (
+  PRIMARY KEY (
       team_id,
       job_id,
       period_bucket,
@@ -10073,6 +10104,36 @@
       has_fbclid,
       mat_metadata_backend,
       mat_metadata_loggedIn
+  )
+  ORDER BY (
+      team_id,
+      job_id,
+      period_bucket,
+      host,
+      device_type,
+      pathname,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid,
+      mat_metadata_backend,
+      mat_metadata_loggedIn,
+      channel_type
   )
   TTL toDateTime(expires_at)
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
@@ -10464,6 +10525,7 @@
       -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
       mat_metadata_backend Nullable(String),
       mat_metadata_loggedIn Nullable(Bool),
+      channel_type LowCardinality(String),
   
       -- Aggregate states for bounce-rate and session-duration metrics.
       persons_uniq_state AggregateFunction(uniq, UUID),
@@ -10771,6 +10833,7 @@
       -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
       mat_metadata_backend Nullable(String),
       mat_metadata_loggedIn Nullable(Bool),
+      channel_type LowCardinality(String),
   
       -- Aggregate states: unique persons, unique sessions and total pageviews.
       persons_uniq_state AggregateFunction(uniq, UUID),
@@ -15851,6 +15914,7 @@
       -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
       mat_metadata_backend Nullable(String),
       mat_metadata_loggedIn Nullable(Bool),
+      channel_type LowCardinality(String),
   
       -- Aggregate states for bounce-rate and session-duration metrics.
       persons_uniq_state AggregateFunction(uniq, UUID),
@@ -15868,7 +15932,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_bounces_dimensional_preaggregated', '{replica}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
-  ORDER BY (
+  PRIMARY KEY (
       team_id,
       job_id,
       period_bucket,
@@ -15895,6 +15959,35 @@
       has_fbclid,
       mat_metadata_backend,
       mat_metadata_loggedIn
+  )
+  ORDER BY (
+      team_id,
+      job_id,
+      period_bucket,
+      host,
+      device_type,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid,
+      mat_metadata_backend,
+      mat_metadata_loggedIn,
+      channel_type
   )
   TTL toDateTime(expires_at)
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
@@ -16054,6 +16147,7 @@
       -- EU-only custom metadata; NULL on US. Nullable so the US INSERT can emit NULL.
       mat_metadata_backend Nullable(String),
       mat_metadata_loggedIn Nullable(Bool),
+      channel_type LowCardinality(String),
   
       -- Aggregate states: unique persons, unique sessions and total pageviews.
       persons_uniq_state AggregateFunction(uniq, UUID),
@@ -16068,7 +16162,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_stats_dimensional_preaggregated', '{replica}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
-  ORDER BY (
+  PRIMARY KEY (
       team_id,
       job_id,
       period_bucket,
@@ -16096,6 +16190,36 @@
       has_fbclid,
       mat_metadata_backend,
       mat_metadata_loggedIn
+  )
+  ORDER BY (
+      team_id,
+      job_id,
+      period_bucket,
+      host,
+      device_type,
+      pathname,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid,
+      mat_metadata_backend,
+      mat_metadata_loggedIn,
+      channel_type
   )
   TTL toDateTime(expires_at)
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1

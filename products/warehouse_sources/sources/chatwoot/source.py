@@ -181,6 +181,12 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
             # since/until window are deterministic (the resume bookmark replays the same request),
             # so retrying never changes the outcome.
             "422 Client Error": "Chatwoot rejected a request while syncing this data. Please contact support if this persists.",
+            # Cloudflare's origin TLS codes. The proxy reached the self-hosted server but the TLS
+            # handshake (525) or the origin certificate (526) failed. This is a server or proxy
+            # configuration fault that stays until someone fixes it, so retrying on every schedule
+            # only repeats the failure.
+            "status=525": "Cloudflare could not complete a secure connection to your Chatwoot server (HTTP 525). Check the TLS setup between Cloudflare and your Chatwoot server, then turn syncing back on.",
+            "status=526": "Cloudflare rejected the TLS certificate of your Chatwoot server (HTTP 526). Install a valid certificate on your Chatwoot server, then turn syncing back on.",
             REPORTING_EVENTS_UNAVAILABLE_ERROR: "This Chatwoot instance does not serve reporting events. The endpoint only exists on Chatwoot Cloud and enterprise builds, so deselect the reporting_events table to sync the rest.",
             AUDIT_LOGS_UNAVAILABLE_ERROR: "This Chatwoot instance does not serve audit logs. The endpoint only exists on Chatwoot Cloud and enterprise builds, so deselect the audit_logs table to sync the rest.",
             INVALID_ACCOUNT_ID_ERROR: "The Chatwoot account ID must be a number (the number in your Chatwoot URL, e.g. app.chatwoot.com/app/accounts/1). Update the source configuration.",

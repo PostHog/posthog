@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
 if TYPE_CHECKING:
+    from collections.abc import Collection
+
     from posthog.event_usage import AnalyticsProps
     from posthog.models.organization import Organization
     from posthog.models.user import User
+
+    from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView
 
 import pydantic
 
@@ -247,6 +252,33 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         compare, but it sends nothing for it."""
         return self.owner == PlatformAlertOwner.PLATFORM
 
+    @classmethod
+    def from_platform_view(cls, view: PlatformAlertConfigurationView, *, team_id: int) -> AlertConfiguration | None:
+        """An unsaved alert that presents a platform alert with no insight row the way an insight row
+        does, or None when its insight is gone. Its `save` and `delete` raise."""
+        from products.alerts.backend.platform_insight_alert import (  # noqa: PLC0415 — it imports this model
+            presented_alert,
+        )
+
+        return presented_alert(view, team_id=team_id)
+
+    @classmethod
+    def from_platform_views(
+        cls, views: Collection[PlatformAlertConfigurationView], *, team_id: int
+    ) -> dict[UUID, AlertConfiguration]:
+        """`from_platform_view` for a page of alerts, keyed by id, with one query for their insights
+        and one for their creators. An alert whose insight is gone is left out."""
+        from products.alerts.backend.platform_insight_alert import (  # noqa: PLC0415 — it imports this model
+            presented_alerts,
+        )
+
+        return presented_alerts(views, team_id=team_id)
+
+    @property
+    def has_no_insight_row(self) -> bool:
+        """Whether `from_platform_view` built this alert, because only the platform keeps it."""
+        return self._state.adding and self.platform_owned
+
     @property
     def platform_owned_since(self) -> datetime | None:
         """When the platform took this alert over, or None while the insight stack owns it.
@@ -415,6 +447,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             native_only=True,
             enabled_only=active_real_time,
             check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
+            # An alert with no insight row carries its platform alert's id.
+            exclude_id=UUID(exclude_id) if exclude_id else None,
         )
         return rows.count() + native
 

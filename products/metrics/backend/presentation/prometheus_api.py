@@ -3,6 +3,7 @@ import re
 from rest_framework.request import Request
 
 from posthog.api.snuffle_proxy import SnuffleProxyViewSet
+from posthog.clickhouse.workload import Workload
 
 from products.metrics.backend.facade.api import record_promql_query
 
@@ -19,6 +20,7 @@ class PrometheusQueryViewSet(SnuffleProxyViewSet):
 
     scope_object = "metrics"
     upstream_prefix = "/api/v1"
+    workload = Workload.METRICS
     allowed_paths = (
         re.compile(r"query"),
         re.compile(r"query_range"),
