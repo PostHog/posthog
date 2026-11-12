@@ -2920,6 +2920,196 @@ export interface DraftScannerResponseApi {
     estimated_monthly_observations: number | null
 }
 
+/**
+ * The draft the person is reviewing, in the create body's shape, including their own edits.
+ */
+export interface RefineScannerDraftCurrentApi {
+    /**
+     * The draft's current name.
+     * @maxLength 255
+     */
+    name: string
+    /**
+     * The draft's current description.
+     * @maxLength 1000
+     */
+    description?: string
+    /** The draft's current scanner type.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
+    scanner_type: ScannerTypeEnumApi
+    /** The draft's current type-specific config, held to the create endpoint's rules. */
+    scanner_config: unknown
+    /** The draft's current `RecordingsQuery`, or null for every recording. */
+    query?: unknown
+    /** The draft's current quality pre-filter.
+     *
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive */
+    sampling_mode?: SamplingModeEnumApi | null
+    /**
+     * The draft's current random sampling rate, 0..1.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    sampling_rate?: number | null
+    /** The draft's current observation model.
+     *
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
+    model?: ScannerModelEnumApi | null
+    /**
+     * The draft's current monthly credit cap, or null for none.
+     * @minimum 1
+     * @maximum 2147483647
+     * @nullable
+     */
+    credit_limit?: number | null
+    /** Whether the draft currently runs only on free credits. */
+    free_only?: boolean
+}
+
+/**
+ * Body of POST /vision/scanners/draft/refine/: the draft request, the current draft, and one instruction.
+ *
+ * The spend fields describe the current draft's budget, which sizes the dials when the change needs a re-solve.
+ */
+export interface RefineScannerDraftRequestApi {
+    /**
+     * What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.
+     * @maxLength 2000
+     */
+    goal: string
+    /**
+     * The current draft's monthly credit budget, which sizes the dials when the change needs a re-solve. Takes any value `credit_limit` takes. Required unless `free_only` is true, and not allowed with it.
+     * @minimum 1
+     * @maximum 2147483647
+     */
+    monthly_credit_budget?: number
+    /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
+    free_only?: boolean
+    /**
+     * A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.
+     * @minimum 1
+     * @maximum 2147483647
+     */
+    experiment_id?: number
+    /** A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions. */
+    query?: unknown
+    /**
+     * One change to apply to the draft, in the person's own words, e.g. 'make it a 1-5 score'.
+     * @maxLength 500
+     */
+    instruction: string
+    /** The draft as the person sees it on review. Every field the instruction does not touch is kept. */
+    current: RefineScannerDraftCurrentApi
+    /** Whether the person changed the drafted recordings themselves. Then the refine keeps them as they are. */
+    recordings_edited?: boolean
+    /**
+     * Which refine of this draft this is, starting at 1. Echoed back for telemetry.
+     * @minimum 1
+     * @maximum 1000
+     */
+    refinement_index?: number
+    /**
+     * The suggestion the instruction came from, or null when the person typed it. Telemetry only.
+     * @nullable
+     * @pattern ^[a-z0-9_]{1,64}$
+     */
+    chip?: string | null
+}
+
+/**
+ * * `name` - Name
+ * * `description` - Description
+ * * `prompt` - Prompt
+ * * `scanner_type` - Scanner type
+ * * `type_config` - Type settings
+ * * `query` - Query
+ * * `sampling` - Sampling
+ * * `model` - Model
+ * * `budget` - Budget
+ */
+export type DraftFieldEnumApi = (typeof DraftFieldEnumApi)[keyof typeof DraftFieldEnumApi]
+
+export const DraftFieldEnumApi = {
+    Name: 'name',
+    Description: 'description',
+    Prompt: 'prompt',
+    ScannerType: 'scanner_type',
+    TypeConfig: 'type_config',
+    Query: 'query',
+    Sampling: 'sampling',
+    Model: 'model',
+    Budget: 'budget',
+} as const
+
+/**
+ * The revised draft, what changed against the current one, and what could not be applied. Nothing is persisted.
+ */
+export interface RefineScannerDraftResponseApi {
+    /** Drafted scanner name. */
+    name: string
+    /** Drafted one-sentence description. */
+    description: string
+    /** The scanner type the draft picked for the goal.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
+    scanner_type: ScannerTypeEnumApi
+    /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
+    scanner_config: unknown
+    /** Why the draft picked this scanner type and configuration, addressed to the user. */
+    rationale: string
+    /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
+    query: unknown
+    /** When the request passed a `query`: the filters the draft ANDed onto it, which `query` already includes. Show them to the person as added by AI. Null when nothing was added or no `query` was passed. */
+    query_additions: unknown
+    /** The quality pre-filter the draft chose for the goal. Null when the costing estimate failed, in which case the wizard keeps its defaults.
+     *
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive */
+    sampling_mode: SamplingModeEnumApi | null
+    /**
+     * The random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
+     * @nullable
+     */
+    sampling_rate: number | null
+    /** The observation model the draft chose for the goal, by how much judgment it needs.
+     *
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
+    model: ScannerModelEnumApi | null
+    /**
+     * The monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null for a free-only draft.
+     * @nullable
+     */
+    credit_limit: number | null
+    /** Whether the draft runs only on the organization's free monthly credits. Pass it on to create. */
+    free_only: boolean
+    /**
+     * Recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
+     * @nullable
+     */
+    estimated_monthly_observations: number | null
+    /** The parts of the draft the change touched. Apply only these to the form. */
+    changed_fields: DraftFieldEnumApi[]
+    /** Each part of the instruction that could not be applied, addressed to the person. */
+    could_not: string[]
+}
+
 export interface EstimateExperimentScopeApi {
     /**
      * The experiment an experiment scanner watches.

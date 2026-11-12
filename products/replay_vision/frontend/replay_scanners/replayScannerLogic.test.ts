@@ -15,6 +15,8 @@ import { useMocks } from '~/mocks/jest'
 import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import { newScanner } from './newScanner'
@@ -2107,6 +2109,7 @@ describe('replayScannerLogic', () => {
                 drafted_scanner_type: 'classifier',
                 scanner_type: 'classifier',
                 entry_point: null,
+                refinements: 0,
             })
         })
 
@@ -2140,6 +2143,261 @@ describe('replayScannerLogic', () => {
                 'replay_vision_scanner_draft_saved',
                 expect.objectContaining({ draft_edited: true, draft_changes: ['prompt'] })
             )
+        })
+    })
+
+    describe('draft refine', () => {
+        const PROMPT = 'Classify the session by intent.'
+        let refineSpy: jest.Mock
+
+        const refined = (overrides: Record<string, unknown>): Record<string, unknown> => ({
+            name: 'User intent',
+            description: 'Tags each session by intent.',
+            scanner_type: 'classifier',
+            scanner_config: { prompt: PROMPT, tags: ['browsing'], multi_label: false },
+            rationale: 'Changed what you asked for.',
+            query: { kind: 'RecordingsQuery', filter_test_accounts: true },
+            query_additions: null,
+            sampling_mode: 'comprehensive',
+            sampling_rate: 1,
+            model: 'gemini-3-flash-preview',
+            credit_limit: 2500,
+            free_only: false,
+            estimated_monthly_observations: null,
+            changed_fields: [],
+            could_not: [],
+            refinement_index: 1,
+            ...overrides,
+        })
+
+        beforeEach(async () => {
+            refineSpy = jest.fn(() => [200, refined({})])
+            useMocks({ post: { '/api/projects/:team/vision/scanners/draft/refine/': refineSpy } })
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'User intent',
+                    description: 'Tags each session by intent.',
+                    scanner_type: 'classifier',
+                    scanner_config: { prompt: PROMPT, tags: ['browsing'], multi_label: false },
+                    query: { kind: 'RecordingsQuery', filter_test_accounts: true },
+                    sampling_mode: 'comprehensive',
+                    sampling_rate: 1,
+                    model: 'gemini-3-flash-preview',
+                    credit_limit: 2500,
+                    free_only: false,
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerGoal('new'))
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal({
+                    goal: 'why do people visit',
+                    spend: { monthlyCreditBudget: 2500 },
+                })
+            ).toFinishAllListeners()
+        })
+
+        it('applies only the changed fields, so an edit made before the refine survives', async () => {
+            logic.actions.setScannerValues({ name: 'My own name' })
+            refineSpy.mockReturnValue([
+                200,
+                refined({
+                    name: 'A name the model wrote',
+                    scanner_type: 'scorer',
+                    scanner_config: { prompt: 'A reworded prompt', scale: { min: 1, max: 5 } },
+                    changed_fields: ['scanner_type', 'type_config'],
+                }),
+            ])
+
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'make it a 1-5 score' })
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({
+                name: 'My own name',
+                scanner_type: 'scorer',
+                scanner_config: { prompt: PROMPT, scale: { min: 1, max: 5 } },
+            })
+            expect(logic.values.scanner.scanner_config).not.toHaveProperty('tags')
+            const [[{ request }]] = refineSpy.mock.calls as unknown as [{ request: Request }][]
+            const body = await request.json()
+            expect(body).toMatchObject({
+                instruction: 'make it a 1-5 score',
+                refinement_index: 1,
+                monthly_credit_budget: 2500,
+                current: { name: 'My own name', scanner_type: 'classifier', credit_limit: 2500 },
+            })
+        })
+
+        it('a save right after a refine reports an unedited draft and the refine count', async () => {
+            refineSpy.mockReturnValue([200, refined({ model: 'gemini-3.8-flash', changed_fields: ['model'] })])
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'use the best model', chip: 'better_model' })
+            ).toFinishAllListeners()
+            scannerEditorSceneLogic.actions.setStep('overview')
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay_vision_scanner_draft_saved',
+                expect.objectContaining({ draft_edited: false, draft_changes: [], refinements: 1 })
+            )
+        })
+
+        it.each([
+            ['a type change', ['scanner_type', 'type_config'], false],
+            ['a recordings change', ['query'], true],
+            ['a sampling change', ['sampling'], true],
+        ])(
+            '%s reloads the estimate only when it moves what the scanner watches or costs',
+            async (_, fields, reloads) => {
+                refineSpy.mockReturnValue([
+                    200,
+                    refined({
+                        changed_fields: fields,
+                        query: { kind: 'RecordingsQuery', filter_test_accounts: false },
+                        sampling_rate: 0.5,
+                    }),
+                ])
+
+                const run = expectLogic(logic, () => logic.actions.refineScannerDraft({ instruction: 'change it' }))
+                if (reloads) {
+                    await run.toDispatchActions(['refineScannerDraftSuccess', 'loadScannerEstimate'])
+                } else {
+                    await run
+                        .toDispatchActions(['refineScannerDraftSuccess'])
+                        .toNotHaveDispatchedActions(['loadScannerEstimate'])
+                }
+            }
+        )
+
+        it('drops a refine that lands after the person started over', async () => {
+            let land: (response: unknown) => void = () => {}
+            const landed = new Promise((resolve) => {
+                land = resolve
+            })
+            refineSpy.mockImplementation(() => landed)
+
+            logic.actions.refineScannerDraft({ instruction: 'rename it' })
+            logic.actions.startFromScratch()
+            land([200, refined({ name: 'A late name', changed_fields: ['name'] })])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.scanner.name).not.toEqual('A late name')
+            expect(logic.values.refinementCount).toEqual(0)
+        })
+
+        it('a refine that moves the draft onto an experiment loads that experiment', async () => {
+            useMocks({
+                get: { '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }] },
+            })
+            refineSpy.mockReturnValue([
+                200,
+                refined({
+                    scanner_type: 'experiment',
+                    scanner_config: { prompt: PROMPT, experiment_id: 7, variants: null, balance_variants: true },
+                    changed_fields: ['scanner_type', 'type_config'],
+                }),
+            ])
+
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'watch the checkout redesign test' })
+            ).toFinishAllListeners()
+
+            expect(logic.values.experimentContext?.experiment).toMatchObject({ id: 7, name: 'Checkout redesign' })
+        })
+
+        it('a resumed draft keeps the experiment and recordings it was drafted against', async () => {
+            const query: RecordingsQuery = { kind: NodeKind.RecordingsQuery, filter_test_accounts: false }
+            logic.actions.setGoalDraftQuery(query)
+            logic.actions.setGoalExperiment({ id: 7, name: 'Checkout redesign' } as ExperimentBasicApi)
+            logic.actions.setScannerValues({ name: 'My own name' })
+            logic.actions.setGoalDraftQuery(null)
+            logic.actions.setGoalExperiment(null)
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.scanner.name).toEqual('My own name')
+            expect(logic.values.goalDraftQuery).toEqual(query)
+            expect(logic.values.goalExperiment?.id).toEqual(7)
+        })
+
+        it('a resumed refined draft keeps its refine count for the save and the next refine', async () => {
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'use the best model' })
+            ).toFinishAllListeners()
+            logic.actions.setRefinementCount(0)
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(logic.values.refinementCount).toEqual(1)
+
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'make it a 1-5 score' })
+            ).toFinishAllListeners()
+            const { request } = (refineSpy.mock.calls as unknown as [{ request: Request }][])[1][0]
+            expect(await request.json()).toMatchObject({ refinement_index: 2 })
+            expect(logic.values.refinementCount).toEqual(2)
+        })
+
+        it('a resumed draft still tells the refine the person edited the recordings', async () => {
+            logic.actions.setScannerValues({
+                query: { kind: NodeKind.RecordingsQuery, filter_test_accounts: true, date_from: '-14d' },
+            })
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'only the billing page' })
+            ).toFinishAllListeners()
+
+            const [[{ request }]] = refineSpy.mock.calls as unknown as [{ request: Request }][]
+            expect(await request.json()).toMatchObject({ recordings_edited: true })
+        })
+
+        it('recordings a refine rewrote count as AI-made again', async () => {
+            refineSpy.mockReturnValue([
+                200,
+                refined({ query: { kind: 'RecordingsQuery', filter_test_accounts: false }, changed_fields: ['query'] }),
+            ])
+
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'include internal users' })
+            ).toFinishAllListeners()
+
+            const [[{ request }]] = refineSpy.mock.calls as unknown as [{ request: Request }][]
+            expect(await request.json()).toMatchObject({ recordings_edited: false })
+            expect(logic.values.recordingsEdited).toBe(false)
+        })
+
+        it('a refine that clears the filter clears it in the form', async () => {
+            logic.actions.setScannerValues({
+                query: {
+                    kind: NodeKind.RecordingsQuery,
+                    filter_test_accounts: true,
+                    events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                },
+            })
+            refineSpy.mockReturnValue([200, refined({ query: null, changed_fields: ['query'] })])
+
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'watch every recording' })
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner.query).toBeNull()
+        })
+
+        it('a failed refine leaves the form as it was and says so', async () => {
+            const error = jest.spyOn(lemonToast, 'error')
+            refineSpy.mockReturnValue([503, { detail: "Couldn't update the draft right now. Try again in a moment." }])
+            const before = logic.values.scanner
+
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'make it a 1-5 score' })
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner).toEqual(before)
+            expect(logic.values.refinementCount).toEqual(0)
+            expect(error).toHaveBeenCalledWith("Couldn't update the draft right now. Try again in a moment.")
         })
     })
 

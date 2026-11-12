@@ -1,4 +1,9 @@
+import type { RecordingsQuery } from '~/queries/schema/schema-general'
+
+import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import { ScannerCreationMethodEnumApi } from '../generated/api.schemas'
+import type { DraftRecordings } from './draftChanges'
 import { ScannerFormValues } from './types'
 
 const DRAFT_STORAGE_KEY = 'replay-vision.new-scanner-draft'
@@ -19,6 +24,13 @@ interface StoredScannerDraft {
 export interface ScannerDraftProvenance {
     creationMethod: ScannerCreationMethodEnumApi
     goalDraftBaseline: ScannerFormValues | null
+    // The experiment and recordings the goal was drafted against, which a refine must keep.
+    goalExperiment: ExperimentBasicApi | null
+    goalDraftQuery: RecordingsQuery | null
+    // Reported with the save, and the next refine's index follows it.
+    refinementCount: number
+    // The recordings as the AI last wrote them, so a refine of the resumed draft still sees the person's edits.
+    aiDraftedRecordings: DraftRecordings | null
 }
 
 export interface ScannerDraft {
@@ -32,13 +44,24 @@ function readProvenance(value: unknown): ScannerDraftProvenance | null {
     if (!value || typeof value !== 'object') {
         return null
     }
-    const { creationMethod, goalDraftBaseline } = value as Partial<ScannerDraftProvenance>
+    const { creationMethod, goalDraftBaseline, goalExperiment, goalDraftQuery, refinementCount, aiDraftedRecordings } =
+        value as Partial<ScannerDraftProvenance>
     if (!Object.values(ScannerCreationMethodEnumApi).includes(creationMethod as ScannerCreationMethodEnumApi)) {
         return null
     }
     return {
         creationMethod: creationMethod as ScannerCreationMethodEnumApi,
         goalDraftBaseline: goalDraftBaseline && typeof goalDraftBaseline === 'object' ? goalDraftBaseline : null,
+        goalExperiment: goalExperiment && typeof goalExperiment.id === 'number' ? goalExperiment : null,
+        goalDraftQuery: goalDraftQuery && typeof goalDraftQuery === 'object' ? goalDraftQuery : null,
+        refinementCount:
+            typeof refinementCount === 'number' && Number.isInteger(refinementCount) && refinementCount > 0
+                ? refinementCount
+                : 0,
+        aiDraftedRecordings:
+            aiDraftedRecordings && typeof aiDraftedRecordings === 'object' && 'query' in aiDraftedRecordings
+                ? aiDraftedRecordings
+                : null,
     }
 }
 

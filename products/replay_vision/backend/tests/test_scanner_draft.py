@@ -33,6 +33,7 @@ from products.replay_vision.backend.queries.visited_paths import VisitedPath
 from products.replay_vision.backend.scanner_draft import (
     _MAX_BASELINE_EVENTS,
     _MAX_OUTPUT_TOKENS,
+    CurrentDraft,
     DraftError,
     UnwatchableExperimentError,
     _build_user_content,
@@ -57,7 +58,9 @@ from products.replay_vision.backend.scanner_draft import (
     _run_concurrently,
     _solve_budget,
     _start_in_background,
+    draft_refine_enabled,
     draft_scanner_from_goal,
+    refine_scanner_draft,
 )
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 from products.surveys.backend.models import Survey
@@ -2193,3 +2196,305 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
 
         assert volume.called
         assert "billing_limit_set (42)" in user_content
+
+
+class TestRefineScannerDraft(_VisionAPITestCase):
+    def _current(self, **overrides: Any) -> CurrentDraft:
+        base: dict[str, Any] = {
+            "name": "Billing give-up",
+            "description": "Flags sessions where the user gives up in billing.",
+            "scanner_type": "monitor",
+            "scanner_config": {
+                "prompt": "Did the user give up in billing? Answer yes or no with a one-sentence reason."
+            },
+            "query": {"kind": "RecordingsQuery", "filter_test_accounts": True},
+            "sampling_mode": "balanced",
+            "sampling_rate": 0.5,
+            "model": "gemini-3-flash-preview",
+            "credit_limit": 10_000,
+            "free_only": False,
+        }
+        base.update(overrides)
+        return CurrentDraft(**base)
+
+    def _refine(
+        self,
+        generated: _LlmDraft,
+        *,
+        current: CurrentDraft | None = None,
+        estimate_error=False,
+        **kwargs,
+    ):
+        estimate = (
+            patch(f"{_MODULE}.estimate_scanner_session_volume", side_effect=RuntimeError("clickhouse down"))
+            if estimate_error
+            else patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            )
+        )
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
+            patch(f"{_MODULE}.has_recent_matching_recording", return_value=True),
+            patch(_GENERATE_PATH, return_value=generated) as generate,
+            estimate as estimated,
+        ):
+            refinement = refine_scanner_draft(
+                team=self.team,
+                user=self.user,
+                goal="find out where people give up in billing",
+                instruction=kwargs.pop("instruction", "make it a change"),
+                current=current or self._current(),
+                monthly_credit_budget=kwargs.pop("monthly_credit_budget", 10_000),
+                user_access_control=_access_control(allow=True),
+                **kwargs,
+            )
+        return refinement, generate, estimated
+
+    def test_a_type_change_touches_only_the_type_and_keeps_the_recordings_and_dials(self):
+        current = self._current()
+        refinement, generate, estimated = self._refine(
+            _draft(scanner_type="scorer", scale_min=1, scale_max=5, sampling_mode="balanced"),
+            current=current,
+            instruction="make it a 1-5 score",
+        )
+
+        assert refinement.changed_fields == ["scanner_type", "type_config"]
+        assert refinement.draft.scanner_config == {
+            "prompt": current.scanner_config["prompt"],
+            "scale": {"min": 1, "max": 5},
+        }
+        assert refinement.draft.query == current.query
+        assert (refinement.draft.sampling_mode, refinement.draft.sampling_rate) == ("balanced", 0.5)
+        estimated.assert_not_called()
+        user_content = generate.call_args.kwargs["user_content"]
+        assert "<current-draft>" in user_content and "make it a 1-5 score" in user_content
+
+    def test_a_refine_keeps_config_settings_the_model_cannot_express(self):
+        current = self._current(
+            scanner_type="classifier",
+            scanner_config={
+                "prompt": "Which billing step did the user give up on?",
+                "tags": ["plan_picker", "payment_form"],
+                "multi_label": False,
+                "allow_freeform_tags": True,
+            },
+        )
+
+        refinement, _, _ = self._refine(
+            _draft(
+                scanner_type="classifier",
+                prompt="Which billing step did the user give up on?",
+                tags=["plan_picker", "payment_form"],
+                sampling_mode="balanced",
+            ),
+            current=current,
+            instruction="rename it",
+        )
+
+        assert refinement.draft.scanner_config["allow_freeform_tags"] is True
+        assert "type_config" not in refinement.changed_fields
+
+    def test_a_change_that_leaves_the_recordings_alone_cannot_add_an_experiment(self):
+        _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+
+        refinement, _, _ = self._refine(
+            _draft(filter_experiment="Billing upgrade prompt", sampling_mode="balanced"),
+            instruction="watch the billing upgrade prompt test",
+        )
+
+        assert refinement.draft.scanner_type == "monitor"
+        assert refinement.changed_fields == []
+
+    def test_a_chosen_filter_is_never_widened(self):
+        chosen = {
+            "kind": "RecordingsQuery",
+            "filter_test_accounts": True,
+            "events": [{"id": "$pageview", "type": "events"}],
+        }
+
+        refinement, _, _ = self._refine(
+            _draft(revise_recordings=True, sampling_mode="balanced"),
+            current=self._current(query=chosen),
+            instruction="scan every session",
+            chosen_query=chosen,
+        )
+
+        assert refinement.draft.query == chosen
+        assert "query" not in refinement.changed_fields
+
+    @parameterized.expand([("ai_made", False), ("edited_by_hand", True)])
+    def test_a_recordings_change_replaces_only_ai_made_recordings(self, _name, recordings_edited):
+        # Edited recordings hold hand-picked pages, events, cohorts and filters the model cannot tell apart from
+        # its own, so a refine must keep them whole rather than rebuild them from its output.
+        duration = {"type": "recording", "key": "duration", "value": 30, "operator": "gt"}
+        current = self._current(query={"kind": "RecordingsQuery", "properties": [duration]})
+
+        refinement, generate, _ = self._refine(
+            _draft(revise_recordings=True, filter_pages=["/billing"], sampling_mode="balanced"),
+            current=current,
+            instruction="only watch the billing page",
+            recordings_edited=recordings_edited,
+        )
+
+        query = refinement.draft.query
+        assert query is not None
+        if recordings_edited:
+            assert query == current.query
+            assert "query" not in refinement.changed_fields
+            assert refinement.could_not[0].startswith("You changed the recordings yourself")
+            assert "locked" in generate.call_args.kwargs["user_content"]
+        else:
+            assert [p["key"] for p in query["properties"]] == ["visited_page"]
+            assert "query" in refinement.changed_fields
+            assert refinement.could_not == []
+
+    @parameterized.expand(
+        [
+            (
+                "hand_written_categories",
+                "classifier",
+                {"tags": [f"Step {n} of checkout" for n in range(1, 16)], "multi_label": False},
+                {"tags": ["step_1"]},
+            ),
+            ("fractional_scale", "scorer", {"scale": {"min": 0.5, "max": 5.5}}, {"scale_min": 0, "scale_max": 10}),
+        ]
+    )
+    def test_a_change_to_something_else_keeps_the_categories_and_scale(
+        self, _name, scanner_type, settings, model_settings
+    ):
+        # The new-draft limits would cap and slugify the categories, or reset the scale, on any refine.
+        current = self._current(
+            scanner_type=scanner_type, scanner_config={"prompt": "Where did the user give up?", **settings}
+        )
+
+        refinement, _, _ = self._refine(
+            _draft(
+                scanner_type=scanner_type,
+                name="Checkout drop-off",
+                description=current.description,
+                prompt="Where did the user give up?",
+                sampling_mode="balanced",
+                **model_settings,
+            ),
+            current=current,
+            instruction="rename it to Checkout drop-off",
+        )
+
+        assert refinement.draft.scanner_config == current.scanner_config
+        assert refinement.changed_fields == ["name"]
+
+    @parameterized.expand(
+        [
+            (
+                "a_16th_category",
+                "classifier",
+                {"tags": [f"Step {n} of checkout" for n in range(1, 16)], "multi_label": False},
+                {"tags": [*(f"Step {n} of checkout" for n in range(1, 16)), "Invoice"]},
+                {"tags": [*(f"Step {n} of checkout" for n in range(1, 16)), "Invoice"], "multi_label": False},
+                None,
+            ),
+            (
+                "a_label_on_a_wide_scale",
+                "scorer",
+                {"scale": {"min": 0, "max": 1000}},
+                {"scale_min": 0, "scale_max": 1000, "scale_label": "Frustration"},
+                {"scale": {"min": 0, "max": 1000, "label": "Frustration"}},
+                None,
+            ),
+            (
+                "an_invalid_scale",
+                "scorer",
+                {"scale": {"min": 0, "max": 1000}},
+                {"scale_min": 5, "scale_max": 5},
+                {"scale": {"min": 0, "max": 1000}},
+                "Couldn't change the categories or scale.",
+            ),
+        ]
+    )
+    def test_a_change_to_the_categories_or_scale_uses_the_scanner_limits(
+        self, _name, scanner_type, settings, model_settings, expected, note
+    ):
+        current = self._current(
+            scanner_type=scanner_type, scanner_config={"prompt": "Where did the user give up?", **settings}
+        )
+
+        refinement, _, _ = self._refine(
+            _draft(
+                scanner_type=scanner_type,
+                description=current.description,
+                prompt="Where did the user give up?",
+                revise_type_settings=True,
+                multi_label=False,
+                **model_settings,
+            ),
+            current=current,
+            instruction="change the categories",
+        )
+
+        assert refinement.draft.scanner_config == {"prompt": "Where did the user give up?", **expected}
+        if note:
+            assert refinement.could_not[0].startswith(note)
+        else:
+            assert "type_config" in refinement.changed_fields
+
+    @parameterized.expand([("solved", False, "comprehensive", 1.0), ("costing_failed", True, "balanced", 0.5)])
+    def test_a_named_budget_becomes_the_cap_and_solves_the_dials_again(
+        self, _name, estimate_error, expected_mode, expected_rate
+    ):
+        refinement, _, estimated = self._refine(
+            _draft(monthly_credit_budget=2000, sampling_mode="balanced"),
+            current=self._current(free_only=True, credit_limit=None),
+            instruction="add a monthly cap of 2000 credits",
+            estimate_error=estimate_error,
+        )
+
+        assert refinement.draft.credit_limit == 2000
+        assert refinement.draft.free_only is False
+        assert estimated.called
+        # A costing failure keeps the dials the person already had.
+        assert (refinement.draft.sampling_mode, refinement.draft.sampling_rate) == (expected_mode, expected_rate)
+        assert "budget" in refinement.changed_fields
+
+    def test_a_pinned_experiment_survives_a_change_that_names_another(self):
+        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+        _launched_experiment(self.team, self.user, "Checkout test")
+        current = self._current(
+            scanner_type="experiment",
+            scanner_config={
+                "prompt": "Watch the billing page.",
+                "length": "medium",
+                "experiment_id": experiment.id,
+                "variants": None,
+                "balance_variants": False,
+            },
+        )
+
+        refinement, _, _ = self._refine(
+            _draft(
+                prompt="Watch the billing page.",
+                revise_recordings=True,
+                filter_experiment="Checkout test",
+                sampling_mode="balanced",
+                could_not=["The experiment is fixed, so this still watches Billing upgrade prompt."],
+            ),
+            current=current,
+            instruction="watch the checkout test instead",
+            experiment_id=experiment.id,
+        )
+
+        assert refinement.draft.scanner_config["experiment_id"] == experiment.id
+        # A setting the person changed on review survives the refine.
+        assert refinement.draft.scanner_config["balance_variants"] is False
+        assert refinement.could_not == ["The experiment is fixed, so this still watches Billing upgrade prompt."]
+
+
+class TestDraftRefineFlag(_VisionAPITestCase):
+    def test_the_gate_evaluates_the_person_email_and_the_project_group(self):
+        with patch(f"{_MODULE}.feature_enabled_or_false", return_value=True) as flag:
+            assert draft_refine_enabled(self.team, self.user) is True
+
+        kwargs = flag.call_args.kwargs
+        assert flag.call_args.args[0] == "vision-draft-refine"
+        assert kwargs["person_properties"] == {"email": self.user.email}
+        assert kwargs["groups"]["project"] == str(self.team.uuid)

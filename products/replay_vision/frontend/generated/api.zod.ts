@@ -1434,6 +1434,166 @@ export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
     .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")
 
 /**
+ * Apply one instruction to an AI-drafted scanner the person is reviewing, keeping everything else.
+ */
+export const visionScannersDraftRefineCreateBodyGoalMax = 2000
+
+export const visionScannersDraftRefineCreateBodyMonthlyCreditBudgetMax = 2147483647
+
+export const visionScannersDraftRefineCreateBodyFreeOnlyDefault = false
+export const visionScannersDraftRefineCreateBodyExperimentIdMax = 2147483647
+
+export const visionScannersDraftRefineCreateBodyInstructionMax = 500
+
+export const visionScannersDraftRefineCreateBodyCurrentOneNameMax = 255
+
+export const visionScannersDraftRefineCreateBodyCurrentOneDescriptionDefault = ``
+export const visionScannersDraftRefineCreateBodyCurrentOneDescriptionMax = 1000
+
+export const visionScannersDraftRefineCreateBodyCurrentOneSamplingRateMin = 0
+export const visionScannersDraftRefineCreateBodyCurrentOneSamplingRateMax = 1
+
+export const visionScannersDraftRefineCreateBodyCurrentOneCreditLimitMax = 2147483647
+
+export const visionScannersDraftRefineCreateBodyCurrentOneFreeOnlyDefault = false
+export const visionScannersDraftRefineCreateBodyRecordingsEditedDefault = false
+export const visionScannersDraftRefineCreateBodyRefinementIndexDefault = 1
+export const visionScannersDraftRefineCreateBodyRefinementIndexMax = 1000
+
+export const visionScannersDraftRefineCreateBodyChipRegExp = new RegExp('^[a-z0-9_]{1,64}$')
+
+export const VisionScannersDraftRefineCreateBody = /* @__PURE__ */ zod
+    .object({
+        goal: zod
+            .string()
+            .max(visionScannersDraftRefineCreateBodyGoalMax)
+            .describe("What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'."),
+        monthly_credit_budget: zod
+            .number()
+            .min(1)
+            .max(visionScannersDraftRefineCreateBodyMonthlyCreditBudgetMax)
+            .optional()
+            .describe(
+                "The current draft's monthly credit budget, which sizes the dials when the change needs a re-solve. Takes any value `credit_limit` takes. Required unless `free_only` is true, and not allowed with it."
+            ),
+        free_only: zod
+            .boolean()
+            .default(visionScannersDraftRefineCreateBodyFreeOnlyDefault)
+            .describe(
+                "Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`."
+            ),
+        experiment_id: zod
+            .number()
+            .min(1)
+            .max(visionScannersDraftRefineCreateBodyExperimentIdMax)
+            .optional()
+            .describe(
+                'A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.'
+            ),
+        query: zod
+            .unknown()
+            .optional()
+            .describe(
+                "A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`\/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions."
+            ),
+        instruction: zod
+            .string()
+            .max(visionScannersDraftRefineCreateBodyInstructionMax)
+            .describe("One change to apply to the draft, in the person's own words, e.g. 'make it a 1-5 score'."),
+        current: zod
+            .object({
+                name: zod
+                    .string()
+                    .max(visionScannersDraftRefineCreateBodyCurrentOneNameMax)
+                    .describe("The draft's current name."),
+                description: zod
+                    .string()
+                    .max(visionScannersDraftRefineCreateBodyCurrentOneDescriptionMax)
+                    .default(visionScannersDraftRefineCreateBodyCurrentOneDescriptionDefault)
+                    .describe("The draft's current description."),
+                scanner_type: zod
+                    .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
+                    .describe(
+                        '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
+                    )
+                    .describe(
+                        "The draft's current scanner type.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment"
+                    ),
+                scanner_config: zod
+                    .unknown()
+                    .describe("The draft's current type-specific config, held to the create endpoint's rules."),
+                query: zod
+                    .unknown()
+                    .optional()
+                    .describe("The draft's current `RecordingsQuery`, or null for every recording."),
+                sampling_mode: zod
+                    .union([
+                        zod
+                            .enum(['focused', 'balanced', 'comprehensive'])
+                            .describe(
+                                '\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive'
+                            ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        "The draft's current quality pre-filter.\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive"
+                    ),
+                sampling_rate: zod
+                    .number()
+                    .min(visionScannersDraftRefineCreateBodyCurrentOneSamplingRateMin)
+                    .max(visionScannersDraftRefineCreateBodyCurrentOneSamplingRateMax)
+                    .nullish()
+                    .describe("The draft's current random sampling rate, 0..1."),
+                model: zod
+                    .union([
+                        zod
+                            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.8-flash'])
+                            .describe(
+                                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash'
+                            ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        "The draft's current observation model.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.8-flash` - Gemini 3.8 Flash"
+                    ),
+                credit_limit: zod
+                    .number()
+                    .min(1)
+                    .max(visionScannersDraftRefineCreateBodyCurrentOneCreditLimitMax)
+                    .nullish()
+                    .describe("The draft's current monthly credit cap, or null for none."),
+                free_only: zod
+                    .boolean()
+                    .default(visionScannersDraftRefineCreateBodyCurrentOneFreeOnlyDefault)
+                    .describe('Whether the draft currently runs only on free credits.'),
+            })
+            .describe("The draft the person is reviewing, in the create body's shape, including their own edits.")
+            .describe('The draft as the person sees it on review. Every field the instruction does not touch is kept.'),
+        recordings_edited: zod
+            .boolean()
+            .default(visionScannersDraftRefineCreateBodyRecordingsEditedDefault)
+            .describe(
+                'Whether the person changed the drafted recordings themselves. Then the refine keeps them as they are.'
+            ),
+        refinement_index: zod
+            .number()
+            .min(1)
+            .max(visionScannersDraftRefineCreateBodyRefinementIndexMax)
+            .default(visionScannersDraftRefineCreateBodyRefinementIndexDefault)
+            .describe('Which refine of this draft this is, starting at 1. Echoed back for telemetry.'),
+        chip: zod
+            .string()
+            .regex(visionScannersDraftRefineCreateBodyChipRegExp)
+            .nullish()
+            .describe('The suggestion the instruction came from, or null when the person typed it. Telemetry only.'),
+    })
+    .describe(
+        "Body of POST \/vision\/scanners\/draft\/refine\/: the draft request, the current draft, and one instruction.\n\nThe spend fields describe the current draft's budget, which sizes the dials when the change needs a re-solve."
+    )
+
+/**
  * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
  */
 export const visionScannersEstimateCreateBodySamplingRateDefault = 1
