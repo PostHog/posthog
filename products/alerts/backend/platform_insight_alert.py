@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.api import (
     list_configurations,
     native_configuration_ids_by_source_config,
     native_configuration_matches,
+    owned_copies_by_legacy_id,
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -327,6 +328,46 @@ def _built_alert(
         owner=PlatformAlertOwner.PLATFORM,
         created_by=created_by,
     )
+
+
+# The insight stays the row's, because the API checks the reader's access to the row's insight.
+COPY_SETTINGS: Final = INSIGHT_ROW_SETTINGS | {
+    "name",
+    "enabled",
+    "condition",
+    "detector_config",
+    "calculation_interval",
+    "schedule_restriction",
+    "snoozed_until",
+}
+
+
+def show_copy_settings(alerts: Collection[AlertConfiguration]) -> None:
+    """Shows each alert the platform owns through a copy with the settings the copy holds, in place.
+    The alerts are only for showing: one saved afterwards would write the copy's settings to its row."""
+    copies = {alert.id: alert for alert in alerts if alert.platform_owned and not alert.has_no_insight_row}
+    if not copies:
+        return
+    views = owned_copies_by_legacy_id(
+        team_id=next(iter(copies.values())).team_id,
+        source_kind=SourceKind.INSIGHT,
+        legacy_configuration_ids=list(copies),
+    )
+    for legacy_id, view in views.items():
+        alert = copies[legacy_id]
+        built = _built_alert(view, insight=alert.insight, created_by=alert.created_by, enabled=view.enabled)
+        for field in COPY_SETTINGS:
+            setattr(alert, field, getattr(built, field))
+        alert.schedule_start_time = view.anchor_time
+        if built.threshold is None:
+            alert.threshold = None
+        elif alert.threshold is None:
+            # Stable across reads, as in `_presented`.
+            built.threshold.id = view.id
+            built.threshold.created_at = view.created_at
+            alert.threshold = built.threshold
+        else:
+            alert.threshold.configuration = built.threshold.configuration
 
 
 def legacy_alert(*, team_id: int, alert_id: UUID) -> AlertConfiguration | None:

@@ -149,6 +149,23 @@ def list_configurations(
     )
 
 
+def owned_copies_by_legacy_id(
+    *, team_id: int, source_kind: str, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformAlertConfigurationView]:
+    """The copies of the named source rows that the platform owns, by source row id. A row with no
+    such copy is left out."""
+    if not legacy_configuration_ids:
+        return {}
+    copies = _readable(team_id, [source_kind]).filter(
+        legacy_configuration_id__in=list(legacy_configuration_ids), owner=PlatformAlertOwner.PLATFORM
+    )
+    return {
+        legacy_id: _configuration_view(copy)
+        for copy in copies
+        if (legacy_id := copy.legacy_configuration_id) is not None
+    }
+
+
 def native_configuration_keys(
     *, team_id: int, source_kind: str, created_by_uuid: UUID | None = None
 ) -> tuple[tuple[datetime, UUID], ...]:

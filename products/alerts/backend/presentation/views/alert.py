@@ -165,6 +165,7 @@ from products.alerts.backend.models.alert import (
     AlertSubscription,
     Threshold,
 )
+from products.alerts.backend.platform_insight_alert import show_copy_settings
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_PAGERDUTY_REGION,
     DEFAULT_PAGERDUTY_SEVERITY,
@@ -1814,11 +1815,13 @@ def _show_platform_subscribers(alerts: list[AlertConfiguration]) -> None:
 
 
 def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
-    """Shows each alert the platform owns as the platform has it, in place. Its own row stops
-    moving once the insight stack stops checking it."""
+    """Shows each alert the platform owns as the platform has it, in place: its settings, snooze, state
+    and last check. Its own row stops moving once the insight stack stops checking it."""
     moved = {alert.id: alert for alert in alerts if alert.platform_owned}
     if not moved:
         return
+    # Before the state, which reads the snooze.
+    show_copy_settings(list(moved.values()))
     statuses = moved_alert_statuses(
         team_id=next(iter(moved.values())).team_id,
         snoozed_until={alert_id: alert.snoozed_until for alert_id, alert in moved.items()},
