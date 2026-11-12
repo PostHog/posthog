@@ -851,6 +851,7 @@ class TestHasExperimentField(BaseTest):
     )
     def test_has_experiment_value(self, _name: str, experiment_state: str, expected: bool, loader: str):
         flag = self._make_flag("exp-flag")
+        self._make_flag("other-flag")
         if experiment_state == "active":
             create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp")
         elif experiment_state == "stopped":
@@ -862,7 +863,7 @@ class TestHasExperimentField(BaseTest):
             flags = _get_feature_flags_for_teams_batch([self.team])[self.team.id]["flags"]
         else:
             flags = _get_feature_flags_for_service(self.team)["flags"]
-        assert flags[0]["has_experiment"] is expected
+        assert {f["key"]: f["has_experiment"] for f in flags} == {"exp-flag": expected, "other-flag": False}
 
     def test_has_experiment_no_n_plus_one(self):
         """has_experiment is computed from one bulk read of the experiment flag ids, so the number of queries

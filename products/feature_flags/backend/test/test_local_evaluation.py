@@ -919,6 +919,7 @@ class TestLocalEvaluationBatch(BaseTest):
     def test_batch_has_experiment_value(self, _name: str, experiment_state: str, expected: bool) -> None:
         team = self._create_team_with_project("Experiment Team")
         flag = FeatureFlag.objects.create(team=team, key="exp-flag", filters={"groups": [{"rollout_percentage": 100}]})
+        FeatureFlag.objects.create(team=team, key="other-flag", filters={"groups": [{"rollout_percentage": 100}]})
         if experiment_state != "none":
             create_experiment(
                 team_id=team.id, feature_flag_id=flag.id, name="exp", deleted=experiment_state == "deleted"
@@ -926,7 +927,10 @@ class TestLocalEvaluationBatch(BaseTest):
 
         results = _get_flags_response_for_local_evaluation_batch([team])
 
-        assert [f["has_experiment"] for f in results[team.id]["flags"]] == [expected]
+        assert {f["key"]: f["has_experiment"] for f in results[team.id]["flags"]} == {
+            "exp-flag": expected,
+            "other-flag": False,
+        }
 
     def test_batch_two_teams_flags_isolated(self):
         team_a = self._create_team_with_project("Team A")
