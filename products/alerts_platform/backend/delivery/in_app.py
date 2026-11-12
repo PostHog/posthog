@@ -16,7 +16,6 @@ from products.alerts_platform.backend.delivery.message import AlertMessage, tran
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind
-from products.alerts_platform.backend.logic.rule_metadata import SEVERITY_LABEL
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationResourceType,
@@ -40,7 +39,14 @@ _NOTIFICATION_TYPES: Final[dict[AlertEventKind, NotificationType]] = {
 
 
 def body_for(message: AlertMessage) -> str:
-    return "; ".join([*(f"{detail.label}: {detail.value}" for detail in message.details), *message.context])
+    return "; ".join(
+        [
+            *([message.description] if message.description else []),
+            *(f"{detail.label}: {detail.value}" for detail in message.details),
+            *message.context,
+            *(f"{link.label}: {link.url}" for link in message.rule_links),
+        ]
+    )
 
 
 class InAppTransport:
@@ -74,7 +80,7 @@ class InAppTransport:
                 NotificationData(
                     team_id=team_id,
                     notification_type=notification_type,
-                    priority=Priority.CRITICAL if message.labels.get(SEVERITY_LABEL) == "critical" else Priority.NORMAL,
+                    priority=Priority.CRITICAL if message.severity == "critical" else Priority.NORMAL,
                     title=title,
                     body=body,
                     target_type=TargetType.USER,

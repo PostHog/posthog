@@ -67,14 +67,18 @@ class TestSlackBlocks(SimpleTestCase):
                 headline="API errors could not be checked",
                 details=(MessageDetail(label="Error", value="no column <!channel> in <http://x|table>"),),
                 context=("Services: <!channel>",),
+                annotations={"description": "<!here> @here"},
             ),
             project=MessageLink(label="Prod <!channel>", url="https://app.example.com/project/2"),
         )
 
         blocks = blocks_for(message)
-        body = blocks[1]["text"]["text"]
-        context, project = (element["text"] for element in blocks[2]["elements"])
+        description = blocks[1]["text"]
+        body = blocks[2]["text"]["text"]
+        context, project = (element["text"] for element in blocks[3]["elements"])
 
+        assert "<!" not in description["text"]
+        assert description["verbatim"] is True
         assert "<!channel>" not in body + context + project
         assert "&lt;!channel&gt;" in body
         assert context == "Services: &lt;!channel&gt;"
@@ -334,7 +338,7 @@ class TestSlackLateImage(SimpleTestCase):
         assert sent[-2]["elements"][0]["text"] == "Still firing"
 
 
-class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
+class TestSourceRendererKeepsPlatformBlocks(SimpleTestCase):
     @parameterized.expand(
         [
             # The renderer contract promises neither an attachment nor a trailing action row, and
@@ -344,7 +348,7 @@ class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
             ("blocks_without_an_action_row", True, True),
         ]
     )
-    def test_untracked_groups_detail_survives_any_renderer_shape(
+    def test_rule_metadata_and_group_limit_survive_any_renderer_shape(
         self, _name: str, blocks_only: bool, without_actions: bool
     ) -> None:
         rendered: list[dict[str, Any]] = [{"type": "divider"}]
@@ -356,12 +360,22 @@ class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
             else SlackMessageContent(text="Alert", blocks=[], attachments=[{"blocks": rendered}])
         )
         message = replace(
-            MESSAGE, details=(MessageDetail(label=UNTRACKED_GROUPS_LABEL, value="2 more groups not tracked"),)
+            MESSAGE,
+            details=(
+                MessageDetail(label="Severity", value="critical"),
+                MessageDetail(label="Value", value="300"),
+                MessageDetail(label=UNTRACKED_GROUPS_LABEL, value="2 more groups not tracked"),
+            ),
+            annotations={"description": "Payments fail.", "runbook_url": "https://runbooks.example.com/api"},
         )
         with patch("products.alerts_platform.backend.delivery.slack.slack_renderer_for") as renderer:
             renderer.return_value.return_value = content
             result = content_for(team_id=1, message=message)
         blocks = result.blocks if blocks_only else result.attachments[0]["blocks"]
-        assert "2 more groups not tracked" in str(blocks)
-        # Above the buttons when there are buttons, so the notice is never read as one of them.
-        assert blocks[-1]["type"] == ("section" if without_actions else "actions")
+        rendered_text = str(blocks)
+        for shown in ("2 more groups not tracked", "*Severity:* critical", "Payments fail.", "Runbook"):
+            assert shown in rendered_text
+        assert "*Value:*" not in rendered_text
+        # Above the renderer's buttons when it has some, so a notice is never read as one of them.
+        if not without_actions:
+            assert blocks[-1] == {"type": "actions", "elements": []}

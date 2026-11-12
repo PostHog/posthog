@@ -53,6 +53,7 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
 UNTRACKED_GROUPS_LABEL: Final = "Untracked groups"
 _BREACH_KINDS: Final = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
 _SHOWN_RULE_LABELS: Final = ((SEVERITY_LABEL, "Severity"), (TEAM_LABEL, "Team"))
+RULE_DETAIL_LABELS: Final = frozenset(label for _, label in _SHOWN_RULE_LABELS)
 
 _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.LOGS: "Log",
@@ -101,6 +102,8 @@ class AlertMessage:
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
     platform_headline: str | None = None
+    # From the rule alone. A query result also carries labels, and those must not change how urgent the alert is.
+    severity: str | None = None
 
     @property
     def title(self) -> str:
@@ -270,4 +273,5 @@ def build_message(
         labels=labels,
         annotations=annotations,
         platform_headline=platform_headline if summary is not None else None,
+        severity=rule_labels.get(SEVERITY_LABEL),
     )

@@ -263,3 +263,9 @@ class TestAlertMessage:
             MessageDetail(label="Severity", value="warning"),
             MessageDetail(label="Team", value="payments"),
         )
+        assert message.severity == "warning"
+
+    def test_a_result_label_cannot_set_the_severity(self) -> None:
+        message = _build(_announcement(), _transition(AlertEventKind.FIRING, labels={"severity": "info"}))
+
+        assert (message.labels["severity"], message.severity) == ("info", None)

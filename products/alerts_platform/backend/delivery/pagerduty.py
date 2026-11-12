@@ -30,7 +30,6 @@ from products.alerts_platform.backend.facade.contracts import (
     PagerDutyRegion,
     PagerDutySeverity,
 )
-from products.alerts_platform.backend.logic.rule_metadata import SEVERITY_LABEL
 
 PROVIDER: Final = "pagerduty"
 
@@ -113,7 +112,7 @@ _OWNER_REFUSALS: Final = {400: b"invalid routing key"}
 
 def _severity(message: AlertMessage, configured: PagerDutySeverity) -> PagerDutySeverity:
     try:
-        return PagerDutySeverity(message.labels.get(SEVERITY_LABEL, configured))
+        return PagerDutySeverity(message.severity or configured)
     except ValueError:
         return configured
 

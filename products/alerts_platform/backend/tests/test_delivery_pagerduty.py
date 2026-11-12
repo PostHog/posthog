@@ -70,14 +70,19 @@ class TestPagerDutyBody(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("label_wins_over_the_destination", "info", "info"),
+            ("rule_wins_over_the_destination", "info", "info"),
             ("value_pagerduty_does_not_know", "sev1", "critical"),
+            ("result_label_cannot_downgrade", None, "critical"),
         ]
     )
-    def test_a_rule_severity_and_runbook_reach_the_incident(self, _name: str, label: str, expected: str) -> None:
+    def test_a_rule_severity_and_runbook_reach_the_incident(
+        self, _name: str, severity: str | None, expected: str
+    ) -> None:
+        label = severity or "info"
         message = replace(
             _message(IncidentAction.TRIGGER),
             labels={"severity": label},
+            severity=severity,
             annotations={"runbook_url": "https://runbooks.example.com/api", "description": "Payments fail."},
         )
 

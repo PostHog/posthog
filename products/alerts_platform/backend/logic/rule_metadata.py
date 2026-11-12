@@ -38,6 +38,7 @@ _MAX_ANNOTATION_VALUE_BYTES: Final = 4096
 _NAME_PATTERN: Final = r"[a-zA-Z_][a-zA-Z0-9_]*"
 _NAME: Final = re2.compile(_NAME_PATTERN)
 _RESERVED_PREFIX: Final = "posthog_"
+_PLATFORM_LINK_PREFIX: Final = "view_"
 _RESERVED_LABELS: Final = frozenset({"alertname"})
 
 SUMMARY_ANNOTATION: Final = "summary"
@@ -83,6 +84,11 @@ def validate_annotations(annotations: Mapping[str, str], known_labels: Collectio
                     f"Annotation `{name}` uses `$labels.{reference}`, which is not a grouping key or a label of this alert."
                 )
         if name.endswith("_url"):
+            if name.startswith(_PLATFORM_LINK_PREFIX):
+                # Every link PostHog adds reads "View ...", so a rule link named like one could pass for it.
+                raise InvalidRuleMetadata(
+                    f"Annotation `{name}` starts with `{_PLATFORM_LINK_PREFIX}`, which PostHog uses for its own links."
+                )
             _check_link(name, value)
 
 
@@ -121,7 +127,7 @@ def links(annotations: Mapping[str, str]) -> tuple[MessageLink, ...]:
     found = [
         MessageLink(label=_link_label(name), url=url)
         for name, url in annotations.items()
-        if name.endswith("_url") and len(url) <= MAX_LINK_URL_CHARS
+        if name.endswith("_url") and not name.startswith(_PLATFORM_LINK_PREFIX) and len(url) <= MAX_LINK_URL_CHARS
     ]
     found.sort(key=lambda link: link.label != _link_label(RUNBOOK_ANNOTATION))
     return tuple(found[:_MAX_RULE_LINKS])
@@ -153,8 +159,9 @@ def _render(name: str, template: str, labels: Mapping[str, str], value: float | 
 
 def _has_dot_segment(url: str) -> bool:
     # Quoting stops a label value adding a segment, but a browser still resolves `..` and `%2e%2e`.
-    path = re2.split(r"[?#]", url, maxsplit=1)[0]
-    return any(segment.lower().replace("%2e", ".") in (".", "..") for segment in path.split("/")[3:])
+    # It also drops tabs and newlines and reads a backslash as a slash, so this check does too.
+    path = re2.split(r"[?#]", re2.sub(r"[\t\n\r]", "", url), maxsplit=1)[0]
+    return any(segment.lower().replace("%2e", ".") in (".", "..") for segment in re2.split(r"[/\\]", path)[3:])
 
 
 def _referenced_labels(name: str, value: str) -> list[str]:

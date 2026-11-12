@@ -27,7 +27,7 @@ from posthog.slack.channels import (
 from posthog.slack.formatting import escape_slack_mrkdwn
 
 from products.alerts_platform.backend.delivery.describers import slack_renderer_for
-from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL, AlertMessage
+from products.alerts_platform.backend.delivery.message import RULE_DETAIL_LABELS, UNTRACKED_GROUPS_LABEL, AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.facade.contracts import (
     SLACK_IMAGE_SLOT_BLOCK_ID,
@@ -70,11 +70,22 @@ def _body(details: tuple[MessageDetail, ...]) -> str:
     return "\n".join(clip_text(line, share) for line in lines)
 
 
+def _description_block(description: str) -> dict[str, Any]:
+    # A label value from query results can fill a template in it, so it is escaped like a detail.
+    # Verbatim, because escaping leaves a bare `@here`, which Slack would otherwise parse as a mention.
+    block = section_block(clip_text(escape_slack_mrkdwn(description), MAX_SECTION_CHARS))
+    block["text"]["verbatim"] = True
+    return block
+
+
+def _rule_links_block(message: AlertMessage) -> dict[str, Any]:
+    return actions_block([SlackButton(text=link.label, url=link.url) for link in message.rule_links])
+
+
 def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = [header_block(message.title)]
     if message.description:
-        # A label value from query results can fill a template in it, so it is escaped like a detail.
-        blocks.append(section_block(clip_text(escape_slack_mrkdwn(message.description), MAX_SECTION_CHARS)))
+        blocks.append(_description_block(message.description))
     if message.details:
         blocks.append(section_block(_body(message.details)))
     elements: list[str] = []
@@ -112,7 +123,7 @@ def content_for(*, team_id: int, message: AlertMessage) -> SlackMessageContent:
                 image=message.image,
             )
             if content is not None:
-                return _with_untracked_groups(content, message)
+                return _with_platform_blocks(content, message)
         except Exception:
             logger.exception("alerts_platform.slack_renderer_failed", source=message.source.value)
             # Counted as well as logged: the fallback is invisible to the recipient, so a renderer
@@ -128,31 +139,39 @@ def content_for(*, team_id: int, message: AlertMessage) -> SlackMessageContent:
     return SlackMessageContent(text=escape_slack_mrkdwn(message.title), blocks=blocks_for(message))
 
 
-def _above_actions(blocks: list[dict[str, Any]], notice: dict[str, Any]) -> list[dict[str, Any]]:
-    """`notice` inserted above the action row, or appended when the blocks have none.
+def _above_actions(blocks: list[dict[str, Any]], notices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """`notices` inserted above the action row, or appended when the blocks have none.
 
     By position rather than by index from the end, because `SourceSlackRenderer` promises nothing
     about the block order a source returns.
     """
     for index, block in enumerate(blocks):
         if block.get("type") == "actions":
-            return [*blocks[:index], notice, *blocks[index:]]
-    return [*blocks, notice]
+            return [*blocks[:index], *notices, *blocks[index:]]
+    return [*blocks, *notices]
 
 
-def _with_untracked_groups(content: SlackMessageContent, message: AlertMessage) -> SlackMessageContent:
-    notices = [detail for detail in message.details if detail.label == UNTRACKED_GROUPS_LABEL]
+def _with_platform_blocks(content: SlackMessageContent, message: AlertMessage) -> SlackMessageContent:
+    details = tuple(
+        detail for detail in message.details if detail.label in {UNTRACKED_GROUPS_LABEL, *RULE_DETAIL_LABELS}
+    )
+    notices: list[dict[str, Any]] = []
+    if message.description:
+        notices.append(_description_block(message.description))
+    if details:
+        notices.append(section_block(_body(details)))
+    if message.rule_links:
+        notices.append(_rule_links_block(message))
     if not notices:
         return content
-    notice = section_block(_body(tuple(notices)))
-    # The warning says the alert is at its group limit, so a reader who misses it reads a truncated
+    # The group limit warning says the alert is truncated, so a reader who misses it reads a partial
     # alert as a complete one. It goes wherever the renderer left room, never nowhere.
     if not content.attachments:
         return SlackMessageContent(
-            text=content.text, blocks=_above_actions(content.blocks, notice), attachments=content.attachments
+            text=content.text, blocks=_above_actions(content.blocks, notices), attachments=content.attachments
         )
     last = content.attachments[-1]
-    attachments = [*content.attachments[:-1], {**last, "blocks": _above_actions(last.get("blocks", []), notice)}]
+    attachments = [*content.attachments[:-1], {**last, "blocks": _above_actions(last.get("blocks", []), notices)}]
     return SlackMessageContent(text=content.text, blocks=content.blocks, attachments=attachments)
 
 

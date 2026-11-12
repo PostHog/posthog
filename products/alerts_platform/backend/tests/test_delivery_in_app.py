@@ -4,11 +4,13 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.user import User
 
-from products.alerts_platform.backend.delivery.in_app import InAppTransport
+from products.alerts_platform.backend.delivery.in_app import InAppTransport, body_for
 from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind, DestinationType
 from products.alerts_platform.backend.tests.delivery_messages import OCCURRED, alert_message, announced_transition
@@ -69,3 +71,13 @@ class TestInAppTransport(BaseTest):
         self._deliver(kind, occurred_at=OCCURRED + timedelta(hours=1))
 
         assert len(stored_notifications_for_team(self.team.id)) == 4
+
+
+class TestInAppBody(SimpleTestCase):
+    def test_the_body_carries_the_rule_description_and_links(self) -> None:
+        message = alert_message(
+            details=(MessageDetail(label="Value", value="312"),),
+            annotations={"description": "Payments fail.", "runbook_url": "https://runbooks.example.com/api"},
+        )
+
+        assert body_for(message) == "Payments fail.; Value: 312; Runbook: https://runbooks.example.com/api"
