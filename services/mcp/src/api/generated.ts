@@ -65357,6 +65357,11 @@ export namespace Schemas {
      */
     export type LogsAlertConfigurationLabels = {[key: string]: string};
 
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+     */
+    export type LogsAlertConfigurationAnnotations = {[key: string]: string};
+
     export interface LogsAlertFilters {
       filterGroup?: PropertyGroupFilter | null;
       serviceNames?: string[] | null;
@@ -65541,7 +65546,9 @@ export namespace Schemas {
       grouping?: LogsAlertGrouping;
       /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
       labels?: LogsAlertConfigurationLabels;
-      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+      annotations?: LogsAlertConfigurationAnnotations;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
       readonly platform_owned: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
@@ -65562,6 +65569,11 @@ export namespace Schemas {
      * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
      */
     export type LogsAlertConfigurationDetailLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+     */
+    export type LogsAlertConfigurationDetailAnnotations = {[key: string]: string};
 
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
@@ -65689,7 +65701,9 @@ export namespace Schemas {
       grouping?: LogsAlertGrouping;
       /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
       labels?: LogsAlertConfigurationDetailLabels;
-      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+      annotations?: LogsAlertConfigurationDetailAnnotations;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
       readonly platform_owned: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
@@ -88082,6 +88096,11 @@ export namespace Schemas {
      */
     export type PatchedLogsAlertConfigurationLabels = {[key: string]: string};
 
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+     */
+    export type PatchedLogsAlertConfigurationAnnotations = {[key: string]: string};
+
     export interface PatchedLogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id?: string;
@@ -88171,7 +88190,9 @@ export namespace Schemas {
       grouping?: LogsAlertGrouping;
       /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
       labels?: PatchedLogsAlertConfigurationLabels;
-      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+      annotations?: PatchedLogsAlertConfigurationAnnotations;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
       readonly platform_owned?: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
