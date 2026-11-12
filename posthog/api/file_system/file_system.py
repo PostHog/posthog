@@ -599,20 +599,21 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise next(iter(denied.values()))
         return locked, set(denied)
 
-    def _lock_file_rows(self, rows: Q) -> builtins.list[FileSystem]:
+    def _lock_file_rows(self, rows: Q, *, without_meta: bool = False) -> builtins.list[FileSystem]:
         """The only row lock a file system write takes on file rows, so every write locks in one order.
 
         A write collects every file row it changes or counts first, and locks them here in one statement in
         id order, which is also the order the file sync updates rows in. It locks the objects behind the rows
         only after this, with `lock_file_system_objects`, which never waits for a lock. A save of an object
         locks the object first and its file rows second, so a write that waited for the object while it held
-        the rows could deadlock with it.
+        the rows could deadlock with it. A caller that only deletes or counts the rows passes `without_meta`.
         """
-        return list(
+        locked = (
             FileSystem.objects.select_for_update(of=("self",))
             .filter(rows, team__project_id=self.team.project_id)
             .order_by("id")
         )
+        return list(locked.defer("meta") if without_meta else locked)
 
     def _authorize_workflow_files(self, targets: Iterable[WorkflowFileTarget | None]) -> None:
         denied = self._denied_workflow_files({target for target in targets if target is not None})
@@ -1280,8 +1281,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prepare_file_system_objects(self.request, refs_by_type)
 
         # A row filed on a surface the team never used before is missed by the sampled surface list. Sample
-        # again after the lock and lock again until the list stays the same. Such a row is new, so its uuid7
-        # id sorts after the rows the first statement locked.
+        # again after the lock. When the list changed, roll the lock back to its savepoint, which releases the
+        # rows, and lock everything again in one statement. Locking only the new row on top could take it out
+        # of id order, because a uuid7 id comes from the time the row was built, not the time it committed.
         any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id, _ in refs_by_type}
         while True:
             rows = Q(pk=instance.pk) | Q(pk__in=list(read_as), path__startswith=f"{instance.path}/")
@@ -1291,10 +1293,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for stored in _stored_spellings(team_id, file_type, refs, any_surface).values():
                     spellings |= stored
                 rows |= Q(any_surface, team_id=team_id, type=file_type, shortcut=False, ref__in=spellings)
-            locked = self._lock_file_rows(rows)
+            savepoint = transaction.savepoint()
+            locked = self._lock_file_rows(rows, without_meta=True)
             resampled = {team_id: _any_surface_q(team_id) for team_id in any_surface_by_team}
             if resampled == any_surface_by_team:
+                transaction.savepoint_commit(savepoint)
                 break
+            transaction.savepoint_rollback(savepoint)
             any_surface_by_team = resampled
 
         target = next((row for row in locked if row.pk == instance.pk), None)

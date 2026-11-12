@@ -1,3 +1,4 @@
+import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from typing import Any
@@ -535,6 +536,13 @@ class TestWorkflowFolders(APIBaseTest):
             ),
             ("folder_delete", "delete", "file_system/{folder_id}/?recursive=true", {}, 1),
             ("template_placement", "get", "messaging_templates/{template_id}/placement/", {}, 0),
+            (
+                "template_restore",
+                "post",
+                "file_system/undo_delete/",
+                {"items": [{"type": "message_template", "ref": "{template_id}"}]},
+                1,
+            ),
         ]
     )
     def test_a_template_file_check_reads_only_the_template_access_fields(
@@ -549,11 +557,13 @@ class TestWorkflowFolders(APIBaseTest):
         FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).update(
             path="Inbox/Large email", depth=2
         )
+        if _name == "template_restore":
+            self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.id}/?recursive=true")
 
         with CaptureQueriesContext(connection) as queries:
             response = getattr(self.client, method)(
                 f"/api/projects/{self.team.id}/{suffix.format(folder_id=folder.id, template_id=template_id)}",
-                {key: value.format(template_id=template_id) for key, value in payload.items()},
+                json.loads(json.dumps(payload).replace("{template_id}", template_id)),
                 **({} if method == "get" else {"format": "json"}),
             )
 
@@ -1454,3 +1464,78 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
         else:
             self.assertEqual(statuses, [200, 404])
             self.assertFalse(FileSystem.objects.filter(team=self.team, path__startswith="Parent").exists())
+
+    def test_a_delete_that_finds_a_new_surface_after_its_lock_relocks_in_id_order(self) -> None:
+        dashboard_id = str(
+            self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Shared"}).json()["id"]
+        )
+        FileSystem.objects.filter(team=self.team, type="dashboard", ref=dashboard_id).delete()
+
+        def file_row(path: str, **fields: Any) -> FileSystem:
+            return FileSystem.objects.create(
+                team=self.team, path=path, depth=1, type="dashboard", ref=dashboard_id, shortcut=False, **fields
+            )
+
+        target = file_row("Target")
+        sibling = file_row("Sibling")
+        early_id = UUID(int=1)
+        other_holds_both = Event()
+
+        def commit_the_early_row_on_a_new_surface() -> None:
+            close_old_connections()
+            try:
+                file_row("Early", id=early_id, surface="synthetic-surface")
+            finally:
+                close_old_connections()
+
+        def lock_the_early_row_then_the_sibling() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic(), connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT id FROM posthog_filesystem WHERE id = ANY(%s) ORDER BY id FOR UPDATE",
+                        [[early_id, sibling.id]],
+                    )
+                    other_holds_both.set()
+            finally:
+                close_old_connections()
+
+        def wait_for_one_blocked_backend() -> None:
+            close_old_connections()
+            try:
+                self._wait_for_blocked_backends(1)
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures: list[Any] = []
+
+            def interleave_after_the_first_lock(
+                execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]
+            ) -> Any:
+                result = execute(sql, params, many, context)
+                if not futures and sql.startswith("SELECT") and "FOR UPDATE" in sql and "posthog_filesystem" in sql:
+                    executor.submit(commit_the_early_row_on_a_new_surface).result(timeout=10)
+                    futures.append(executor.submit(lock_the_early_row_then_the_sibling))
+                    executor.submit(wait_for_one_blocked_backend).result(timeout=15)
+                return result
+
+            def delete_the_target() -> Any:
+                close_old_connections()
+                try:
+                    with connection.execute_wrapper(interleave_after_the_first_lock):
+                        return self.client.delete(f"/api/projects/{self.team.id}/file_system/{target.id}/")
+                finally:
+                    close_old_connections()
+
+            response = executor.submit(delete_the_target).result(timeout=30)
+            self.assertEqual(len(futures), 1)
+            futures[0].result(timeout=15)
+
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertTrue(other_holds_both.is_set())
+        self.assertFalse(FileSystem.objects.filter(pk=target.pk).exists())
+        self.assertEqual(
+            sorted(FileSystem.objects.filter(team=self.team, ref=dashboard_id).values_list("path", flat=True)),
+            ["Early", "Sibling"],
+        )

@@ -2233,6 +2233,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
             q for q in ctx.captured_queries if "FOR UPDATE" in q["sql"] and '"posthog_filesystem"."ref" IN' in q["sql"]
         ]
         self.assertEqual(len(reference_locks), 1, reference_locks)
+        self.assertNotIn('"posthog_filesystem"."meta"', reference_locks[0]["sql"])
 
     def test_undo_delete_function_refuses_to_restore_a_live_object(self):
         flag = FeatureFlag.objects.create(

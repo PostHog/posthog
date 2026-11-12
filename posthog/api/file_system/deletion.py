@@ -176,10 +176,15 @@ def register_file_change_check(type_string: str, check: FileChangeCheck, *, fiel
 # A type registered here has its objects locked before a delete changes them. The lock gets one queryset per
 # type and team, ordered by primary key and loading only `fields`. It must not wait for a lock, because the
 # file system delete calls it while it holds the file rows, and a save of the object locks the object first
-# and the file rows second. The soft delete saves only `fields`, so they must hold every field it writes and
-# every field the save signals read.
+# and the file rows second. The soft delete and the restore load and save only `fields`, so they must hold
+# every field either one writes and every field the save signals read.
 def register_delete_lock(type_string: str, lock: DeleteLock, *, fields: tuple[str, ...]) -> None:
     _DELETE_LOCKS[type_string] = (lock, fields)
+
+
+def _delete_lock_fields(type_string: str) -> tuple[str, ...] | None:
+    registered = _DELETE_LOCKS.get(type_string)
+    return registered[1] if registered else None
 
 
 def lock_file_system_objects(refs: Iterable[FileObjectRef]) -> dict[FileObjectRef, Any]:
@@ -338,8 +343,11 @@ def _get_object(
     ref: str,
     team_id: int | None,
     for_update: bool = False,
+    fields: tuple[str, ...] | None = None,
 ) -> Any:
     queryset = _get_queryset(registration)
+    if fields:
+        queryset = queryset.only(*fields)
     if for_update:
         queryset = queryset.select_for_update()
     filters: dict[str, Any] = {registration.lookup_field: ref, f"{registration.team_field}_id": team_id}
@@ -537,7 +545,7 @@ def get_restorable_object(type_string: str, ref: str, *, team_id: int | None) ->
         return None
 
     try:
-        instance = _get_object(registration, ref=ref, team_id=team_id)
+        instance = _get_object(registration, ref=ref, team_id=team_id, fields=_delete_lock_fields(type_string))
     except (ObjectDoesNotExist, DjangoValidationError, ValueError, TypeError):
         # `ref` is caller-supplied and every model's lookup field rejects a different shape: an
         # integer pk raises ValueError on "oops", a UUID pk raises ValidationError. Those are all
@@ -584,7 +592,9 @@ def undo_delete(
 
     team_id = getattr(team, "id", None)
     try:
-        instance = _get_object(registration, ref=ref, team_id=team_id, for_update=True)
+        instance = _get_object(
+            registration, ref=ref, team_id=team_id, for_update=True, fields=_delete_lock_fields(type_string)
+        )
     except ObjectDoesNotExist as exc:
         raise ValueError(f"Unable to restore {type_string} with ref '{ref}'") from exc
 
