@@ -108,7 +108,7 @@ export async function drive(
                 answer,
                 expect: { deliveries: kind.deliveries },
             })
-            if (answer.accepted && Date.now() <= end) {
+            if (kind.intake !== 'event' || (answer.accepted && Date.now() <= end)) {
                 offeredUnits += 1
             }
         })
