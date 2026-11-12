@@ -234,8 +234,8 @@ tools:
             data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That
             field reports the last run's failure, so it clears once a run succeeds rather than when the update lands.
             sync_frequency takes 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day. Common spellings are
-            mapped for you: hourly or 60min = 1hour, daily or 1day = 24hour, weekly = 7day, monthly = 30day. There is
-            no 'never' value: to stop a table syncing, set should_sync to false."
+            mapped for you: hourly or 60min = 1hour, daily or 1day = 24hour, weekly = 7day, monthly = 30day. There is no
+            'never' value: to stop a table syncing, set should_sync to false."
         exclude_params:
             - drop_history_table
         param_overrides:
@@ -323,8 +323,8 @@ tools:
             such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before
             anything is written, and a schema that fails is reported by name while the rest of the batch is saved.
             Changes take effect on the next sync, not retroactively. sync_frequency takes 5min, 15min, 30min, 1hour,
-            6hour, 12hour, 24hour, 7day or 30day. Common spellings are mapped for you: hourly or 60min = 1hour, daily
-            or 1day = 24hour, weekly = 7day, monthly = 30day. There is no 'never' value: to stop a table syncing, set
+            6hour, 12hour, 24hour, 7day or 30day. Common spellings are mapped for you: hourly or 60min = 1hour, daily or
+            1day = 24hour, weekly = 7day, monthly = 30day. There is no 'never' value: to stop a table syncing, set
             should_sync to false.
         param_overrides:
             id:

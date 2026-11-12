@@ -11714,7 +11714,6 @@ export namespace Schemas {
         | "objectid"
         | "xid";
     /**
-     * * `never` - never
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -11726,7 +11725,6 @@ export namespace Schemas {
      * * `30day` - 30day
      */
     export type SettableSyncFrequencyEnum =
-        | "never"
         | "5min"
         | "15min"
         | "30min"
