@@ -638,7 +638,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert results[4]["matches"][0]["path"] == "SKILL.md"
         assert results[5]["matches"][0]["line"] == 2
 
-    def test_search_skills_by_name_and_description_ignores_bodies_and_files(self):
+    def test_search_skills_in_summary_mode_ignores_bodies_and_files(self):
         self.create_skill(name="needle-name", description="Name match.", body="# Name")
         self.create_skill(name="description-skill", description="Contains the needle here.", body="# needle")
         self.create_skill(name="body-skill", description="Body match.", body="# Body\nContains the needle here.")
@@ -650,7 +650,7 @@ class TestLLMSkillAPI(APIBaseTest):
             content_type="text/markdown",
         )
 
-        response = self.client.get(self._url("search?query=needle&search_fields=name_and_description"))
+        response = self.client.get(self._url("search?query=needle&mode=summary"))
 
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]

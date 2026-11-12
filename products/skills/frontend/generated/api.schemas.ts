@@ -1258,25 +1258,24 @@ export type LlmSkillsResolveNameRetrieveParams = {
 
 export type LlmSkillsSearchRetrieveParams = {
     /**
+     * How much skill text to search. `full` searches names, descriptions, bodies, file paths, and Markdown file contents. `summary` searches only names and descriptions, which is much faster on projects with many or large skills.
+     *
+     * * `full` - Full
+     * * `summary` - Summary
+     * @minLength 1
+     */
+    mode?: LlmSkillsSearchRetrieveMode
+    /**
      * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
      * @minLength 1
      * @maxLength 200
      */
     query: string
-    /**
-     * Which skill text to match. `all` searches names, descriptions, bodies, file paths, and Markdown file contents. `name_and_description` searches only names and descriptions, which is much faster on projects with many or large skills.
-     *
-     * * `all` - All
-     * * `name_and_description` - Name and description
-     * @minLength 1
-     */
-    search_fields?: LlmSkillsSearchRetrieveSearchFields
 }
 
-export type LlmSkillsSearchRetrieveSearchFields =
-    (typeof LlmSkillsSearchRetrieveSearchFields)[keyof typeof LlmSkillsSearchRetrieveSearchFields]
+export type LlmSkillsSearchRetrieveMode = (typeof LlmSkillsSearchRetrieveMode)[keyof typeof LlmSkillsSearchRetrieveMode]
 
-export const LlmSkillsSearchRetrieveSearchFields = {
-    All: 'all',
-    NameAndDescription: 'name_and_description',
+export const LlmSkillsSearchRetrieveMode = {
+    Full: 'full',
+    Summary: 'summary',
 } as const

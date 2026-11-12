@@ -41,7 +41,7 @@ from .skill_analytics import record_skill_event, skill_analytics_props
 from .skill_catalog import list_queryset
 from .skill_manifest import build_skill_manifests
 from .skill_permissions import CommunityPublishFeatureFlagPermission, CommunityPublishOwnerPermission
-from .skill_search import SkillSearchFields, SkillSearchTimeout, search_skills
+from .skill_search import SkillSearchMode, SkillSearchTimeout, search_skills
 from .skill_serializers import (
     LLMSkillCreateSerializer,
     LLMSkillListQuerySerializer,
@@ -187,7 +187,7 @@ class LLMSkillViewSet(
                 self.team,
                 self.user_access_control,
                 cast(str, params["query"]),
-                SkillSearchFields(params["search_fields"]),
+                SkillSearchMode(params["mode"]),
             )
         except SkillSearchTimeout:
             return Response(
