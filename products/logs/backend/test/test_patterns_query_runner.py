@@ -18,6 +18,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import ExecutionMode
 
+from products.logs.backend.models import TeamLogsConfig
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner, _sample_divisor, _time_slices
 
 _FROZEN_NOW = "2026-06-23T13:00:00Z"
@@ -217,6 +218,81 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["patterns"][0]["estimated_count"] == 200
         assert sum(results["patterns"][0]["severity_counts"].values()) == results["patterns"][0]["count"]
         assert 0 < results["patterns"][0]["count"] <= 50
+
+    def _insert_detail_key_set_rows(self) -> str:
+        key_set = "<JSON:detail,fields,level>"
+        self._insert(
+            [
+                {
+                    **self._log(
+                        json.dumps(
+                            {"level": "ERROR", "detail": {"text": f"Disk {i} full"}, "fields": {"message": "flush"}}
+                        ),
+                        severity="error",
+                    ),
+                    "pattern": key_set,
+                    "pattern_version": 6,
+                }
+                for i in range(1, 21)
+            ]
+        )
+        return key_set
+
+    @parameterized.expand(
+        [
+            ("custom_path", ["detail.text"], ["Disk <num> full"]),
+            ("default_keys", None, ["flush"]),
+            ("extraction_off", [], ["<JSON:detail,fields,level>"]),
+        ]
+    )
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_json_key_set_groups_split_by_the_team_message_keys(
+        self, _name: str, keys: list[str] | None, expected: list[str]
+    ) -> None:
+        if keys is not None:
+            TeamLogsConfig.objects.create(team=self.team, logs_pattern_message_keys=keys)
+        self._insert_detail_key_set_rows()
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            results = self._run()
+
+        assert results["source"] == "stored_patterns"
+        assert [pattern["pattern"] for pattern in results["patterns"]] == expected
+        assert results["patterns"][0]["count"] == 20
+
+    @parameterized.expand(
+        [
+            ("custom_key", ["detail.text"], "Disk <num> full"),
+            ("default_keys", None, "flush"),
+        ]
+    )
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_body_mining_extracts_the_team_message_keys(
+        self, _name: str, keys: list[str] | None, expected: str
+    ) -> None:
+        if keys is not None:
+            TeamLogsConfig.objects.create(team=self.team, logs_pattern_message_keys=keys)
+        self._insert_detail_key_set_rows()
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            results = self._run()
+
+        assert results["source"] == "body_mining"
+        assert [pattern["pattern"] for pattern in results["patterns"]] == [expected]
+
+    def test_cache_key_changes_when_the_message_keys_change(self) -> None:
+        query = LogsQuery(
+            dateRange=_WINDOW,
+            filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            severityLevels=[],
+            serviceNames=[],
+        )
+        before = PatternsQueryRunner(team=self.team, query=query).get_cache_key()
+        TeamLogsConfig.objects.create(team=self.team, logs_pattern_message_keys=["detail.text"])
+
+        after = PatternsQueryRunner(team=self.team, query=query).get_cache_key()
+
+        assert before != after
 
     @parameterized.expand([(False, 100, "flag_disabled"), (True, 98, "insufficient_version_coverage")])
     @time_machine.travel(_FROZEN_NOW, tick=False)

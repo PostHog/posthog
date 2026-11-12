@@ -1311,7 +1311,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'logs-pattern-message-keys',
                 title: 'Pattern message extraction',
                 description:
-                    'Choose which JSON keys provide the message used to group logs into patterns. Keys are matched literally at the top level, in order. This does not change the stored log body.',
+                    'Choose which JSON keys provide the message used to group logs into patterns. Keys are checked in order. A key with a dot, such as fields.message, also reads a nested key when no top-level key has that exact name. This does not change the stored log body.',
                 component: <LogsPatternMessageKeys />,
                 keywords: ['log', 'pattern', 'message', 'extract', 'json', 'group'],
             },

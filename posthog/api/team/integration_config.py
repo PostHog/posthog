@@ -27,7 +27,7 @@ from products.experiments.backend.facade.enums import (
     MIN_RECALCULATION_GAP_HOURS,
 )
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
-from products.logs.backend.models import TeamLogsConfig
+from products.logs.backend.models import DEFAULT_LOGS_PATTERN_MESSAGE_KEYS, TeamLogsConfig
 from products.tracing.backend.facade.team_extension import TeamTracingConfig
 
 from . import settings_validation
@@ -86,15 +86,16 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
     logs_pattern_message_keys = serializers.ListField(
         child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
         allow_empty=True,
-        max_length=10,
+        max_length=20,
         help_text=(
-            "Ordered list of top-level JSON keys whose value is the message text that log "
-            "patterns are derived from. Keys are matched literally at the top level of the log "
-            "body; a dot in a key is part of the key name, not a path into nested objects. "
-            "Selection checks keys in order; the first key whose value is a non-empty string "
-            "wins. Defaults to ['message', 'msg', 'event']. An empty list "
-            "turns message extraction off, so JSON log bodies group by their key set instead. "
-            "The stored log body is never changed by this setting."
+            "Ordered list of JSON keys whose value is the message text that log patterns are "
+            "derived from. Selection checks keys in order; the first key whose value is a "
+            "non-empty string wins. A key first matches a literal top-level key, so a dot can be "
+            "part of the key name. When no such key holds a message, a dotted key such as "
+            "'fields.message' is read as a path into nested objects when patterns are mined at "
+            f"query time. Defaults to {DEFAULT_LOGS_PATTERN_MESSAGE_KEYS}. An empty list turns message extraction "
+            "off, so JSON log bodies group by their key set instead. The stored log body is never "
+            "changed by this setting."
         ),
     )
 

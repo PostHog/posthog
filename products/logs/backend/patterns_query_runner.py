@@ -35,6 +35,7 @@ from products.logs.backend.log_patterns import (
     split_json_key_set_group,
 )
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
+from products.logs.backend.models import resolved_pattern_message_keys
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -97,7 +98,13 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             payload["use_stored_patterns"] = False
         if self.json_split_members is not None:
             payload["json_split_members"] = sorted(self.json_split_members)
+        # Without the keys, a cached response would keep the old patterns after a team changes them.
+        payload["pattern_message_keys"] = self._message_keys
         return payload
+
+    @cached_property
+    def _message_keys(self) -> list[str]:
+        return resolved_pattern_message_keys(self.team)
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
@@ -229,7 +236,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 self.query_date_range.date_from(), self.query_date_range.date_to(), self._sparkline_bucket_count
             )
         )
-        patterns = mine_patterns(samples, buckets=buckets)
+        patterns = mine_patterns(samples, buckets=buckets, message_keys=self._message_keys)
         # `sampled` mirrors the exact condition `_serialize` uses to extrapolate: it's True
         # whenever fewer rows were scanned than the window held (hash-mod sampling OR time-slice
         # bounding), so the flag can never diverge from whether the reported counts are estimates.
@@ -333,6 +340,8 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         however large the logged records are. A cut body no longer parses as JSON, so its row stays
         in the key-set group rather than being split by message.
         """
+        if not self._message_keys:
+            return patterns, False
         candidates = [
             pattern
             for pattern in patterns
@@ -381,7 +390,9 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 )
             )
         replacements = {
-            id(pattern): split_json_key_set_group(pattern, group_samples, buckets=buckets)
+            id(pattern): split_json_key_set_group(
+                pattern, group_samples, buckets=buckets, message_keys=self._message_keys
+            )
             for group_id, pattern in enumerate(candidates, start=1)
             if (group_samples := samples.get(group_id))
         }

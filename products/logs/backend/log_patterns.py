@@ -3,7 +3,7 @@ import re
 import json
 import datetime as dt
 from bisect import bisect_right
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TypeVar
 from urllib.parse import quote
@@ -214,21 +214,22 @@ class _PreparedBody:
     from_json: bool
 
 
-# Paths checked (in order) for the human-readable message inside a JSON body. The top-level keys
-# match Loki's pattern-ingester default list plus "event" (structlog's convention); Datadog's JSON
-# preprocessing remaps the same core keys (message/msg/log) to the log body. Rust `tracing` nests
-# its message under "fields".
-_JSON_MESSAGE_PATHS: tuple[tuple[str, ...], ...] = (
-    ("message",),
-    ("msg",),
-    ("log",),
-    ("msg_",),
-    ("_msg",),
-    ("content",),
-    ("event",),
-    ("fields", "message"),
-    ("error",),
-    ("fields", "error"),
+# Default message keys, checked in order, for the human-readable message inside a JSON body. The
+# top-level keys match Loki's pattern-ingester default list plus "event" (structlog's convention);
+# Datadog's JSON preprocessing remaps the same core keys (message/msg/log) to the log body. Rust
+# `tracing` nests its message under "fields". A team's `logs_pattern_message_keys` setting replaces
+# this list, and the setting's default is this list.
+DEFAULT_MESSAGE_KEYS: tuple[str, ...] = (
+    "message",
+    "msg",
+    "log",
+    "msg_",
+    "_msg",
+    "content",
+    "event",
+    "fields.message",
+    "error",
+    "fields.error",
 )
 
 # Raw example bodies (the predicate validation corpus) are kept at a multiple of the mining
@@ -237,7 +238,19 @@ _JSON_MESSAGE_PATHS: tuple[tuple[str, ...], ...] = (
 _RAW_EXAMPLE_CAP_MULTIPLIER = 4
 
 
-def _prepare_json_body(body: str) -> str | None:
+def _json_message(parsed: dict, key: str) -> str | None:
+    # The literal top-level key comes first, so a flat key that contains a dot, such as
+    # "log.message" from a shipper that flattens objects, keeps the meaning it has at ingestion.
+    # Only when that lookup finds no message does the key act as a dot path into nested objects.
+    value: object = parsed.get(key)
+    if not (isinstance(value, str) and value.strip()) and "." in key:
+        value = parsed
+        for segment in key.split("."):
+            value = value.get(segment) if isinstance(value, dict) else None
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _prepare_json_body(body: str, message_keys: Sequence[str]) -> str | None:
     """Return the message-like field of a JSON log body, or None when there is no such field.
 
     Drain tokenizes on spaces, so a raw JSON blob is punctuation-glued junk: values sit fused
@@ -252,6 +265,8 @@ def _prepare_json_body(body: str) -> str | None:
     message is exempt because it is a literal substring of the raw row, which is what the
     unanchored variant in compile_match_regex matches against.
     """
+    if not message_keys:
+        return None
     # Shippers (Fluentd, Vector, Docker's json-file driver) sometimes deliver a BOM or
     # leading whitespace before the object — that must not demote the body to prose mining.
     body = body.lstrip("﻿ \t\r\n")
@@ -267,12 +282,9 @@ def _prepare_json_body(body: str) -> str | None:
     if not isinstance(parsed, dict):
         return None
 
-    for path in _JSON_MESSAGE_PATHS:
-        value: object = parsed
-        for key in path:
-            value = value.get(key) if isinstance(value, dict) else None
-        if isinstance(value, str) and value.strip():
-            return value
+    for key in message_keys:
+        if (message := _json_message(parsed, key)) is not None:
+            return message
 
     return None
 
@@ -282,12 +294,12 @@ def is_json_key_set_pattern(pattern: str) -> bool:
     return pattern.startswith("<JSON:")
 
 
-def _prepare_body(body: str, truncate: int) -> _PreparedBody:
+def _prepare_body(body: str, truncate: int, message_keys: Sequence[str]) -> _PreparedBody:
     # A JSON body carrying a message field is reduced to it (see _prepare_json_body); every
     # other body, JSON or prose, passes through unchanged.
     # Then collapse newlines / whitespace runs so multi-line bodies (stack traces) mine as a
     # single line, and bound length to keep Drain's parse tree and memory in check.
-    message = _prepare_json_body(body)
+    message = _prepare_json_body(body, message_keys)
     from_json = message is not None
     collapsed = _WHITESPACE_RE.sub(" ", body if message is None else message).strip()
     if len(collapsed) <= truncate:
@@ -438,6 +450,7 @@ def mine_patterns(
     max_examples: int | None = None,
     max_services: int | None = None,
     buckets: list[tuple[dt.datetime, dt.datetime]] | None = None,
+    message_keys: Sequence[str] = DEFAULT_MESSAGE_KEYS,
 ) -> list[MinedPattern]:
     """Cluster masked log bodies into templates via Drain3.
 
@@ -465,7 +478,7 @@ def mine_patterns(
     accumulators: dict[int, _Accumulator] = {}
 
     for sample in samples:
-        prepared = _prepare_body(sample.body, truncate)
+        prepared = _prepare_body(sample.body, truncate, message_keys)
         cluster, _change_type = drain.add_log_message(masker.mask(prepared.text))
         cluster_id = cluster.cluster_id
 
@@ -595,14 +608,16 @@ def split_json_key_set_group(
     samples: list[LogSample],
     *,
     buckets: list[tuple[dt.datetime, dt.datetime]],
+    message_keys: Sequence[str],
 ) -> list[MinedPattern]:
     """Split a stored JSON key-set group into the messages its rows carry.
 
     Ingestion reduces a JSON object body without a top-level message key to its key set, so every
     line from one logger shape lands in one group, whatever it says. Rust `tracing` output is the
-    common case: the message sits under "fields". Mining the sampled rows with the nested message
-    paths recovers what they say. The split patterns pivot with `match_regex` rather than
-    `match_patterns`, because each one covers only part of a stored pattern.
+    common case: the message sits under "fields". Mining the sampled rows with the team's message
+    keys, which can name nested paths, recovers what they say. The split patterns pivot with
+    `match_regex` rather than `match_patterns`, because each one covers only part of a stored
+    pattern.
 
     Counts are scaled from the sample to the group's exact count, so they are estimates whenever
     the sample is smaller than the group. Rows that carry no message stay in the key-set group,
@@ -611,7 +626,7 @@ def split_json_key_set_group(
     with_message: list[LogSample] = []
     residual: list[LogSample] = []
     for sample in samples:
-        (residual if _prepare_json_body(sample.body) is None else with_message).append(sample)
+        (residual if _prepare_json_body(sample.body, message_keys) is None else with_message).append(sample)
     if not with_message:
         return [group]
     scale = group.count / len(samples)
@@ -630,7 +645,7 @@ def split_json_key_set_group(
             sample_count=pattern.count,
             sample_error_count=pattern.error_count,
         )
-        for pattern in mine_patterns(with_message, buckets=buckets)
+        for pattern in mine_patterns(with_message, buckets=buckets, message_keys=message_keys)
     ]
     if residual:
         severities: dict[str, int] = {}

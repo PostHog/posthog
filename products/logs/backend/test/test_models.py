@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 
 from django.apps import apps
 from django.core.exceptions import ValidationError
+from django.db import connection
 
 from parameterized import parameterized
 
@@ -13,6 +14,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.logs.backend.models import (
     DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    DEFAULT_LOGS_PATTERN_MESSAGE_KEYS,
     DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
     MAX_EVALUATION_PERIODS,
     LogsAlertConfiguration,
@@ -313,3 +315,12 @@ class TestTeamLogsConfig(BaseTest):
         self.team.delete()
 
         assert not TeamLogsConfig.objects.filter(team_id=team_id).exists()
+
+
+class TestPatternMessageKeys(BaseTest):
+    def test_database_default_matches_the_model_default(self):
+        # Ingestion reads the column directly, and rows written outside the ORM get the database default.
+        with connection.cursor() as cursor:
+            cursor.execute("INSERT INTO logs_teamlogsconfig (team_id) VALUES (%s)", [self.team.id])
+
+        assert TeamLogsConfig.objects.get(team=self.team).logs_pattern_message_keys == DEFAULT_LOGS_PATTERN_MESSAGE_KEYS

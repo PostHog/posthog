@@ -19,6 +19,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationView,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.logs.backend.log_patterns import DEFAULT_MESSAGE_KEYS
 from products.logs.backend.platform_source_config import filters_of
 
 if TYPE_CHECKING:
@@ -71,11 +72,12 @@ def default_logs_session_id_attribute_keys() -> list[str]:
     return list(DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS)
 
 
-# Default top-level JSON keys that hold the message text a log pattern is derived from.
-# Keys match literally, so a dot is part of the name and never a path. Ordered: selection
-# checks keys in list order and the first key whose value is a non-empty string wins. An
+# Default JSON keys that hold the message text a log pattern is derived from. Ordered: selection
+# checks keys in list order and the first key whose value is a non-empty string wins. A key first
+# matches a literal top-level key, so a dot can be part of the name. When that finds no message,
+# query-time mining follows a dotted key as a path into nested objects, and ingestion does not. An
 # empty list turns extraction off, so JSON bodies group by their key set instead.
-DEFAULT_LOGS_PATTERN_MESSAGE_KEYS = ["message", "msg", "event"]
+DEFAULT_LOGS_PATTERN_MESSAGE_KEYS = list(DEFAULT_MESSAGE_KEYS)
 
 
 def default_logs_pattern_message_keys() -> list[str]:
@@ -111,6 +113,13 @@ def resolved_distinct_id_attribute_keys(team) -> list[str]:
     config = TeamLogsConfig.objects.filter(team=team).first()
     configured = (config.logs_distinct_id_attribute_keys if config else None) or DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS
     return list(dict.fromkeys([*configured, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+
+
+def resolved_pattern_message_keys(team) -> list[str]:
+    """The team's pattern message keys, or the default when the team has no config row. An empty
+    saved list is kept, because it turns extraction off."""
+    config = TeamLogsConfig.objects.filter(team=team).first()
+    return list(config.logs_pattern_message_keys) if config else list(DEFAULT_LOGS_PATTERN_MESSAGE_KEYS)
 
 
 def resolved_session_id_attribute_keys(team) -> list[str]:
@@ -157,15 +166,14 @@ class TeamLogsConfig(models.Model):
         db_default=Value("{posthogSessionId}"),
     )
 
-    # Ordered list of top-level JSON keys whose value is the message text that log patterns are
-    # derived from. Matched literally, so `log.message` names one key and never descends. The
-    # first key in order whose value is a non-empty string wins. An empty list
-    # turns extraction off. Read by the logs ingestion consumer, so this only shapes the
-    # stored `pattern` column and never rewrites the log body.
+    # Ordered list of JSON keys whose value is the message text that log patterns are derived
+    # from. See DEFAULT_LOGS_PATTERN_MESSAGE_KEYS for how a key matches. Read by the logs
+    # ingestion consumer and by the patterns query runner, so this only shapes patterns and never
+    # rewrites the log body. db_default must hold the same list as DEFAULT_LOGS_PATTERN_MESSAGE_KEYS.
     logs_pattern_message_keys = ArrayField(
         models.CharField(max_length=200),
         default=default_logs_pattern_message_keys,
-        db_default=Value("{message,msg,event}"),
+        db_default=Value("{message,msg,log,msg_,_msg,content,event,fields.message,error,fields.error}"),
     )
 
 

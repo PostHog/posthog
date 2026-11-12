@@ -232,9 +232,15 @@ INVALID_KEY_LISTS = [
     ("whitespace_entry", ["posthogSessionId", "   "]),
     ("duplicate_keys", ["session.id", "session.id"]),
     ("duplicate_after_trim", ["session.id", " session.id "]),
-    ("too_many_keys", [f"key{i}" for i in range(11)]),
     ("key_over_max_length", ["x" * 201]),
 ]
+
+# The pattern list allows more keys because its default already holds ten.
+MAX_KEYS = {
+    "logs_distinct_id_attribute_keys": 10,
+    "logs_session_id_attribute_keys": 10,
+    "logs_pattern_message_keys": 20,
+}
 
 
 class TestTeamLogsConfigSerializerValidation(SimpleTestCase):
@@ -246,6 +252,15 @@ class TestTeamLogsConfigSerializerValidation(SimpleTestCase):
 
         self.assertFalse(serializer.is_valid())
         self.assertIn(field, serializer.errors)
+
+    @parameterized.expand(list(MAX_KEYS.items()))
+    def test_accepts_keys_up_to_the_field_limit(self, field: str, limit: int):
+        accepted = TeamLogsConfigSerializer(data={field: [f"key{i}" for i in range(limit)]}, partial=True)
+        rejected = TeamLogsConfigSerializer(data={field: [f"key{i}" for i in range(limit + 1)]}, partial=True)
+
+        self.assertTrue(accepted.is_valid())
+        self.assertFalse(rejected.is_valid())
+        self.assertIn(field, rejected.errors)
 
     @parameterized.expand([(field,) for field in NON_EMPTY_KEY_LIST_FIELDS])
     def test_rejects_empty_list(self, field: str):
