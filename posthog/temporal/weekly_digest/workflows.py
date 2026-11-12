@@ -258,7 +258,7 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
                         common=input.common,
                         organization_ids=input.organization_ids,
                     ),
-                    # Batches share the pace of the posts to the digest workflow, so a batch can wait well past 30 minutes.
+                    # Batches share the pace of the captures for Workflows, so a batch can wait well past 30 minutes.
                     start_to_close_timeout=timedelta(hours=2),
                     retry_policy=common.RetryPolicy(
                         maximum_attempts=2,

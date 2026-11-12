@@ -335,8 +335,8 @@ class TeamDigest(BaseModel):
         self,
         product_suggestion: "DigestProductSuggestion | None" = None,
     ) -> dict[str, str | int | dict[str, list | dict | int]]:
-        # A project can create thousands of events in a week, and the webhook refuses a large body. The email
-        # lists only the first few events and reads the total from new_event_definitions_count.
+        # A project can create thousands of events in a week, and the email lists only the first few.
+        # The count carries the rest, so a limited payload still renders the same email.
         event_definitions = self.event_definitions.model_dump()[:EMAIL_EVENT_DEFINITIONS_LIMIT]
         report: dict[str, list | dict | int] = {
             "new_dashboards": self.dashboards.model_dump(),
