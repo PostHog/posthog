@@ -1535,6 +1535,14 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect((await rowOf(id)).pending_wake.wait_condition).toMatchObject(match)
             })
 
+            it('records a match whose event name contains a NUL byte', async () => {
+                const id = await parkOutOfReach()
+
+                await record(id, { ...match, eventName: 'wakeup\u0000event' })
+
+                expect((await rowOf(id)).pending_wake.wait_condition.eventName).toBe('wakeup\uFFFDevent')
+            })
+
             it('does not rewrite the row when the same wake arrives again', async () => {
                 const id = await parkOutOfReach()
                 await record(id, match)

@@ -20,6 +20,7 @@ import {
 } from '~/common/config/kafka-topics'
 import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { sanitizeJsonbValue } from '~/common/utils/db/utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -628,7 +629,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     continue
                 }
                 updateIds.push(row.id)
-                updateWakes.push(JSON.stringify(changed))
+                updateWakes.push(sanitizeJsonbValue(changed))
                 updateWakeNow.push(
                     row.status === 'available' &&
                         row.action_id in changed &&
