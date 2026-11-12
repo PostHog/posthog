@@ -23,8 +23,6 @@ export function AreaFilters(): JSX.Element {
                         label: `${entry.owner} · ${pluralize(entry.pr_count, 'PR')}`,
                     }))}
                     loading={ownersLoading}
-                    // A person or a team with no recent pull requests is not in the list, but can still be typed.
-                    allowCustomValues
                     placeholder="Pick your team"
                     data-attr="stamphog-area-team"
                 />

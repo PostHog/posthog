@@ -21,20 +21,12 @@ export function AreaList(): JSX.Element {
     const { loadRuns } = useActions(stamphogAreaSceneLogic)
 
     if (!owner) {
-        return (
-            <LemonBanner type="info" data-attr="stamphog-area-no-team">
-                Pick your team to see the pull requests that changed code it owns.
-            </LemonBanner>
-        )
+        return <LemonBanner type="info">Pick your team to see the pull requests that changed code it owns.</LemonBanner>
     }
 
     if (runsFailed) {
         return (
-            <LemonBanner
-                type="error"
-                action={{ children: 'Try again', onClick: () => loadRuns() }}
-                data-attr="stamphog-area-error"
-            >
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadRuns() }}>
                 Couldn't load pull requests. Try again, and if it keeps happening, contact support.
             </LemonBanner>
         )
@@ -52,7 +44,7 @@ export function AreaList(): JSX.Element {
     if (groups.length === 0) {
         const windowLabel = AREA_WINDOW_OPTIONS.find((option) => option.value === windowDays)?.label.toLowerCase()
         return (
-            <LemonBanner type="info" data-attr="stamphog-area-empty">
+            <LemonBanner type="info">
                 No pull requests changed {owner}'s code in the {windowLabel}.
             </LemonBanner>
         )

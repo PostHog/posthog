@@ -170,7 +170,7 @@ const WHY_BY_OUTCOME: Record<RoutingOwnerOutcomeEnumApi, (decision: StamphogRout
     [RoutingOwnerOutcomeEnumApi.NotRequested]: (decision) =>
         decision.reason === RoutingOwnerReasonEnumApi.StamphogApproved
             ? 'Stamphog approved it, so your team was not asked.'
-            : `Stamphog approved it, so your team was not asked. Without the approval, your team would have been asked because ${REASON_PHRASE[decision.reason]}.`,
+            : `Your team would have been asked because ${REASON_PHRASE[decision.reason]}, but stamphog approved it first.`,
     [RoutingOwnerOutcomeEnumApi.Cut]: () =>
         'Your part of the change was small, so a review from your team was not needed.',
 }
