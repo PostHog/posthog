@@ -4,10 +4,11 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import { IconInfo, IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { IconExpand45, IconInfo, IconPin, IconPinFilled } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
@@ -294,6 +295,7 @@ function ColumnHeaderTitle({
 
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
+    const [expandedCell, setExpandedCell] = useState<{ title: string; value: string } | null>(null)
 
     const {
         tableRows,
@@ -487,7 +489,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 const sourceColumnName = cell.sourceColumnName ?? column.name
                 const columnFormat = getColumnFormat(response, sourceColumnName)
 
-                return (
+                const content = (
                     <div className="truncate" title={getCellTitle(cell)}>
                         {renderColumn(
                             sourceColumnName,
@@ -505,6 +507,34 @@ export const Table = (props: TableProps): JSX.Element => {
                         )}
                     </div>
                 )
+                const canExpand =
+                    typeof cell.value === 'string' || (cell.value !== null && typeof cell.value === 'object')
+                return canExpand ? (
+                    <div className="group flex items-start gap-1 min-w-0">
+                        <div className="min-w-0 flex-1">{content}</div>
+                        <LemonButton
+                            className="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            size="xsmall"
+                            noPadding
+                            icon={<IconExpand45 />}
+                            aria-label={`View full value of ${sourceColumnName}`}
+                            tooltip="View full value"
+                            onClick={(event) => {
+                                event.stopPropagation()
+                                setExpandedCell({
+                                    title: sourceColumnName,
+                                    value:
+                                        typeof cell.value === 'string'
+                                            ? cell.value
+                                            : JSON.stringify(cell.value, null, 2),
+                                })
+                                posthog.capture('sql table cell expanded', { value_type: typeof cell.value })
+                            }}
+                        />
+                    </div>
+                ) : (
+                    content
+                )
             },
             style: (_, data) => {
                 const backgroundColor = resolveConditionalFormattingBackground(data.rowIndex)
@@ -521,6 +551,28 @@ export const Table = (props: TableProps): JSX.Element => {
 
     return (
         <>
+            <LemonModal
+                isOpen={expandedCell !== null}
+                onClose={() => setExpandedCell(null)}
+                title={expandedCell?.title ?? 'Cell value'}
+                width={720}
+                footer={
+                    <LemonButton
+                        type="primary"
+                        onClick={() => {
+                            if (expandedCell) {
+                                void copyToClipboard(expandedCell.value, 'cell value')
+                            }
+                        }}
+                    >
+                        Copy value
+                    </LemonButton>
+                }
+            >
+                <pre className="ph-no-capture m-0 max-h-[60vh] overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
+                    {expandedCell?.value}
+                </pre>
+            </LemonModal>
             {hogVmLoadFailed ? (
                 <LemonBanner
                     type="warning"
