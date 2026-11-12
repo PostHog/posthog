@@ -620,6 +620,39 @@ export function serverDetailOf(error: unknown): string | undefined {
     return undefined
 }
 
+// Analytics-safe shapes: a snake_case code and a DRF field path. Anything else in the body is
+// free text that can hold caller input, so it never reaches analytics.
+const API_ERROR_CODE_PATTERN = /^[a-z][a-z0-9_]{0,63}$/
+const API_ERROR_ATTR_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,127}$/
+
+export interface ApiErrorIdentifiers {
+    code?: string
+    attr?: string
+}
+
+/**
+ * The machine-readable `code` and field `attr` of an API error body, for analytics. Reads a top-level
+ * object or the first item of a list, and keeps a value only when it looks like an identifier.
+ * `detail`, `message` and every other field are never read.
+ */
+export function parseApiErrorIdentifiers(body: string): ApiErrorIdentifiers {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(body)
+    } catch {
+        return {}
+    }
+    const source = Array.isArray(parsed) ? parsed[0] : parsed
+    if (source === null || typeof source !== 'object') {
+        return {}
+    }
+    const { code, attr } = source as { code?: unknown; attr?: unknown }
+    return {
+        ...(typeof code === 'string' && API_ERROR_CODE_PATTERN.test(code) ? { code } : {}),
+        ...(typeof attr === 'string' && API_ERROR_ATTR_PATTERN.test(attr) ? { attr } : {}),
+    }
+}
+
 function drfDetail(body: string): string | undefined {
     try {
         const detail = (JSON.parse(body) as { detail?: unknown } | null)?.detail

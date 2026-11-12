@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-import httpx
 import requests
 
 from posthog.egress.github.transport import github_request
@@ -14,13 +13,9 @@ COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 NULL_COMMIT_SHA = "0" * 40
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_EGRESS_SOURCE = "knowledge_writer"
-SITEMAP_URL = "https://posthog.com/sitemap/sitemap-0.xml"
-DOCS_URL_PREFIX = "https://posthog.com/docs/"
-PUBLISHED_DOCS_DIRECTORY = "docs/published/docs"
-PUBLISHED_DOCS_EXTENSIONS = (".md", ".mdx")
-TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"MEMBER", "OWNER"})
-SITEMAP_DOCS_URL_PATTERN = re.compile(r"<loc>(https://posthog\.com/docs/[^<]+)</loc>")
 DIFF_FILE_HEADER_PATTERN = re.compile(r"^diff --git a/\S+ b/(\S+)$")
+MAX_READ_PAGES = 8
+MAX_PAGE_SOURCE_CHARACTERS = 20_000
 GENERATED_ATTRIBUTES = frozenset({"linguist-generated", "linguist-generated=true"})
 TEST_PATH_PATTERN = re.compile(
     r"(^|/)(tests?|__tests__|__snapshots__)/|(^|/)test_[^/]+\.py$|\.(test|spec|stories)\.[jt]sx?$"
@@ -32,7 +27,6 @@ class MergedPullRequest:
     number: int
     title: str
     url: str
-    is_trusted_author: bool
 
 
 @dataclass(frozen=True)
@@ -92,10 +86,26 @@ def read_github(
     endpoint: str,
     params: dict[str, str | int] | None = None,
     headers: dict[str, str] | None = None,
+    priority: Priority = Priority.NORMAL,
 ) -> requests.Response:
+    response = github.api_request("GET", path, endpoint=endpoint, params=params, headers=headers, priority=priority)
+    response.raise_for_status()
+    return response
+
+
+def read_github_or_none(
+    github: GitHubReader,
+    path: str,
+    *,
+    endpoint: str,
+    params: dict[str, str | int] | None = None,
+    headers: dict[str, str] | None = None,
+) -> requests.Response | None:
     response = github.api_request(
         "GET", path, endpoint=endpoint, params=params, headers=headers, priority=Priority.NORMAL
     )
+    if response.status_code == 404:
+        return None
     response.raise_for_status()
     return response
 
@@ -146,7 +156,6 @@ def merged_pull_request(listed: Mapping[str, Any], commit_sha: str) -> MergedPul
         number=listed["number"],
         title=listed["title"],
         url=listed["html_url"],
-        is_trusted_author=listed.get("author_association") in TRUSTED_AUTHOR_ASSOCIATIONS,
     )
 
 
@@ -203,17 +212,15 @@ def is_test_path(path: str) -> bool:
 
 
 def read_generated_path_patterns(github: GitHubReader, repository: str, commit_sha: str) -> list[str]:
-    response = github.api_request(
-        "GET",
+    response = read_github_or_none(
+        github,
         f"/repos/{repository}/contents/.gitattributes",
         endpoint="/repos/{owner}/{repo}/contents/{path}",
         params={"ref": commit_sha},
         headers={"Accept": "application/vnd.github.raw"},
-        priority=Priority.NORMAL,
     )
-    if response.status_code == 404:
+    if response is None:
         return []
-    response.raise_for_status()
     attribute_lines = [line.split() for line in response.text.splitlines() if not line.startswith("#")]
     return [
         fields[0].lstrip("/")
@@ -230,23 +237,19 @@ def is_generated_path(path: str, generated_path_patterns: list[str]) -> bool:
     )
 
 
-def is_published_from_repository(github: GitHubReader, repository: str, commit_sha: str, page_path: str) -> bool:
-    for extension in PUBLISHED_DOCS_EXTENSIONS:
-        response = github.api_request(
-            "GET",
-            f"/repos/{repository}/contents/{PUBLISHED_DOCS_DIRECTORY}/{page_path.strip('/')}{extension}",
+def read_page_sources(
+    github: GitHubReader, docs_repository: str, source_path_by_key: Mapping[str, str], *, docs_commit_sha: str | None
+) -> dict[str, str]:
+    page_text_by_key: dict[str, str] = {}
+    for page_key, source_path in list(source_path_by_key.items())[:MAX_READ_PAGES]:
+        response = read_github_or_none(
+            github,
+            f"/repos/{docs_repository}/contents/{source_path}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
-            params={"ref": commit_sha},
-            priority=Priority.NORMAL,
+            params={"ref": docs_commit_sha} if docs_commit_sha else None,
+            headers={"Accept": "application/vnd.github.raw"},
         )
-        if response.status_code == 200:
-            return True
-        if response.status_code != 404:
-            response.raise_for_status()
-    return False
-
-
-def read_docs_page_urls(http: httpx.Client) -> list[str]:
-    response = http.get(SITEMAP_URL)
-    response.raise_for_status()
-    return SITEMAP_DOCS_URL_PATTERN.findall(response.text)
+        if response is None:
+            continue
+        page_text_by_key[page_key] = response.text[:MAX_PAGE_SOURCE_CHARACTERS]
+    return page_text_by_key

@@ -14,6 +14,7 @@ from django.db.models import Prefetch
 
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.dataclasses import frozen
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models import Organization, OrganizationMembership, Team, User
 
 from products.access_control.backend.facade.resolution_preview import deciding_subject_row
@@ -43,7 +44,10 @@ class MemberProjectAccess:
 
 
 def _visible_memberships(
-    organization: Organization, requester: OrganizationMembership, member_id: Optional[UUID]
+    organization: Organization,
+    requester: OrganizationMembership,
+    member_id: Optional[UUID],
+    email: Optional[str],
 ) -> list[OrganizationMembership]:
     memberships = (
         OrganizationMembership.objects.filter(organization=organization, user__is_active=True)
@@ -54,6 +58,8 @@ def _visible_memberships(
     )
     if member_id is not None:
         memberships = memberships.filter(id=member_id)
+    if email is not None:
+        memberships = memberships.filter(user__in=EmailLookupHandler.users_matching_email(email))
     # The same roster the members list shows: a restricted member sees only their project peers
     if not organization.members_can_see_org_members and requester.level < OrganizationMembership.Level.ADMIN:
         visible_ids = get_project_scoped_visible_membership_ids(organization, requester)
@@ -81,13 +87,14 @@ def member_project_access(
     user: User,
     *,
     member_id: Optional[UUID] = None,
+    email: Optional[str] = None,
 ) -> list[MemberProjectAccess]:
     """Every visible member's resolved access to every project the requester can reach.
 
     `requester` is `user`'s membership of `organization`. Projects the requester cannot access
     are left out, so a member never learns about projects hidden from them.
     """
-    memberships = _visible_memberships(organization, requester, member_id)
+    memberships = _visible_memberships(organization, requester, member_id, email)
     if not memberships:
         return []
 

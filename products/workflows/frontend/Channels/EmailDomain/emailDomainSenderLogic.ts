@@ -47,6 +47,7 @@ export interface emailDomainSenderLogicValues {
     senderConfig: EmailSenderConfig | null
     senderFailed: boolean
     senderLoading: boolean
+    senderMissing: boolean
     senderName: string
     senderNameChanged: boolean
     senderSaving: boolean
@@ -115,6 +116,9 @@ export interface emailDomainSenderLogicActions {
         testSendResult: HogflowTestResult | null
         payload?: any
     }
+    senderNotFound: () => {
+        value: true
+    }
     senderSaved: (sender: IntegrationConfigApi) => {
         sender: IntegrationConfigApi
     }
@@ -159,8 +163,9 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
         senderSaved: (sender: IntegrationConfigApi) => ({ sender }),
         saveSenderFailed: true,
         recordSetupMethod: (method: EmailSetupMethod) => ({ method }),
+        senderNotFound: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         sender: [
             null as IntegrationConfigApi | null,
             {
@@ -169,7 +174,15 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
                     if (!integrationId || !currentTeamId) {
                         return null
                     }
-                    return await integrationsRetrieve(String(currentTeamId), integrationId)
+                    try {
+                        return await integrationsRetrieve(String(currentTeamId), integrationId)
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status === 404) {
+                            actions.senderNotFound()
+                            return null
+                        }
+                        throw error
+                    }
                 },
                 recordSetupMethod: async ({ method }): Promise<IntegrationConfigApi | null> => {
                     const { integrationId, currentTeamId, senderConfig, sender } = values
@@ -226,6 +239,13 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
             {
                 loadSender: () => false,
                 loadSenderFailure: () => true,
+            },
+        ],
+        senderMissing: [
+            false,
+            {
+                loadSender: () => false,
+                senderNotFound: () => true,
             },
         ],
         senderName: [
@@ -301,6 +321,10 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
                         'Could not save the sender name. Try again in a moment.'
                 )
             }
+        },
+        senderNotFound: () => {
+            // The Channels list that opened this sender is stale, so refresh it to drop the deleted row.
+            actions.loadIntegrations()
         },
         senderSaved: () => {
             actions.loadIntegrations()

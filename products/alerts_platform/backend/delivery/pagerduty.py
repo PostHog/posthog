@@ -94,7 +94,8 @@ def pagerduty_body(message: AlertMessage, *, routing_key: str, severity: PagerDu
         "severity": severity.value,
         "timestamp": rfc3339(transition.occurred_at),
         "custom_details": {
-            **{detail.label: detail.value for detail in message.details},
+            # The platform's details come last, so a rule entry with the same name cannot replace one.
+            **{detail.label: detail.value for detail in (*message.rule_details, *message.details)},
             "delivered_by": SOURCE,
             "configuration_id": message.configuration_id,
         },

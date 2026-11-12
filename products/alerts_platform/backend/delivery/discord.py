@@ -57,7 +57,7 @@ def _footer(message: AlertMessage) -> str:
 
 def _body(message: AlertMessage, limit: int) -> str:
     headline = f"**{escape_markdown(message.title)}**"
-    lines = [f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.details]
+    lines = [f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.all_details]
     if not lines:
         return headline
     body = f"{headline}\n\n" + "\n".join(lines)

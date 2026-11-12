@@ -35,6 +35,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformControlChangePage,
     PlatformControlHistory,
     PlatformLastCheck,
+    RuleMetadata,
 )
 from products.alerts_platform.backend.facade.enums import (
     PlatformAlertCheckStatus,
@@ -160,6 +161,17 @@ def native_configuration_keys(
     if created_by_uuid is not None:
         rows = rows.filter(created_by__uuid=created_by_uuid)
     return tuple(rows.order_by("-created_at", "-id").values_list("created_at", "id"))
+
+
+def team_ids_with_copies(source_kind: str) -> tuple[int, ...]:
+    """The teams with a copy of `source_kind`, in id order."""
+    return tuple(
+        PlatformAlertConfiguration.objects.unscoped()
+        .filter(source_kind=source_kind, legacy_configuration_id__isnull=False)
+        .order_by("team_id")
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
 
 
 def native_configuration_matches(
@@ -376,6 +388,17 @@ def alert_snapshot(team_id: int, configuration_id: str, grouping_key: str) -> Pl
         .first()
     )
     return instance_view(alert, alert.configuration) if alert is not None else None
+
+
+def rule_metadata(team_id: int, configuration_id: str) -> RuleMetadata:
+    """The labels and annotations set on a configuration, or none when it no longer exists."""
+    row = (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(id=configuration_id)
+        .values("labels", "annotations")
+        .first()
+    )
+    return RuleMetadata() if row is None else RuleMetadata(labels=row["labels"], annotations=row["annotations"])
 
 
 # A configuration's `destination_alert_id`, computed in the query.

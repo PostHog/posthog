@@ -299,6 +299,11 @@ export class FakeEmailDomainBackend {
         this.publishRecords(domain)
     }
 
+    /** Deletes the sender the way another tab or teammate would, so a page that already listed it holds a stale row. */
+    removeSender(id: number): void {
+        this.senders.delete(id)
+    }
+
     fail(endpoint: FakeEndpoint, failure: FakeFailure): void {
         this.failures.set(endpoint, failure)
     }

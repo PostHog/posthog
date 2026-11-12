@@ -11,6 +11,10 @@ from products.replay_vision.backend.temporal.types import CleanupGeminiFileInput
 @activity.defn(name="replay_vision_cleanup_gemini_file_activity")
 @track_activity()
 async def cleanup_gemini_file_activity(inputs: CleanupGeminiFileInputs) -> None:
+    return await cleanup_gemini_file(inputs)
+
+
+async def cleanup_gemini_file(inputs: CleanupGeminiFileInputs) -> None:
     """Best-effort delete of the uploaded Gemini file; the cleanup sweep retries on transient failure via the tracking key."""
     raw_client = gemini_files_client()
     await delete_and_untrack(raw_client, inputs.gemini_file_name, log_source="replay_vision.cleanup_gemini_file")

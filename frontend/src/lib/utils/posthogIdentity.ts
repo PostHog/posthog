@@ -88,11 +88,28 @@ function sendIdentityIfChanged<T extends UserIdentity | PostHogGroup>(
 /** Returns true when the user's identity changed, which means the flags need a reload. */
 export function identifyUserInPostHog(posthog: PostHog, user: UserType): boolean {
     return sendIdentityIfChanged('user', userIdentity(user), (identity) => {
+        const previousGroups = posthog.getGroups()
+        const nextGroups = { ...previousGroups }
+        for (const type of ['project', 'organization', 'customer']) {
+            const group = identity.groups.find((group) => group.type === type)
+            if (previousGroups[type] !== group?.key) {
+                posthog.resetGroupPropertiesForFlags(type)
+            }
+            if (group) {
+                nextGroups[type] = group.key
+            } else {
+                delete nextGroups[type]
+            }
+        }
+        // Identity calls capture events, so replace stale groups before identifying the user.
+        posthog.register({ $groups: nextGroups })
         posthog.identify(identity.distinctId)
         posthog.setPersonProperties(identity.personProperties)
         posthog.register(identity.superProperties)
         for (const group of identity.groups) {
-            posthog.group(group.type, group.key, group.properties)
+            // Preloading the key must not suppress identification of a newly joined group without properties.
+            const properties = group.properties ?? (previousGroups[group.type] !== group.key ? {} : undefined)
+            posthog.group(group.type, group.key, properties)
         }
     })
 }

@@ -176,6 +176,23 @@ export const SAMLNeedsUpgrade: Story = {
 }
 export const SCIM: Story = { args: { configScope: ConfigScopeEnumApi.Scim } }
 export const XAA: Story = { args: { configScope: ConfigScopeEnumApi.Xaa } }
+export const XAASetUpByClient: Story = {
+    args: { configScope: ConfigScopeEnumApi.Xaa },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/:id/identity_provider_configs/:configId': {
+                    ...IDENTITY_PROVIDER_CONFIG,
+                    name: 'Claude',
+                    config_scope: ConfigScopeEnumApi.Xaa,
+                    id_jag_issuer_url: 'https://identity.example.com/issuers/example',
+                    id_jag_jwks_url: null,
+                    id_jag_registered_by_application_name: 'Claude',
+                },
+            },
+        }),
+    ],
+}
 export const XAANeedsUpgrade: Story = {
     args: { configScope: ConfigScopeEnumApi.Xaa },
     decorators: [needsUpgradeDecorator],
