@@ -358,6 +358,11 @@ describe('scenario environment', () => {
                 [POSTHOG],
             ],
             [
+                'one server when a setting holds the word postgres rather than a URL',
+                { POSTHOG_DB_USER: 'postgres' },
+                [POSTHOG],
+            ],
+            [
                 'both servers when a profile moves Cyclotron to another',
                 { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron' },
                 [POSTHOG, 'postgres://posthog:posthog@cyclotron.example.com:5432/cyclotron'],

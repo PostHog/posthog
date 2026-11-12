@@ -191,6 +191,7 @@ export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string
 export const cyclotronUrlOf = (spec: RoleSpec): string => spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl
 
 const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]']
+const POSTGRES_URL = /^postgres(ql)?:\/\//
 
 function serverOf(url: string): string {
     const { hostname, port } = new URL(url)
@@ -198,7 +199,7 @@ function serverOf(url: string): string {
 }
 
 export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[] {
-    const urls = [postgresUrl, ...Object.values(spec.env).filter((url): url is string => !!url?.startsWith('postgres'))]
+    const urls = [postgresUrl, ...Object.values(spec.env).filter((url): url is string => POSTGRES_URL.test(url ?? ''))]
     return urls.filter((url, i) => urls.findIndex((other) => serverOf(other) === serverOf(url)) === i)
 }
 
