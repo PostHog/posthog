@@ -81,35 +81,6 @@ const writeFake = (file: string, body: string): void => {
     writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
 }
 
-const startPostgresRelay = async (
-    upstreamUrl: string
-): Promise<{ url: string; received(): string; close(): Promise<void> }> => {
-    const upstream = new URL(upstreamUrl)
-    let received = ''
-    const sockets = new Set<net.Socket>()
-    const server = net.createServer((client) => {
-        sockets.add(client)
-        const relay = net.connect(Number(upstream.port || 5432), upstream.hostname)
-        sockets.add(relay)
-        client.on('data', (chunk: Buffer) => (received += chunk.toString('latin1')))
-        client.pipe(relay).pipe(client)
-        relay.on('error', () => client.destroy())
-        client.on('error', () => relay.destroy())
-    })
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-    const url = new URL(upstreamUrl)
-    url.hostname = '127.0.0.1'
-    url.port = String((server.address() as net.AddressInfo).port)
-    return {
-        url: url.toString(),
-        received: () => received,
-        close: async () => {
-            sockets.forEach((socket) => socket.destroy())
-            await new Promise<void>((resolve) => server.close(() => resolve()))
-        },
-    }
-}
-
 const sendThrough = async (edgeUrl: string): Promise<string> => {
     const ses = new SESv2Client({
         endpoint: edgeUrl,
@@ -1469,50 +1440,75 @@ describe('scenario environment', () => {
             expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: true })])
         }, 30_000)
 
-        it("drops the roles' Postgres connections on every server they use and spares every other one", async () => {
-            const secondServer = await startPostgresRelay(cyclotronUrl)
+        it("drops the roles' Postgres connections in every database on their servers and spares every other one", async () => {
+            environment = environmentOf()
+            await environment.up()
+            const connect = async (
+                url: string,
+                applicationName: string
+            ): Promise<{ client: Client; ended: Promise<void>; backend: number }> => {
+                const client = new Client({ connectionString: url, application_name: applicationName })
+                const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
+                await client.connect()
+                const backend = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid
+                return { client, ended, backend }
+            }
+            const tag = `${process.pid}-${Date.now()}`
+            const pool = await connect(templatesUrl, 'cdp-cyclotron-worker-hogflow')
+            const jobs = await connect(cyclotronUrl, `scenario-${tag}`)
+            const bystanders = [
+                await connect(templatesUrl, `bystander-${tag}`),
+                await connect(cyclotronUrl, `bystander-${tag}`),
+            ]
+            const sessions = [pool, jobs, ...bystanders]
             try {
-                process.env.CYCLOTRON_NODE_DATABASE_URL = secondServer.url
+                const actuation = await environment.actuate({ kind: 'pg.terminate', share: 1 })
+
+                expect(await actuation.observed()).toBe(true)
+                await Promise.all([pool.ended, jobs.ended])
+                const alive = await withPostgres(
+                    async (client) =>
+                        (
+                            await client.query<{ pid: number }>(
+                                'SELECT pid FROM pg_stat_activity WHERE pid = ANY($1::int[]) ORDER BY pid',
+                                [sessions.map(({ backend }) => backend)]
+                            )
+                        ).rows.map(({ pid }) => pid),
+                    templatesUrl
+                )
+                expect(alive).toEqual(bystanders.map(({ backend }) => backend).sort((x, y) => x - y))
+                await actuation.release()
+            } finally {
+                await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
+            }
+        }, 30_000)
+
+        it('fails a drop that cannot reach the read replica, after dropping the role sessions on the main server', async () => {
+            const readonlyFromEnv = process.env.DATABASE_READONLY_URL
+            process.env.DATABASE_READONLY_URL = 'postgres://posthog:posthog@127.0.0.1:1/posthog'
+            try {
                 environment = environmentOf()
                 await environment.up()
-                const connect = async (
-                    applicationName: string
-                ): Promise<{ client: Client; ended: Promise<void>; backend: number }> => {
-                    const client = new Client({ connectionString: templatesUrl, application_name: applicationName })
-                    const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
-                    await client.connect()
-                    const backend = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid
-                    return { client, ended, backend }
-                }
-                const tag = `${process.pid}-${Date.now()}`
-                const pool = await connect('cdp-cyclotron-worker-hogflow')
-                const cyclotron = await connect(`scenario-${tag}`)
-                const bystander = await connect(`bystander-${tag}`)
+                const client = new Client({
+                    connectionString: templatesUrl,
+                    application_name: `scenario-${process.pid}-${Date.now()}`,
+                })
+                const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
+                await client.connect()
                 try {
-                    const actuation = await environment.actuate({ kind: 'pg.terminate', share: 1 })
-
-                    expect(await actuation.observed()).toBe(true)
-                    expect(secondServer.received()).toContain('pg_terminate_backend')
-                    await Promise.all([pool.ended, cyclotron.ended])
-                    const alive = await withPostgres(
-                        async (client) =>
-                            (
-                                await client.query<{ pid: number }>(
-                                    'SELECT pid FROM pg_stat_activity WHERE pid = ANY($1::int[])',
-                                    [[pool, cyclotron, bystander].map(({ backend }) => backend)]
-                                )
-                            ).rows.map(({ pid }) => pid),
-                        templatesUrl
+                    await expect(environment.actuate({ kind: 'pg.terminate', share: 1 })).rejects.toThrow(
+                        'ECONNREFUSED 127.0.0.1:1'
                     )
-                    expect(alive).toEqual([bystander.backend])
-                    await actuation.release()
+                    await ended
                 } finally {
-                    await Promise.all(
-                        [pool, cyclotron, bystander].map(({ client }) => client.end().catch(() => undefined))
-                    )
+                    await client.end().catch(() => undefined)
                 }
             } finally {
-                await secondServer.close()
+                if (readonlyFromEnv === undefined) {
+                    delete process.env.DATABASE_READONLY_URL
+                } else {
+                    process.env.DATABASE_READONLY_URL = readonlyFromEnv
+                }
             }
         }, 30_000)
 

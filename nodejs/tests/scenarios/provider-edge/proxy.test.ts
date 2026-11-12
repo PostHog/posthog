@@ -117,7 +117,7 @@ describe('provider edge proxy', () => {
         for: '1m',
     }
 
-    const startValve = async () => {
+    const startValve = async (entry = ANSWER_503) => {
         const context: ValveContext = {
             environment: {
                 actuate: (action) =>
@@ -129,7 +129,7 @@ describe('provider edge proxy', () => {
             teams: [],
         }
         const valves = createValves({ pollMs: 5 })
-        await valves.start([ANSWER_503], context)
+        await valves.start([entry], context)
         await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
         return valves
     }
@@ -148,16 +148,26 @@ describe('provider edge proxy', () => {
         })
     })
 
-    it('ends a dest.status valve no webhook reached as not observed as soon as the drive ends', async () => {
-        const valves = await startValve()
+    it.each<[string, string, boolean]>([
+        ['its hold ends', '100ms', true],
+        ['the drive ends', '1m', false],
+    ])(
+        'ends a dest.status valve no webhook reached as not observed as soon as %s',
+        async (_story, holdFor, releasedBeforeDriveEnds) => {
+            const valves = await startValve({ ...ANSWER_503, for: holdFor })
 
-        await valves.releaseAll()
+            if (releasedBeforeDriveEnds) {
+                await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+            }
+            await valves.releaseAll()
 
-        expect({ error: valves.timeline()[0].error, next: await callWebhook('run-1-1') }).toEqual({
-            error: 'applied but not observed',
-            next: 200,
-        })
-    }, 3000)
+            expect({ error: valves.timeline()[0].error, next: await callWebhook('run-1-1') }).toEqual({
+                error: 'applied but not observed',
+                next: 200,
+            })
+        },
+        3000
+    )
 
     it.each<[string, object, () => Promise<number>, () => Promise<number>, number[]]>([
         [

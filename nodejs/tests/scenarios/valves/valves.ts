@@ -180,7 +180,9 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             } else {
                 record.observedAt = now()
             }
-            await sleep(durationMs(entry.for), undefined, { signal: held }).catch(() => undefined)
+            if (!held.aborted) {
+                await new Promise((resolve) => held.addEventListener('abort', resolve, { once: true }))
+            }
         } catch (error) {
             record.error = (error as Error).message
         } finally {

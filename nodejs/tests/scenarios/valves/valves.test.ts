@@ -1,4 +1,5 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import { once } from 'events'
 import { mkdtempSync, rmSync } from 'fs'
 import os from 'os'
 import path from 'path'
@@ -29,6 +30,7 @@ type StackSetup = {
     runningJobs?: number
     releaseFailure?: string
     applyTakesMs?: number
+    observesUntilHoldEnds?: boolean
 }
 
 function stackOf({
@@ -40,6 +42,7 @@ function stackOf({
     runningJobs = 0,
     releaseFailure,
     applyTakesMs = 0,
+    observesUntilHoldEnds = false,
 }: StackSetup = {}) {
     let probeReads = 0
     let nextPid = 1
@@ -120,10 +123,24 @@ function stackOf({
         },
     }
 
-    if (applyTakesMs > 0) {
+    let applyReturnedAt: number | undefined
+    if (applyTakesMs > 0 || observesUntilHoldEnds) {
         const { actuate } = context.environment
         context.environment = {
-            actuate: (action) => actuate(action).then((actuation) => sleep(applyTakesMs).then(() => actuation)),
+            actuate: async (action) => {
+                const actuation = await actuate(action)
+                await sleep(applyTakesMs)
+                applyReturnedAt = Date.now()
+                return {
+                    ...actuation,
+                    observed: async (signal) => {
+                        if (observesUntilHoldEnds) {
+                            await once(signal!, 'abort')
+                        }
+                        return await actuation.observed(signal)
+                    },
+                }
+            },
         }
     }
 
@@ -137,6 +154,7 @@ function stackOf({
         gone: () => [...gone],
         effects: () => ({ gone: [...gone], frozen: [...frozen], everFrozen: [...everFrozen], droppedSessions }),
         goneAfterRelease: () => [...goneAfterRelease],
+        applyReturnedAt: () => applyReturnedAt,
         releasing: (release: () => Promise<void>) => {
             releaseBegan = true
             return release()
@@ -511,16 +529,21 @@ describe('valves', () => {
         expect(valves.timeline()[0].releasedAt).toEqual(expect.any(String))
     })
 
-    it('holds an entry for its full duration after a slow apply returns', async () => {
+    it.each<[string, StackSetup]>([
+        ['a slow apply returns', { applyTakesMs: 100 }],
+        ['observing lasts until the hold ends', { applyTakesMs: 100, observesUntilHoldEnds: true }],
+    ])('holds an entry for its duration from the moment apply returns, when %s', async (_story, setup) => {
         const valves = createValves({ pollMs: 5 })
-        const stack = stackOf({ applyTakesMs: 100 })
+        const stack = stackOf(setup)
 
-        await valves.start([kill({ at: '0ms' }, '50ms')], stack.context)
+        await valves.start([kill({ at: '0ms' }, '200ms')], stack.context)
         await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
         await valves.releaseAll()
 
         const { appliedAt, observedAt, releasedAt, error } = valves.timeline()[0]
+        const applyReturnedAt = stack.applyReturnedAt()
         expect({ observedAt, error }).toEqual({ observedAt: expect.any(String), error: undefined })
-        expect(Date.parse(releasedAt!) - Date.parse(appliedAt!)).toBeGreaterThanOrEqual(45)
+        expect(Date.parse(appliedAt!)).toBeGreaterThanOrEqual(applyReturnedAt!)
+        expect(Date.parse(releasedAt!) - applyReturnedAt!).toBeGreaterThanOrEqual(195)
     })
 })
