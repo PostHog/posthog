@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.client import (
@@ -28,12 +30,16 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.heartbeat import Heartbeater
     from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
+if TYPE_CHECKING:
+    from posthog.integrations import IntegrationRecord
+
 logger = structlog.get_logger(__name__)
 
 CALENDAR_SYNC_COORDINATOR_SCHEDULE_ID = "customer-analytics-calendar-sync-coordinator-schedule"
 CALENDAR_SYNC_COORDINATOR_WORKFLOW_NAME = "customer-analytics-calendar-sync-coordinator"
 COORDINATOR_INTERVAL_MINUTES = 5
 MAX_SYNCS_PER_RUN = 200
+CALENDAR_PAGE_SIZE = 500
 BACKFILL_PAGES_PER_RUN = 100
 GOOGLE_WORKSPACE_RETRY_DELAY = timedelta(hours=1)
 GOOGLE_TRANSPORT_RETRY_DELAY = timedelta(seconds=30)
@@ -110,8 +116,6 @@ def _collect_calendar_integrations() -> list[CalendarSyncInput]:
     # Deferred: keeps Django models out of the workflow sandbox import path.
     from django.utils import timezone  # noqa: PLC0415
 
-    from posthog.models.integration import Integration  # noqa: PLC0415
-
     from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415
         LAST_SYNCED_AT_CONFIG_KEY,
         SYNC_ATTEMPTED_AT_CONFIG_KEY,
@@ -123,8 +127,8 @@ def _collect_calendar_integrations() -> list[CalendarSyncInput]:
 
     now = timezone.now()
     due: list[tuple[datetime, int, int]] = []
-    for integration in Integration.objects.filter(kind="google-calendar").only("id", "team_id", "config").iterator():
-        config = integration.config or {}
+    for integration in _iter_calendar_integrations():
+        config = integration.config
         last_sync = _calendar_config_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
         attempted = _calendar_config_datetime(config.get(SYNC_ATTEMPTED_AT_CONFIG_KEY))
         started = _calendar_config_datetime(config.get(SYNC_STARTED_AT_CONFIG_KEY))
@@ -143,6 +147,21 @@ def _collect_calendar_integrations() -> list[CalendarSyncInput]:
         CalendarSyncInput(integration_id=integration_id, team_id=team_id)
         for _, integration_id, team_id in due[:MAX_SYNCS_PER_RUN]
     ]
+
+
+def _iter_calendar_integrations() -> Iterator[IntegrationRecord]:
+    # Deferred: keeps Django models out of the workflow sandbox import path.
+    from posthog.integrations import CrossTeamFilter, IntegrationManager  # noqa: PLC0415
+
+    after_id: int | None = None
+    while True:
+        page = IntegrationManager.google_calendar.oauth.list_across_teams(
+            CrossTeamFilter(limit=CALENDAR_PAGE_SIZE, after_id=after_id)
+        )
+        yield from page
+        if len(page) < CALENDAR_PAGE_SIZE:
+            return
+        after_id = page[-1].id
 
 
 def _calendar_config_datetime(value: object) -> datetime | None:

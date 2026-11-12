@@ -3260,6 +3260,12 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
         self.insight = self.create_trends_insight(interval="day")
+        # These tests turn every flag on, which would also make each create skip the insight row they read back.
+        native_creates = mock.patch(
+            "products.alerts.backend.presentation.views.alert.creates_native_alert", return_value=False
+        )
+        native_creates.start()
+        self.addCleanup(native_creates.stop)
 
     def _create_breakdown_insight(self) -> dict[str, Any]:
         return self.create_trends_insight(

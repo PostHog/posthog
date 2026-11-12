@@ -7,6 +7,7 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 
 use super::config::Source;
+use crate::utils::redact_request_error;
 
 /// Entries kept per page, well under Loki's per-request cap (see `INSTANT_LIMIT`).
 const PAGE_LIMIT: usize = 1000;
@@ -283,14 +284,14 @@ fn tls_trust_hint(error: &(dyn std::error::Error + 'static)) -> &'static str {
 fn send(request: RequestBuilder, what: &str) -> Result<Response> {
     request.send().map_err(|error| {
         let hint = tls_trust_hint(&error);
-        anyhow::Error::new(error).context(format!("failed to reach Loki for {what}.{hint}"))
+        anyhow::Error::new(redact_request_error(error))
+            .context(format!("failed to reach Loki for {what}.{hint}"))
     })
 }
 
 fn decode<T: serde::de::DeserializeOwned>(response: Response, endpoint: &str) -> Result<T> {
     let status = response.status();
     if !status.is_success() {
-        let body = response.text().unwrap_or_default();
         let hint = match status {
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
                 " Check LOKI_USERNAME/LOKI_PASSWORD or LOKI_BEARER_TOKEN."
@@ -301,7 +302,7 @@ fn decode<T: serde::de::DeserializeOwned>(response: Response, endpoint: &str) ->
             StatusCode::TOO_MANY_REQUESTS => " Loki is rate limiting this query; retry later.",
             _ => "",
         };
-        bail!("Loki {endpoint} returned {status}.{hint} Body: {body}");
+        bail!("Loki {endpoint} returned {status}.{hint}");
     }
     response
         .json::<T>()
@@ -311,6 +312,63 @@ fn decode<T: serde::de::DeserializeOwned>(response: Response, endpoint: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn request_errors_exclude_log_filters_and_response_bodies() {
+        use chrono::TimeZone;
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        for answer in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = if answer {
+                Some(std::thread::spawn(move || {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                        .unwrap();
+                    let mut request = Vec::new();
+                    let mut byte = [0];
+                    while !request.ends_with(b"\r\n\r\n") {
+                        assert_eq!(stream.read(&mut byte).unwrap(), 1);
+                        request.push(byte[0]);
+                    }
+                    let body = "parse error for QUERY_SECRET with BODY_SECRET";
+                    write!(stream, "HTTP/1.1 400 Bad Request\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                    request
+                }))
+            } else {
+                drop(listener);
+                None
+            };
+            let client = LokiClient::new(
+                &Source {
+                    url: format!("http://{address}").parse().unwrap(),
+                    tenant: None,
+                },
+                LokiAuth::None,
+                Client::builder()
+                    .no_proxy()
+                    .timeout(std::time::Duration::from_secs(5))
+                    .build()
+                    .unwrap(),
+            );
+            let result = client.volume_bytes(
+                "{app=\"demo\"} |= \"QUERY_SECRET\"",
+                Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap(),
+                Utc.with_ymd_and_hms(2025, 1, 1, 1, 0, 0).unwrap(),
+            );
+            let output = format!("{:?}", result.unwrap_err());
+            if let Some(server) = server {
+                let request = String::from_utf8(server.join().unwrap()).unwrap();
+                assert!(request.contains("QUERY_SECRET"), "{request}");
+                assert!(output.contains("400"), "{output}");
+            }
+            assert!(!output.contains("QUERY_SECRET"), "{output}");
+            assert!(!output.contains("BODY_SECRET"), "{output}");
+        }
+    }
 
     fn at(timestamps: &[i64]) -> Vec<Entry> {
         timestamps

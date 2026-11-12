@@ -36,11 +36,13 @@ from ..logic import (
     approvals,
     artifact_store,
     baseline_overview,
+    baseline_record,
     baselines,
     errors,
     flakiness,
     gating,
     history,
+    ledger_push,
     owners,
     quarantine,
     quarantine_lifts,
@@ -69,6 +71,9 @@ _RESERVED_RUN_METADATA_KEYS = frozenset(
         "github_comment_id",
         "baseline_commit_sha",
         "baseline_healed_from_merge_base",
+        # The frozen baseline record names the approvals a run counted. A client that could send it
+        # would make another pull request's approvals land with its own.
+        baseline_record.METADATA_KEY,
     }
 )
 
@@ -272,6 +277,7 @@ def _to_repo(repo) -> contracts.Repo:
         baseline_file_paths=repo.baseline_file_paths,
         enable_pr_comments=repo.enable_pr_comments,
         debt_digest_enabled=repo.debt_digest_enabled,
+        auto_quarantine_mode=repo.auto_quarantine_mode,
         created_at=repo.created_at,
     )
 
@@ -833,6 +839,7 @@ def _to_quarantined_entry(
         updated_at=q.updated_at,
         created_by=created_by,
         source_run=source_run,
+        lift_reason=q.lift_reason,
     )
 
 
@@ -956,3 +963,15 @@ def list_quarantine_lifts_for_run(run_id: UUID, team_id: int) -> list[contracts.
 
 def cancel_quarantine_lift(run_id: UUID, request_id: UUID, team_id: int) -> None:
     quarantine_lifts.cancel_lift_request(request_id, team_id=team_id, run_id=run_id)
+
+
+# --- Baseline ledger ---
+
+
+def advance_baseline_ledgers_after_push(github_repo_id: int) -> None:
+    """Enqueue an advance of every baseline ledger that follows this GitHub repository.
+
+    Call it for a push to the repository's default branch. The lookup is held in the process for
+    a minute, so nearly every call costs no query, and a repository without a ledger gets no task.
+    """
+    ledger_push.advance_after_push(github_repo_id)

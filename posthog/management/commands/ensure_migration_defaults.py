@@ -15,7 +15,9 @@ from posthog.admin.console.registry import console
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.oauth import OAuthApplication
 
-from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.facade.api import create_global_template_if_missing
+from products.dashboards.backend.facade.contracts import DashboardTemplateDefinition
+from products.dashboards.backend.facade.enums import DashboardTemplateScope
 from products.demo.backend.facade.dashboard_templates import seed_dev_dashboard_templates
 from products.growth.backend.models import EnrichmentPromptConfig
 
@@ -241,7 +243,7 @@ _PRODUCT_ANALYTICS_TEMPLATE: dict[str, Any] = {
         },
     ],
     "tags": [],
-    "scope": "global",
+    "scope": DashboardTemplateScope.GLOBAL,
 }
 
 _FEATURE_FLAG_TEMPLATE: dict[str, Any] = {
@@ -308,7 +310,7 @@ _FEATURE_FLAG_TEMPLATE: dict[str, Any] = {
             "description": "The event you use to define a user using the new feature",
         }
     ],
-    "scope": "feature_flag",
+    "scope": DashboardTemplateScope.FEATURE_FLAG,
 }
 
 
@@ -381,10 +383,9 @@ class Command(BaseCommand):
         self._seed_streamlit_oauth_app(created_items, skipped_items)
 
         for template_data in (_PRODUCT_ANALYTICS_TEMPLATE, _FEATURE_FLAG_TEMPLATE):
-            name = template_data["template_name"]
-            if not DashboardTemplate.objects.filter(template_name=name, team__isnull=True).exists():
-                DashboardTemplate.objects.create(**template_data)
-                created_items.append(f"Dashboard template: {name}")
+            template = DashboardTemplateDefinition(**template_data)
+            if create_global_template_if_missing(template):
+                created_items.append(f"Dashboard template: {template.template_name}")
 
         for name in seed_dev_dashboard_templates():
             created_items.append(f"Dashboard template: {name}")

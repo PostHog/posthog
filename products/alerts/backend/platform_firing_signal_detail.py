@@ -30,12 +30,15 @@ class FiringSignalRequest:
     breaches: tuple[str, ...] = ()
     triggered_dates: tuple[str, ...] = ()
     after_errors: bool = False
+    grouping_key: str = ""
+    investigable: bool = True
 
 
 def requested_firing_signals(
     team_id: int, outcomes: tuple[PlatformAlertOutcome, ...]
 ) -> tuple[FiringSignalRequest, ...]:
-    """The signals the recorded outcomes ask for. Only a firing that starts an episode asks for one."""
+    """The signals the recorded outcomes ask for. Only a firing that starts an episode asks for one, and
+    a breakdown alert asks for one per value that starts its own."""
     requests = []
     for outcome in outcomes:
         for group in outcome.groups:
@@ -52,6 +55,8 @@ def requested_firing_signals(
                     breaches=tuple(str(breach) for breach in group.source_detail.get("breaches") or ()),
                     triggered_dates=tuple(str(date) for date in group.source_detail.get("triggered_dates") or ()),
                     after_errors=bool(group.source_detail.get(FIRING_SIGNAL_AFTER_ERRORS_KEY)),
+                    grouping_key=group.grouping_key,
+                    investigable=len(outcome.groups) == 1,
                 )
             )
     return tuple(requests)

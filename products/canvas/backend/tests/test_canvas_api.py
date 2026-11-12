@@ -28,13 +28,13 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.paging import PageRequest
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.facade import api as annotations_api
 from products.annotations.backend.facade.contracts import AnnotationFilters
 from products.annotations.backend.facade.enums import AnnotationScope
-from products.canvas.backend import build_service
+from products.canvas.backend import build_service, experiment
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.facade import access as canvas_facade
 from products.canvas.backend.mcp_tools import CANVAS_MCP_TOOL_ALLOWLIST
@@ -64,6 +64,16 @@ class InMemoryStorage:
     def delete_objects(self, keys):
         for key in keys:
             self.objects.pop(key, None)
+
+
+NARROW_CAPABILITIES = {
+    "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+    "network": {"origins": []},
+}
+WIDE_CAPABILITIES = {
+    "posthog": {"insights": ["abc123"], "inlineQueries": True, "captureEvents": []},
+    "network": {"origins": []},
+}
 
 
 class CanvasAPIBaseTest(APIBaseTest):
@@ -1078,6 +1088,324 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         response = self._publish(canvas_id, expected_current_version_id=None)
         assert response.status_code == status.HTTP_200_OK
         assert Canvas.objects.unscoped().get(id=canvas_id).legacy_code is None
+
+    def _act_as_other_member(self, sandbox: bool) -> User:
+        other_user = self._create_user("canvas-member@example.com")
+        if sandbox:
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=other_user,
+                title="Canvas edit",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            self.client = self._sandbox_client(task.id, user=other_user)
+            self.client.defaults["HTTP_X_POSTHOG_TASK_ID"] = str(task.id)
+        else:
+            self.client = APIClient()
+            self.client.force_login(other_user)
+        return other_user
+
+    @parameterized.expand(
+        [
+            (f"{caller}_{action}", caller == "sandbox", action)
+            for caller in ("member", "sandbox")
+            for action in (
+                "publish",
+                "edit",
+                "draft",
+                "promote",
+                "revert",
+                "revert_without_snapshot",
+                "revert_without_snapshot_or_source",
+            )
+        ]
+    )
+    def test_only_the_creator_can_add_capabilities(self, _name: str, sandbox: bool, action: str) -> None:
+        base = f"/api/projects/{self.team.id}/canvases"
+        canvas_id = self._create_canvas()
+        # Revert needs an older version that declares more than the head does.
+        reverting = action.startswith("revert")
+        first_capabilities = WIDE_CAPABILITIES if reverting else NARROW_CAPABILITIES
+        first = self._publish(
+            canvas_id, self._project(capabilities=first_capabilities), expected_current_version_id=None
+        )
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        head_id = first.json()["current_version_id"]
+        if reverting:
+            second = self._publish(
+                canvas_id,
+                self._project("export default function C() { return 2 }"),
+                expected_current_version_id=head_id,
+            )
+            old_wide_id, head_id = head_id, second.json()["current_version_id"]
+        if action.startswith("revert_without_snapshot"):
+            CanvasSourceVersion.objects.unscoped().filter(id=old_wide_id).update(capabilities=None)
+        if action == "revert_without_snapshot_or_source":
+            self.storage.objects.pop(CanvasSourceVersion.objects.unscoped().get(id=old_wide_id).source_object_key)
+        if action == "promote":
+            # The creator stages the widening draft, so promotion is what the other member is refused.
+            draft = self.client.post(
+                f"{base}/{canvas_id}/draft/",
+                {"project": self._project(capabilities=WIDE_CAPABILITIES)},
+                format="json",
+            )
+            assert draft.status_code == status.HTTP_200_OK, draft.json()
+        self._act_as_other_member(sandbox)
+
+        if action == "publish":
+            response = self.client.post(
+                f"{base}/{canvas_id}/publish/",
+                {"project": self._project(capabilities=WIDE_CAPABILITIES), "expected_current_version_id": head_id},
+                format="json",
+            )
+        elif action == "edit":
+            response = self.client.post(
+                f"{base}/{canvas_id}/edit/",
+                {
+                    "operations": [{"path": "src/canvas.tsx", "content": "export default () => 1"}],
+                    "capabilities": WIDE_CAPABILITIES,
+                    "expected_current_version_id": head_id,
+                },
+                format="json",
+            )
+        elif action == "draft":
+            response = self.client.post(
+                f"{base}/{canvas_id}/draft/",
+                {"project": self._project(capabilities=WIDE_CAPABILITIES)},
+                format="json",
+            )
+        elif action == "promote":
+            response = self.client.post(
+                f"{base}/{canvas_id}/promote/",
+                {"version_id": draft.json()["version_id"], "expected_current_version_id": head_id},
+                format="json",
+            )
+        else:
+            response = self.client.post(
+                f"{base}/{canvas_id}/revert/",
+                {"version_id": old_wide_id, "expected_current_version_id": head_id},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        body = response.json()
+        assert body["code"] == "capability_widening_requires_creator"
+        assert body["capability_widening"]["widens"] is True
+        expected_insights = [] if action == "revert_without_snapshot_or_source" else ["abc123"]
+        assert body["capability_widening"]["insights_added"] == expected_insights
+        assert str(Canvas.objects.unscoped().get(id=canvas_id).current_source_version_id) == head_id
+        if action == "draft":
+            assert not CanvasSourceVersion.objects.unscoped().filter(canvas_id=canvas_id, draft=True).exists()
+
+    def test_non_creator_can_narrow_or_keep_capabilities_and_creator_can_widen(self) -> None:
+        base = f"/api/projects/{self.team.id}/canvases"
+        canvas_id = self._create_canvas()
+        first = self._publish(
+            canvas_id, self._project(capabilities=WIDE_CAPABILITIES), expected_current_version_id=None
+        )
+        head_id = first.json()["current_version_id"]
+        creator_client = self.client
+        self._act_as_other_member(sandbox=False)
+
+        kept = self.client.post(
+            f"{base}/{canvas_id}/edit/",
+            {
+                "operations": [{"path": "src/canvas.tsx", "content": "export default () => 1"}],
+                "expected_current_version_id": head_id,
+            },
+            format="json",
+        )
+        assert kept.status_code == status.HTTP_200_OK, kept.json()
+        narrowed = self.client.post(
+            f"{base}/{canvas_id}/publish/",
+            {
+                "project": self._project(capabilities=NARROW_CAPABILITIES),
+                "expected_current_version_id": kept.json()["current_version_id"],
+            },
+            format="json",
+        )
+        assert narrowed.status_code == status.HTTP_200_OK, narrowed.json()
+        stale = self.client.post(
+            f"{base}/{canvas_id}/publish/",
+            {
+                "project": self._project(capabilities=WIDE_CAPABILITIES),
+                "expected_current_version_id": kept.json()["current_version_id"],
+            },
+            format="json",
+        )
+        assert stale.status_code == status.HTTP_409_CONFLICT, stale.json()
+
+        widened = creator_client.post(
+            f"{base}/{canvas_id}/publish/",
+            {
+                "project": self._project(capabilities=WIDE_CAPABILITIES),
+                "expected_current_version_id": narrowed.json()["current_version_id"],
+            },
+            format="json",
+        )
+        assert widened.status_code == status.HTTP_200_OK, widened.json()
+
+    def _experiment_flags(self, *, canvas_experiment: bool | Exception, rail_nav: bool) -> Any:
+        def canvas_flag(*args: Any, **kwargs: Any) -> bool:
+            if isinstance(canvas_experiment, Exception):
+                raise canvas_experiment
+            return canvas_experiment
+
+        canvas_patch = patch.object(experiment, "feature_enabled_or_false", side_effect=canvas_flag)
+        rail_nav_patch = patch.object(experiment.today_api, "is_enabled_for", return_value=rail_nav)
+        canvas_patch.start()
+        rail_nav_patch.start()
+        self.addCleanup(canvas_patch.stop)
+        self.addCleanup(rail_nav_patch.stop)
+
+    def _bearer_client(self, client_id: str, scope: str, sandbox_task_id: UUID | None = None) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Canvas caller",
+            client_id=client_id,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_canvas_{uuid4().hex}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[self.team.id],
+            sandbox_task_id=sandbox_task_id,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        return client
+
+    @parameterized.expand(
+        [
+            ("create", "post", "", {"name": "New", "channel_id": None}, status.HTTP_403_FORBIDDEN),
+            ("publish", "post", "publish/", {"project": None}, status.HTTP_403_FORBIDDEN),
+            ("edit", "post", "edit/", {}, status.HTTP_403_FORBIDDEN),
+            ("draft", "post", "draft/", {}, status.HTTP_403_FORBIDDEN),
+            ("promote", "post", "promote/", {}, status.HTTP_403_FORBIDDEN),
+            ("revert", "post", "revert/", {}, status.HTTP_403_FORBIDDEN),
+            ("publish_current_version", "post", "publish-current-version/", {}, status.HTTP_403_FORBIDDEN),
+            (
+                "build_retry",
+                "post",
+                "builds/action/",
+                {"build_id": str(uuid4()), "action": "retry"},
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "build_malformed_action",
+                "post",
+                "builds/action/",
+                {"build_id": str(uuid4()), "action": ["retry"]},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "build_cancel",
+                "post",
+                "builds/action/",
+                {"build_id": str(uuid4()), "action": "cancel"},
+                status.HTTP_404_NOT_FOUND,
+            ),
+            ("layout_publish", "post", "layout/publish/", {}, status.HTTP_403_FORBIDDEN),
+            ("request_fix", "post", "request_fix/", {"build_id": str(uuid4())}, status.HTTP_403_FORBIDDEN),
+            ("request_agent", "post", "request_agent/", {"prompt": "Make it blue."}, status.HTTP_403_FORBIDDEN),
+            ("hosted_generation_link", "patch", "", {"generation_task_id": None}, status.HTTP_403_FORBIDDEN),
+            ("rename", "patch", "", {"name": "Renamed"}, status.HTTP_200_OK),
+            ("view", "get", "", None, status.HTTP_200_OK),
+        ]
+    )
+    def test_canvas_experiment_closes_web_app_writes_for_a_session(
+        self, _name: str, method: str, suffix: str, body: dict[str, Any] | None, expected: int
+    ) -> None:
+        canvas_id = self._create_canvas()
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Build canvas",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        values = {"channel_id": str(self.channel.id), "project": self._project(), "generation_task_id": str(task.id)}
+        payload = {key: values[key] if value is None else value for key, value in (body or {}).items()}
+        self._experiment_flags(canvas_experiment=True, rail_nav=True)
+        base = f"/api/projects/{self.team.id}/canvases/"
+        url = base if method == "post" and not suffix else f"{base}{canvas_id}/{suffix}"
+
+        response = self.client.get(url) if body is None else getattr(self.client, method)(url, payload, format="json")
+
+        assert response.status_code == expected, response.json()
+        assert Canvas.objects.unscoped().filter(team_id=self.team.id).count() == 1
+        assert not CanvasSourceVersion.objects.unscoped().filter(canvas_id=canvas_id).exists()
+
+    @parameterized.expand(
+        [
+            ("session_without_experiment_flag", "session", False, True),
+            ("session_without_rail_nav", "session", True, False),
+            ("session_when_flag_service_fails", "session", RuntimeError("flag service down"), True),
+            ("mcp_personal_api_key", "personal_api_key", True, True),
+            ("mcp_oauth_client", "mcp_oauth", True, True),
+            ("posthog_desktop", "desktop", True, True),
+            ("signals_scout", "scout", True, True),
+            ("task_sandbox", "sandbox", True, True),
+        ]
+    )
+    def test_canvas_experiment_leaves_other_callers_able_to_publish(
+        self, _name: str, caller: str, canvas_experiment: bool | Exception, rail_nav: bool
+    ) -> None:
+        canvas_id = self._create_canvas()
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Run",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        headers: dict[str, Any] = {}
+        client: APIClient = self.client
+        if caller == "personal_api_key":
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="mcp",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["canvas:read", "canvas:write"],
+            )
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        elif caller == "mcp_oauth":
+            client = self._bearer_client("third-party-mcp-client", "canvas:read canvas:write")
+        elif caller == "desktop":
+            client = self._bearer_client(ARRAY_APP_CLIENT_ID_DEV, "*")
+        elif caller == "scout":
+            client = self._bearer_client(
+                SIGNALS_APP_CLIENT_ID_DEV,
+                "canvas:read canvas:write internal_run:read signal_scout_internal:read",
+                sandbox_task_id=task.id,
+            )
+            headers = {"HTTP_X_POSTHOG_TASK_ID": str(task.id)}
+        elif caller == "sandbox":
+            client = self._sandbox_client(task.id)
+            headers = {"HTTP_X_POSTHOG_TASK_ID": str(task.id)}
+        self._experiment_flags(canvas_experiment=canvas_experiment, rail_nav=rail_nav)
+
+        response = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/publish/",
+            {"project": self._project()},
+            format="json",
+            **headers,
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert CanvasSourceVersion.objects.unscoped().filter(canvas_id=canvas_id).count() == 1
 
 
 class TestCanvasViewEndpoint(CanvasAPIBaseTest):

@@ -12,8 +12,9 @@ TALLY_BASE_URL = "https://api.tally.so"
 TALLY_VERSION_HEADER = "tally-version"
 TALLY_API_VERSION_2025_02_01 = "2025-02-01"
 # Read endpoints keep their paths, pagination and envelopes. The breaking changes up to this date
-# hit write endpoints and API key validity (a key stops working once its creator leaves the org).
-TALLY_API_VERSION_2026_10_27 = "2026-10-27"
+# hit write endpoints only. The changelog lists later dates (2026-10-26, 2026-10-27), but the API
+# rejects them as a `tally-version` value with a 400, so the newest accepted date is pinned.
+TALLY_API_VERSION_2026_08_04 = "2026-08-04"
 
 # /forms and /forms/{formId}/submissions both cap `limit` at 500. Tally allows 100 requests per
 # minute and submissions are fetched once per form, so the largest page keeps the fan-out cheap.

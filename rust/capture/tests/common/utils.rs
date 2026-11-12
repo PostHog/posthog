@@ -151,8 +151,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
     continuous_profiling: ContinuousProfilingConfig::default(),
-    capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
-    capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
+    capture_v1_max_compressed_body_bytes: None,
+    capture_v1_max_decompressed_body_bytes: None,
     capture_v1_scatter_gather_min_batch: 8,
     capture_v1_legacy_property_splice: true,
     capture_ingestion_warnings_enabled: false,

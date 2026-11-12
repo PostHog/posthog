@@ -35,6 +35,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
 )
+from products.experiments.backend.facade.daily_calculation import daily_calculation_end, is_past_daily_calculation
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
@@ -580,6 +581,8 @@ class HealthContext:
     # None while the experiment has not ended.
     ended_at: datetime | None
     is_paused: bool
+    # Whether the experiment can stop enrolling users while it keeps measuring, by the rule the freeze action enforces.
+    can_freeze_exposure: bool
     archived: bool
     team_timezone: str
     flag: FlagState | None
@@ -608,6 +611,13 @@ class HealthContext:
     primary_metric_count: int
     secondary_metric_count: int
     hours_since_launch: float | None
+    # From the start date, which can be earlier than the launch. The daily calculation and the experiment list count
+    # from it.
+    hours_since_start: float | None
+    # Whether the daily calculation leaves out the experiment, by the rule the daily jobs apply.
+    past_daily_calculation: bool
+    # None without a start date.
+    daily_calculation_ends_at: datetime | None
     metric_events: tuple[MetricEvents, ...]
     # None when the stored exposure criteria don't parse.
     exposure_events: ExposureEvents | None
@@ -1129,6 +1139,7 @@ def load_health_context(
         has_ended=experiment.is_stopped,
         ended_at=experiment.end_date if experiment.is_stopped else None,
         is_paused=experiment.is_paused,
+        can_freeze_exposure=experiment.can_freeze_exposure,
         archived=experiment.archived,
         team_timezone=experiment.team.timezone,
         flag=_load_flag_state(experiment),
@@ -1144,6 +1155,9 @@ def load_health_context(
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
         hours_since_launch=experiment.hours_since_launch(read_activity_log=can_read_flag_history),
+        hours_since_start=experiment.hours_since_start,
+        past_daily_calculation=is_past_daily_calculation(experiment.start_date, timezone.now()),
+        daily_calculation_ends_at=daily_calculation_end(experiment.start_date),
         metric_events=metric_events,
         exposure_events=exposure_events,
         events_received=events_received,
