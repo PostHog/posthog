@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from datetime import timedelta
 
 from django.db import connection, transaction
@@ -165,17 +166,24 @@ UNVERIFIED_EMAIL_SENDER_LIFETIME = timedelta(days=14)
 EXPIRED_EMAIL_SENDERS_PER_RUN = 10
 
 
+def _unverified_email_senders_oldest_first() -> Iterator[IntegrationRecord]:
+    after_id: int | None = None
+    while page := IntegrationManager.email.any.list_across_teams(
+        CrossTeamFilter(where={"verified": False}, limit=100, after_id=after_id)
+    ):
+        yield from page
+        after_id = page[-1].id
+
+
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
 @skip_team_scope_audit
 def expire_unverified_email_senders() -> None:
     cutoff = timezone.now() - UNVERIFIED_EMAIL_SENDER_LIFETIME
-    candidates = IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"verified": False}))
     expired = 0
-    for sender in candidates:
-        if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN:
+    for sender in _unverified_email_senders_oldest_first():
+        # Rows come back in id order, which is creation order, so every later sender is younger too.
+        if expired >= EXPIRED_EMAIL_SENDERS_PER_RUN or sender.created_at >= cutoff:
             break
-        if sender.created_at >= cutoff:
-            continue
         with transaction.atomic():
             if not lock_sender_if_unverified(sender):
                 continue
