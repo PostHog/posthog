@@ -445,6 +445,8 @@ export const metricsQueryCreateBodyQueryOneFormulaMax = 512
 
 export const metricsQueryCreateBodyQueryOnePromqlMax = 8192
 
+export const metricsQueryCreateBodyQueryOneLimitMax = 100
+
 export const MetricsQueryCreateBody = () => zod.object({
     query: zod
         .object({
@@ -712,6 +714,20 @@ export const MetricsQueryCreateBody = () => zod.object({
                 .optional()
                 .describe(
                     'Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.'
+                ),
+            dropEmptySeries: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    "Leave out series whose every point is zero or null, and count them in 'omitted_empty_series'. Defaults to true for MCP clients and false otherwise."
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(metricsQueryCreateBodyQueryOneLimitMax)
+                .nullish()
+                .describe(
+                    "Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries."
                 ),
         })
         .describe('The metric query to execute.'),
