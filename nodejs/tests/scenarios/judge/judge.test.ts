@@ -1,4 +1,5 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import { setTimeout as sleep } from 'timers/promises'
 
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { internalFetch } from '~/common/utils/request'
@@ -15,7 +16,15 @@ describe('judge', () => {
     let edge: ProviderEdge
     let ses: SESv2Client
     let unfinishedJobs: number
+    let probeAnswersAfterMs: number
     let judge: Judge
+
+    const judgeOf = (): Judge =>
+        createJudge({
+            edgeUrl: edge.url,
+            probe: { unfinishedJobs: () => sleep(probeAnswersAfterMs).then(() => unfinishedJobs) },
+            pollMs: 10,
+        })
 
     beforeEach(async () => {
         edge = await startProviderEdge({ port: 0, trackingKeys: TRACKING_KEYS })
@@ -26,11 +35,8 @@ describe('judge', () => {
             maxAttempts: 1,
         })
         unfinishedJobs = 0
-        judge = createJudge({
-            edgeUrl: edge.url,
-            probe: { unfinishedJobs: () => Promise.resolve(unfinishedJobs) },
-            pollMs: 10,
-        })
+        probeAnswersAfterMs = 0
+        judge = judgeOf()
         await judge.open(SEED)
     })
 
@@ -167,6 +173,20 @@ describe('judge', () => {
             },
         ],
         [
+            'answered only with a throttling error type on a 400',
+            offered(),
+            async () => {
+                answerNextSendWith(400, 'ThrottlingException')
+                await deliver(UNIT)
+            },
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email: the last of 1 attempts was answered 400`,
+                unitIds: [UNIT],
+            },
+        ],
+        [
             'whose only attempt lost its connection',
             offered(),
             async () => {
@@ -189,8 +209,12 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'at_least_once', ...expected })
     })
 
-    it('ignores what the edge recorded before the run opened', async () => {
+    it.each<[string, () => Judge]>([
+        ['reopened', () => judge],
+        ['opened fresh', judgeOf],
+    ])('ignores what the edge recorded before a run %s', async (_story, nextJudge) => {
         await deliver(UNIT)
+        judge = nextJudge()
         await judge.open(SEED)
         judge.record(offered())
 
@@ -199,14 +223,22 @@ describe('judge', () => {
         expect(result).toMatchObject({ passed: false, unitIds: [UNIT] })
     })
 
-    it.each<[string, number, boolean, object]>([
-        ['jobs are still unfinished', 3, true, { converged: false, unfinishedJobs: 3, unrecorded: [] }],
-        ['a delivery has no record', 0, false, { converged: false, unfinishedJobs: 0, unrecorded: [UNIT] }],
-        ['the queues are empty and every delivery is recorded', 0, true, { converged: true, unfinishedJobs: 0 }],
+    it.each<[string, number, boolean, number, object]>([
+        ['jobs are still unfinished', 3, true, 0, { converged: false, unfinishedJobs: 3, unrecorded: [] }],
+        ['a delivery has no record', 0, false, 0, { converged: false, unfinishedJobs: 0, unrecorded: [UNIT] }],
+        ['the queues are empty and every delivery is recorded', 0, true, 0, { converged: true, unfinishedJobs: 0 }],
+        [
+            'the last poll answers only after the deadline',
+            0,
+            true,
+            200,
+            { converged: false, unfinishedJobs: 0, unrecorded: [] },
+        ],
     ])(
-        'converges only when no job is unfinished and every delivery is recorded: %s',
-        async (_story, jobs, delivered, expected) => {
+        'converges only when no job is unfinished and every delivery is recorded within the deadline: %s',
+        async (_story, jobs, delivered, answersAfterMs, expected) => {
             unfinishedJobs = jobs
+            probeAnswersAfterMs = answersAfterMs
             judge.record(offered())
             if (delivered) {
                 await deliver(UNIT)

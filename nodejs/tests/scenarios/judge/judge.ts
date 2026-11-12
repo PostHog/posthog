@@ -6,7 +6,7 @@ import { internalFetch } from '~/common/utils/request'
 import type { Named } from '../cards'
 import type { SeedState } from '../generator/generator'
 import type { CyclotronProbe } from '../probe/cyclotron-probe'
-import type { TruthPage, TruthRecord } from '../provider-edge'
+import type { TruthHead, TruthPage, TruthRecord } from '../provider-edge'
 import { INVARIANTS, deliveryKey } from './invariants'
 
 export type JournalEntry = {
@@ -60,6 +60,14 @@ export function createJudge({ edgeUrl, probe, pollMs = 1000 }: JudgeOptions): Ju
         }
     }
 
+    const truthHead = async (): Promise<number> => {
+        const response = await internalFetch(`${edgeUrl}/_truth/head`)
+        if (response.status !== 200) {
+            throw new Error(`The edge answered /_truth/head with ${response.status}`)
+        }
+        return (parseJSON(await response.text()) as TruthHead).head
+    }
+
     const unrecordedUnits = (): string[] => {
         const recorded = new Set(
             truth.flatMap(({ unitId, actionId }) =>
@@ -78,7 +86,7 @@ export function createJudge({ edgeUrl, probe, pollMs = 1000 }: JudgeOptions): Ju
     return {
         async open(seed) {
             journal = []
-            await pullTruth()
+            cursor = await truthHead()
             truth = []
             teams = [...seed.teamIds]
         },
@@ -94,7 +102,7 @@ export function createJudge({ edgeUrl, probe, pollMs = 1000 }: JudgeOptions): Ju
                 const unfinishedJobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
                 const unrecorded = unrecordedUnits()
                 const tookMs = Date.now() - startedAt
-                const converged = unfinishedJobs === 0 && unrecorded.length === 0
+                const converged = unfinishedJobs === 0 && unrecorded.length === 0 && tookMs <= withinMs
                 if (converged || tookMs >= withinMs || signal.aborted) {
                     return { converged, unfinishedJobs, unrecorded, tookMs }
                 }

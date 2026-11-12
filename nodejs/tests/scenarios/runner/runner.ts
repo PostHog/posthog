@@ -11,8 +11,8 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { CdpRole, LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
-import { consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
-import { STACK, cyclotronUrlOf } from '../environment/stack'
+import { RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
+import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
 import { DriveSummary, drive, seed } from '../generator/generator'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
 import { createCyclotronProbe } from '../probe/cyclotron-probe'
@@ -50,6 +50,7 @@ export interface Runner {
 
 const HEALTH_INTERVAL_MS = 5000
 const DELIVERY_TIMEOUT_MS = 10_000
+const SEED_STATEMENT_TIMEOUT_MS = 5000
 
 type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergence' | 'invariants'>
 
@@ -62,12 +63,22 @@ function producerConfigOf(env: NodeJS.ProcessEnv): ProducerGlobalConfig {
     return { 'message.timeout.ms': DELIVERY_TIMEOUT_MS, ...Object.fromEntries(settings) }
 }
 
+function seedingUrlOf(spec: RoleSpec): string {
+    const databaseUrl = postgresUrlOf(spec)
+    if (!databaseUrl) {
+        return databaseUrl
+    }
+    const url = new URL(databaseUrl)
+    url.searchParams.set('statement_timeout', String(SEED_STATEMENT_TIMEOUT_MS))
+    return url.toString()
+}
+
 function watchHealth(environment: Environment): () => Promise<string[]> {
     const down = new Set<string>()
     const stopped = new AbortController()
     const watching = (async () => {
         while (!stopped.signal.aborted) {
-            const health = await environment.health().catch(() => ({ down: ['health check'] }))
+            const health = await environment.dependencyHealth().catch(() => ({ down: ['health check'] }))
             health.down.forEach((name) => down.add(name))
             await sleep(HEALTH_INTERVAL_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
         }
@@ -148,16 +159,10 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 },
             ] = consumerGroupsOf(specs)
             const judge = createJudge({ edgeUrl, probe: createCyclotronProbe(cyclotronUrlOf(specs[0])) })
-            const postgres = new PostgresRouter(
-                {
-                    DATABASE_URL: specs[0].env.DATABASE_URL || STACK.postgresUrl,
-                    POSTGRES_CONNECTION_POOL_SIZE: 2,
-                },
-                'posthog-scenarios'
-            )
             let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [] }
             let stopHealth: (() => Promise<string[]>) | undefined
             let producer: KafkaProducerWrapper | undefined
+            let postgres: PostgresRouter | undefined
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
                 await environment.reset(profile.settings).catch((error: unknown) => {
@@ -166,7 +171,11 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                     )
                     throw error
                 })
-                const seeded = await seed(loaded, postgres)
+                postgres = new PostgresRouter(
+                    { DATABASE_URL: seedingUrlOf(specs[0]), POSTGRES_CONNECTION_POOL_SIZE: 2 },
+                    'posthog-scenarios'
+                )
+                const seeded = await seed(loaded, postgres, signal)
                 await judge.open(seeded)
                 stopHealth = watchHealth(environment)
                 const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, runId })
@@ -199,7 +208,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                         statusReason: outcome.status === 'passed' ? failed : `${outcome.statusReason}; ${failed}`,
                     }
                 } finally {
-                    await postgres.end()
+                    await postgres?.end()
                 }
             }
             const base: RunResult = {

@@ -33,7 +33,7 @@ export interface Environment {
     reset(settings: Profile['settings']): Promise<void>
     edgeUrl(): string
     role(name: Role): RoleHandle
-    health(): Promise<{ healthy: boolean; down: string[] }>
+    dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
     down(): Promise<void>
 }
@@ -123,7 +123,7 @@ export function createEnvironment({
 
         role: (name) => ({ name, metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics` }),
 
-        async health() {
+        async dependencyHealth() {
             const down = await downServices(edge?.url, postgresUrl, sesRateLimiterValkey)
             return { healthy: down.length === 0, down }
         },
@@ -254,10 +254,13 @@ export function createEnvironment({
     }
 
     async function stop(): Promise<void> {
-        await supervisor.stop()
-        await edge?.close()
-        edge = undefined
-        await releaseLock?.()
-        releaseLock = undefined
+        try {
+            await supervisor.stop()
+        } finally {
+            await edge?.close()
+            edge = undefined
+            await releaseLock?.()
+            releaseLock = undefined
+        }
     }
 }

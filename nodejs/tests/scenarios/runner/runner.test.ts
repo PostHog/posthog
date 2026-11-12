@@ -5,6 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSyn
 import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
+import { Client } from 'pg'
 import { stringify } from 'yaml'
 
 import { insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
@@ -74,7 +75,7 @@ describe('runner', () => {
         reset: () => Promise.resolve(duringReset()),
         edgeUrl: () => 'http://127.0.0.1:1',
         role: (name) => ({ name, metricsUrl: '' }),
-        health: () => Promise.resolve({ healthy: true, down: [] }),
+        dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         down: () => Promise.resolve(),
     }
@@ -99,16 +100,30 @@ describe('runner', () => {
         await api.close()
     })
 
-    it.each<[string, () => void, RegExp, unknown]>([
+    it.each<[string, () => void, LoadedCard, RegExp, unknown]>([
         [
             'seeds through the database the profile names',
             () => undefined,
+            withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
             /^the run stopped: .*127\.0\.0\.1:1\b/,
+            undefined,
+        ],
+        [
+            'seeds through the database the profile builds from its connection settings',
+            () => undefined,
+            withSettings({
+                DATABASE_URL: '',
+                POSTHOG_DB_NAME: 'scenario',
+                POSTHOG_POSTGRES_HOST: '127.0.0.1',
+                POSTHOG_POSTGRES_PORT: '3',
+            }),
+            /^the run stopped: .*127\.0\.0\.1:3\b/,
             undefined,
         ],
         [
             'keeps the result when its evidence cannot be written',
             () => writeFileSync(stateDir, 'not a directory'),
+            withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
             /; the evidence could not be written: .*ENOTDIR/,
             undefined,
         ],
@@ -121,13 +136,14 @@ describe('runner', () => {
                     mkdirSync(scorecard)
                 }
             },
+            withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
             /^the run stopped: [^;]*$/,
             expect.stringMatching(/^the scorecard files could not be written: EISDIR/),
         ],
-    ])('%s', async (_story, arrange, statusReason, scorecardError) => {
+    ])('%s', async (_story, arrange, loaded, statusReason, scorecardError) => {
         arrange()
 
-        const result = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+        const result = await runner.run(loaded, NEVER_ABORTED)
 
         expect(result).toMatchObject({
             status: 'invalid',
@@ -161,6 +177,41 @@ describe('runner', () => {
             recorded: true,
         })
     })
+
+    it.each<[string, boolean, AbortSignal, RegExp]>([
+        ['when a seed insert waits on a table lock', true, NEVER_ABORTED, /statement timeout/],
+        ['when the run was interrupted before seeding', false, AbortSignal.abort(), /aborted/],
+    ])(
+        'stops seeding without a fixture %s',
+        async (_story, lockOrganizations, signal, statusReason) => {
+            const schema = scratchSchema(defaultConfig.DATABASE_URL, `scenario_seed_${process.pid}`, [
+                'posthog_organization',
+            ])
+            await schema.create()
+            const holder = new Client({ connectionString: schema.url })
+            await holder.connect()
+            try {
+                if (lockOrganizations) {
+                    await holder.query('BEGIN')
+                    await holder.query('LOCK TABLE posthog_organization IN ACCESS EXCLUSIVE MODE')
+                }
+
+                const result = await runner.run(withSettings({ DATABASE_URL: schema.url }), signal)
+
+                await holder.query('ROLLBACK')
+                const { rows } = await holder.query('SELECT id FROM posthog_organization')
+                expect(result).toMatchObject({
+                    status: 'invalid',
+                    statusReason: expect.stringMatching(new RegExp(`^the run stopped: .*${statusReason.source}`)),
+                })
+                expect(rows).toEqual([])
+            } finally {
+                await holder.end()
+                await schema.drop()
+            }
+        },
+        20_000
+    )
 
     it('produces with the Kafka settings the card profile names', async () => {
         const profile = path.join(cacheHome, 'profile.yaml')
@@ -416,7 +467,7 @@ describe('runner through seed, drive and judge', () => {
         },
         edgeUrl: () => edge.url,
         role: (name) => ({ name, metricsUrl: '' }),
-        health: () => Promise.resolve({ healthy: true, down: [] }),
+        dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         down: async () => {
             await roles?.stop()
