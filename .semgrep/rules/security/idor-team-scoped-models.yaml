@@ -315,6 +315,7 @@ rules:
                               |MembershipCleanupScan
                               |Metric
                               |MetricDailyQueryCount
+                              |MetricRecordingRule
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
@@ -481,6 +482,7 @@ rules:
                               |TaskPresence
                               |TaskRun
                               |TaskRunGatewayRequest
+                              |TaskStatusChange
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -1004,6 +1006,7 @@ rules:
                         |TaskPresence
                         |TaskRun
                         |TaskRunGatewayRequest
+                        |TaskStatusChange
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig

@@ -376,6 +376,14 @@ export class SessionRecordingIngester {
             await this.promiseScheduler.waitForAllSettled()
         })
         await this.batchLock(async () => {
+            // The offset store refuses after a background task failed, so writing the batch would only
+            // duplicate data that the next owner replays.
+            if (this.kafkaConsumer.hasFailed()) {
+                logger.warn('⚠️', 'blob_ingester_consumer_v2 - skipping flush after a background task failed', {
+                    batchSize: this.currentBatch.size,
+                })
+                return
+            }
             logger.info('🔁', 'blob_ingester_consumer_v2 - flushing batch', { batchSize: this.currentBatch.size })
             // Usage goes out before the offsets commit, so a crash cannot lose the bill of a session with no later
             // batch. A replayed batch resends the same record, and the usage table removes the duplicate.
@@ -455,13 +463,29 @@ export class SessionRecordingIngester {
 
         // Persist whatever is buffered and store its offsets while we still own the partitions;
         // disconnect commits them as it leaves the group.
-        await this.flushCurrentBatch()
-        await this.kafkaConsumer.disconnect()
+        let promiseResults: PromiseSettledResult<any>[]
+        let disconnectFailure: { error: unknown } | undefined
+        try {
+            await this.flushCurrentBatch()
+        } finally {
+            // The flush rejects when the consumer refuses the offset store. Without the disconnect,
+            // the partitions wait for the session timeout before another consumer takes them.
+            // A disconnect error must not skip the cleanup below or replace the flush error.
+            try {
+                await this.kafkaConsumer.disconnect()
+            } catch (error) {
+                disconnectFailure = { error }
+                logger.error('🔥', 'blob_ingester_consumer_v2 - disconnect failed', { error: String(error) })
+            }
 
-        const promiseResults = await this.promiseScheduler.waitForAllSettled()
+            promiseResults = await this.promiseScheduler.waitForAllSettled()
 
-        this.keyStore.stop()
-        await this.stopEventIngestionRestrictionManager?.()
+            this.keyStore.stop()
+            await this.stopEventIngestionRestrictionManager?.()
+        }
+        if (disconnectFailure) {
+            throw disconnectFailure.error
+        }
         // Note: Kafka producers and Redis pools are owned by the server (IngestionSessionReplayServer),
         // not by the ingester. The server handles their lifecycle in getCleanupResources().
 

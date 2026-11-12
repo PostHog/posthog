@@ -52,7 +52,6 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
     @time_machine.travel("2022-02-08", tick=False)
     def test_delete_team_activity_log(self):
         team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-        setup_activity_ids = set(ActivityLog.objects.filter(team_id=team.pk).values_list("pk", flat=True))
 
         with execute_deletion_workflows_inline():
             response = self.client.delete(f"/api/environments/{team.id}")
@@ -65,9 +64,35 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
         # We can't query by API but can prove the deletion was recorded in the activity log
         activity = [
             a.__dict__
-            for a in ActivityLog.objects.filter(team_id=team.pk).exclude(pk__in=setup_activity_ids).order_by("scope")
+            for a in ActivityLog.objects.filter(team_id=team.pk, activity__in=["created", "deleted"]).order_by("scope")
         ]
         assert activity == [
+            {
+                "_state": ANY,
+                "id": ANY,
+                "team_id": team.pk,
+                "organization_id": ANY,
+                "user_id": None,
+                "was_impersonated": False,
+                "is_system": True,
+                "activity": "created",
+                "item_id": ANY,
+                "scope": "Dashboard",
+                "detail": {
+                    "name": "Your starter dashboard",
+                    "type": "dashboard",
+                    "changes": [],
+                    "context": None,
+                    "short_id": None,
+                    "trigger": None,
+                },
+                "client": None,
+                "created_at": ANY,
+                "ip_address": None,
+                "credential_type": None,
+                "credential_id": None,
+                "impersonated_by_id": None,
+            },
             {
                 # The env→project rewrite routes the delete through the project-delete path, which cascades
                 # the project and logs a Project "deleted" activity alongside the Team one.

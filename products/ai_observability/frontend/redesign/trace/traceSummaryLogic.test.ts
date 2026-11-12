@@ -4,7 +4,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { TraceSummaryApi } from '../../generated/api.schemas'
+import type { TraceSummaryApi, TraceSummaryFailureApi } from '../../generated/api.schemas'
 import { traceSummaryLogic } from './traceSummaryLogic'
 import type { SummaryModeState } from './types'
 
@@ -22,15 +22,16 @@ const READY: TraceSummaryApi = {
     },
     failure: null,
 }
-const FAILED: TraceSummaryApi = {
-    status: 'failed',
-    content: null,
-    failure: { reason: 'too_large', message: 'This trace is too large to summarize.' },
+const TOO_LARGE: TraceSummaryFailureApi = {
+    reason: 'too_large',
+    message: 'This trace is too large to summarize.',
+    retryable: false,
 }
+const FAILED: TraceSummaryApi = { status: 'failed', content: null, failure: TOO_LARGE }
 const PROVIDER_FAILED: TraceSummaryApi = {
     status: 'failed',
     content: null,
-    failure: { reason: 'provider_error', message: 'The model provider returned an error.' },
+    failure: { reason: 'provider_error', message: 'The model provider returned an error.', retryable: true },
 }
 
 type Answer = [number, TraceSummaryApi | { detail: string }]
@@ -223,6 +224,11 @@ describe('traceSummaryLogic', () => {
             'a job that failed for now offers a retry',
             [200, PROVIDER_FAILED],
             { status: 'failed', message: 'The model provider returned an error.', retryable: true },
+        ],
+        [
+            'the retry follows what the server says, whatever the reason',
+            [200, { ...FAILED, failure: { ...TOO_LARGE, retryable: true } }],
+            { status: 'failed', message: 'This trace is too large to summarize.', retryable: true },
         ],
     ])('%s', async (_name, answer, expected) => {
         silenceKeaLoadersErrors()

@@ -1,8 +1,9 @@
 import re
 import json
-from collections.abc import Sequence
-from contextlib import nullcontext
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager, nullcontext
 from hashlib import sha256
+from threading import Event, Thread
 from time import monotonic
 
 from redis.lock import Lock
@@ -19,7 +20,10 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from products.customer_analytics.backend.logic.membership_metrics import MembershipTimings
 
 QUERY_TIMEOUT_SECONDS = HOGQL_INCREASED_MAX_EXECUTION_TIME
+# Longer keys cannot exist in the primary group's varchar(400) column.
+MAX_GROUP_KEY_LENGTH = 400
 MEMBERSHIP_LEASE_SECONDS = 60 * 60
+MEMBERSHIP_LEASE_RENEWAL_SECONDS = 5
 
 # Partial results must fail the batch, never report a missing identity.
 QUERY_SETTINGS = {
@@ -44,10 +48,41 @@ def get_membership_query_settings(deadline: float | None = None) -> dict[str, st
     return {**QUERY_SETTINGS, "max_execution_time": str(min(QUERY_TIMEOUT_SECONDS, remaining))}
 
 
-def get_membership_cleanup_lease(team_id: int) -> Lock:
+def get_membership_cleanup_lease(team_id: int, *, timeout: float = MEMBERSHIP_LEASE_SECONDS) -> Lock:
     return get_redis_client(socket_timeout=2, socket_connect_timeout=2).lock(
-        f"customer_analytics:membership_cleanup:{team_id}", timeout=MEMBERSHIP_LEASE_SECONDS, blocking=False
+        f"customer_analytics:membership_cleanup:{team_id}", timeout=timeout, blocking=False, thread_local=False
     )
+
+
+@contextmanager
+def renew_membership_cleanup_lease(
+    lease: Lock, lease_seconds: float, deadline: float | None
+) -> Iterator[Callable[[], None]]:
+    stopped = Event()
+    renewal_error: Exception | None = None
+
+    def check_lease() -> None:
+        if renewal_error is not None:
+            raise renewal_error
+        get_membership_query_settings(deadline)
+        lease.extend(lease_seconds, replace_ttl=True)
+
+    def renew() -> None:
+        nonlocal renewal_error
+        while not stopped.wait(MEMBERSHIP_LEASE_RENEWAL_SECONDS):
+            try:
+                check_lease()
+            except Exception as error:
+                renewal_error = error
+                return
+
+    thread = Thread(target=renew, daemon=True)
+    thread.start()
+    try:
+        yield check_lease
+    finally:
+        stopped.set()
+        thread.join()
 
 
 @frozen
@@ -81,6 +116,9 @@ def _get_live_groups(
     lookup_keys: dict[tuple[int, str], tuple[int, str]] = {
         (key.group_type_index, key.group_key): (key.group_type_index, _parse_group_key(key.group_key)) for key in keys
     }
+    lookup_keys = {stored: lookup for stored, lookup in lookup_keys.items() if len(lookup[1]) <= MAX_GROUP_KEY_LENGTH}
+    if not lookup_keys:
+        return frozenset()
     with timings.measure("read_groups") if timings else nullcontext():
         groups = sync_execute(
             """SELECT DISTINCT group_type_index, group_key FROM groups

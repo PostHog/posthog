@@ -1,6 +1,7 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from time import monotonic
+from typing import TYPE_CHECKING
 
 from django.db import transaction
 from django.utils import timezone
@@ -9,18 +10,19 @@ import structlog
 from prometheus_client import Counter, Histogram
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.customer_analytics.backend.logic.membership import (
-    MEMBERSHIP_LEASE_SECONDS,
     MembershipCleanupBusy,
     MembershipExistence,
     MembershipKey,
     get_membership_cleanup_lease,
     get_membership_existence,
     get_membership_query_settings,
+    renew_membership_cleanup_lease,
 )
 from products.customer_analytics.backend.logic.membership_metrics import (
     BATCH_DURATION_BUCKETS,
@@ -32,9 +34,13 @@ from products.customer_analytics.backend.models.membership_cleanup import (
     MembershipCleanupScan,
 )
 
+if TYPE_CHECKING:
+    from posthog.clickhouse.client.execute import ClickHouseExternalTable
+
 logger = structlog.get_logger(__name__)
 BATCH_SIZE = 100
 TEAM_BATCH_SIZE = 25
+DISCOVERY_LEASE_SECONDS = 15
 OUTCOMES = Counter("customer_analytics_membership_discovery_total", "Membership discovery outcomes", ["outcome"])
 SCAN_SECONDS = Histogram(
     "customer_analytics_membership_discovery_scan_seconds",
@@ -63,6 +69,17 @@ class MembershipDiscoveryCounts:
     recovered: int = 0
     discovered: int = 0
     has_more: bool = False
+
+
+def get_membership_key_table(keys: Sequence[MembershipKey]) -> "ClickHouseExternalTable":
+    return {
+        "name": "membership_keys",
+        "structure": [("group_type_index", "UInt8"), ("group_key", "String"), ("distinct_id", "String")],
+        "data": [
+            {"group_type_index": key.group_type_index, "group_key": key.group_key, "distinct_id": key.distinct_id}
+            for key in keys
+        ],
+    }
 
 
 class MembershipDiscoveryStore:
@@ -98,27 +115,48 @@ class MembershipDiscoveryStore:
         return sorted(set(teams))[:TEAM_BATCH_SIZE]
 
     def list_keys(self, team_id: int, cursor: list[int | str]) -> list[MembershipKey]:
+        cursor_key = (
+            MembershipKey(group_type_index=int(cursor[0]), group_key=str(cursor[1]), distinct_id=str(cursor[2]))
+            if cursor
+            else MembershipKey(group_type_index=0, group_key="", distinct_id="")
+        )
         rows = sync_execute(
             """SELECT DISTINCT group_type_index, group_key, distinct_id FROM person_group_membership
             WHERE team_id = %(team_id)s
-              AND (%(has_cursor)s = 0 OR (group_type_index, group_key, distinct_id) >= %(cursor)s)
+              AND (%(has_cursor)s = 0 OR (group_type_index, group_key, distinct_id) >=
+                   (SELECT tuple(group_type_index, group_key, distinct_id) FROM membership_keys LIMIT 1))
             ORDER BY group_type_index, group_key, distinct_id LIMIT %(limit)s""",
             {
                 "team_id": team_id,
                 "has_cursor": bool(cursor),
-                "cursor": tuple(cursor or [0, "", ""]),
                 "limit": BATCH_SIZE + 1,
             },
+            external_tables=[get_membership_key_table([cursor_key])],
             settings={**get_membership_query_settings(self.deadline), "optimize_distinct_in_order": "1"},
             workload=Workload.OFFLINE,
         )
         return [MembershipKey(group_type_index=row[0], group_key=row[1], distinct_id=row[2]) for row in rows]
 
+    def get_existing_keys(self, team_id: int, keys: set[MembershipKey]) -> set[MembershipKey]:
+        if not keys:
+            return set()
+        rows = sync_execute(
+            """SELECT DISTINCT group_type_index, group_key, distinct_id FROM person_group_membership
+            WHERE team_id = %(team_id)s
+              AND (group_type_index, group_key, distinct_id) IN membership_keys""",
+            {"team_id": team_id},
+            external_tables=[get_membership_key_table(list(keys))],
+            settings=get_membership_query_settings(self.deadline),
+            workload=Workload.OFFLINE,
+        )
+        return {MembershipKey(group_type_index=row[0], group_key=row[1], distinct_id=row[2]) for row in rows}
+
 
 def list_membership_discovery_teams(store: MembershipDiscoveryStore) -> list[int]:
     # Team zero holds the discovery cursor and never starts a project scan.
     scan, _ = MembershipCleanupScan.objects.for_team(0).get_or_create(team_id=0)
-    stored = store.list_teams(scan.last_team_id)
+    with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.DATA_DELETION):
+        stored = store.list_teams(scan.last_team_id)
     pending = list(
         MembershipCleanupScan.objects.unscoped()
         .filter(team_id__gt=scan.last_team_id)
@@ -176,7 +214,9 @@ def _run_batch(
         page = store.list_keys(input.team_id, scan.cursor)
     keys = page[:BATCH_SIZE]
     next_key = page[BATCH_SIZE] if len(page) > BATCH_SIZE else None
-    all_keys = set(keys + [get_candidate_key(candidate) for candidate in pending])
+    pending_keys = {get_candidate_key(candidate) for candidate in pending}
+    with timings.measure("check_membership"):
+        all_keys = set(keys) | store.get_existing_keys(input.team_id, pending_keys - set(keys))
     with timings.measure("read_team"):
         deleted_team = not Team.objects.filter(id=input.team_id).exists()
     existence = (
@@ -187,11 +227,13 @@ def _run_batch(
     check_lease()
     now = timezone.now()
     with timings.measure("read_candidate_state"):
-        existing = list(candidates.filter(key_hash__in=[key.get_hash() for key in all_keys]))
+        existing = list(candidates.filter(key_hash__in=[key.get_hash() for key in all_keys | pending_keys]))
+    erased_ids = [candidate.pk for candidate in existing if get_candidate_key(candidate) not in all_keys]
     recovered_ids = [
         candidate.pk
         for candidate in existing
-        if not is_membership_missing(get_candidate_key(candidate), candidate.missing_side, existence, deleted_team)
+        if get_candidate_key(candidate) in all_keys
+        and not is_membership_missing(get_candidate_key(candidate), candidate.missing_side, existence, deleted_team)
     ]
     existing_sides = {(candidate.key_hash, candidate.missing_side) for candidate in existing}
     discovered = [
@@ -209,12 +251,18 @@ def _run_batch(
         for side in ("person", "group")
         if (key.get_hash(), side) not in existing_sides and is_membership_missing(key, side, existence, deleted_team)
     ]
+    check_lease()
     with timings.measure("write_checkpoint"), transaction.atomic():
-        candidates.filter(pk__in=recovered_ids).delete()
+        candidates.filter(pk__in=recovered_ids + erased_ids).delete()
         candidates.filter(pk__in=[candidate.pk for candidate in existing]).update(last_checked_at=now)
         candidates.bulk_create(discovered, ignore_conflicts=True)
         _update_scan(scan, next_key, now)
-    for outcome, count in (("scanned", len(keys)), ("recovered", len(recovered_ids)), ("discovered", len(discovered))):
+    for outcome, count in (
+        ("scanned", len(keys)),
+        ("recovered", len(recovered_ids)),
+        ("erased", len(erased_ids)),
+        ("discovered", len(discovered)),
+    ):
         OUTCOMES.labels(outcome).inc(count)
     return MembershipDiscoveryCounts(
         scanned=len(keys), recovered=len(recovered_ids), discovered=len(discovered), has_more=next_key is not None
@@ -229,11 +277,7 @@ def run_membership_discovery(
     counts = MembershipDiscoveryCounts()
     outcome = "failure"
     acquired = False
-    lease = get_membership_cleanup_lease(input.team_id)
-
-    def check_lease() -> None:
-        get_membership_query_settings(store.deadline)
-        lease.extend(MEMBERSHIP_LEASE_SECONDS, replace_ttl=True)
+    lease = get_membership_cleanup_lease(input.team_id, timeout=DISCOVERY_LEASE_SECONDS)
 
     try:
         with timings.measure("acquire_lease"):
@@ -244,7 +288,11 @@ def run_membership_discovery(
             raise MembershipCleanupBusy("Membership cleanup is busy for this team. Retry the batch.")
         with timings.measure("read_scan_state"):
             scan, _ = MembershipCleanupScan.objects.for_team(input.team_id).get_or_create(team_id=input.team_id)
-        counts = _run_batch(input, store, scan, check_lease, timings)
+        with (
+            renew_membership_cleanup_lease(lease, DISCOVERY_LEASE_SECONDS, store.deadline) as check_lease,
+            tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.DATA_DELETION, team_id=input.team_id),
+        ):
+            counts = _run_batch(input, store, scan, check_lease, timings)
         outcome = "success"
         return counts
     finally:

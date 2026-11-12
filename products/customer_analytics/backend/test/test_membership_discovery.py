@@ -10,6 +10,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.person_group_membership.sql import GROUP_KEY_EXPR
 
 from products.customer_analytics.backend.logic.membership import MembershipKey
@@ -36,6 +37,35 @@ class TestMembershipDiscovery(MembershipTestCase):
 
     def run_discovery(self) -> MembershipDiscoveryCounts:
         return run_membership_discovery(MembershipDiscoveryInput(team_id=self.team.pk), self.store)
+
+    def test_discovery_queries_work_with_development_tag_guard(self) -> None:
+        self.create_membership()
+        self.create_mapping(self.create_person())
+        self.create_group()
+        with (
+            patch("posthog.clickhouse.client.execute.DEBUG", True),
+            patch("posthog.clickhouse.client.execute.TEST", False),
+            tags_context(product=None, feature=None),
+        ):
+            assert list_membership_discovery_teams(self.store) == [self.team.pk]
+            assert self.run_discovery().scanned == 1
+            assert self.run_discovery().discovered == 0
+        assert not MembershipCleanupCandidate.objects.for_team(self.team.pk).exists()
+
+    @parameterized.expand([("live_team", False), ("deleted_team", True)])
+    def test_erased_membership_clears_candidates(self, _name: str, deleted_team: bool) -> None:
+        team_id = self.team.pk + 1000000 if deleted_team else self.team.pk
+        self.create_membership(team_id=team_id)
+        input = MembershipDiscoveryInput(team_id=team_id)
+        assert run_membership_discovery(input, self.store).discovered == 2
+        sync_execute(
+            "ALTER TABLE sharded_person_group_membership DELETE WHERE team_id = %(team_id)s",
+            {"team_id": team_id},
+            settings={"mutations_sync": 2},
+        )
+        for _ in range(2):
+            assert run_membership_discovery(input, self.store).discovered == 0
+            assert not MembershipCleanupCandidate.objects.for_team(team_id).exists()
 
     @parameterized.expand([("person",), ("group",)])
     def test_discovery_preserves_membership_and_first_missing_time(self, missing_side: str) -> None:
@@ -107,6 +137,7 @@ class TestMembershipDiscovery(MembershipTestCase):
             ("high_surrogate", "account\ud800north"),
             ("low_surrogate", "account\udcffnorth"),
             ("surrogate_pair", "account\U0001f600north"),
+            ("max_length", "\U0001f600" * 400),
         ]
     )
     def test_escaped_group_keys_preserve_membership(self, _name: str, group_key: str) -> None:
@@ -131,6 +162,22 @@ class TestMembershipDiscovery(MembershipTestCase):
             assert self.run_discovery().discovered == 0
         assert self.get_rows() == [(self.key.distinct_id,)]
         assert not MembershipCleanupCandidate.objects.for_team(self.team.pk).exists()
+
+    def test_large_group_keys_do_not_block_discovery_or_candidate_rechecks(self) -> None:
+        self.create_mapping(self.create_person())
+        for index in range(25):
+            self.create_membership(
+                MembershipKey(
+                    group_type_index=0, group_key=f"large-{index}-" + "a" * 400000, distinct_id=self.key.distinct_id
+                )
+            )
+        assert self.run_discovery().discovered == 25
+        MembershipCleanupScan.objects.for_team(self.team.pk).update(cursor=[1, "", ""])
+        assert self.run_discovery().discovered == 0
+        candidates = MembershipCleanupCandidate.objects.for_team(self.team.pk)
+        assert candidates.count() == 25
+        assert set(candidates.values_list("missing_side", flat=True)) == {"group"}
+        assert len(self.get_rows()) == 25
 
     @parameterized.expand([("live",), ("missing",), ("unavailable",)])
     def test_primary_group_check_protects_membership(self, group_state: str) -> None:

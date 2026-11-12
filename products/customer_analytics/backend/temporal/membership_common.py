@@ -30,7 +30,7 @@ with workflow.unsafe.imports_passed_through():
 
 HEARTBEAT_TIMEOUT = timedelta(minutes=1)
 BATCH_RETRY_ATTEMPTS = 3
-BATCH_RETRY_DELAY = timedelta(seconds=1)
+BATCH_RETRY_DELAY = timedelta(seconds=20)
 MIN_TEAM_RUN_BUDGET = HEARTBEAT_TIMEOUT * (BATCH_RETRY_ATTEMPTS + 1) + BATCH_RETRY_DELAY * (BATCH_RETRY_ATTEMPTS - 1)
 BATCH_RETRY_POLICY = RetryPolicy(
     maximum_attempts=BATCH_RETRY_ATTEMPTS,
