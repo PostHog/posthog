@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
@@ -14,7 +14,7 @@ class TrelloEndpointConfig:
     # ``member`` = single top-level list request; ``board`` = fan out across the
     # authenticated member's boards and query the resource per board.
     scope: Literal["member", "board"]
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # We synthesise ``created_at`` from each object's ObjectID, so every endpoint
     # can partition on a stable creation timestamp (see ``_id_to_created_at``).
     partition_key: Optional[str] = "created_at"
@@ -25,6 +25,14 @@ class TrelloEndpointConfig:
     page_size: int = 1000
     paginated: bool = False
     sort_mode: Literal["asc", "desc"] = "asc"
+    # Endpoints that document no ``limit`` param skip it.
+    send_limit: bool = True
+    params: dict[str, Any] = field(default_factory=dict)
+    # Set for tables built from an array nested in each parent object (e.g. a checklist's
+    # ``checkItems``), which flattens the nested rows without a request per parent object.
+    data_selector: Optional[str] = None
+    # Adds a ``board_id`` column for board-scoped rows that carry no board reference of their own.
+    include_board_id: bool = False
 
 
 # Actions are the only Trello resource with a genuine server-side timestamp filter
@@ -75,6 +83,38 @@ TRELLO_ENDPOINTS: dict[str, TrelloEndpointConfig] = {
         name="members",
         path="members",
         scope="board",
+    ),
+    "custom_fields": TrelloEndpointConfig(
+        name="custom_fields",
+        path="customFields",
+        scope="board",
+        send_limit=False,
+    ),
+    # ``/cards/{id}/customFieldItems`` would cost one request per card; the board's cards
+    # endpoint returns the same items inline with ``customFieldItems=true``.
+    "custom_field_items": TrelloEndpointConfig(
+        name="custom_field_items",
+        path="cards",
+        scope="board",
+        params={"fields": "id", "customFieldItems": "true"},
+        data_selector="[*].customFieldItems[*]",
+    ),
+    # ``/checklists/{id}/checkItems`` would cost one request per checklist; the board's
+    # checklists endpoint returns the same items inline.
+    "check_items": TrelloEndpointConfig(
+        name="check_items",
+        path="checklists",
+        scope="board",
+        params={"fields": "id", "checkItems": "all"},
+        data_selector="[*].checkItems[*]",
+    ),
+    "board_memberships": TrelloEndpointConfig(
+        name="board_memberships",
+        path="memberships",
+        scope="board",
+        primary_keys=["board_id", "id"],
+        send_limit=False,
+        include_board_id=True,
     ),
     "actions": TrelloEndpointConfig(
         name="actions",
