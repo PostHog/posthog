@@ -437,6 +437,8 @@ class PlatformStateChange:
     occurred_at: datetime
     previous_state: PlatformAlertState
     state: PlatformAlertState
+    # The group whose state moved. Empty for an alert that does not group.
+    grouping_key: str = ""
 
 
 @frozen
@@ -498,6 +500,8 @@ class PlatformCheckEvent:
     condition: dict[str, Any]
     query_duration_ms: int | None
     error_message: str | None
+    # The group the check moved. Empty for an alert that does not group.
+    grouping_key: str = ""
 
 
 @frozen
@@ -556,6 +560,34 @@ class PlatformControlHistory:
     changes: tuple[PlatformControlChange, ...]
     oldest_at: datetime
     toggle_before: ControlChangeKind | None
+
+
+@frozen
+class StateInterval:
+    """A stretch of an alert's recent past with one state and one enabled setting, as alert lists draw it."""
+
+    start: datetime
+    end: datetime
+    state: PlatformAlertState
+    enabled: bool
+
+
+@frozen
+class PlatformAlertListHistory:
+    """What an alert list shows of each configuration's checks, keyed by configuration id."""
+
+    last_checks: dict[UUID, PlatformLastCheck]
+    # State changes across every group.
+    histories: dict[UUID, PlatformAlertHistory]
+    controls: dict[UUID, PlatformControlHistory]
+
+
+@frozen
+class PlatformAlertEvents:
+    """A configuration's notable checks across every group and its control-plane changes, newest first."""
+
+    checks: PlatformCheckEventPage
+    changes: PlatformControlChangePage
 
 
 class SkipReason(StrEnum):
